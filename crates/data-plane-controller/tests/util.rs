@@ -68,6 +68,8 @@ pub fn mock_run_cmd_fn(trace: Arc<Mutex<Vec<TraceEntry>>>) -> RunCmdFn {
 
 pub fn initial_state() -> stack::State {
     let model: stack::DataPlane = serde_json::from_value(serde_json::json!({
+      "name": "test-plane",
+      "fqdn": "test-plane.estuary.dev",
       "builds_root": "gs://estuary-control/builds/",
       "deployments": [
         {

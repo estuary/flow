@@ -4,18 +4,9 @@ expression: trace.lock().unwrap().as_slice()
 ---
 [
   {
-    "Status": "SetEncryption"
-  },
-  {
     "Cmd": [
-      "git-clone",
-      "git clone git@github.com:estuary/est-dry-dock.git ."
-    ]
-  },
-  {
-    "Cmd": [
-      "python-venv",
-      "python3.12 -m venv ./venv"
+      "git-clean",
+      "git clean --force"
     ]
   },
   {
@@ -32,6 +23,69 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Status": "SetEncryption"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -43,11 +97,31 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Stack": {
       "secretsprovider": "testing",
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -107,6 +181,42 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "PulumiRefresh"
   },
   {
@@ -129,6 +239,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -140,7 +274,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "Idle"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Status": "PulumiUp1"
@@ -161,6 +349,30 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "git-checkout",
       "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
     ]
   },
   {
@@ -188,7 +400,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS1"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Status": "Ansible"
@@ -213,6 +479,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -233,6 +523,24 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "ansible-playbook",
       "./venv/bin/ansible-playbook data-plane.ansible.yaml"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
     ]
   },
   {
@@ -299,6 +607,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -322,7 +654,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS2"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Stack": {
@@ -330,6 +716,8 @@ expression: trace.lock().unwrap().as_slice()
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -389,11 +777,49 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Stack": {
       "secretsprovider": "testing",
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -473,6 +899,42 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "PulumiUp1"
   },
   {
@@ -491,6 +953,30 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "git-checkout",
       "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
     ]
   },
   {
@@ -518,7 +1004,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS1"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Status": "Ansible"
@@ -543,6 +1083,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -563,6 +1127,24 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "ansible-playbook",
       "./venv/bin/ansible-playbook data-plane.ansible.yaml"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
     ]
   },
   {
@@ -629,6 +1211,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -652,7 +1258,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS2"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Stack": {
@@ -660,6 +1320,8 @@ expression: trace.lock().unwrap().as_slice()
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -739,11 +1401,49 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Stack": {
       "secretsprovider": "testing",
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -823,6 +1523,42 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "PulumiUp1"
   },
   {
@@ -841,6 +1577,30 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "git-checkout",
       "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
     ]
   },
   {
@@ -868,7 +1628,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS1"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Status": "Ansible"
@@ -893,6 +1707,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -913,6 +1751,24 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "ansible-playbook",
       "./venv/bin/ansible-playbook data-plane.ansible.yaml"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
     ]
   },
   {
@@ -979,6 +1835,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -1002,7 +1882,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS2"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Stack": {
@@ -1010,6 +1944,8 @@ expression: trace.lock().unwrap().as_slice()
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -1085,11 +2021,49 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Stack": {
       "secretsprovider": "testing",
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -1165,6 +2139,42 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "PulumiUp1"
   },
   {
@@ -1183,6 +2193,30 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "git-checkout",
       "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
     ]
   },
   {
@@ -1210,7 +2244,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS1"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Status": "Ansible"
@@ -1235,6 +2323,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -1255,6 +2367,24 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "ansible-playbook",
       "./venv/bin/ansible-playbook data-plane.ansible.yaml"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
     ]
   },
   {
@@ -1321,6 +2451,30 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
       "poetry-install",
       "poetry install"
     ]
@@ -1344,7 +2498,61 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
     "Status": "AwaitDNS2"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Stack": {
@@ -1352,6 +2560,8 @@ expression: trace.lock().unwrap().as_slice()
       "encryptedkey": "test-fixture",
       "config": {
         "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
           "builds_root": "gs://estuary-control/builds/",
           "builds_kms_keys": [
             "projects/example/key"
@@ -1409,6 +2619,42 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Status": "Idle"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/main"
+    ]
   },
   {
     "Status": "Idle"
