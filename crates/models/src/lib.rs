@@ -320,3 +320,7 @@ fn is_default<D: Default + PartialEq>(b: &D) -> bool {
 fn is_u32_zero(u: &u32) -> bool {
     *u == 0
 }
+
+fn is_i32_zero(i: &i32) -> bool {
+    *i == 0
+}
