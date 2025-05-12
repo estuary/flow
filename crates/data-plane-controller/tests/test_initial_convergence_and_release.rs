@@ -1,6 +1,6 @@
 use data_plane_controller::{controller, stack};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -23,7 +23,14 @@ async fn test() {
 
     let mut state: Option<stack::State> = None;
     let mut inbox: VecDeque<(models::Id, Option<controller::Message>)> = VecDeque::new();
-    let mut maybe_checkout: Option<tempfile::TempDir> = None;
+    let ops_checkout = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        &ops_checkout.path().join("data-planes-schema.yaml"),
+        include_bytes!("data-planes-schema.yaml"),
+    )
+    .unwrap();
+    let mut checkouts: HashMap<String, tempfile::TempDir> =
+        HashMap::from([("git@github.com:estuary/ops.git".to_string(), ops_checkout)]);
     let mut row_state = initial_state();
 
     inbox.push_back((
@@ -45,7 +52,7 @@ async fn test() {
                 models::Id::new([42; 8]), // Task ID.
                 &mut state,
                 &mut inbox,
-                &mut maybe_checkout,
+                &mut checkouts,
                 releases.clone(),
                 row_state.clone(),
             )
