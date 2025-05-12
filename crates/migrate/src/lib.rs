@@ -272,6 +272,14 @@ async fn phase_one(
 
     let (task_type, task_template, partition_template) = unpack_templates(built_spec)?;
 
+    // Munge FQDNs for use within Gazette label values:
+    // - https://flow.localhost:9000 => flow.localhost/9000
+    // - https://reactor.aws-eu-west-1-c1.dp.estuary-data.com => reactor.aws-eu-west-1-c1.dp.estuary-data.com
+    let munge_fqdn = |fqdn: &str| {
+        let fqdn = fqdn.strip_prefix("https://").unwrap_or(fqdn);
+        fqdn.replace(":", "/")
+    };
+
     // Fetch and cordon shards and journals from the source data-plane.
     let (mut src_shards, src_recovery, src_partitions) = update_cordon(
         &src_data_plane.data_plane_name,
@@ -283,7 +291,10 @@ async fn phase_one(
         partition_template,
         Some(src_ops_logs_template),
         Some(src_ops_stats_template),
-        true, // Cordon.
+        Some((
+            munge_fqdn(&tgt_data_plane.broker_address).as_str(),
+            munge_fqdn(&tgt_data_plane.reactor_address).as_str(),
+        )), // Cordon.
     )
     .await?;
 
@@ -307,18 +318,21 @@ async fn phase_one(
         src_shards,
         tgt_shards,
         |l, r| l.id.cmp(&r.id),
+        |s| &mut s.labels,
         |s| &mut s.mod_revision,
     );
     let recovery: Vec<activate::JournalSplit> = merge_splits(
         src_recovery,
         tgt_recovery,
         |l, r| l.name.cmp(&r.name),
+        |s| &mut s.labels,
         |s| &mut s.mod_revision,
     );
     let partitions: Vec<activate::JournalSplit> = merge_splits(
         src_partitions,
         tgt_partitions,
         |l, r| l.name.cmp(&r.name),
+        |s| &mut s.labels,
         |s| &mut s.mod_revision,
     );
 
@@ -340,8 +354,9 @@ fn print_changes(changes: &[activate::Change], data_plane: &str) {
                 expect_mod_revision,
                 ..
             }) => {
-                let cordon =
-                    !labels::values(upsert.labels.as_ref().unwrap(), labels::CORDON).is_empty();
+                let cordon = labels::values(upsert.labels.as_ref().unwrap(), labels::CORDON)
+                    .first()
+                    .map(|l| l.value.as_str());
                 tracing::info!(data_plane, name=%upsert.name, cordon, suspend=?upsert.suspend, %expect_mod_revision, "journal upsert");
             }
             activate::Change::Journal(broker::apply_request::Change {
@@ -358,8 +373,9 @@ fn print_changes(changes: &[activate::Change], data_plane: &str) {
                 primary_hints,
                 ..
             }) => {
-                let cordon =
-                    !labels::values(upsert.labels.as_ref().unwrap(), labels::CORDON).is_empty();
+                let cordon = labels::values(upsert.labels.as_ref().unwrap(), labels::CORDON)
+                    .first()
+                    .map(|l| l.value.as_str());
                 tracing::info!(data_plane, id=%upsert.id, cordon, hints=primary_hints.is_some(), %expect_mod_revision, "shard upsert");
             }
             activate::Change::Shard(consumer::apply_request::Change {
@@ -405,7 +421,7 @@ async fn phase_three(
         partition_template,
         Some(tgt_ops_logs_template),
         Some(tgt_ops_stats_template),
-        false, // Cordon.
+        None, // Remove cordon.
     )
     .await?;
 
@@ -422,7 +438,7 @@ async fn update_cordon<'a>(
     partition_template: Option<&'a broker::JournalSpec>,
     ops_logs_template: Option<&broker::JournalSpec>,
     ops_stats_template: Option<&broker::JournalSpec>,
-    cordon: bool,
+    cordon: Option<(&str, &str)>,
 ) -> anyhow::Result<(
     Vec<activate::ShardSplit>,
     Vec<activate::JournalSplit>,
@@ -441,10 +457,13 @@ async fn update_cordon<'a>(
             activate::fetch_partition_splits(journal_client, &catalog_name)
         )?;
 
-        let it1 = shards.iter_mut().map(|shard| &mut shard.labels);
-        let it2 = partitions.iter_mut().map(|journal| &mut journal.labels);
-
-        if apply_cordon_label(cordon, it1.chain(it2)) {
+        if apply_cordon_label(
+            cordon.map(|(cordon_journals, _)| cordon_journals),
+            partitions.iter_mut().map(|journal| &mut journal.labels),
+        ) || apply_cordon_label(
+            cordon.map(|(_, cordon_shards)| cordon_shards),
+            shards.iter_mut().map(|shard| &mut shard.labels),
+        ) {
             let mut changes =
                 activate::task_changes(task_template, shards, recovery, ops_logs, ops_stats)?;
             changes.extend(activate::partition_changes(partition_template, partitions)?);
@@ -454,7 +473,7 @@ async fn update_cordon<'a>(
 
             continue; // Loop to try again.
         }
-        if cordon {
+        if cordon.is_some() {
             if apply_journal_suspension(journal_client, recovery.iter().chain(partitions.iter()))
                 .await?
             {
@@ -466,25 +485,25 @@ async fn update_cordon<'a>(
     }
 }
 
-fn apply_cordon_label<'a>(
-    cordon: bool,
-    it: impl Iterator<Item = &'a mut broker::LabelSet>,
+fn apply_cordon_label<'a, 'b>(
+    desired: Option<&'a str>,
+    it: impl Iterator<Item = &'b mut broker::LabelSet>,
 ) -> bool {
     let mut changed = false;
 
     for set in it {
-        let present = !labels::values(set, labels::CORDON).is_empty();
+        let current = labels::values(set, labels::CORDON)
+            .first()
+            .map(|l| l.value.as_str());
 
-        if cordon {
-            if !present {
-                *set = labels::add_value(std::mem::take(set), labels::CORDON, "1");
-                changed = true;
-            }
+        if current == desired {
+            continue; // No change.
+        } else if let Some(desired) = desired {
+            *set = labels::add_value(std::mem::take(set), labels::CORDON, desired);
+            changed = true;
         } else {
-            if present {
-                *set = labels::remove(std::mem::take(set), labels::CORDON);
-                changed = true;
-            }
+            *set = labels::remove(std::mem::take(set), labels::CORDON);
+            changed = true;
         }
     }
     changed
@@ -581,17 +600,28 @@ fn merge_splits<S>(
     src: Vec<S>,
     tgt: Vec<S>,
     cmp_fn: impl Fn(&S, &S) -> std::cmp::Ordering,
+    labels_fn: impl Fn(&mut S) -> &mut gazette::broker::LabelSet,
     mod_revision_fn: impl Fn(&mut S) -> &mut i64,
 ) -> Vec<S> {
+    // Within the source data-plane, the estuary.dev/cordon label has been
+    // updated to point to the target data-plane FQDN. In the target plane,
+    // use an empty value to denote it's incoming. The connector networking
+    // feature has special handling for this label to determine when it should
+    // forward across data-planes, and expects target cordon labels to be
+    // empty when forwarding should not be done.
     src.into_iter()
         .merge_join_by(tgt, cmp_fn)
         .map(|eob| match eob {
             itertools::EitherOrBoth::Left(mut src) => {
+                let labels = std::mem::take(labels_fn(&mut src));
+                *labels_fn(&mut src) = labels::set_value(labels, labels::CORDON, "");
                 *mod_revision_fn(&mut src) = 0; // Doesn't exist in target data-plane.
                 src
             }
             itertools::EitherOrBoth::Right(tgt) => tgt,
             itertools::EitherOrBoth::Both(mut src, mut tgt) => {
+                let labels = std::mem::take(labels_fn(&mut src));
+                *labels_fn(&mut src) = labels::set_value(labels, labels::CORDON, "");
                 *mod_revision_fn(&mut src) = *mod_revision_fn(&mut tgt);
                 src
             }
