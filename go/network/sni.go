@@ -45,8 +45,18 @@ func parseSNI(target string) (parsedSNI, error) {
 		keyBegin = parts[1]
 		rClockBegin = parts[2]
 		port = parts[3]
+
+		if keyBegin == "" {
+			return parsedSNI{}, fmt.Errorf("keyBegin is empty")
+		} else if rClockBegin == "" {
+			return parsedSNI{}, fmt.Errorf("rClockBegin is empty")
+		}
 	} else {
-		return parsedSNI{}, fmt.Errorf("expected two or for subdomain components, not %d", len(parts))
+		return parsedSNI{}, fmt.Errorf("expected two or four subdomain components, not %d", len(parts))
+	}
+
+	if hostname == "" {
+		return parsedSNI{}, fmt.Errorf("hostname is empty")
 	}
 
 	var _, err = strconv.ParseUint(port, 10, 16)
@@ -60,6 +70,14 @@ func parseSNI(target string) (parsedSNI, error) {
 		keyBegin:    keyBegin,
 		rClockBegin: rClockBegin,
 	}, nil
+}
+
+func (p parsedSNI) String() string {
+	if p.keyBegin == "" {
+		return fmt.Sprintf("%s-%s", p.hostname, p.port)
+	} else {
+		return fmt.Sprintf("%s-%s-%s-%s", p.hostname, p.keyBegin, p.rClockBegin, p.port)
+	}
 }
 
 func newResolvedSNI(parsed parsedSNI, shard *pc.ShardSpec) resolvedSNI {
@@ -83,9 +101,6 @@ func newResolvedSNI(parsed parsedSNI, shard *pc.ShardSpec) resolvedSNI {
 	// protocol if none is specified, and is required if the port is private.
 	if portProtocol == "" || !portIsPublic {
 		portProtocol = protoHTTP11
-	} else if portProtocol == "h2c" {
-		// Connector expects cleartext HTTP/2. We terminate TLS and TCP proxy.
-		portProtocol = protoHTTP2
 	}
 
 	return resolvedSNI{

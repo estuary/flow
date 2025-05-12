@@ -72,12 +72,19 @@ type frontendConn struct {
 	// Error while resolving SNI to a mapped task:
 	// the SNI is invalid with respect to current task config.
 	sniErr error
-	// proxyClient dialed during TLS handshake.
+	// dialed backend proxy, established during TLS handshake.
 	// If set, we are acting as a TCP proxy.
-	dialed *proxyClient
+	dialed proxyConn
 	// Error while dialing a shard for TCP proxy:
 	// this is an internal and usually-temporary error.
 	dialErr error
+}
+
+// proxyConn is a connection to a shard or a migrated data-plane
+// which can fulfill a frontendConn HTTP request or TCP connection.
+type proxyConn interface {
+	net.Conn
+	CloseWrite() error
 }
 
 func NewFrontend(
@@ -232,15 +239,24 @@ func (p *Frontend) getTLSConfigForClient(hello *tls.ClientHelloInfo) (*tls.Confi
 		}
 	}
 
+	var nextProto = conn.resolved.portProtocol
+
+	// If the connector expects cleartext HTTP/2 then map to regular HTTP/2,
+	// since we terminate TLS and proxy "cleartext" via gRPC to the shard.
+	// Note the shard's gRPC transport is itself TLS encrypted:
+	// we're not sending physical plaintext.
+	if nextProto == "h2c" {
+		nextProto = protoHTTP2
+	}
+
 	if conn.sniErr != nil {
 		// We failed to resolve to a shard, and will send a best-effort HTTP/1.1 error.
-		conn.resolved.portProtocol = protoHTTP11
+		nextProto = protoHTTP11
 	} else if conn.resolved.portProtocol == protoHTTP11 {
 		// We intend to reverse proxy HTTP requests to connector shards.
 
 		if slices.Contains(hello.SupportedProtos, protoHTTP2) {
-			// We'll proxy client HTTP/2 to connector HTTP/1.1
-			conn.resolved.portProtocol = protoHTTP2
+			nextProto = protoHTTP2 // Reverse proxy client HTTP/2 to connector HTTP/1.1
 		} else if len(hello.SupportedProtos) == 0 {
 			// Some clients, such as NodeJS's `https` module, don't support ALPN.
 			// We assume HTTP/1.1 and hope it works out.
@@ -260,7 +276,7 @@ func (p *Frontend) getTLSConfigForClient(hello *tls.ClientHelloInfo) (*tls.Confi
 			hello.SupportedProtos,
 			conn.resolved.portProtocol,
 		)
-		conn.resolved.portProtocol = protoHTTP11
+		nextProto = protoHTTP11
 
 	} else if conn.dialed, conn.dialErr = dialShard(
 		hello.Context(),
@@ -273,17 +289,17 @@ func (p *Frontend) getTLSConfigForClient(hello *tls.ClientHelloInfo) (*tls.Confi
 		// We intend to TCP proxy to the connector. We dialed the shard so that
 		// we fail-fast during TLS handshake, instead of letting the client
 		// think it has a good connection, and now report a best-effort dial error.
-		conn.resolved.portProtocol = protoHTTP11
+		nextProto = protoHTTP11
 	}
 
 	return &tls.Config{
 		Certificates: p.tlsConfig.Certificates,
-		NextProtos:   []string{conn.resolved.portProtocol},
+		NextProtos:   []string{nextProto},
 	}, nil
 }
 
 func (p *Frontend) serveConnTCP(user *frontendConn) {
-	var task, port, proto = user.resolved.taskName, user.parsed.port, user.resolved.portProtocol
+	var task, port, proto = user.resolved.taskName, user.parsed.port, user.tls.ConnectionState().NegotiatedProtocol
 	userStartedCounter.WithLabelValues(task, port, proto).Inc()
 
 	// Enable TCP keep-alive to ensure broken user connections are closed.
@@ -309,7 +325,7 @@ func (p *Frontend) serveConnTCP(user *frontendConn) {
 
 	// Forward loop that reads from `user` and writes to `shard`.
 	if _, errFwd = io.Copy(shard, user.tls); errFwd == nil {
-		_ = shard.rpc.CloseSend() // Allow reads to drain.
+		_ = shard.CloseWrite() // Allow reads to drain.
 	} else {
 		// `shard` write RST or `user` read error.
 		// Either way, we want to abort reads from `shard` => `user`.
@@ -337,7 +353,7 @@ func (p *Frontend) serveConnTCP(user *frontendConn) {
 }
 
 func (p *Frontend) serveConnHTTP(user *frontendConn) {
-	var task, port, proto = user.resolved.taskName, user.parsed.port, user.resolved.portProtocol
+	var task, port, proto = user.resolved.taskName, user.parsed.port, user.tls.ConnectionState().NegotiatedProtocol
 	userStartedCounter.WithLabelValues(task, port, proto).Inc()
 
 	var transport = &http.Transport{

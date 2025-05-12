@@ -63,7 +63,8 @@ const (
 	LogsJournal = "estuary.dev/logs-journal"
 	// Journal to which task stats are directed.
 	StatsJournal = "estuary.dev/stats-journal"
-
+	// Hostname of the shard's task under the connector networking feature.
+	// Present only on shards of tasks that use the connector networking feature.
 	Hostname = "estuary.dev/hostname"
 
 	// ExposePort is the label key that is used to identify ports to be exposed by the container.
