@@ -1,9 +1,11 @@
 use super::stack::{self, State, Status};
 use anyhow::Context;
 use futures::future::BoxFuture;
+use futures::lock::Mutex;
 use serde_json::json;
 use sqlx::types::uuid;
-use std::collections::VecDeque;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 /// EmitLogFn is a function type that emits a log message to a logs sink.
@@ -72,7 +74,7 @@ pub struct Outcome {
 
 pub struct Executor {
     controller: Controller,
-    idle_dirs: Arc<std::sync::Mutex<Vec<tempfile::TempDir>>>,
+    idle_dirs: Arc<Mutex<HashMap<String, tempfile::TempDir>>>,
 }
 
 impl Executor {
@@ -105,25 +107,15 @@ impl automations::Executor for Executor {
         state: &'s mut Self::State,
         inbox: &'s mut VecDeque<(models::Id, Option<Message>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let mut maybe_checkout = self.idle_dirs.lock().unwrap().pop();
         let row_state = fetch_row_state(pool, task_id, &self.controller.secrets_provider).await?;
         let releases = fetch_releases(pool, row_state.data_plane_id).await?;
 
+        let mut checkouts = self.idle_dirs.lock().await;
         let result = self
             .controller
-            .on_poll(
-                task_id,
-                state,
-                inbox,
-                &mut maybe_checkout,
-                releases,
-                row_state,
-            )
+            .on_poll(task_id, state, inbox, &mut checkouts, releases, row_state)
             .await;
 
-        if let Some(checkout) = maybe_checkout {
-            self.idle_dirs.lock().unwrap().push(checkout);
-        }
         result
     }
 }
@@ -134,7 +126,7 @@ impl Controller {
         task_id: models::Id,
         state: &mut Option<State>,
         inbox: &mut VecDeque<(models::Id, Option<Message>)>,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
         releases: Vec<stack::Release>,
         row_state: State,
     ) -> anyhow::Result<Outcome> {
@@ -143,28 +135,34 @@ impl Controller {
         };
         let state = state.as_mut().unwrap();
 
-        let mut none = None;
-        let ops_checkout = self
-            .git_checkout(state, &self.ops_remote, &mut none)
-            .await?;
-        validate_state(ops_checkout, state).await?;
+        {
+            let ops_checkout = self
+                .git_checkout(state, &self.ops_remote, checkouts)
+                .await?;
+            validate_state(ops_checkout, state).await?;
+        }
 
         // TODO(johnny): Unconditionally overwrite
         // `state.stack.config.model.private_links` with that of `row_state`.
 
         let sleep = match state.status {
             Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
-            Status::SetEncryption => self.on_set_encryption(state, maybe_checkout).await?,
-            Status::PulumiPreview => self.on_pulumi_preview(state, maybe_checkout).await?,
-            Status::PulumiRefresh => self.on_pulumi_refresh(state, maybe_checkout).await?,
-            Status::PulumiUp1 => self.on_pulumi_up_1(state, maybe_checkout).await?,
+            Status::SetEncryption => self.on_set_encryption(state, checkouts).await?,
+            Status::PulumiPreview => self.on_pulumi_preview(state, checkouts).await?,
+            Status::PulumiRefresh => self.on_pulumi_refresh(state, checkouts).await?,
+            Status::PulumiUp1 => self.on_pulumi_up_1(state, checkouts).await?,
             Status::AwaitDNS1 => self.on_await_dns_1(state).await?,
-            Status::Ansible => self.on_ansible(state, maybe_checkout).await?,
-            Status::PulumiUp2 => self.on_pulumi_up_2(state, maybe_checkout).await?,
+            Status::Ansible => self.on_ansible(state, checkouts).await?,
+            Status::PulumiUp2 => self.on_pulumi_up_2(state, checkouts).await?,
             Status::AwaitDNS2 => self.on_await_dns_2(state).await?,
         };
 
-        validate_state(ops_checkout, state).await?;
+        {
+            let ops_checkout = self
+                .git_checkout(state, &self.ops_remote, checkouts)
+                .await?;
+            validate_state(ops_checkout, state).await?;
+        }
 
         // We publish an updated stack only when transitioning back to Idle.
         let publish_stack = if matches!(state.status, Status::Idle) {
@@ -297,9 +295,9 @@ impl Controller {
     async fn on_set_encryption(
         &self,
         state: &mut State,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -347,9 +345,9 @@ impl Controller {
     async fn on_pulumi_preview(
         &self,
         state: &mut State,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -379,9 +377,9 @@ impl Controller {
     async fn on_pulumi_refresh(
         &self,
         state: &mut State,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, checkouts).await?;
 
         // Refresh, expecting to see no changes. We'll check exit status to see if there were.
         let result = self
@@ -425,9 +423,9 @@ impl Controller {
     async fn on_pulumi_up_1(
         &self,
         state: &mut State,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -491,9 +489,9 @@ impl Controller {
     async fn on_ansible(
         &self,
         state: &mut State,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, checkouts).await?;
 
         // Load exported Pulumi state.
         let output = self
@@ -590,9 +588,9 @@ impl Controller {
     async fn on_pulumi_up_2(
         &self,
         state: &mut State,
-        maybe_checkout: &mut Option<tempfile::TempDir>,
+        checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -653,24 +651,25 @@ impl Controller {
         &self,
         state: &State,
         remote: &str,
-        maybe_checkout: &'c mut Option<tempfile::TempDir>,
+        checkouts: &'c mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<&'c tempfile::TempDir> {
-        let checkout = if let Some(checkout) = maybe_checkout {
-            () = self
-                .run_cmd(
-                    async_process::Command::new("git")
-                        .arg("clean")
-                        .arg("--force")
-                        .current_dir(checkout.path()),
-                    "git-clean",
-                    state.logs_token,
-                )
-                .await?;
+        let checkout = match checkouts.entry(remote.to_string()) {
+            Entry::Occupied(e) => {
+                let dir = e.into_mut();
+                () = self
+                    .run_cmd(
+                        async_process::Command::new("git")
+                            .arg("clean")
+                            .arg("--force")
+                            .current_dir(dir.path()),
+                        "git-clean",
+                        state.logs_token,
+                    )
+                    .await?;
 
-            checkout
-        } else {
-            *maybe_checkout = Some(self.create_clone(remote, state.logs_token).await?);
-            maybe_checkout.as_mut().unwrap()
+                dir
+            }
+            Entry::Vacant(e) => e.insert(self.create_clone(remote, state.logs_token).await?),
         };
 
         () = self
@@ -686,7 +685,7 @@ impl Controller {
         let branch = if remote == self.infra_remote {
             &state.deploy_branch
         } else {
-            "mahdi/data-plane-jsonschema"
+            "main"
         };
         () = self
             .run_cmd(
@@ -710,10 +709,10 @@ impl Controller {
     async fn infra_checkout<'c>(
         &self,
         state: &State,
-        maybe_checkout: &'c mut Option<tempfile::TempDir>,
+        checkouts: &'c mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<&'c tempfile::TempDir> {
         let checkout = self
-            .git_checkout(state, &self.infra_remote, maybe_checkout)
+            .git_checkout(state, &self.infra_remote, checkouts)
             .await?;
 
         () = self
