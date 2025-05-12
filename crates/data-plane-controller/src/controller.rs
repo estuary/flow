@@ -1,12 +1,11 @@
 use super::stack::{self, State, Status};
 use anyhow::Context;
 use futures::future::BoxFuture;
-use futures::lock::Mutex;
 use serde_json::json;
 use sqlx::types::uuid;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// EmitLogFn is a function type that emits a log message to a logs sink.
 pub type EmitLogFn = Box<
@@ -74,7 +73,7 @@ pub struct Outcome {
 
 pub struct Executor {
     controller: Controller,
-    idle_dirs: Arc<Mutex<HashMap<String, tempfile::TempDir>>>,
+    idle_dirs: Arc<Mutex<Vec<HashMap<String, tempfile::TempDir>>>>,
 }
 
 impl Executor {
@@ -110,11 +109,19 @@ impl automations::Executor for Executor {
         let row_state = fetch_row_state(pool, task_id, &self.controller.secrets_provider).await?;
         let releases = fetch_releases(pool, row_state.data_plane_id).await?;
 
-        let mut checkouts = self.idle_dirs.lock().await;
+        let mut checkouts = if let Some(checkouts) = self.idle_dirs.lock().unwrap().pop() {
+            checkouts
+        } else {
+            HashMap::new()
+        };
         let result = self
             .controller
             .on_poll(task_id, state, inbox, &mut checkouts, releases, row_state)
             .await;
+
+        if !checkouts.is_empty() {
+            self.idle_dirs.lock().unwrap().push(checkouts);
+        }
 
         result
     }
@@ -136,6 +143,8 @@ impl Controller {
         let state = state.as_mut().unwrap();
 
         {
+            // Validate the state before operating on it, to ensure the data-plane-controller
+            // never operates on an invalid state
             let ops_checkout = self
                 .git_checkout(state, &self.ops_remote, checkouts)
                 .await?;
@@ -158,6 +167,8 @@ impl Controller {
         };
 
         {
+            // Validate the state after operating on it, to prevent writing a bad state into the
+            // database which would lead to manual recovery being required
             let ops_checkout = self
                 .git_checkout(state, &self.ops_remote, checkouts)
                 .await?;
