@@ -61,6 +61,14 @@ pub fn mock_run_cmd_fn(trace: Arc<Mutex<Vec<TraceEntry>>>) -> RunCmdFn {
                 .unwrap();
             }
 
+            if commands::starts_with(&cmd, &["git", "clone", "git@github.com:estuary/ops.git"]) {
+                let path = cmd
+                    .get_current_dir()
+                    .unwrap()
+                    .join("data-planes-schema.yaml");
+                std::fs::write(path, include_bytes!("data-planes-schema.yaml")).unwrap();
+            }
+
             futures::future::ready(Ok(output)).boxed()
         },
     )

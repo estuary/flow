@@ -23,14 +23,7 @@ async fn test() {
 
     let mut state: Option<stack::State> = None;
     let mut inbox: VecDeque<(models::Id, Option<controller::Message>)> = VecDeque::new();
-    let ops_checkout = tempfile::TempDir::new().unwrap();
-    std::fs::write(
-        &ops_checkout.path().join("data-planes-schema.yaml"),
-        include_bytes!("data-planes-schema.yaml"),
-    )
-    .unwrap();
-    let mut checkouts: HashMap<String, tempfile::TempDir> =
-        HashMap::from([("git@github.com:estuary/ops.git".to_string(), ops_checkout)]);
+    let mut checkouts: HashMap<String, tempfile::TempDir> = HashMap::new();
     let mut row_state = initial_state();
 
     inbox.push_back((
