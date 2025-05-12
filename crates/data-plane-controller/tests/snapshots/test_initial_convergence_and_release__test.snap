@@ -5,8 +5,8 @@ expression: trace.lock().unwrap().as_slice()
 [
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/ops.git ."
     ]
   },
   {
