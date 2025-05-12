@@ -59,7 +59,8 @@ impl crate::output::CliOutput for StatusOutput {
         let activation_complete = self
             .0
             .controller_status
-            .activation_status()
+            .as_ref()
+            .and_then(|s| s.activation_status())
             .map(|activation| {
                 serde_json::Value::Bool(activation.last_activated == self.0.last_build_id)
             });

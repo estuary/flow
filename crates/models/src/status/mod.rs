@@ -5,11 +5,14 @@ pub mod collection;
 pub mod connector;
 pub mod materialization;
 pub mod publications;
+pub mod summary;
 
 use crate::{datetime_schema, is_false, option_datetime_schema, CatalogType, Id};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+pub use self::summary::{StatusSummaryType, Summary};
 
 /// Response type for the status endpoint
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -20,6 +23,8 @@ pub struct StatusResponse {
     pub live_spec_id: Id,
     /// The type of the live spec
     pub spec_type: Option<CatalogType>,
+    /// A brief summary of the status
+    pub summary: Summary,
     /// Whether the shards are disabled. Only pertinent to tasks. Omitted if false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub disabled: bool,
@@ -31,6 +36,7 @@ pub struct StatusResponse {
     /// whether the most recent build has been activated in the data plane.
     pub last_build_id: Id,
     /// The status of the connector, if present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_status: Option<connector::ConnectorStatus>,
     /// Time at which the controller is next scheduled to run. Or null if there
     /// is no run scheduled.
@@ -43,12 +49,15 @@ pub struct StatusResponse {
     #[schemars(schema_with = "datetime_schema")]
     pub controller_updated_at: DateTime<Utc>,
     /// The controller status json.
-    pub controller_status: ControllerStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller_status: Option<ControllerStatus>,
     /// Error from the most recent controller run, or `null` if the run was
     /// successful.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub controller_error: Option<String>,
     /// The number of consecutive failures of the controller. Resets to 0 after
     /// any successful run.
+    #[serde(default, skip_serializing_if = "crate::is_i32_zero")]
     pub controller_failures: i32,
 }
 

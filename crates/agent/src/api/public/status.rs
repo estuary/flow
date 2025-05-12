@@ -9,21 +9,24 @@ use axum::{Extension, Json};
 use axum_extra::extract::Query;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use models::status::{self, connector::ConnectorStatus, StatusResponse};
-use models::Id;
+use models::status::{self, connector::ConnectorStatus, StatusResponse, Summary};
+use models::{CatalogType, Id};
 
 /// Query parameters for the status endpoint
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct StatusQuery {
     /// The catalog name of the live spec to get the status of
     pub name: Vec<String>,
+    /// Whether to return a smaller response that excludes the `connector_status` and `controller_status` fields.
+    #[serde(default)]
+    pub short: bool,
 }
 
 #[axum::debug_handler]
 pub async fn handle_get_status(
     state: axum::extract::State<Arc<App>>,
     Extension(claims): Extension<ControlClaims>,
-    Query(StatusQuery { name }): Query<StatusQuery>,
+    Query(StatusQuery { name, short }): Query<StatusQuery>,
 ) -> Result<Json<Vec<StatusResponse>>, ApiError> {
     let name = state
         .0
@@ -31,15 +34,16 @@ pub async fn handle_get_status(
         .await?;
 
     let pool = state.0.pg_pool.clone();
-    let status = fetch_status(&pool, &name).await?;
+    let status = fetch_status(&pool, &name, short).await?;
     Ok(Json(status))
 }
 
 async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[String],
+    short: bool,
 ) -> Result<Vec<StatusResponse>, ApiError> {
-    let resp = sqlx::query_as!(StatusResponse, r#"select
+    let rows = sqlx::query_as!(StatusRow, r#"select
         ls.catalog_name as "catalog_name!: String",
         ls.id as "live_spec_id: Id",
         ls.spec_type as "spec_type: models::CatalogType",
@@ -50,7 +54,7 @@ async fn fetch_status(
         ls.updated_at as "live_spec_updated_at: DateTime<Utc>",
         cs.flow_document as "connector_status?: ConnectorStatus",
         cj.updated_at as "controller_updated_at: DateTime<Utc>",
-        cj.status as "controller_status: status::ControllerStatus",
+        cj.status as "controller_status?: status::ControllerStatus",
         cj.error as "controller_error: String",
         cj.failures as "controller_failures: i32"
     from live_specs ls
@@ -63,8 +67,8 @@ async fn fetch_status(
     ).fetch_all(pool)
     .await?;
 
-    if resp.len() < catalog_names.len() {
-        let actual = resp
+    if rows.len() < catalog_names.len() {
+        let actual = rows
             .into_iter()
             .map(|r| r.catalog_name)
             .collect::<std::collections::HashSet<String>>();
@@ -76,5 +80,71 @@ async fn fetch_status(
                 .with_status(StatusCode::NOT_FOUND),
         );
     }
+
+    let resp = rows.into_iter().map(|r| r.to_response(short)).collect();
     Ok(resp)
+}
+
+/// Intermediate struct returned from database query, which can be converted into a response
+struct StatusRow {
+    catalog_name: String,
+    live_spec_id: Id,
+    spec_type: Option<CatalogType>,
+    disabled: bool,
+    last_pub_id: Id,
+    last_build_id: Id,
+    connector_status: Option<status::connector::ConnectorStatus>,
+    controller_next_run: Option<DateTime<Utc>>,
+    live_spec_updated_at: DateTime<Utc>,
+    controller_updated_at: DateTime<Utc>,
+    controller_status: Option<status::ControllerStatus>,
+    controller_error: Option<String>,
+    controller_failures: i32,
+}
+
+impl StatusRow {
+    fn to_response(self, summary_only: bool) -> StatusResponse {
+        let StatusRow {
+            catalog_name,
+            live_spec_id,
+            spec_type,
+            disabled,
+            last_pub_id,
+            last_build_id,
+            mut connector_status,
+            controller_next_run,
+            live_spec_updated_at,
+            controller_updated_at,
+            mut controller_status,
+            controller_error,
+            controller_failures,
+        } = self;
+        let summary = Summary::of(
+            disabled,
+            last_build_id,
+            controller_error.as_deref(),
+            controller_status.as_ref(),
+            connector_status.as_ref(),
+        );
+        if summary_only {
+            connector_status.take();
+            controller_status.take();
+        }
+        StatusResponse {
+            catalog_name,
+            summary,
+            live_spec_id,
+            spec_type,
+            disabled,
+            last_pub_id,
+            last_build_id,
+            connector_status,
+            controller_next_run,
+            live_spec_updated_at,
+            controller_updated_at,
+            controller_status,
+            controller_error,
+            controller_failures,
+        }
+    }
 }
