@@ -261,7 +261,6 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let app = &self.app;
         let pg_client = &auth.flow_client().await?.pg_client();
 
         // Re-declare here to drop mutable reference
@@ -271,7 +270,6 @@ impl Session {
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
-                    app,
                     auth,
                     pg_client,
                     from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
@@ -349,7 +347,6 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let app = &self.app;
         let pg_client = &auth.flow_client().await?.pg_client();
 
         // Re-declare here to drop mutable reference
@@ -360,7 +357,6 @@ impl Session {
         let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
-                    app,
                     auth,
                     pg_client,
                     from_downstream_topic_name(topic.name.clone()).as_str(),
@@ -573,9 +569,7 @@ impl Session {
 
                 let auth = self.auth.as_mut().unwrap();
                 let pg_client = auth.flow_client().await?.pg_client();
-                let Some(collection) =
-                    Collection::new(&self.app, &auth, &pg_client, &key.0).await?
-                else {
+                let Some(collection) = Collection::new(&auth, &pg_client, &key.0).await? else {
                     metrics::counter!(
                         "dekaf_fetch_requests",
                         "topic_name" => key.0.to_string(),
@@ -1383,14 +1377,13 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let app = &self.app;
         let flow_client = &auth.flow_client().await?.pg_client();
 
         // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
 
         futures::future::try_join_all(topics.into_iter().map(|topic| async move {
-            let collection = Collection::new(app, auth, flow_client, topic.as_ref())
+            let collection = Collection::new(auth, flow_client, topic.as_ref())
                 .await?
                 .context(format!("unable to look up partitions for {:?}", topic))?;
             Ok::<(TopicName, Collection), anyhow::Error>((topic.clone(), collection))
@@ -1417,14 +1410,9 @@ impl Session {
         tracing::debug!(
             "Loading latest offset for this partition to check if session is data-preview"
         );
-        let collection = Collection::new(
-            &self.app,
-            auth,
-            &client.pg_client(),
-            collection_name.as_str(),
-        )
-        .await?
-        .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
+        let collection = Collection::new(auth, &client.pg_client(), collection_name.as_str())
+            .await?
+            .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
 
         match collection
             .fetch_partition_offset(partition as usize, -1)

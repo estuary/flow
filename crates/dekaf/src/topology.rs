@@ -151,7 +151,6 @@ impl Default for PartitionOffset {
 impl Collection {
     /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
-        app: &App,
         auth: &SessionAuthentication,
         pg_client: &postgrest::Postgrest,
         topic_name: &str,
@@ -190,14 +189,9 @@ impl Collection {
             .ok_or(anyhow!("missing partition template"))?;
 
         let (journal_client, partitions) = match auth {
-            SessionAuthentication::User(_) => {
-                let journal_client = Self::build_journal_client(
-                    app,
-                    &auth,
-                    collection_name,
-                    &partition_template_name,
-                )
-                .await?;
+            SessionAuthentication::User(user_auth) => {
+                let journal_client =
+                    Self::build_journal_client(&user_auth, collection_name).await?;
                 let parts =
                     crate::task_manager::fetch_partitions(&journal_client, collection_name, None)
                         .await?;
@@ -419,43 +413,14 @@ impl Collection {
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
     async fn build_journal_client(
-        app: &App,
-        auth: &SessionAuthentication,
+        user_auth: &UserAuth,
         collection_name: &str,
-        partition_template_name: &str,
     ) -> anyhow::Result<journal::Client> {
-        match auth {
-            SessionAuthentication::User(user_auth) => {
-                let (_, journal_client) = flow_client::fetch_user_collection_authorization(
-                    &user_auth.client,
-                    collection_name,
-                )
+        let (_, journal_client) =
+            flow_client::fetch_user_collection_authorization(&user_auth.client, collection_name)
                 .await?;
 
-                Ok(journal_client)
-            }
-            SessionAuthentication::Task(task_auth) => {
-                let (journal_client, _claims) = flow_client::fetch_task_authorization(
-                    &app.client_base,
-                    &dekaf_shard_template_id(&task_auth.task_name),
-                    &app.data_plane_fqdn,
-                    &app.data_plane_signer,
-                    proto_flow::capability::AUTHORIZE
-                        | proto_gazette::capability::LIST
-                        | proto_gazette::capability::READ,
-                    gazette::broker::LabelSelector {
-                        include: Some(labels::build_set([(
-                            "name:prefix",
-                            format!("{partition_template_name}/").as_str(),
-                        )])),
-                        exclude: None,
-                    },
-                )
-                .await?;
-
-                Ok(journal_client)
-            }
-        }
+        Ok(journal_client)
     }
 
     async fn registered_schema_id(
