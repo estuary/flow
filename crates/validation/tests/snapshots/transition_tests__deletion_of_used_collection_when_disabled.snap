@@ -24,7 +24,10 @@ Outcome {
                   "disable": true,
                   "target": "the/collection"
                 }
-              ]
+              ],
+              "shards": {
+                "disable": true
+              }
             },
             model_fixes: [
               "disabled binding of deleted collection the/collection"
@@ -57,7 +60,7 @@ Outcome {
                                 nanos: 0,
                             },
                         ),
-                        disable: false,
+                        disable: true,
                         hot_standbys: 0,
                         labels: Some(
                             LabelSet {
@@ -339,7 +342,10 @@ Outcome {
                     "lambda": "select 123 as d_one, 'hello' as d_two;\n",
                     "disable": true
                   }
-                ]
+                ],
+                "shards": {
+                  "disable": true
+                }
               }
             },
             model_fixes: [
@@ -575,7 +581,7 @@ Outcome {
                                         nanos: 0,
                                     },
                                 ),
-                                disable: false,
+                                disable: true,
                                 hot_standbys: 0,
                                 labels: Some(
                                     LabelSet {
@@ -857,7 +863,10 @@ Outcome {
                     "recommended": true
                   }
                 }
-              ]
+              ],
+              "shards": {
+                "disable": true
+              }
             },
             model_fixes: [
               "disabled binding of deleted collection the/collection"
@@ -889,7 +898,7 @@ Outcome {
                                 nanos: 0,
                             },
                         ),
-                        disable: false,
+                        disable: true,
                         hot_standbys: 0,
                         labels: Some(
                             LabelSet {
@@ -1155,7 +1164,10 @@ Outcome {
                   "resource": {"_meta":{"path":["capture","path"]},"table":"foo"},
                   "target": "the/collection"
                 }
-              ]
+              ],
+              "shards": {
+                "disable": true
+              }
             },
             is_touch: 0,
         },
@@ -1194,7 +1206,10 @@ Outcome {
                     },
                     "lambda": "select 123 as d_one, 'hello' as d_two;\n"
                   }
-                ]
+                ],
+                "shards": {
+                  "disable": true
+                }
               }
             },
             is_touch: 0,
@@ -1238,7 +1253,10 @@ Outcome {
                     "recommended": true
                   }
                 }
-              ]
+              ],
+              "shards": {
+                "disable": true
+              }
             },
             is_touch: 0,
         },
@@ -1248,7 +1266,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"_meta":{"path":["capture","path"]},"table":"foo"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"fields":{"exclude":["F2","FY","does/not/exist"],"include":{"F1":{},"f_two":{}},"recommended":true},"resource":{"_meta":{"path":["table","path"]},"table":"bar"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}}},
+            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"_meta":{"path":["capture","path"]},"table":"foo"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10","shards":{"disable":true}}},"collections":{"the/collection":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"shards":{"disable":true},"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"fields":{"exclude":["F2","FY","does/not/exist"],"include":{"F1":{},"f_two":{}},"recommended":true},"resource":{"_meta":{"path":["table","path"]},"table":"bar"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10","shards":{"disable":true}}}},
         },
     ],
     storage_mappings: [
