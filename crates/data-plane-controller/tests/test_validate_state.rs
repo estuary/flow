@@ -13,7 +13,7 @@ async fn test_validate_state() {
 
     let controller = data_plane_controller::Controller {
         dns_ttl: std::time::Duration::ZERO,
-        infra_remote: "git@github.com:estuary/est-dry-dock.git".to_string(),
+        dry_dock_remote: "git@github.com:estuary/est-dry-dock.git".to_string(),
         ops_remote: "git@github.com:estuary/ops.git".to_string(),
         secrets_provider: "testing".to_string(),
         state_backend: "file:///tmp/pulumi-test-state".parse().unwrap(),
