@@ -5,7 +5,7 @@ use super::{
 use futures::SinkExt;
 use itertools::Itertools;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use tables::EitherOrBoth as EOB;
 
 pub async fn walk_all_materializations<C: Connectors>(
@@ -572,7 +572,7 @@ fn walk_materialization_binding<'a>(
     }
 
     let live_model = live_bindings_model.get(&model_path);
-    let modified = Some(&&model) != live_model;
+    let modified_source = Some(&model.source) != live_model.map(|l| &l.source);
 
     // We must resolve the source collection to continue.
     let (source, source_partitions) = match &model.source {
@@ -596,7 +596,7 @@ fn walk_materialization_binding<'a>(
         "this materialization binding",
         source,
         built_collections,
-        modified.then_some(errors),
+        modified_source.then_some(errors),
     ) else {
         model_fixes.push(format!("disabled binding of deleted collection {source}"));
         model.disable = true;
@@ -618,7 +618,7 @@ fn walk_materialization_binding<'a>(
         model.fields,
         catalog_name,
         &source_spec,
-        modified,
+        live_model.map(|l| &l.fields),
         model_fixes,
         errors,
     );
@@ -677,7 +677,7 @@ fn walk_materialization_fields<'a>(
     model: models::MaterializationFields,
     catalog_name: &models::Materialization,
     collection: &flow::CollectionSpec,
-    modified: bool,
+    live_model: Option<&models::MaterializationFields>,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (models::MaterializationFields, BTreeMap<String, String>) {
@@ -692,6 +692,10 @@ fn walk_materialization_fields<'a>(
         projections,
         ..
     } = collection;
+
+    let live_exclude: HashSet<&models::Field> = live_model
+        .map(|l| l.exclude.iter().collect())
+        .unwrap_or_default();
 
     let mut field_config = BTreeMap::new();
 
@@ -730,9 +734,9 @@ fn walk_materialization_fields<'a>(
 
         if projections.iter().any(|p| p.field == field.as_str()) {
             true // Matches an existing collection projection.
-        } else if !modified {
-            // This exclusion doesn't match a collection projection, but the
-            // binding model also hasn't changed from its live model.
+        } else if live_exclude.contains(field) {
+            // This exclusion doesn't match a collection projection,
+            // but it also wasn't added by this draft.
             // This implies the projection was removed from the source collection,
             // and we should react by removing the exclusion rather than error.
             model_fixes.push(format!(
