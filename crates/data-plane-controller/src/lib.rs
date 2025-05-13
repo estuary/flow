@@ -44,7 +44,7 @@ pub struct Args {
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
     heartbeat_timeout: std::time::Duration,
-    /// Repository to clone for Pulumi and Ansible infrastructure.
+    /// Repository to clone for Pulumi and Ansible dry_dockstructure.
     #[clap(
         long = "git-repo",
         env = "DPC_GIT_REPO",
@@ -170,7 +170,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let controller = controller::Controller {
         dns_ttl,
-        infra_remote: args.git_repo,
+        dry_dock_remote: args.git_repo,
         ops_remote: args.ops_git_repo,
         secrets_provider: args.secrets_provider,
         state_backend: args.state_backend,
