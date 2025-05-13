@@ -703,12 +703,6 @@ fn walk_derive_transform<'a>(
 ) -> (models::TransformDef, Option<ValidateContext>) {
     // The conceptual "resource path" of a derivation transform is simply it's name.
 
-    if disable || model.disable {
-        return (model, None);
-    }
-    let live_model = live_transforms_model.get(&model.name);
-    let modified = Some(&&model) != live_model;
-
     indexed::walk_name(
         scope,
         "transform",
@@ -717,6 +711,15 @@ fn walk_derive_transform<'a>(
         errors,
     );
 
+    if model.disable {
+        // A disabled transform may reference a non-extant collection.
+        return (model, None);
+    }
+
+    let live_model = live_transforms_model.get(&model.name);
+    let modified = Some(&&model) != live_model;
+
+    // We must resolve the source collection to continue.
     let (source_name, source_partitions) = match &model.source {
         models::Source::Collection(name) => (name, None),
         models::Source::Source(models::FullSource {
@@ -733,8 +736,6 @@ fn walk_derive_transform<'a>(
             (name, partitions.as_ref())
         }
     };
-
-    // We must resolve the source collection to continue.
     let Some((source_spec, source_built)) = reference::walk_reference(
         scope,
         &format!("transform {}", model.name),
@@ -748,6 +749,11 @@ fn walk_derive_transform<'a>(
         model.disable = true;
         return (model, None);
     };
+
+    if disable {
+        // Perform no further validations if the task is disabled.
+        return (model, None);
+    }
 
     // Was this transform's source collection reset under its current backfill count?
     let live_spec = live_transforms_spec.get(model.name.as_str());

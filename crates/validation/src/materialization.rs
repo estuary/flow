@@ -566,9 +566,11 @@ fn walk_materialization_binding<'a>(
 ) {
     let model_path = super::load_resource_meta_path(model.resource.get());
 
-    if disable || model.disable {
+    if model.disable {
+        // A disabled binding may reference a non-extant collection.
         return (model_path, model, false, None);
     }
+
     let live_model = live_bindings_model.get(&model_path);
     let modified = Some(&&model) != live_model;
 
@@ -600,6 +602,11 @@ fn walk_materialization_binding<'a>(
         model.disable = true;
         return (model_path, model, false, None);
     };
+
+    if disable {
+        // Perform no further validations if the task is disabled.
+        return (model_path, model, false, None);
+    }
 
     if let Some(selector) = source_partitions {
         collection::walk_selector(scope, &source_spec, &selector, errors);

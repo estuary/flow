@@ -467,12 +467,13 @@ fn walk_capture_binding<'a>(
 ) {
     let model_path = super::load_resource_meta_path(model.resource.get());
 
-    if disable || model.disable {
+    if model.disable {
+        // A disabled binding may reference a non-extant collection.
         return (model_path, model, None);
     }
+
     let live_model = live_bindings_model.get(&model_path);
     let modified = Some(&&model) != live_model;
-
     let target = &model.target;
 
     // We must resolve the target collection to continue.
@@ -487,6 +488,11 @@ fn walk_capture_binding<'a>(
         model.disable = true;
         return (model_path, model, None);
     };
+
+    if disable {
+        // Perform no further validations if the task is disabled.
+        return (model_path, model, None);
+    }
 
     // Was this binding's target collection reset under its current backfill count?
     let live_spec = live_bindings_spec.get(model_path.as_slice());
