@@ -2,7 +2,7 @@ import React from "react";
 
 export const AzureAuthorizeComponent = () => {
     const ourAppId = "42cb0c6c-dab0-411f-9c21-16d5a2b1b025";
-    const redirectUri = window.location.href;
+    const redirectUri = "https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/azure-dpc-oauth";
     const resourceId = "https://storage.azure.com";
 
     const generateAuthorizeUrl = (theirTenant) =>
