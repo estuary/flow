@@ -33,8 +33,8 @@ pub type RunCmdFn = Box<
 pub struct Controller {
     // How long to wait for DNS propagation.
     pub dns_ttl: std::time::Duration,
-    // Remote git repository to clone for infrastructure (pulumi and ansible).
-    pub infra_remote: String,
+    // Remote git repository to clone for dry_dockstructure (pulumi and ansible).
+    pub dry_dock_remote: String,
     // Remote git repository to clone for ops validation.
     pub ops_remote: String,
     // Secrets provider to use for Pulumi.
@@ -308,7 +308,7 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, checkouts).await?;
+        let checkout = self.dry_dock_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -358,7 +358,7 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, checkouts).await?;
+        let checkout = self.dry_dock_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -390,7 +390,7 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, checkouts).await?;
+        let checkout = self.dry_dock_checkout(state, checkouts).await?;
 
         // Refresh, expecting to see no changes. We'll check exit status to see if there were.
         let result = self
@@ -436,7 +436,7 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, checkouts).await?;
+        let checkout = self.dry_dock_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -502,7 +502,7 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, checkouts).await?;
+        let checkout = self.dry_dock_checkout(state, checkouts).await?;
 
         // Load exported Pulumi state.
         let output = self
@@ -601,7 +601,7 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.infra_checkout(state, checkouts).await?;
+        let checkout = self.dry_dock_checkout(state, checkouts).await?;
 
         () = self
             .run_cmd(
@@ -693,11 +693,12 @@ impl Controller {
             )
             .await?;
 
-        let branch = if remote == self.infra_remote {
+        let branch = if remote == self.dry_dock_remote {
             &state.deploy_branch
         } else {
-            "main"
+            "master"
         };
+
         () = self
             .run_cmd(
                 async_process::Command::new("git")
@@ -717,13 +718,13 @@ impl Controller {
         Ok(checkout)
     }
 
-    async fn infra_checkout<'c>(
+    async fn dry_dock_checkout<'c>(
         &self,
         state: &State,
         checkouts: &'c mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<&'c tempfile::TempDir> {
         let checkout = self
-            .git_checkout(state, &self.infra_remote, checkouts)
+            .git_checkout(state, &self.dry_dock_remote, checkouts)
             .await?;
 
         () = self
