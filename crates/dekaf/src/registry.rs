@@ -87,7 +87,6 @@ async fn get_subject_latest(
         let client = &auth.flow_client().await?.pg_client();
 
         let collection = super::Collection::new(
-            &app,
             &auth,
             client,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
