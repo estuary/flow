@@ -1,7 +1,6 @@
-use crate::{dekaf_shard_template_id, task_manager::TaskStateListener, TaskManager, TaskState};
+use crate::{task_manager::TaskStateListener, TaskManager};
 use anyhow::Context;
 use async_trait::async_trait;
-use flow_client::fetch_task_authorization;
 use futures::{
     future::{FusedFuture, MaybeDone},
     Stream, StreamExt, TryStreamExt,
@@ -90,13 +89,9 @@ pub trait TaskWriter: Send + Sync {
 
 #[derive(Clone)]
 pub struct GazetteWriter {
-    client_base: flow_client::Client,
     task_manager: Arc<TaskManager>,
-    data_plane_fqdn: String,
-    data_plane_signer: jsonwebtoken::EncodingKey,
     logs_appender: Option<GazetteAppender>,
     stats_appender: Option<GazetteAppender>,
-    shard: Option<ops::ShardRef>,
 }
 
 #[async_trait]
@@ -105,7 +100,6 @@ impl TaskWriter for GazetteWriter {
         let (logs_appender, stats_appender) = self.get_appenders(shard.name.as_str()).await?;
         self.logs_appender.replace(logs_appender);
         self.stats_appender.replace(stats_appender);
-        self.shard.replace(shard);
 
         Ok(())
     }
@@ -137,19 +131,9 @@ impl TaskWriter for GazetteWriter {
 }
 
 impl GazetteWriter {
-    pub fn new(
-        client_base: flow_client::Client,
-        task_manager: Arc<TaskManager>,
-        // TODO(jshearer): Remove these once we refactor `TaskManager` to be able to fetch APPEND tokens
-        data_plane_fqdn: String,
-        data_plane_signer: jsonwebtoken::EncodingKey,
-    ) -> Self {
+    pub fn new(task_manager: Arc<TaskManager>) -> Self {
         Self {
-            client_base,
             task_manager,
-            data_plane_fqdn,
-            data_plane_signer,
-            shard: None,
             logs_appender: None,
             stats_appender: None,
         }
@@ -161,94 +145,42 @@ impl GazetteWriter {
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
         let task_listener = self.task_manager.get_listener(task_name).await;
 
-        let TaskState {
-            ops_logs_journal,
-            ops_stats_journal,
-            ..
-        } = task_listener.get().await?;
+        let initial_state = task_listener.get().await?;
 
         Ok((
-            GazetteAppender::try_create(
-                ops_logs_journal,
-                task_name.to_string(),
-                self.client_base.clone(),
-                self.data_plane_fqdn.clone(),
-                self.data_plane_signer.clone(),
-                task_listener.clone(),
-                self.task_manager.clone(),
-            )
-            .await?,
-            GazetteAppender::try_create(
-                ops_stats_journal,
-                task_name.to_string(),
-                self.client_base.clone(),
-                self.data_plane_fqdn.clone(),
-                self.data_plane_signer.clone(),
-                task_listener,
-                self.task_manager.clone(),
-            )
-            .await?,
+            GazetteAppender::OpsLogs(GazetteAppenderState {
+                task_listener: task_listener.clone(),
+                journal_name: initial_state.ops_logs_journal.clone(),
+            }),
+            GazetteAppender::OpsStats(GazetteAppenderState {
+                task_listener: task_listener.clone(),
+                journal_name: initial_state.ops_stats_journal.clone(),
+            }),
         ))
     }
 }
 
 #[derive(Clone)]
-struct GazetteAppender {
-    client: journal::Client,
-    journal_name: String,
-    exp: time::OffsetDateTime,
-    client_base: flow_client::Client,
-    data_plane_fqdn: String,
-    data_plane_signer: jsonwebtoken::EncodingKey,
+struct GazetteAppenderState {
     task_listener: TaskStateListener,
-    task_manager: Arc<TaskManager>,
-    task_name: String,
+    journal_name: String,
+}
+
+#[derive(Clone)]
+enum GazetteAppender {
+    OpsStats(GazetteAppenderState),
+    OpsLogs(GazetteAppenderState),
 }
 
 impl GazetteAppender {
-    pub async fn try_create(
-        journal_name: String,
-        task_name: String,
-        client_base: flow_client::Client,
-        data_plane_fqdn: String,
-        data_plane_signer: jsonwebtoken::EncodingKey,
-        task_listener: TaskStateListener,
-        task_manager: Arc<TaskManager>,
-    ) -> anyhow::Result<Self> {
-        let (client, exp) = Self::refresh_client(
-            &task_name,
-            &task_listener,
-            &journal_name,
-            client_base.clone(),
-            &data_plane_fqdn,
-            data_plane_signer.clone(),
-        )
-        .await?;
-
-        Ok(Self {
-            client,
-            exp,
-            task_name,
-            journal_name,
-            client_base,
-            data_plane_fqdn,
-            data_plane_signer,
-            task_listener,
-            task_manager,
-        })
-    }
-
     async fn append<S>(&mut self, data: impl Fn() -> S + Send + Sync) -> anyhow::Result<()>
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {
-        if (self.exp - SystemTime::now()).whole_seconds() < 60 {
-            self.refresh().await?;
-        }
-
-        let resp = self.client.append(
+        let client = self.get_client().await?;
+        let resp = client.append(
             gazette::broker::AppendRequest {
-                journal: self.journal_name.clone(),
+                journal: self.get_journal_name().to_string(),
                 ..Default::default()
             },
             data,
@@ -274,50 +206,30 @@ impl GazetteAppender {
         }
     }
 
-    async fn refresh(&mut self) -> anyhow::Result<()> {
-        let (client, exp) = Self::refresh_client(
-            &self.task_name,
-            &self.task_listener,
-            &self.journal_name,
-            self.client_base.clone(),
-            &self.data_plane_fqdn,
-            self.data_plane_signer.clone(),
-        )
-        .await?;
-        self.client = client;
-        self.exp = exp;
-        Ok(())
+    async fn get_client(&self) -> anyhow::Result<journal::Client> {
+        match self {
+            GazetteAppender::OpsStats(state) => state
+                .task_listener
+                .get()
+                .await?
+                .ops_stats_client
+                .map(|(client, _claims)| client)
+                .map_err(|err| err.into()),
+            GazetteAppender::OpsLogs(state) => state
+                .task_listener
+                .get()
+                .await?
+                .ops_logs_client
+                .map(|(client, _claims)| client)
+                .map_err(|err| err.into()),
+        }
     }
 
-    async fn refresh_client(
-        task_name: &str,
-        state_listener: &TaskStateListener,
-        journal_name: &str,
-        client_base: flow_client::Client,
-        data_plane_fqdn: &str,
-        signer: jsonwebtoken::EncodingKey,
-    ) -> anyhow::Result<(journal::Client, time::OffsetDateTime)> {
-        let template_id = dekaf_shard_template_id(task_name);
-
-        let TaskState { access_token, .. } = state_listener.get().await?;
-
-        let (new_client, new_claims) = fetch_task_authorization(
-            &client_base.with_user_access_token(Some(access_token)),
-            &template_id,
-            data_plane_fqdn,
-            &signer,
-            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            gazette::broker::LabelSelector {
-                include: Some(labels::build_set([("name", journal_name)])),
-                exclude: None,
-            },
-        )
-        .await?;
-
-        Ok((
-            new_client,
-            time::OffsetDateTime::UNIX_EPOCH + Duration::from_secs(new_claims.exp),
-        ))
+    fn get_journal_name(&self) -> &str {
+        match self {
+            GazetteAppender::OpsStats(state) => state.journal_name.as_ref(),
+            GazetteAppender::OpsLogs(state) => state.journal_name.as_ref(),
+        }
     }
 }
 

@@ -14,7 +14,7 @@ use std::{
     fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Weak,
+        Arc,
     },
     time::Duration,
 };
@@ -60,6 +60,8 @@ pub struct TaskState {
         String,
         Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
     )>,
+    pub ops_logs_client: Result<(journal::Client, proto_gazette::Claims)>,
+    pub ops_stats_client: Result<(journal::Client, proto_gazette::Claims)>,
 }
 
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
@@ -173,12 +175,7 @@ impl TaskManager {
         // Instead, we'll create a separate log forwarder for this task manager that will report
         // its logs to the correct task's ops logs, irrespective of the session that spawned it.
         tokio::spawn(logging::forward_logs(
-            GazetteWriter::new(
-                self.client.clone(),
-                self.clone(),
-                self.data_plane_fqdn.clone(),
-                self.data_plane_signer.clone(),
-            ),
+            GazetteWriter::new(self.clone()),
             stop_signal.clone(),
             self.clone().run_task_manager(
                 receiver.clone(),
@@ -214,6 +211,11 @@ impl TaskManager {
             String,
             Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
         > = HashMap::new();
+
+        let mut cached_ops_logs_client: Option<Result<(journal::Client, proto_gazette::Claims)>> =
+            None;
+        let mut cached_ops_stats_client: Option<Result<(journal::Client, proto_gazette::Claims)>> =
+            None;
 
         let mut timeout_start = None;
 
@@ -255,7 +257,7 @@ impl TaskManager {
                     .await
                     .context("error fetching dekaf task auth")?;
 
-                let partitions_and_clients = update_partition_info(
+                partitions_and_clients = update_partition_info(
                     &self.client,
                     &self.data_plane_fqdn,
                     &self.data_plane_signer,
@@ -264,6 +266,42 @@ impl TaskManager {
                     std::mem::take(&mut partitions_and_clients),
                 )
                 .await?;
+
+                let logs_client_result = get_or_refresh_journal_client(
+                    &self.client,
+                    &self.data_plane_fqdn,
+                    &self.data_plane_signer,
+                    &task_name,
+                    proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+                    broker::LabelSelector {
+                        include: Some(labels::build_set([("name", ops_logs_journal.as_str())])),
+                        exclude: None,
+                    },
+                    cached_ops_logs_client
+                        .as_ref()
+                        .and_then(|r| r.as_ref().ok()),
+                )
+                .await
+                .map_err(SharedError::from);
+                cached_ops_logs_client = Some(logs_client_result);
+
+                let stats_client_result = get_or_refresh_journal_client(
+                    &self.client,
+                    &self.data_plane_fqdn,
+                    &self.data_plane_signer,
+                    &task_name,
+                    proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+                    broker::LabelSelector {
+                        include: Some(labels::build_set([("name", ops_stats_journal.as_str())])),
+                        exclude: None,
+                    },
+                    cached_ops_stats_client
+                        .as_ref()
+                        .and_then(|r| r.as_ref().ok()),
+                )
+                .await
+                .map_err(SharedError::from);
+                cached_ops_stats_client = Some(stats_client_result);
 
                 let _ = sender.send(Some(Ok(TaskState {
                     access_token,
@@ -284,6 +322,14 @@ impl TaskManager {
                             res
                         })
                         .collect_vec(),
+                    ops_logs_client: cached_ops_logs_client
+                        .as_ref()
+                        .expect("this is guarinteed to be present")
+                        .clone(),
+                    ops_stats_client: cached_ops_stats_client
+                        .as_ref()
+                        .expect("this is guarinteed to be present")
+                        .clone(),
                 })));
 
                 Ok(())
@@ -345,40 +391,44 @@ async fn update_partition_info(
         };
 
         tasks.push(async move {
-                let journal_client_result = get_or_refresh_journal_client(
-                    flow_client,
-                    data_plane_fqdn,
-                    data_plane_signer,
-                    &task_name_clone,
-                    &template_name,
-                    existing_client
-                )
-                .await;
+            let journal_client_result = get_or_refresh_journal_client(
+                flow_client,
+                data_plane_fqdn,
+                data_plane_signer,
+                &task_name_clone,
+                proto_flow::capability::AUTHORIZE | proto_gazette::capability::LIST | proto_gazette::capability::READ,
+                broker::LabelSelector {
+                    include: Some(labels::build_set([("name:prefix", format!("{}/", template_name).as_str())])),
+                    exclude: None,
+                },
+                existing_client.as_ref(),
+            )
+            .await;
 
-                let (journal_client, claims) = match journal_client_result {
-                    Ok(jc) => jc,
-                    Err(task_error) => {
-                        tracing::warn!(task=%task_name_clone, template=%template_name, error=%task_error, "Failed to get journal client for binding");
-                        return (template_name, Err(SharedError::from(task_error)));
-                    }
-                };
+            let (journal_client, claims) = match journal_client_result {
+                Ok(jc) => jc,
+                Err(task_error) => {
+                    tracing::warn!(task=%task_name_clone, template=%template_name, error=%task_error, "Failed to get journal client for binding");
+                    return (template_name, Err(SharedError::from(task_error)));
+                }
+            };
 
-                let partition_result = fetch_partitions(
-                    &journal_client,
-                    &collection_spec.name,
-                    Some(partition_selector.clone()),
-                )
-                .await
-                .map(|partitions| {
-                    (journal_client, claims, partitions)
-                })
-                .map_err(|e| {
-                    SharedError::from(e.context(format!("Partition fetch failed for collection '{}'", collection_spec.name)))
-                });
-
-                // Return the result associated with this template name
-                (template_name, partition_result)
+            let partition_result = fetch_partitions(
+                &journal_client,
+                &collection_spec.name,
+                Some(partition_selector.clone()),
+            )
+            .await
+            .map(|partitions| {
+                (journal_client, claims, partitions)
+            })
+            .map_err(|e| {
+                SharedError::from(e.context(format!("Partition fetch failed for collection '{}'", collection_spec.name)))
             });
+
+            // Return the result associated with this template name
+            (template_name, partition_result)
+        });
     }
 
     Ok(futures::stream::iter(tasks)
@@ -387,43 +437,35 @@ async fn update_partition_info(
         .await)
 }
 
-/// Gets a journal client from cache or fetches a new one if needed.
-#[tracing::instrument(skip_all, fields(task_name, partition_template_name))]
+#[tracing::instrument(skip_all, fields(task_name, identifier))]
 async fn get_or_refresh_journal_client(
     flow_client: &flow_client::Client,
     data_plane_fqdn: &str,
     data_plane_signer: &jsonwebtoken::EncodingKey,
     task_name: &str,
-    partition_template_name: &str,
-    client: Option<(journal::Client, proto_gazette::Claims)>,
+    capability: u32,
+    selector: broker::LabelSelector,
+    cached_client_and_claims: Option<&(journal::Client, proto_gazette::Claims)>,
 ) -> anyhow::Result<(journal::Client, proto_gazette::Claims)> {
-    if let Some((cached_client, claims)) = client {
+    if let Some((cached_client, claims)) = cached_client_and_claims {
         let now_unix = time::OffsetDateTime::now_utc().unix_timestamp();
         // Add a buffer to token expiry check
         if claims.exp > now_unix as u64 + 60 {
-            tracing::debug!(task=%task_name, template=%partition_template_name, "Re-using existing journal client.");
-            return Ok((cached_client, claims));
+            tracing::debug!(task=%task_name, "Re-using existing journal client.");
+            return Ok((cached_client.clone(), claims.clone()));
         } else {
-            tracing::debug!(task=%task_name, template=%partition_template_name, "Journal client token expired or nearing expiry.");
+            tracing::debug!(task=%task_name, "Journal client token expired or nearing expiry.");
         }
     }
 
-    tracing::debug!(task=%task_name, template=%partition_template_name, "Fetching new task authorization for journal client.");
+    tracing::debug!(task=%task_name,  capability, "Fetching new task authorization for journal client.");
     flow_client::fetch_task_authorization(
         flow_client,
         &crate::dekaf_shard_template_id(task_name),
         data_plane_fqdn,
         data_plane_signer,
-        proto_flow::capability::AUTHORIZE
-            | proto_gazette::capability::LIST
-            | proto_gazette::capability::READ,
-        broker::LabelSelector {
-            include: Some(labels::build_set([(
-                "name:prefix",
-                format!("{partition_template_name}/").as_str(),
-            )])),
-            exclude: None,
-        },
+        capability,
+        selector,
     )
     .await
 }

@@ -350,10 +350,7 @@ async fn main() -> anyhow::Result<()> {
                     tokio::spawn(
                         logging::forward_logs(
                             GazetteWriter::new(
-                                app.client_base.clone(),
                                 app.task_manager.clone(),
-                                app.data_plane_fqdn.clone(),
-                                app.data_plane_signer.clone(),
                             ),
                             task_cancellation.clone(),
                             serve(
@@ -400,10 +397,7 @@ async fn main() -> anyhow::Result<()> {
                     tokio::spawn(
                         logging::forward_logs(
                             GazetteWriter::new(
-                                app.client_base.clone(),
                                 app.task_manager.clone(),
-                                app.data_plane_fqdn.clone(),
-                                app.data_plane_signer.clone(),
                             ),
                             task_cancellation.clone(),
                             serve(
