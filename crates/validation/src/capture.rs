@@ -381,7 +381,7 @@ fn walk_capture_binding<'a>(
     )?;
 
     let request = capture::request::validate::Binding {
-        resource_config_json: resource.to_string(),
+        resource_config_json: crate::strip_resource_meta(resource),
         collection: Some(spec),
         backfill: *backfill,
     };

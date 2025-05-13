@@ -529,7 +529,7 @@ fn walk_materialization_binding<'a>(
     super::temporary_cross_data_plane_read_check(scope, source, data_plane_id, errors);
 
     let request = materialize::request::validate::Binding {
-        resource_config_json: resource.to_string(),
+        resource_config_json: crate::strip_resource_meta(resource),
         collection: Some(source_spec),
         field_config_json_map,
         backfill: *backfill,
