@@ -341,6 +341,48 @@ test://example/catalog.yaml:
   collections:
     the/collection:
       delete: true
+  tests: null
+
+driver:
+  captures:
+    the/capture:
+      bindings: []
+  derivations:
+    the/derivation:
+      shuffleKeyTypes: []
+      transforms: []
+  materializations:
+    the/materialization:
+      bindings: []
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_deletion_of_used_collection_when_disabled() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      delete: true
+
+    the/derivation:
+      derive:
+        shards: {disable: true}
+
+  captures:
+    the/capture:
+      shards: {disable: true}
+
+  materializations:
+    the/materialization:
+      shards: {disable: true}
+
+  tests: null
+
 driver:
   captures:
     the/capture:
