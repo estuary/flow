@@ -717,7 +717,7 @@ fn walk_derive_transform<'a>(
     }
 
     let live_model = live_transforms_model.get(&model.name);
-    let modified = Some(&&model) != live_model;
+    let modified_source = Some(&model.source) != live_model.map(|l| &l.source);
 
     // We must resolve the source collection to continue.
     let (source_name, source_partitions) = match &model.source {
@@ -741,7 +741,7 @@ fn walk_derive_transform<'a>(
         &format!("transform {}", model.name),
         source_name,
         built_collections,
-        modified.then_some(errors),
+        modified_source.then_some(errors),
     ) else {
         model_fixes.push(format!(
             "disabled transform of deleted collection {source_name}"

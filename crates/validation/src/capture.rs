@@ -473,7 +473,7 @@ fn walk_capture_binding<'a>(
     }
 
     let live_model = live_bindings_model.get(&model_path);
-    let modified = Some(&&model) != live_model;
+    let modified_target = Some(&model.target) != live_model.map(|l| &l.target);
     let target = &model.target;
 
     // We must resolve the target collection to continue.
@@ -482,7 +482,7 @@ fn walk_capture_binding<'a>(
         "this capture binding",
         target,
         built_collections,
-        modified.then_some(errors),
+        modified_target.then_some(errors),
     ) else {
         model_fixes.push(format!("disabled binding of deleted collection {target}"));
         model.disable = true;
