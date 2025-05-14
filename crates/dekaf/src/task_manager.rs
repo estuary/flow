@@ -1,7 +1,7 @@
 use crate::{
     log_appender::GazetteWriter,
     logging,
-    topology::{self, fetch_dekaf_task_auth, Partition},
+    topology::{self, Partition},
 };
 use anyhow::Context;
 use futures::StreamExt;
@@ -51,7 +51,7 @@ const TASK_TIMEOUT: Duration = Duration::from_secs(60 * 3);
 pub struct TaskState {
     // Control-plane access token
     pub access_token: String,
-    pub access_token_claims: topology::AccessTokenClaims,
+    pub access_token_claims: AccessTokenClaims,
     pub ops_logs_journal: String,
     pub ops_stats_journal: String,
     pub spec: proto_flow::flow::MaterializationSpec,
@@ -459,6 +459,7 @@ async fn get_or_refresh_journal_client(
     }
 
     tracing::debug!(task=%task_name,  capability, "Fetching new task authorization for journal client.");
+    metrics::counter!("dekaf_fetch_auth", "endpoint" => "/authorize/task", "task_name" => task_name.to_owned()).increment(1);
     flow_client::fetch_task_authorization(
         flow_client,
         &crate::dekaf_shard_template_id(task_name),
@@ -504,4 +505,79 @@ pub async fn fetch_partitions(
         .sort_by(|l, r| (l.create_revision, &l.spec.name).cmp(&(r.create_revision, &r.spec.name)));
 
     Ok(partitions)
+}
+
+// Claims returned by `/authorize/dekaf`
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AccessTokenClaims {
+    pub exp: u64,
+}
+#[tracing::instrument(skip(client, data_plane_signer), err)]
+async fn fetch_dekaf_task_auth(
+    client: &flow_client::Client,
+    shard_template_id: &str,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+) -> anyhow::Result<(
+    String,
+    AccessTokenClaims,
+    String,
+    String,
+    proto_flow::flow::MaterializationSpec,
+)> {
+    let start = std::time::Instant::now();
+
+    let request_token = flow_client::client::build_task_authorization_request_token(
+        shard_template_id,
+        data_plane_fqdn,
+        data_plane_signer,
+        proto_flow::capability::AUTHORIZE,
+        Default::default(),
+    )?;
+    let models::authorizations::DekafAuthResponse {
+        token,
+        ops_logs_journal,
+        ops_stats_journal,
+        task_spec,
+        retry_millis: _,
+    } = loop {
+        let response: models::authorizations::DekafAuthResponse = client
+            .agent_unary(
+                "/authorize/dekaf",
+                &models::authorizations::TaskAuthorizationRequest {
+                    token: request_token.clone(),
+                },
+            )
+            .await?;
+        if response.retry_millis != 0 {
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but will retry before failing"
+            );
+            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
+            continue;
+        }
+        break response;
+    };
+    let claims = flow_client::parse_jwt_claims(token.as_str())?;
+
+    tracing::debug!(
+        runtime_ms = start.elapsed().as_millis(),
+        "fetched dekaf task auth",
+    );
+
+    metrics::counter!("dekaf_fetch_auth", "endpoint" => "/authorize/dekaf", "task_name" => shard_template_id.to_owned()).increment(1);
+    Ok((
+        token,
+        claims,
+        ops_logs_journal,
+        ops_stats_journal,
+        serde_json::from_str(
+            task_spec
+                .ok_or(anyhow::anyhow!(
+                    "task_spec is only None when we need to retry the auth request"
+                ))?
+                .get(),
+        )?,
+    ))
 }
