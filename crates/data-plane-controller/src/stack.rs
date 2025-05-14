@@ -343,7 +343,7 @@ impl DataPlane {
                             "new deployment {} at index {index} must have `current` = 0; scale up using `desired` instead",
                             serde_json::to_string(next_deployment).unwrap()
                         );
-                    } else if next_deployment.desired == 0 {
+                    } else if next_deployment.desired == 0 && next_deployment.rollout.is_none() {
                         anyhow::bail!(
                             "new deployment {} at index {index} must have `desired` > 0",
                             serde_json::to_string(next_deployment).unwrap()
@@ -606,6 +606,40 @@ mod test {
                 ..last.clone()
             }
         ).unwrap_err(), @r###""new deployment {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":32} at index 3 must have `current` = 0; scale up using `desired` instead""###);
+
+        let mut deployments = last.deployments.clone();
+        deployments.push(Deployment {
+            current: 0,
+            desired: 0,
+            ..deployments[0].clone()
+        });
+
+        insta::assert_debug_snapshot!(DataPlane::verify_transition(
+            &last,
+            &DataPlane{
+                deployments,
+                ..last.clone()
+            }
+        ).unwrap_err(), @r###""new deployment {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":0,\"current\":0} at index 3 must have `desired` > 0""###);
+
+        let mut deployments = last.deployments.clone();
+        deployments.push(Deployment {
+            current: 0,
+            desired: 0,
+            rollout: Some(Rollout { step: 1, target: 1 }),
+            ..deployments[0].clone()
+        });
+
+        assert!(matches!(
+            DataPlane::verify_transition(
+                &last,
+                &DataPlane {
+                    deployments,
+                    ..last.clone()
+                }
+            ),
+            Ok(_)
+        ));
     }
 
     #[test]
