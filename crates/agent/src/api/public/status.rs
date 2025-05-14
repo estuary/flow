@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::api::error::ApiErrorExt;
@@ -20,21 +21,61 @@ pub struct StatusQuery {
     /// Whether to return a smaller response that excludes the `connector_status` and `controller_status` fields.
     #[serde(default)]
     pub short: bool,
+    /// Whether to fetch statuses for connected specs, in addition to those named
+    #[serde(default)]
+    pub connected: bool,
 }
 
 #[axum::debug_handler]
 pub async fn handle_get_status(
     state: axum::extract::State<Arc<App>>,
     Extension(claims): Extension<ControlClaims>,
-    Query(StatusQuery { name, short }): Query<StatusQuery>,
+    Query(StatusQuery {
+        name,
+        short,
+        connected,
+    }): Query<StatusQuery>,
 ) -> Result<Json<Vec<StatusResponse>>, ApiError> {
+    // Any requested names must be directly authorized
     let name = state
         .0
         .verify_user_authorization(&claims, name, models::Capability::Read)
         .await?;
 
+    let mut require_names = name.iter().map(|s| s.as_str()).collect::<BTreeSet<_>>();
+
     let pool = state.0.pg_pool.clone();
-    let status = fetch_status(&pool, &name, short).await?;
+
+    // If we need to return statuses of connected specs, then resolve their
+    // names now, and filter out those that the user isn't authorized to before
+    // querying for the statuses.
+    let status = if connected {
+        // Filter out any names that the user cannot read before fetching the statuses
+        let unfiltered_names = add_connected_names(&name, &pool).await?;
+        let filtered = state.0.filter_results(
+            &claims,
+            models::Capability::Read,
+            unfiltered_names,
+            String::as_str,
+        );
+        fetch_status(&pool, &filtered, short).await?
+    } else {
+        fetch_status(&pool, &name, short).await?
+    };
+
+    // Check whether all of the names that were explicitly requested are present
+    // in the response, and return a 404 if any are missing. Additional "connected"
+    // specs are allowed to be missing.
+    for result in status.iter() {
+        require_names.remove(result.catalog_name.as_str());
+    }
+    if !require_names.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no live specs found for names: [{}]",
+            require_names.iter().format(", ")
+        )
+        .with_status(StatusCode::NOT_FOUND));
+    }
     Ok(Json(status))
 }
 
@@ -66,20 +107,6 @@ async fn fetch_status(
         catalog_names as &[String],
     ).fetch_all(pool)
     .await?;
-
-    if rows.len() < catalog_names.len() {
-        let actual = rows
-            .into_iter()
-            .map(|r| r.catalog_name)
-            .collect::<std::collections::HashSet<String>>();
-        let missing = catalog_names
-            .iter()
-            .filter(|n| !actual.contains(n.as_str()));
-        return Err(
-            anyhow::anyhow!("no live specs found for names: [{}]", missing.format(", "))
-                .with_status(StatusCode::NOT_FOUND),
-        );
-    }
 
     let resp = rows.into_iter().map(|r| r.to_response(short)).collect();
     Ok(resp)
@@ -147,4 +174,33 @@ impl StatusRow {
             controller_failures,
         }
     }
+}
+
+async fn add_connected_names(
+    catalog_names: &[String],
+    db: &sqlx::PgPool,
+) -> sqlx::Result<Vec<String>> {
+    let names = sqlx::query_scalar!(
+        r#"
+        with orig as (
+          select id, catalog_name from live_specs where catalog_name = any($1::catalog_name[])
+        )
+        select lst.catalog_name::text as "name!: String"
+        from orig
+        join live_spec_flows lsf on orig.id = lsf.source_id
+        join live_specs lst on lsf.target_id = lst.id
+        union
+        select lss.catalog_name::text as "name!: String"
+        from orig
+        join live_spec_flows lsf on orig.id = lsf.target_id
+        join live_specs lss on lsf.source_id = lss.id
+        union
+        select catalog_name::text as "name!: String"
+        from orig
+        "#,
+        catalog_names as &[String],
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(names)
 }
