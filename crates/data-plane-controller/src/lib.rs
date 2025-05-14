@@ -189,6 +189,10 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         )
         .map(|()| anyhow::Result::<()>::Ok(()));
 
+    // When `server` finishes it drops `controller`, which in turn drops all
+    // outstanding references to `logs_tx`, which allows `logs_sink` to finish.
+    std::mem::drop(logs_tx);
+
     let ((), ()) = futures::try_join!(logs_sink, server)?;
 
     Ok(())
