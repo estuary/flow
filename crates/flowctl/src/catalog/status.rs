@@ -8,16 +8,28 @@ pub struct Status {
     /// Names of the live specs to fetch the status of
     #[clap(required(true))]
     pub catalog_names: Vec<String>,
+    #[clap(long)]
+    pub connected: bool,
 }
 
 pub async fn do_controller_status(
     ctx: &mut crate::CliContext,
-    Status { catalog_names }: &Status,
+    Status {
+        catalog_names,
+        connected,
+    }: &Status,
 ) -> anyhow::Result<()> {
-    let query = catalog_names
+    let mut query = catalog_names
         .iter()
         .map(|name| ("name".to_string(), name.clone()))
         .collect::<Vec<_>>();
+    if *connected {
+        query.push(("connected".to_string(), "true".to_string()));
+    }
+    // Use the more
+    if ctx.get_output_type() == crate::OutputType::Table {
+        query.push(("short".to_string(), "true".to_string()));
+    }
     let resp: Vec<StatusResponse> = ctx.client.api_get("/api/v1/catalog/status", &query).await?;
     ctx.write_all::<_, StatusOutput>(resp.into_iter().map(StatusOutput), ())?;
     Ok(())
@@ -35,36 +47,24 @@ impl crate::output::CliOutput for StatusOutput {
         vec![
             "Name",
             "Type",
-            "Controller Updated At",
+            "Status",
+            "Message",
             "Live Spec Updated At",
-            "Controller Error",
-            "Failures",
-            "Activation Complete",
+            "Controller Updated At",
         ]
     }
 
     fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-        let mut row = to_table_row(
+        to_table_row(
             &self.0,
             &[
                 "/catalog_name",
                 "/spec_type",
-                "/controller_updated_at",
+                "/summary/status",
+                "/summary/message",
                 "/live_spec_updated_at",
-                "/controller_error",
-                "/failures",
+                "/controller_updated_at",
             ],
-        );
-        // Activation Complete is a computed column so we need to add it manually.
-        let activation_complete = self
-            .0
-            .controller_status
-            .as_ref()
-            .and_then(|s| s.activation_status())
-            .map(|activation| {
-                serde_json::Value::Bool(activation.last_activated == self.0.last_build_id)
-            });
-        row.push(JsonCell(activation_complete));
-        row
+        )
     }
 }
