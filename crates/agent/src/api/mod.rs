@@ -98,6 +98,45 @@ impl App {
             }
         }
     }
+
+    /// Uses the current authorization snapshot to filter `unfiltered_results`
+    /// to include only the items that the user has `min_capability` to. The
+    /// authorization snapshot won't be refreshed, so if it is empty or missing
+    /// authorizations that have recently been added, then the filtering could
+    /// be too strict.
+    pub fn filter_results<I, R, F>(
+        &self,
+        claims: &ControlClaims,
+        min_capability: models::Capability,
+        unfiltered_results: I,
+        extract_prefix: F,
+    ) -> Vec<R>
+    where
+        I: IntoIterator<Item = R>,
+        F: for<'a> Fn(&'a R) -> &'a str,
+    {
+        let started = chrono::Utc::now();
+        let unfiltered_results = unfiltered_results.into_iter();
+        let mut results = Vec::with_capacity(unfiltered_results.size_hint().0);
+
+        Snapshot::evaluate(&self.snapshot, started, |snapshot: &Snapshot| {
+            for candidate in unfiltered_results {
+                let name = extract_prefix(&candidate);
+                if tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    name,
+                    min_capability,
+                ) {
+                    results.push(candidate);
+                }
+            }
+            Ok((None, ()))
+        })
+        .expect("filter_results Snapshot::evaluate always returns Ok");
+        results
+    }
 }
 
 /// Build the agent's API router.
