@@ -337,6 +337,19 @@ async fn test_fields_with_hyphens() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_null_only_fields() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/null_only_location.yaml".to_string();
+    let docs = vec![json!({
+        "id": 1234,
+        "null-only-field": null,
+    })];
+
+    insta::assert_debug_snapshot!(roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_longs() -> anyhow::Result<()> {
     let fixture_path = "tests/fixtures/longs_with_zero.yaml".to_string();
     let raw_input = r#"{"key": 1234, "my_long": 0.0}
