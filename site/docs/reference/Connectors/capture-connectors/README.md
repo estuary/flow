@@ -149,6 +149,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Microsoft SQL Server
   - [Configuration](./SQLServer/)
   - Package - ghcr.io/estuary/source-sqlserver:dev
+- Microsoft SQL Server Batch
+  - [Configuration](./SQLServer/sqlserver-batch.md)
+  - Package - ghcr.io/estuary/source-sqlserver-batch:dev
 - Monday
   - [Configuration](./monday.md)
   - Package - ghcr.io/estuary/source-monday:dev
@@ -158,15 +161,27 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - MySQL
   - [Configuration](./MySQL/)
   - Package - ghcr.io/estuary/source-mysql:dev
+- MySQL Batch
+  - [Configuration](./MySQL/mysql-batch.md)
+  - Package - ghcr.io/estuary/source-mysql-batch:dev
 - NetSuite
   - [Configuration](./netsuite-suiteanalytics.md)
   - Package - ghcr.io/estuary/source-netsuite:dev
+- OracleDB
+  - [Configuration](./OracleDB/)
+  - Package - ghcr.io/estuary/source-oracle:dev
+- OracleDB Batch
+  - [Configuration](./OracleDB/oracle-batch.md)
+  - Package - ghcr.io/estuary/source-oracle-batch:dev
 - Pendo
   - [Configuration](./pendo.md)
   - Package - ghcr.io/estuary/source-pendo:dev
 - PostgreSQL
   - [Configuration](./PostgreSQL/)
   - Package — ghcr.io/estuary/source-postgres:dev
+- PostgreSQL Batch
+  - [Configuration](./PostgreSQL/postgres-batch.md)
+  - Package - ghcr.io/estuary/source-postgres-batch:dev
 - Salesforce
   - [Configuration](./Salesforce/salesforce-native.md)
   - Package - ghcr.io/estuary/source-salesforce-native:dev

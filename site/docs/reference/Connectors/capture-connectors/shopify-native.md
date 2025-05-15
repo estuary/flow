@@ -9,7 +9,29 @@ It is available for use in the Flow web application. For local development or op
 
 The following data resources are supported through the Shopify API:
 
+* [Abandoned Checkouts](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/abandonedCheckouts?example=Retrieves+a+list+of+abandoned+checkouts)
+* [Custom Collections](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/collections?example=Retrieves+a+list+of+custom+collections)
+   * Custom Collection Metafields
+* [Customers](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/customers)
+   * Customer Metafields
+* [Fulfillment Orders](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/fulfillmentorders)
+* [Fulfillments](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/fulfillment)
+* [Inventory Items](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/inventoryItems?example=Retrieves+a+detailed+list+for+inventory+items+by+IDs)
+   * Inventory Levels
+* [Locations](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/locations?example=Retrieve+a+list+of+locations)
+   * Location Metafields
+* [Orders](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/orders?example=Retrieve+a+list+of+orders)
+   * Order Agreements
+   * Order Metafields
+   * Order Refunds
+   * Order Risks
+   * Order Transactions
+* [Product Variants](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/productvariants)
 * [Products](https://shopify.dev/docs/api/admin-graphql/2025-01/queries/products)
+   * Product Media
+   * Product Metafields
+* [Smart Collections](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/collections)
+   * Smart Collection Metafields
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
@@ -34,7 +56,7 @@ If authenticating with an access token, ensure the following permissions are gra
 
 ### Bulk Query Operation Limitations
 
-This connector submits and process the results of [bulk query operations](https://shopify.dev/docs/api/admin-graphql/2025-01/mutations/bulkoperationrunquery) to capture data. Shopify only allows a [single bulk query operation to run at a given time](https://shopify.dev/docs/api/usage/bulk-operations/queries#limitations).To ensure the connector can successfully submit bulk queries, ensure no other applications are submitting bulk query operations for your Shopify store.
+This connector submits and process the results of [bulk query operations](https://shopify.dev/docs/api/admin-graphql/2025-01/mutations/bulkoperationrunquery) to capture data. Shopify only allows a [single bulk query operation to run at a given time](https://shopify.dev/docs/api/usage/bulk-operations/queries#limitations). To ensure the connector can successfully submit bulk queries, ensure no other applications are submitting bulk query operations for your Shopify store.
 
 ## Configuration
 
