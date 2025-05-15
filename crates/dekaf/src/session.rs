@@ -174,29 +174,43 @@ impl Session {
         let authcid = it.next().context("expected SASL authcid")??;
         let password = it.next().context("expected SASL passwd")??;
 
-        let response = match self.app.authenticate(authcid, password).await {
-            Ok(auth) => {
-                let mut response = messages::SaslAuthenticateResponse::default();
+        let mut attempts = 0;
+        loop {
+            let response = match self.app.authenticate(authcid, password).await {
+                Ok(auth) => {
+                    let mut response = messages::SaslAuthenticateResponse::default();
 
-                response.session_lifetime_ms = (auth
-                    .valid_until()
-                    .duration_since(SystemTime::now())?
-                    .as_secs()
-                    * 1000)
-                    .try_into()?;
+                    response.session_lifetime_ms = (auth
+                        .valid_until()
+                        .duration_since(SystemTime::now())?
+                        .as_secs()
+                        * 1000)
+                        .try_into()?;
 
-                self.auth.replace(auth);
-                response
-            }
-            Err(DekafError::Authentication(e)) => messages::SaslAuthenticateResponse::default()
-                .with_error_code(ResponseError::SaslAuthenticationFailed.code())
-                .with_error_message(Some(StrBytes::from_string(format!("{e}")))),
-            Err(DekafError::Unknown(e)) => messages::SaslAuthenticateResponse::default()
-                .with_error_code(ResponseError::UnknownServerError.code())
-                .with_error_message(Some(StrBytes::from_string(format!("{e:#}",)))),
-        };
+                    self.auth.replace(auth);
+                    response
+                }
+                Err(DekafError::Authentication(e)) => messages::SaslAuthenticateResponse::default()
+                    .with_error_code(ResponseError::SaslAuthenticationFailed.code())
+                    .with_error_message(Some(StrBytes::from_string(format!("{e}")))),
+                Err(DekafError::Unknown(e)) => {
+                    tracing::warn!(
+                        ?attempts,
+                        "unknown error during session authentication: {:?}",
+                        e
+                    );
+                    if attempts < 4 {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_secs(3 * attempts)).await;
+                        continue;
+                    }
+                    messages::SaslAuthenticateResponse::default()
+                        .with_error_code(ResponseError::UnknownServerError.code())
+                }
+            };
 
-        Ok(response)
+            return Ok(response);
+        }
     }
 
     /// Serve metadata of topics and their partitions.
