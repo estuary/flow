@@ -23,34 +23,7 @@ The connector automatically discovers bindings for the following HubSpot resourc
 
 ## Prerequisites
 
-There are two ways to authenticate with HubSpot when capturing data: using OAuth2, or with a private app access token.
-Their prerequisites differ.
-
-OAuth is recommended for simplicity in the Flow web app.
-
-### Using OAuth2 to authenticate with HubSpot in the Flow web app
-
-* A HubSpot account
-
-### Configuring the connector specification manually
-
-* A HubSpot account
-
-* The access token for an appropriately configured [private app](https://developers.hubspot.com/docs/api/private-apps) on the Hubspot account.
-
-#### Setup
-
-To create a private app in HubSpot and generate its access token, do the following.
-
-1. Ensure that your HubSpot user account has [super admin](https://knowledge.hubspot.com/settings/hubspot-user-permissions-guide#super-admin) privileges.
-
-2. In HubSpot, create a [new private app](https://developers.hubspot.com/docs/api/private-apps#create-a-private-app).
-
-   1. Name the app "Estuary Flow," or choose another name that is memorable to you.
-
-   2. Grant the new app **Read** access for all available scopes.
-
-   3. Copy the access token for use in the connector configuration.
+OAuth2 is used to authenticate the connector with HubSpot. A HubSpot account is required for the OAuth2 authentication process.
 
 ## Configuration
 
@@ -59,13 +32,13 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-The following properties reflect the access token authentication method.
-
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/credentials`** | Private Application | Authenticate with a private app access token | object | Required |
-| **`/credentials/access_token`** | Access Token | HubSpot Access token. | string | Required |
-| **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
+| **`/credentials`** | Credentials | OAuth2 credentials | object | Required |
+| **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"OAuth Credentials"` |
+| **`/credentials/client_id`** | OAuth Client ID | The OAuth app's client ID. | string | Required |
+| **`/credentials/client_secret`** | OAuth Client Secret | The OAuth app's client secret. | string | Required |
+| **`/credentials/refresh_token`** | Refresh Token | The refresh token received from the OAuth app. | string | Required |
 
 #### Bindings
 
@@ -83,8 +56,10 @@ captures:
       connector:
         image: ghcr.io/estuary/source-hubspot-native:dev
         config:
-          credentials_title: Private App Credentials
-          access_token: <secret>
+          client_id: <secret>
+          client_secret: <secret>
+          credentials_title: OAuth Credentials
+          refresh_token: <secret>
     bindings:
       - resource:
           name: companies
