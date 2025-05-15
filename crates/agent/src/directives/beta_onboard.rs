@@ -281,6 +281,9 @@ mod test {
           {
             "prefix": "AcmeTenant/",
             "storageMapping": {
+              "data_planes": [
+                "ops/dp/public/test"
+              ],
               "stores": [
                 {
                   "bucket": "estuary-trial",
