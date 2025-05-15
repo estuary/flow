@@ -78,9 +78,17 @@ pub async fn provision_tenant(
                 ($2, 'ops/dp/public/', 'read', $3) -- Tenant may access public data-planes.
             on conflict do nothing
         ),
+        public_planes as (
+            select json_agg(data_plane_name order by id asc) as arr
+            from data_planes
+            where starts_with(data_plane_name, 'ops/dp/public/')
+        ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
-                ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}', $3),
+                ($2, json_build_object(
+                    'stores', '[{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]'::json,
+                    'data_planes', (select arr from public_planes)
+                ), $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
         ),
