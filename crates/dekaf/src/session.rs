@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
+use itertools::Itertools;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -14,12 +15,12 @@ use kafka_protocol::{
         metadata_response::{
             MetadataResponseBroker, MetadataResponsePartition, MetadataResponseTopic,
         },
-        ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
+        ConsumerProtocolAssignment, ConsumerProtocolSubscription, GroupId, ListGroupsResponse,
         RequestHeader, TopicName,
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
-use std::{cmp::max, sync::Arc};
+use std::{cmp::max, str::FromStr, sync::Arc};
 use std::{
     collections::{hash_map::Entry, HashMap},
     time::SystemTime,
@@ -852,6 +853,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
         let mut mutable_req = req.clone();
+        mutable_req.group_id = self.to_upstream_group_id(mutable_req.group_id)?;
+
         for protocol in mutable_req.protocols.iter_mut() {
             let mut consumer_protocol_subscription_raw = protocol.metadata.clone();
 
@@ -911,7 +914,7 @@ impl Session {
         let response = self
             .get_kafka_client()
             .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
+            .connect_to_group_coordinator(mutable_req.group_id.as_str())
             .await?
             .send_request(mutable_req.clone(), Some(header))
             .await?;
@@ -923,6 +926,7 @@ impl Session {
 
         // Now re-translate response
         let mut mutable_resp = response.clone();
+
         for member in mutable_resp.members.iter_mut() {
             let mut consumer_protocol_subscription_raw = member.metadata.clone();
 
@@ -962,9 +966,10 @@ impl Session {
     #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn leave_group(
         &mut self,
-        req: messages::LeaveGroupRequest,
+        mut req: messages::LeaveGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::LeaveGroupResponse> {
+        req.group_id = self.to_upstream_group_id(req.group_id)?;
         let client = self
             .get_kafka_client()
             .await?
@@ -1015,6 +1020,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
         let mut mutable_req = req.clone();
+        mutable_req.group_id = self.to_upstream_group_id(mutable_req.group_id)?;
+
         for assignment in mutable_req.assignments.iter_mut() {
             let mut consumer_protocol_assignment_raw = assignment.assignment.clone();
             let consumer_protocol_assignment_version = consumer_protocol_assignment_raw
@@ -1059,7 +1066,7 @@ impl Session {
         let response = self
             .get_kafka_client()
             .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
+            .connect_to_group_coordinator(mutable_req.group_id.as_str())
             .await?
             .send_request(mutable_req.clone(), Some(header))
             .await?;
@@ -1104,9 +1111,15 @@ impl Session {
     #[instrument(skip_all, fields(groups=?req.groups_names))]
     pub async fn delete_group(
         &mut self,
-        req: messages::DeleteGroupsRequest,
+        mut req: messages::DeleteGroupsRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::DeleteGroupsResponse> {
+        req.groups_names = req
+            .groups_names
+            .into_iter()
+            .map(|group| self.to_upstream_group_id(group))
+            .collect::<anyhow::Result<_>>()?;
+
         return self
             .get_kafka_client()
             .await?
@@ -1117,9 +1130,11 @@ impl Session {
     #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn heartbeat(
         &mut self,
-        req: messages::HeartbeatRequest,
+        mut req: messages::HeartbeatRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::HeartbeatResponse> {
+        req.group_id = self.to_upstream_group_id(req.group_id)?;
+
         let client = self
             .get_kafka_client()
             .await?
@@ -1134,6 +1149,10 @@ impl Session {
         mut req: messages::OffsetCommitRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
+        let original_group_id = req.group_id.clone();
+
+        req.group_id = self.to_upstream_group_id(req.group_id)?;
+
         let collections = self
             .fetch_collections(req.topics.iter().map(|topic| &topic.name))
             .await?;
@@ -1219,7 +1238,7 @@ impl Session {
                         ))?
                         .committed_offset;
 
-                    metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name.clone()).set(committed_offset as f64);
+                    metrics::gauge!("dekaf_committed_offset", "group_id"=>original_group_id.to_string(),"journal_name"=>journal_name.clone()).set(committed_offset as f64);
                     tracing::info!(topic_name = decrypted_name.as_str(), journal_name, partitions = ?topic.partitions, committed_offset, "Committed offset");
                 }
             }
@@ -1234,6 +1253,8 @@ impl Session {
         mut req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        req.group_id = self.to_upstream_group_id(req.group_id)?;
+
         let collection_partitions = if let Some(topics) = &req.topics {
             self.fetch_collections(topics.iter().map(|topic| &topic.name))
                 .await?
@@ -1335,24 +1356,80 @@ impl Session {
     }
 
     fn encrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
+        let mapped_topic_name = match self.auth.as_ref().context("Must be authenticated")? {
+            SessionAuthentication::Task(auth)
+                if auth.config.advanced.feature_enabled("namespaced_ids") =>
+            {
+                let binding = auth
+                    .get_binding_for_topic(name.as_str())?
+                    .ok_or(anyhow::anyhow!("Cannot find binding for {name:?}"))?;
+                let collection = binding
+                    .collection
+                    .as_ref()
+                    .ok_or(anyhow::anyhow!("Missing collection for binding"))?;
+                let partition_template = collection
+                    .partition_template
+                    .as_ref()
+                    .ok_or(anyhow::anyhow!("Missing partition template for collection"))?;
+                // Namespace the topic name with collection's partition prefix and binding state key
+                TopicName::from(StrBytes::from_utf8(Bytes::from(format!(
+                    "{}-{}-{}",
+                    partition_template.name,
+                    binding.state_key,
+                    name.as_str()
+                )))?)
+            }
+            _ => name,
+        };
+
         to_upstream_topic_name(
-            name,
+            mapped_topic_name,
             self.secret.to_owned(),
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
+                SessionAuthentication::Task(auth)
+                    if auth.config.advanced.feature_enabled("namespaced_ids") =>
+                {
+                    // Fix the bug where changing your token breaks decoding topic names in group APIs
+                    auth.task_name.to_string()
+                }
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
             },
         )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
-        from_upstream_topic_name(
+        let decrypted = from_upstream_topic_name(
             name,
             self.secret.to_owned(),
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
             },
-        )
+        )?;
+
+        match self.auth.as_ref().context("Must be authenticated")? {
+            SessionAuthentication::Task(auth)
+                if auth.config.advanced.feature_enabled("namespaced_ids") =>
+            {
+                let (partition_template, binding_state_key, topic_name) = decrypted
+                    .split('-')
+                    .map(|s| s.to_string())
+                    .collect_tuple()
+                    .context("Failed to decode topic name {decrypted}")?;
+
+                tracing::debug!(
+                    partition_template,
+                    binding_state_key,
+                    topic_name,
+                    "Decrypted topic name"
+                );
+
+                Ok(TopicName::from(StrBytes::from_utf8(Bytes::from(
+                    topic_name,
+                ))?))
+            }
+            _ => Ok(decrypted),
+        }
     }
 
     fn encode_topic_name(&self, name: String) -> anyhow::Result<TopicName> {
@@ -1365,6 +1442,38 @@ impl Session {
             ))))
         } else {
             Ok(TopicName(StrBytes::from_string(name)))
+        }
+    }
+
+    fn to_upstream_group_id(&self, group_id: GroupId) -> anyhow::Result<GroupId> {
+        match self.auth.as_ref().context("Must be authenticated")? {
+            SessionAuthentication::Task(auth)
+                if auth.config.advanced.feature_enabled("namespaced_ids") =>
+            {
+                Ok(GroupId::from(StrBytes::from_utf8(Bytes::from(format!(
+                    "{}-{}",
+                    auth.task_name,
+                    group_id.as_str()
+                )))?))
+            }
+            _ => Ok(group_id), // Changed to return Ok(group_id)
+        }
+    }
+
+    fn from_upstream_group_id(&self, group_id: GroupId) -> anyhow::Result<GroupId> {
+        match self.auth.as_ref().context("Must be authenticated")? {
+            SessionAuthentication::Task(auth)
+                if auth.config.advanced.feature_enabled("namespaced_ids") =>
+            {
+                let (_task_name, group_id) = group_id
+                    .split('-')
+                    .map(|s| s.to_string())
+                    .collect_tuple()
+                    .context("Failed to decode group id {group_id}")?;
+
+                Ok(GroupId::from(StrBytes::from_utf8(Bytes::from(group_id))?))
+            }
+            _ => Ok(group_id), // Changed to return Ok(group_id)
         }
     }
 
