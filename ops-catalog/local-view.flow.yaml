@@ -75,3 +75,20 @@ materializations:
           exclude:
             - event_type
             - fields/eventType
+      - source:
+          name: ops.us-central1.v1/events/L2
+          partitions:
+            include:
+              event_type: ["configUpdate"]
+        resource:
+          table: config_updates
+        fields:
+          recommended: false
+          include:
+            catalog_name: {}
+            build: { "DDL": "flowid" }
+            ts: {}
+            flow_document: {}
+          exclude:
+            - event_type
+            - fields/eventType

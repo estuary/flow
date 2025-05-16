@@ -2,7 +2,9 @@ use crate::discovers::Changed;
 use crate::draft_error;
 use crate::evolutions::EvolvedCollection;
 use crate::publications;
-use crate::status::{activation::ActivationStatus, publications::PublicationStatus};
+use crate::status::{
+    activation::ActivationStatus, publications::PublicationStatus, PendingConfigUpdateStatus,
+};
 use crate::ResourcePath;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -15,6 +17,8 @@ pub struct CaptureStatus {
     pub publications: PublicationStatus,
     #[serde(default)]
     pub activation: ActivationStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_updates: Option<PendingConfigUpdateStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_discover: Option<AutoDiscoverStatus>,
 }

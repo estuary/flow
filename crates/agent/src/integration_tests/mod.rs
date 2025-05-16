@@ -4,6 +4,7 @@
 //! connectors are not exercised as part of these.
 mod auto_discovers;
 mod collection_resets;
+mod config_updates;
 mod dependencies_and_activations;
 mod evolutions;
 pub mod harness;
