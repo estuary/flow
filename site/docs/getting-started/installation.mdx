@@ -37,9 +37,20 @@ You'll need to grant Estuary Flow access to your GCS bucket.
    to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
    As you do so:
 
+   <Tabs>
+   <TabItem value="Global Data Plane" default>
     - For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
 
     - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
+   </TabItem>
+   <TabItem value="EU Data Plane">
+    - For the principal, enter `data-plane-48vsfi8i91j6c1ns@helpful-kingdom-273219.iam.gserviceaccount.com`
+
+    - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
+   </TabItem>
+   </Tabs>
+
+   You can also find the correct principal in the **Data Planes** section on your [Settings page](https://dashboard.estuary.dev/admin/settings) in the Estuary dashboard.
 
 ## Amazon S3 buckets
 
@@ -92,7 +103,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
 }
 ```
 </TabItem>
-<TabItem value="EU Data Plane policy" default>
+<TabItem value="EU Data Plane policy">
 ```json
 {
   "Version": "2012-10-17",
@@ -163,7 +174,7 @@ You'll also need to provide some identifying information.
    You'll grant Flow access to your storage resources by connecting to Estuary's
    [Azure application](https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/what-is-application-management).
 
-3. Add Estuary's Azure application to your tenant. When you finish, you will be redirected back to these docs.
+3. Add Estuary's Azure application to your tenant.
 
 import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";

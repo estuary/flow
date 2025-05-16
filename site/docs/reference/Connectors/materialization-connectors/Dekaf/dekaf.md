@@ -1,9 +1,13 @@
 
+import ReactPlayer from "react-player";
+
 # Dekaf
 
 This connector materializes Flow collections as Kafka-compatible messages that Kafka consumers can read.
 
 If you want to send messages to your own Kafka broker, see the [Kafka](../apache-kafka.md) materialization connector instead.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=Oil8yNHRrqQ" />
 
 ## Prerequisites
 
