@@ -1,33 +1,17 @@
-import ReactPlayer from "react-player";
+# RisingWave
 
-# Dekaf
-
-This connector materializes Flow collections as Kafka-compatible messages that Kafka consumers can read.
-
-If you want to send messages to your own Kafka broker, see the [Kafka](../apache-kafka.md) materialization connector instead.
-
-<ReactPlayer controls url="https://www.youtube.com/watch?v=Oil8yNHRrqQ" />
+This connector materializes Flow collections as Kafka-compatible messages that a RisingWave Kafka consumer can read. [RisingWave](https://www.risingwave.com/) is a cloud-native SQL streaming database that enables real-time data processing and analytics.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
 - At least one Flow collection
-- At least one Kafka consumer
+- A RisingWave instance
 
 ## Variants
 
-Dekaf can be used with a number of systems that act as Kafka consumers. Specific instructions are provided for the following systems:
-
-- [Bytewax](bytewax.md)
-- [ClickHouse](clickhouse.md)
-- [Imply Polaris](imply-polaris.md)
-- [Materialize](materialize.md)
-- [SingleStore](singlestore.md)
-- [Startree](startree.md)
-- [Tinybird](tinybird.md)
-- [RisingWave](risingwave.md)
-  For other use cases, continue with the setup details below for general instruction.
+This connector is a variant of the default Dekaf connector. For other integration options, see the main [Dekaf](dekaf.md) page.
 
 ## Setup
 
@@ -35,18 +19,36 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-You may then connect to a Kafka consumer of your choice using the following details:
+## Connecting Estuary Flow to RisingWave
 
-- **Broker Address**: `dekaf.estuary-data.com:9092`
-- **Schema Registry Address**: `https://dekaf.estuary-data.com`
-- **Security Protocol**: `SASL_SSL`
-- **SASL Mechanism**: `PLAIN`
-- **SASL Username**: The full name of your materialization
-- **SASL Password**: The auth token you specified
-- **Schema Registry Username**: The full name of your materialization
-- **Schema Registry Password**: The auth token you specified
+1. In your RisingWave instance, use the SQL shell to create a source that connects to your Estuary Flow materialization. Use the following SQL command:
 
-To subscribe to a particular topic, use a binding's topic name. By default, this will be the collection name.
+   ```sql
+   CREATE SOURCE IF NOT EXISTS estuary
+   WITH (
+      connector='kafka',
+      topic='<your-collection-name>',
+      properties.bootstrap.server='dekaf.estuary-data.com:9092',
+      scan.startup.mode='latest',
+      properties.sasl.mechanism='PLAIN',
+      properties.security.protocol='SASL_SSL',
+      properties.sasl.username='YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION',
+      properties.sasl.password='YOUR-AUTH-TOKEN'
+   ) FORMAT PLAIN ENCODE AVRO (
+      schema.registry = 'https://dekaf.estuary-data.com',
+      schema.registry.username='YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION',
+      schema.registry.password='YOUR-AUTH-TOKEN'
+   );
+   ```
+
+2. Create a materialized view to process the data:
+
+   ```sql
+   CREATE MATERIALIZED VIEW IF NOT EXISTS estuary_view AS
+   SELECT * FROM estuary;
+   ```
+
+   You can customize the materialized view with your desired SQL transformations and aggregations.
 
 ## Configuration
 
@@ -80,7 +82,7 @@ materializations:
           token: <auth-token>
           strict_topic_names: false
           deletions: kafka
-        variant: generic
+        variant: risingwave
     bindings:
       - resource:
           topic_name: ${COLLECTION_NAME}
