@@ -143,7 +143,7 @@ impl GazetteWriter {
         &self,
         task_name: &str,
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
-        let task_listener = self.task_manager.get_listener(task_name).await;
+        let task_listener = self.task_manager.get_listener(task_name);
 
         let initial_state = task_listener.get().await?;
 
