@@ -174,7 +174,7 @@ impl TaskAuth {
                 access_token: token,
                 access_token_claims: claims,
                 ..
-            } = self.task_state_listener.get().await?;
+            } = self.task_state_listener.get()?;
 
             self.client = self
                 .client
@@ -217,7 +217,12 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            let listener = self.task_manager.get_listener(&username).await;
+            let listener = self
+                .task_manager
+                .get_listener(&username)
+                .await
+                .wait_until_ready()
+                .await?;
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
             let TaskState {
@@ -225,7 +230,7 @@ impl App {
                 access_token_claims: claims,
                 spec,
                 ..
-            } = listener.get().await?;
+            } = listener.get()?;
 
             // Decrypt this materialization's endpoint config
             let config = topology::extract_dekaf_config(&spec).await?;
@@ -585,22 +590,37 @@ fn enc_resp<
 /// NOTE that the output of this function must be deterministic,
 /// that is: it cannot use a random nonce like you normally would
 /// when encrypting data.
-fn to_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
+fn to_upstream_topic_name(
+    topic: TopicName,
+    secret: String,
+    nonce: String,
+) -> anyhow::Result<TopicName> {
     let (cipher, nonce) = create_crypto(secret, nonce);
 
-    let encrypted = cipher.encrypt(&nonce, topic.as_bytes()).unwrap();
+    let encrypted = cipher
+        .encrypt(&nonce, topic.as_bytes())
+        .map_err(|_| anyhow::anyhow!("Encryption failed"))?;
     let encoded = hex::encode(encrypted);
-    TopicName::from(StrBytes::from_string(encoded))
+    Ok(TopicName::from(StrBytes::from_string(encoded)))
 }
 
 /// Convert the output of [`to_upstream_topic_name`] back into
 /// its plain collection name format.
-fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
+fn from_upstream_topic_name(
+    topic: TopicName,
+    secret: String,
+    nonce: String,
+) -> anyhow::Result<TopicName> {
     let (cipher, nonce) = create_crypto(secret, nonce);
-    let decoded = hex::decode(topic.as_bytes()).unwrap();
-    let decrypted = cipher.decrypt(&nonce, decoded.as_slice()).unwrap();
+    let decoded = hex::decode(topic.as_bytes())?;
+    let decrypted = cipher
+        .decrypt(&nonce, decoded.as_slice())
+        // Decrypt error is intentionally opaque
+        .map_err(|_| anyhow::anyhow!("Unable to decrypt topic name: {topic:?}"))?;
 
-    TopicName::from(StrBytes::from_utf8(Bytes::from(decrypted)).unwrap())
+    Ok(TopicName::from(StrBytes::from_utf8(Bytes::from(
+        decrypted,
+    ))?))
 }
 
 fn create_crypto(secret: String, nonce: String) -> (Aes256SivAead, aes_siv::Nonce) {
@@ -675,32 +695,34 @@ mod test {
     use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 
     #[test]
-    fn test_encryption_deterministic() {
+    fn test_encryption_deterministic() -> anyhow::Result<()> {
         let enc_1 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
         let enc_2 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
 
         assert_eq!(enc_1, enc_2);
+        Ok(())
     }
 
     #[test]
-    fn test_encrypt_decrypt() {
+    fn test_encrypt_decrypt() -> anyhow::Result<()> {
         let encrypted = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
 
         let decrypted =
-            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
+            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string())?;
 
         assert_eq!(decrypted.as_str(), "Test Topic");
+        Ok(())
     }
 }
