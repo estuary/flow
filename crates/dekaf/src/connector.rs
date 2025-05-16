@@ -47,6 +47,9 @@ pub struct DekafConfig {
     #[serde(default)]
     #[schemars(title = "Strict Topic Names")]
     pub strict_topic_names: bool,
+    #[serde(default)]
+    #[schemars(title = "Advanced")]
+    pub advanced: Advanced,
 }
 
 /// Configures a particular binding in a Dekaf-type materialization
@@ -56,6 +59,52 @@ pub struct DekafResourceConfig {
     /// will be exposed through the Kafka metadata/discovery APIs.
     #[schemars(schema_with = "collection_name")]
     pub topic_name: String,
+}
+
+/// Advanced settings
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Advanced {
+    #[schemars(title = "Feature Flags", default = "feature_flags_default")]
+    pub feature_flags: Vec<String>,
+}
+
+impl Default for Advanced {
+    fn default() -> Self {
+        Self {
+            feature_flags: feature_flags_default(),
+        }
+    }
+}
+
+impl Advanced {
+    pub fn feature_enabled(&self, feature: &str) -> bool {
+        // There are 3 possible states for a feature flag:
+        // 1. The feature is explicitly enabled (e.g. "namespaced_ids")
+        // 2. The feature is explicitly disabled (e.g. "no_namespaced_ids")
+        // 3. The feature is not set at all (e.g. "namespaced_ids" is not in the list)
+        //    In this case, we apply the default value for the feature flag.
+
+        // First check if the flag is explicitly specified
+        if self.feature_flags.contains(&feature.to_string()) {
+            return true;
+        } else if self.feature_flags.contains(&format!("no_{}", feature)) {
+            return false;
+        }
+
+        let defaults = feature_flags_default();
+        if defaults.contains(&feature.to_string()) {
+            return true;
+        } else if defaults.contains(&format!("no_{}", feature)) {
+            return false;
+        }
+
+        // If the flag is not explicitly set and not in the defaults, assume disabled
+        return false;
+    }
+}
+
+fn feature_flags_default() -> Vec<String> {
+    vec!["no_namespaced_ids".to_string()]
 }
 
 fn collection_name(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {

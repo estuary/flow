@@ -64,30 +64,48 @@ pub struct TaskState {
     pub ops_stats_client: Result<(journal::Client, proto_gazette::Claims)>,
 }
 
+pub struct PendingTaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
 /// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
 #[derive(Clone)]
 pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
 impl TaskStateListener {
-    /// Gets the current state, waiting if it's not yet available.
+    /// Gets the current state, or error if it's not yet available
     /// Returns a clone of the state or the cached error.
-    pub async fn get(&self) -> anyhow::Result<TaskState> {
+    pub fn get(&self) -> anyhow::Result<TaskState> {
         let mut temp_rx = (*self.0).clone();
-        loop {
-            // Scope to force the borrow to end before awaiting
-            {
-                let current_value = temp_rx.borrow_and_update();
-                if let Some(ref result) = *current_value {
-                    return result.clone().map_err(anyhow::Error::from);
-                }
+        // Scope to force the borrow to end before awaiting
+        {
+            let current_value = temp_rx.borrow_and_update();
+            if let Some(ref result) = *current_value {
+                return result.clone().map_err(anyhow::Error::from);
+            } else {
+                anyhow::bail!(
+                    "TaskManager hasn't emitted any updates yet, try awaiting `wait_until_ready`"
+                );
             }
-
-            temp_rx
-                .changed()
-                .await
-                .map_err(anyhow::Error::from)
-                .context("TaskManager's watch channel sender was dropped unexpectedly")?;
         }
+    }
+}
+
+impl PendingTaskStateListener {
+    pub async fn wait_until_ready(self) -> anyhow::Result<TaskStateListener> {
+        let mut temp_rx = (*self.0).clone();
+
+        // Scope to force the borrow to end before awaiting
+        {
+            if temp_rx.borrow_and_update().is_some() {
+                return Ok(TaskStateListener(self.0));
+            }
+        }
+
+        temp_rx
+            .changed()
+            .await
+            .map_err(anyhow::Error::from)
+            .context("TaskManager's watch channel sender was dropped unexpectedly")?;
+
+        return Ok(TaskStateListener(self.0));
     }
 }
 
@@ -137,14 +155,17 @@ impl TaskManager {
     /// Returns a [`tokio::sync::watch::Receiver`] that will receive updates to the task state.
     /// The receiver is weakly referenced, so it may be dropped if no one is listening.
     #[tracing::instrument(skip(self))]
-    pub async fn get_listener(self: &std::sync::Arc<Self>, task_name: &str) -> TaskStateListener {
+    pub async fn get_listener(
+        self: &std::sync::Arc<Self>,
+        task_name: &str,
+    ) -> PendingTaskStateListener {
         // Scope to force the `tasks` lock to be released before awaiting
         let (sender, receiver, activity_signal) = {
             let mut tasks_guard = self.tasks.lock().unwrap();
             if let Some((activity, weak_receiver)) = tasks_guard.get(task_name) {
                 if let Some(receiver) = weak_receiver.upgrade() {
                     activity.store(true, Ordering::Relaxed);
-                    return TaskStateListener(receiver.clone());
+                    return PendingTaskStateListener(receiver.clone());
                 }
             }
 
@@ -186,7 +207,7 @@ impl TaskManager {
             ),
         ));
 
-        TaskStateListener(receiver)
+        PendingTaskStateListener(receiver)
     }
 
     /// Runs the task manager loop until either there are no more receivers or the stop signal is triggered.

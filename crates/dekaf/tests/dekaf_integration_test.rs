@@ -476,6 +476,9 @@ async fn test_field_selection_specific() -> anyhow::Result<()> {
             deletions: dekaf::connector::DeletionMode::Kafka,
             strict_topic_names: false,
             token: "1234".to_string(),
+            advanced: dekaf::connector::Advanced {
+                feature_flags: vec!["no_namespaced_ids".to_string()],
+            },
         },
         json!({
             "schema": {
@@ -526,6 +529,9 @@ async fn test_field_selection_recommended() -> anyhow::Result<()> {
             deletions: dekaf::connector::DeletionMode::Kafka,
             strict_topic_names: false,
             token: "1234".to_string(),
+            advanced: dekaf::connector::Advanced {
+                feature_flags: vec!["no_namespaced_ids".to_string()],
+            },
         },
         json!({
             "schema": {
@@ -573,6 +579,9 @@ async fn test_field_selection_flow_document() -> anyhow::Result<()> {
             deletions: dekaf::connector::DeletionMode::Kafka,
             strict_topic_names: false,
             token: "1234".to_string(),
+            advanced: dekaf::connector::Advanced {
+                feature_flags: vec!["no_namespaced_ids".to_string()],
+            },
         },
         json!({
             "schema": {
@@ -628,6 +637,9 @@ async fn test_meta_is_deleted() -> anyhow::Result<()> {
             deletions: dekaf::connector::DeletionMode::CDC,
             strict_topic_names: false,
             token: "1234".to_string(),
+            advanced: dekaf::connector::Advanced {
+                feature_flags: vec!["no_namespaced_ids".to_string()],
+            },
         },
         json!({
             "schema": {
@@ -697,6 +709,9 @@ async fn test_fields_not_required() -> anyhow::Result<()> {
             deletions: dekaf::connector::DeletionMode::Kafka,
             strict_topic_names: false,
             token: "1234".to_string(),
+            advanced: dekaf::connector::Advanced {
+                feature_flags: vec!["no_namespaced_ids".to_string()],
+            },
         },
         json!({
             "schema": {

@@ -143,9 +143,14 @@ impl GazetteWriter {
         &self,
         task_name: &str,
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
-        let task_listener = self.task_manager.get_listener(task_name).await;
+        let task_listener = self
+            .task_manager
+            .get_listener(task_name)
+            .await
+            .wait_until_ready()
+            .await?;
 
-        let initial_state = task_listener.get().await?;
+        let initial_state = task_listener.get()?;
 
         Ok((
             GazetteAppender::OpsLogs(GazetteAppenderState {
@@ -210,15 +215,13 @@ impl GazetteAppender {
         match self {
             GazetteAppender::OpsStats(state) => state
                 .task_listener
-                .get()
-                .await?
+                .get()?
                 .ops_stats_client
                 .map(|(client, _claims)| client)
                 .map_err(|err| err.into()),
             GazetteAppender::OpsLogs(state) => state
                 .task_listener
-                .get()
-                .await?
+                .get()?
                 .ops_logs_client
                 .map(|(client, _claims)| client)
                 .map_err(|err| err.into()),

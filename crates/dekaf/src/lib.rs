@@ -174,7 +174,7 @@ impl TaskAuth {
                 access_token: token,
                 access_token_claims: claims,
                 ..
-            } = self.task_state_listener.get().await?;
+            } = self.task_state_listener.get()?;
 
             self.client = self
                 .client
@@ -217,7 +217,12 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            let listener = self.task_manager.get_listener(&username).await;
+            let listener = self
+                .task_manager
+                .get_listener(&username)
+                .await
+                .wait_until_ready()
+                .await?;
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
             let TaskState {
@@ -225,7 +230,7 @@ impl App {
                 access_token_claims: claims,
                 spec,
                 ..
-            } = listener.get().await?;
+            } = listener.get()?;
 
             // Decrypt this materialization's endpoint config
             let config = topology::extract_dekaf_config(&spec).await?;
@@ -690,32 +695,34 @@ mod test {
     use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 
     #[test]
-    fn test_encryption_deterministic() {
+    fn test_encryption_deterministic() -> anyhow::Result<()> {
         let enc_1 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
         let enc_2 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
 
         assert_eq!(enc_1, enc_2);
+        Ok(())
     }
 
     #[test]
-    fn test_encrypt_decrypt() {
+    fn test_encrypt_decrypt() -> anyhow::Result<()> {
         let encrypted = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
 
         let decrypted =
-            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
+            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string())?;
 
         assert_eq!(decrypted.as_str(), "Test Topic");
+        Ok(())
     }
 }
