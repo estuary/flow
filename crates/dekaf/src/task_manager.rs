@@ -137,7 +137,7 @@ impl TaskManager {
     /// Returns a [`tokio::sync::watch::Receiver`] that will receive updates to the task state.
     /// The receiver is weakly referenced, so it may be dropped if no one is listening.
     #[tracing::instrument(skip(self))]
-    pub async fn get_listener(self: &std::sync::Arc<Self>, task_name: &str) -> TaskStateListener {
+    pub fn get_listener(self: &std::sync::Arc<Self>, task_name: &str) -> TaskStateListener {
         // Scope to force the `tasks` lock to be released before awaiting
         let (sender, receiver, activity_signal) = {
             let mut tasks_guard = self.tasks.lock().unwrap();
