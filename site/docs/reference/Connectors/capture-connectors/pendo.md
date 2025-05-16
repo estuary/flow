@@ -12,6 +12,8 @@ The following data resources are supported through the Pendo API:
 * [Guide](https://engageapi.pendo.io/#4f1e3ca1-fc41-4469-bf4b-da90ee8caf3d)
 * [Page](https://engageapi.pendo.io/#a53463f9-bdd3-443e-b22f-b6ea6c7376fb)
 * [Report](https://engageapi.pendo.io/#2ac0699a-b653-4082-be11-563e5c0c9410)
+* [TrackType](https://engageapi.pendo.io/#9f83f648-4fe7-45db-b30d-963679af6304)
+* [Visitor](https://engageapi.pendo.io/#dd943e68-5bff-4a1a-9891-b55638ae2c3d)
 * [PageEvents](https://engageapi.pendo.io/#9af41daf-e6f2-4dc2-8031-836922aad09e)
 * [FeatureEvents](https://engageapi.pendo.io/#a26da609-62d0-43ea-814b-956551f2abeb)
 * [TrackEvents](https://engageapi.pendo.io/#97927543-0222-42b9-93a2-0775d2c62e1e)
@@ -58,30 +60,6 @@ captures:
             access_token: <secret>
     bindings:
       - resource:
-          name: Feature
-        target: ${PREFIX}/Feature
-      - resource:
-          name: Guide
-        target: ${PREFIX}/Guide
-      - resource:
-          name: Page
-        target: ${PREFIX}/Page
-      - resource:
-          name: Report
-        target: ${PREFIX}/Report
-      - resource:
-          name: PageEvents
-        target: ${PREFIX}/PageEvents
-      - resource:
           name: FeatureEvents
         target: ${PREFIX}/FeatureEvents
-      - resource:
-          name: TrackEvents
-        target: ${PREFIX}/TrackEvents
-      - resource:
-          name: GuideEvents
-        target: ${PREFIX}/GuideEvents
-      - resource:
-          name: PollEvents
-        target: ${PREFIX}/PollEvents
 ```
