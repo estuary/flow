@@ -27,8 +27,7 @@ Dekaf can be used with a number of systems that act as Kafka consumers. Specific
 - [Startree](startree.md)
 - [Tinybird](tinybird.md)
 - [RisingWave](risingwave.md)
-
-For other use cases, continue with the setup details below for general instruction.
+  For other use cases, continue with the setup details below for general instruction.
 
 ## Setup
 
