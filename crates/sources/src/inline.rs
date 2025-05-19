@@ -235,7 +235,7 @@ fn inline_materialization(
     resources: &[tables::Resource],
 ) {
     let models::MaterializationDef {
-        source: _,
+        source_capture: _,
         endpoint,
         bindings,
         shards: _,

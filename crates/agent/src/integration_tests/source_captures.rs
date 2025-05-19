@@ -165,10 +165,7 @@ async fn test_source_captures() {
         .as_materialization()
         .unwrap();
     assert!(no_source_model.bindings.is_empty());
-    assert_eq!(
-        Some(&models::SourceType::Configured(models::SourceDef::default())),
-        no_source_model.source.as_ref()
-    );
+    assert!(no_source_model.source_capture.is_none());
     let no_source_status = no_source_state.current_status.unwrap_materialization();
     assert_eq!(
         Some("in response to deletion one or more depencencies, removed sourceCapture: \"ducks/notARealCapture\" because the capture was deleted"),
@@ -314,10 +311,7 @@ async fn test_source_captures_collection_name() {
         .as_materialization()
         .unwrap();
     assert!(no_source_model.bindings.is_empty());
-    assert_eq!(
-        Some(&models::SourceType::Configured(models::SourceDef::default())),
-        no_source_model.source.as_ref()
-    );
+    assert!(no_source_model.source_capture.is_none());
     let no_source_status = no_source_state.current_status.unwrap_materialization();
     assert_eq!(
         Some("in response to deletion one or more depencencies, removed sourceCapture: \"ducks/notARealCapture\" because the capture was deleted"),
