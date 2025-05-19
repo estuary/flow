@@ -2,59 +2,34 @@ use super::Capture;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// How to name target resources (database tables, for example) for materializing
-/// a given Collection.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize,  Clone, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum TargetNaming {
-    /// Leave the materialization binding's schema field empty, therefore
-    /// falling back to the default schema of the materialization. For example,
-    /// materialize the collection `acmeCo/mySchema/myTable` to a table called
-    /// `myTable`, without specifying the schema.
-    ///
-    /// This used to be called `leaveEmpty`, and that value is still accepted,
-    /// but specs will always be written with `noSchema` instead.
-    #[serde(alias = "leaveEmpty")]
-    NoSchema,
-    /// Use the 2nd-to-last component of the collection name as the schema of
-    /// the materialization binding. For example, materialize the collection
-    /// `acmeCo/mySchema/myTable` to a table called `myTable` in the schema
-    /// `mySchema`.
-    ///
-    /// This used to be called `fromSourceName`, and that value is still
-    /// accepted, but specs will always be written with `withSchema` instead.
-    #[serde(alias = "fromSourceName")]
-    WithSchema,
-    /// Use the 2nd-to-last component of the collection name to prefix the
-    /// destination resource name, leaving the schema unspecified. For example,
-    /// materialize the collection `acmeCo/mySchema/myTable` to a table called
-    /// `mySchema_myTable`.
-    PrefixSchema,
+pub enum SourceCaptureSchemaMode {
+    /// Leave the materialization binding's schema field empty, therefore falling back to the
+    /// default schema of the materialization
+    LeaveEmpty,
+    /// Use the 2nd-to-last component of the collection name as the schema of the materialization
+    /// binding
+    FromSourceName,
 }
 
-impl Default for TargetNaming {
+impl Default for SourceCaptureSchemaMode {
     fn default() -> Self {
-        TargetNaming::NoSchema
+        SourceCaptureSchemaMode::LeaveEmpty
     }
 }
 
-/// Specifies configuration for source captures, and defaults for new bindings
-/// that are added to the materialization. Changing these defaults has no effect
-/// on existing bindings.
+/// SourceCaptureDef specifies configuration for source captures
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct SourceDef {
+pub struct SourceCaptureDef {
     /// Capture name
-    pub capture: Option<Capture>,
+    pub capture: Capture,
 
     /// When adding new bindings from a source capture to a materialization, how should the schema
     /// of the materialization binding be set
-    #[serde(
-        default,
-        alias = "targetSchema",
-        skip_serializing_if = "super::is_default"
-    )]
-    pub target_naming: TargetNaming,
+    #[serde(default, skip_serializing_if = "super::is_default")]
+    pub target_schema: SourceCaptureSchemaMode,
 
     /// When adding new bindings from a source capture to a materialization, should the new
     /// bindings be marked as delta updates
@@ -62,36 +37,29 @@ pub struct SourceDef {
     pub delta_updates: bool,
 }
 
-impl SourceDef {
-    pub fn without_source_capture(mut self) -> Self {
-        self.capture.take();
-        self
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase", untagged)]
-pub enum SourceType {
+pub enum SourceCapture {
     Simple(Capture),
-    Configured(SourceDef),
+    Configured(SourceCaptureDef),
 }
 
-impl SourceType {
-    pub fn capture_name(&self) -> Option<&Capture> {
+impl SourceCapture {
+    pub fn capture_name(&self) -> Capture {
         match self {
-            SourceType::Simple(capture) => Some(&capture),
-            SourceType::Configured(sc) => sc.capture.as_ref(),
+            SourceCapture::Simple(capture) => capture.clone(),
+            SourceCapture::Configured(sc) => sc.capture.clone(),
         }
     }
 
     /// Convert the enum to a normalized SourceCaptureDef by normalizing the Simple case
-    pub fn to_normalized_def(&self) -> SourceDef {
+    pub fn to_normalized_def(&self) -> SourceCaptureDef {
         match self {
-            SourceType::Simple(capture) => SourceDef {
-                capture: Some(capture.clone()),
+            SourceCapture::Simple(capture) => SourceCaptureDef {
+                capture: capture.clone(),
                 ..Default::default()
             },
-            SourceType::Configured(sc) => sc.clone(),
+            SourceCapture::Configured(sc) => sc.clone(),
         }
     }
 }
