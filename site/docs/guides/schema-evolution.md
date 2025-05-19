@@ -44,7 +44,7 @@ If you need to change either of those parts of a collection spec, you'll need to
 
 If you're working in the Flow web app, you'll see an error message and an option to re-create the collection as shown in the example below.
 
-![](./evolution-re-create-ui.png)
+![](./guide-images/evolution-re-create-ui.png)
 
 Click **Apply** to re-create the collection and update any tasks that reference the old collection with the new name.
 
