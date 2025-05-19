@@ -143,6 +143,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - LinkedIn Pages
   - [Configuration](./linkedin-pages.md)
   - Package - ghcr.io/estuary/source-linkedin-pages:dev
+- Looker
+  - [Configuration](./looker.md)
+  - Package - ghcr.io/estuary/source-looker:dev
 - MariaDB
   - [Configuration](./MariaDB/)
   - Package - ghcr.io/estuary/source-mariadb:dev
