@@ -171,7 +171,7 @@ async fn test_source_captures() {
     );
     let no_source_status = no_source_state.current_status.unwrap_materialization();
     assert_eq!(
-        Some("in response to deletion one or more depencencies, removed source Capture: 'ducks/notARealCapture'"),
+        Some("in response to deletion one or more depencencies, removed sourceCapture: \"ducks/notARealCapture\" because the capture was deleted"),
         no_source_status.publications.history[0].detail.as_deref()
     );
     assert!(no_source_status.source_capture.is_none());
@@ -320,7 +320,7 @@ async fn test_source_captures_collection_name() {
     );
     let no_source_status = no_source_state.current_status.unwrap_materialization();
     assert_eq!(
-        Some("in response to deletion one or more depencencies, removed source Capture: 'ducks/notARealCapture'"),
+        Some("in response to deletion one or more depencencies, removed sourceCapture: \"ducks/notARealCapture\" because the capture was deleted"),
         no_source_status.publications.history[0].detail.as_deref()
     );
     assert!(no_source_status.source_capture.is_none());
