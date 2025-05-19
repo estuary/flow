@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)."></script><link rel="stylesheet" href="/assets/css/styles.5ecd8a62.css">
-<script src="/assets/js/runtime~main.0fbf1d23.js" defer="defer"></script>
-<script src="/assets/js/main.5fab41c5.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.c375b1c5.js" defer="defer"></script>
+<script src="/assets/js/main.22e14db6.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -112,7 +112,7 @@ Refer to the guide to <a href="/guides/flowctl/edit-specification-locally/">edit
 <p>Use schema inference to generate projections for the fields.</p>
 </li>
 </ol>
-<div class="codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl preview --infer-schema --source &lt;full\path\to\flow.yaml&gt; --collection &lt;yourOrg/full/collectionName&gt;</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain" style="display:inline-block"></span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
+<div class="codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-text codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl preview --infer-schema --source &lt;full\path\to\flow.yaml&gt; --collection &lt;yourOrg/full/collectionName&gt;</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
 <ol start="5">
 <li>
 <p>Review the updated schema. Manually change the names of projected fields. These names will be used by the materialization and shown in the endpoint system as column names or the equivalent.</p>
@@ -134,27 +134,38 @@ you can choose which ones to include in the materialization.</p>
 <p>In the Collection Selector, choose the collection whose output fields you want to change. Click its <strong>Collection</strong> tab.</p>
 </li>
 <li>
-<p>Review the listed field.</p>
+<p>Review the listed fields.</p>
 <p>In most cases, Flow automatically detects all fields to materialize, projected or otherwise. However, a projected field may still be missing, or you may want to exclude other fields.</p>
+<p>By default, Estuary&#x27;s recommended field selection generally includes:</p>
+<ul>
+<li><strong>Scalars</strong> (simple data types including strings, numbers, booleans, nulls), and</li>
+<li><strong>Natively supported types</strong> for the destination (e.g. arrays in the case of SQL destinations)</li>
+</ul>
+<p>When dealing with objects in your data, Estuary:</p>
+<ul>
+<li><strong>Flattens objects:</strong> Estuary flattens nested structures and includes the scalar fields within them by default.</li>
+<li><strong>Excludes top-level objects:</strong> Top-level objects need to be explicitly selected to be included in the materialization.</li>
+</ul>
+<p>Complex data structures like nested objects and maps are excluded by default.</p>
 </li>
 <li>
-<p>If you want to make changes, click <strong>Edit</strong>.</p>
+<p>Choose whether to start with one of Flow&#x27;s field selection <strong>modes</strong>. You can customize individual fields later. Available modes include:</p>
+<ul>
+<li><strong>Select Scalars:</strong> Include all scalar fields using the default setting</li>
+<li><strong>Exclude All:</strong> Only required fields</li>
+</ul>
 </li>
 <li>
-<p>Use the editor to add the <code>fields</code> stanza to the collection&#x27;s binding specification.</p>
-<p><a href="/concepts/materialization/#projected-fields">Learn more about configuring <code>fields</code> and view a sample specification</a>.</p>
+<p>For each individual field, you can choose one of these options:</p>
+<ul>
+<li><strong>Select:</strong> The field is included based on the chosen mode; if the field becomes unavailable, it may be dropped silently.</li>
+<li><strong>Require:</strong> Ensure the field is materialized; Flow will raise an error if the field cannot be materialized.</li>
+<li><strong>Exclude:</strong> Prevent the field from being materialized to the destination.</li>
+</ul>
+<p><img decoding="async" loading="lazy" alt="Field selection modes and individual options" src="/assets/images/field-selection-3813f0b8b1ff1c6aec511ec1f98aaf7d.png" width="1198" height="950" class="img_ev3q"></p>
 </li>
 <li>
-<p>Choose whether to start with Flow&#x27;s recommended fields. Under <code>fields</code>, set <code>recommended</code> to <code>true</code> or <code>false</code>. If you choose <code>true</code>, you can exclude fields later.</p>
-</li>
-<li>
-<p>Use <code>include</code> to add missing projections, or <code>exclude</code> to remove fields.</p>
-</li>
-<li>
-<p>Click <strong>Close</strong>.</p>
-</li>
-<li>
-<p>Repeat steps 2 through 8 with other collections, if necessary.</p>
+<p>Repeat steps 2 through 5 with other collections, if necessary.</p>
 </li>
 <li>
 <p>Click <strong>Save and Publish</strong>.</p>
