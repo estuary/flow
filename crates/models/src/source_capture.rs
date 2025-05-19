@@ -30,17 +30,11 @@ pub enum TargetNaming {
     /// materialize the collection `acmeCo/mySchema/myTable` to a table called
     /// `mySchema_myTable`.
     PrefixSchema,
-
-    /// Like `prefixSchema`, except that it will omit the prefix for the
-    /// following common default schema names:
-    /// - public
-    /// - dbo
-    PrefixNonDefaultSchema,
 }
 
 impl Default for TargetNaming {
     fn default() -> Self {
-        TargetNaming::PrefixNonDefaultSchema
+        TargetNaming::NoSchema
     }
 }
 
