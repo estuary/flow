@@ -117,7 +117,7 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
             expect_pub_id: "0011223344556677",
             model: {
-              "source": "a/capture",
+              "sourceCapture": "a/capture",
               "endpoint": {
                 "connector": {
                   "image": "materialization/image",

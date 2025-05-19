@@ -905,9 +905,9 @@ expression: "&schema"
           "title": "Template for shards of this materialization task.",
           "$ref": "#/definitions/ShardTemplate"
         },
-        "source": {
+        "sourceCapture": {
           "title": "Automatically materialize new bindings from a named capture",
-          "$ref": "#/definitions/SourceType"
+          "$ref": "#/definitions/SourceCapture"
         }
       },
       "additionalProperties": false
@@ -1253,9 +1253,22 @@ expression: "&schema"
         }
       ]
     },
-    "SourceDef": {
-      "description": "Specifies configuration for source captures, and defaults for new bindings that are added to the materialization. Changing these defaults has no effect on existing bindings.",
+    "SourceCapture": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Capture"
+        },
+        {
+          "$ref": "#/definitions/SourceCaptureDef"
+        }
+      ]
+    },
+    "SourceCaptureDef": {
+      "description": "SourceCaptureDef specifies configuration for source captures",
       "type": "object",
+      "required": [
+        "capture"
+      ],
       "properties": {
         "capture": {
           "description": "Capture name",
@@ -1265,45 +1278,27 @@ expression: "&schema"
           "description": "When adding new bindings from a source capture to a materialization, should the new bindings be marked as delta updates",
           "type": "boolean"
         },
-        "targetNaming": {
+        "targetSchema": {
           "description": "When adding new bindings from a source capture to a materialization, how should the schema of the materialization binding be set",
-          "$ref": "#/definitions/TargetNaming"
+          "$ref": "#/definitions/SourceCaptureSchemaMode"
         }
       },
       "additionalProperties": false
     },
-    "SourceType": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/Capture"
-        },
-        {
-          "$ref": "#/definitions/SourceDef"
-        }
-      ]
-    },
-    "TargetNaming": {
-      "description": "How to name target resources (database tables, for example) for materializing a given Collection.",
+    "SourceCaptureSchemaMode": {
       "oneOf": [
         {
-          "description": "Leave the materialization binding's schema field empty, therefore falling back to the default schema of the materialization. For example, materialize the collection `acmeCo/mySchema/myTable` to a table called `myTable`, without specifying the schema.\n\nThis used to be called `leaveEmpty`, and that value is still accepted, but specs will always be written with `noSchema` instead.",
+          "description": "Leave the materialization binding's schema field empty, therefore falling back to the default schema of the materialization",
           "type": "string",
           "enum": [
-            "noSchema"
+            "leaveEmpty"
           ]
         },
         {
-          "description": "Use the 2nd-to-last component of the collection name as the schema of the materialization binding. For example, materialize the collection `acmeCo/mySchema/myTable` to a table called `myTable` in the schema `mySchema`.\n\nThis used to be called `fromSourceName`, and that value is still accepted, but specs will always be written with `withSchema` instead.",
+          "description": "Use the 2nd-to-last component of the collection name as the schema of the materialization binding",
           "type": "string",
           "enum": [
-            "withSchema"
-          ]
-        },
-        {
-          "description": "Use the 2nd-to-last component of the collection name to prefix the destination resource name, leaving the schema unspecified. For example, materialize the collection `acmeCo/mySchema/myTable` to a table called `mySchema_myTable`.",
-          "type": "string",
-          "enum": [
-            "prefixSchema"
+            "fromSourceName"
           ]
         }
       ]

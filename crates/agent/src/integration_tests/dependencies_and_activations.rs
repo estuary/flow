@@ -1164,10 +1164,7 @@ async fn test_dependencies_and_controllers() {
         .unwrap()
         .as_materialization()
         .unwrap();
-    assert_eq!(
-        Some(&models::SourceType::Configured(models::SourceDef::default())),
-        materialization_model.source.as_ref()
-    );
+    assert!(materialization_model.source_capture.is_none());
 
     harness.run_pending_controller("owls/materialize").await;
     harness.control_plane().assert_activations(

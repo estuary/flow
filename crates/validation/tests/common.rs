@@ -292,7 +292,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             shards: models::ShardTemplate::default(),
-            source: None,
+            source_capture: None,
             delete: false,
             on_incompatible_schema_change: Default::default(),
         };
