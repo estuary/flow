@@ -151,8 +151,16 @@ impl Controller {
             self.validate_state(ops_checkout, state).await?;
         }
 
-        // TODO(johnny): Unconditionally overwrite
-        // `state.stack.config.model.private_links` with that of `row_state`.
+        if !state.private_links.is_empty()
+            && !state.stack.config.model.private_links.is_empty()
+            && state.private_links != state.stack.config.model.private_links
+        {
+            anyhow::bail!(
+                "cannot set both config.private_links and private_links, prefer the latter."
+            );
+        }
+
+        state.stack.config.model.private_links = state.private_links.clone();
 
         let sleep = match state.status {
             Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
@@ -889,6 +897,7 @@ async fn fetch_row_state(
             logs_token,
             data_plane_name,
             data_plane_fqdn,
+            private_links AS "private_links: sqlx::types::Json<Vec<stack::PrivateLink>>",
             pulumi_key AS "pulumi_key",
             pulumi_stack AS "pulumi_stack!"
         FROM data_planes
@@ -926,6 +935,7 @@ async fn fetch_row_state(
         last_pulumi_up: chrono::DateTime::default(),
         last_refresh: chrono::DateTime::default(),
         logs_token: row.logs_token,
+        private_links: row.private_links.0,
         stack,
         stack_name: row.pulumi_stack,
         status: Status::Idle,
