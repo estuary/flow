@@ -49,11 +49,17 @@ pub struct Controller {
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Preview {
+    pub branch: String,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Message {
     Start(models::Id),
     Disable,
     Enable,
-    Preview,
+    Preview(Preview),
     Refresh,
     Converge,
 }
@@ -146,7 +152,7 @@ impl Controller {
             // Validate the state before operating on it, to ensure the data-plane-controller
             // never operates on an invalid state
             let ops_checkout = self
-                .git_checkout(state, &self.ops_remote, checkouts)
+                .git_checkout(state, &self.ops_remote, checkouts, "master")
                 .await?;
             self.validate_state(ops_checkout, state).await?;
         }
@@ -170,7 +176,7 @@ impl Controller {
             // Validate the state after operating on it, to prevent writing a bad state into the
             // database which would lead to manual recovery being required
             let ops_checkout = self
-                .git_checkout(state, &self.ops_remote, checkouts)
+                .git_checkout(state, &self.ops_remote, checkouts, "master")
                 .await?;
             self.validate_state(ops_checkout, state).await?;
         }
@@ -231,7 +237,10 @@ impl Controller {
             match message {
                 Some(Message::Disable) => state.disabled = true,
                 Some(Message::Enable) => state.disabled = false,
-                Some(Message::Preview) => state.pending_preview = true,
+                Some(Message::Preview(Preview { branch })) => {
+                    state.pending_preview = true;
+                    state.preview_branch = branch;
+                }
                 Some(Message::Refresh) => state.pending_refresh = true,
                 Some(Message::Converge) => state.pending_converge = true,
 
@@ -308,7 +317,9 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.dry_dock_checkout(state, checkouts).await?;
+        let checkout = self
+            .dry_dock_checkout(state, checkouts, &state.deploy_branch)
+            .await?;
 
         () = self
             .run_cmd(
@@ -358,7 +369,9 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.dry_dock_checkout(state, checkouts).await?;
+        let checkout = self
+            .dry_dock_checkout(state, checkouts, &state.preview_branch)
+            .await?;
 
         () = self
             .run_cmd(
@@ -390,7 +403,9 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.dry_dock_checkout(state, checkouts).await?;
+        let checkout = self
+            .dry_dock_checkout(state, checkouts, &state.deploy_branch)
+            .await?;
 
         // Refresh, expecting to see no changes. We'll check exit status to see if there were.
         let result = self
@@ -436,7 +451,9 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.dry_dock_checkout(state, checkouts).await?;
+        let checkout = self
+            .dry_dock_checkout(state, checkouts, &state.deploy_branch)
+            .await?;
 
         () = self
             .run_cmd(
@@ -502,7 +519,9 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.dry_dock_checkout(state, checkouts).await?;
+        let checkout = self
+            .dry_dock_checkout(state, checkouts, &state.deploy_branch)
+            .await?;
 
         // Load exported Pulumi state.
         let output = self
@@ -601,7 +620,9 @@ impl Controller {
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.dry_dock_checkout(state, checkouts).await?;
+        let checkout = self
+            .dry_dock_checkout(state, checkouts, &state.deploy_branch)
+            .await?;
 
         () = self
             .run_cmd(
@@ -663,6 +684,7 @@ impl Controller {
         state: &State,
         remote: &str,
         checkouts: &'c mut HashMap<String, tempfile::TempDir>,
+        branch: &str,
     ) -> anyhow::Result<&'c tempfile::TempDir> {
         let checkout = match checkouts.entry(remote.to_string()) {
             Entry::Occupied(e) => {
@@ -693,12 +715,6 @@ impl Controller {
             )
             .await?;
 
-        let branch = if remote == self.dry_dock_remote {
-            &state.deploy_branch
-        } else {
-            "master"
-        };
-
         () = self
             .run_cmd(
                 async_process::Command::new("git")
@@ -722,9 +738,10 @@ impl Controller {
         &self,
         state: &State,
         checkouts: &'c mut HashMap<String, tempfile::TempDir>,
+        branch: &str,
     ) -> anyhow::Result<&'c tempfile::TempDir> {
         let checkout = self
-            .git_checkout(state, &self.dry_dock_remote, checkouts)
+            .git_checkout(state, &self.dry_dock_remote, checkouts, branch)
             .await?;
 
         () = self
@@ -932,6 +949,7 @@ async fn fetch_row_state(
 
         disabled: true,
         pending_preview: false,
+        preview_branch: String::new(),
         pending_refresh: false,
         pending_converge: false,
         publish_exports: None,

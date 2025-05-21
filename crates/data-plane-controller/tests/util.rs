@@ -147,6 +147,7 @@ pub fn initial_state() -> stack::State {
         status: stack::Status::Idle,
         disabled: false, // Start enabled for convergence
         pending_preview: false,
+        preview_branch: String::new(),
         pending_refresh: false,
         pending_converge: false, // Start false, should be set by diffing
         publish_exports: None,
