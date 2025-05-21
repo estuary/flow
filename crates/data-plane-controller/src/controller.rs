@@ -914,7 +914,7 @@ async fn fetch_row_state(
             logs_token,
             data_plane_name,
             data_plane_fqdn,
-            private_links AS "private_links: sqlx::types::Json<Vec<stack::PrivateLink>>",
+            private_links AS "private_links: Vec<sqlx::types::Json<stack::PrivateLink>>",
             pulumi_key AS "pulumi_key",
             pulumi_stack AS "pulumi_stack!"
         FROM data_planes
@@ -952,7 +952,7 @@ async fn fetch_row_state(
         last_pulumi_up: chrono::DateTime::default(),
         last_refresh: chrono::DateTime::default(),
         logs_token: row.logs_token,
-        private_links: row.private_links.0,
+        private_links: row.private_links.into_iter().map(|link| link.0).collect(),
         stack,
         stack_name: row.pulumi_stack,
         status: Status::Idle,
