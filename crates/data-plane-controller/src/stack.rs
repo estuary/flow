@@ -55,6 +55,9 @@ pub struct State {
     // Is there a pending preview for this data-plane?
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_preview: bool,
+    // If pending a preview, on which branch should the preview run?
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preview_branch: String,
     // Is there a pending refresh for this data-plane?
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_refresh: bool,
