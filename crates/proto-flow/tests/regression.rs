@@ -1,4 +1,5 @@
 use prost::Message;
+use proto_flow::flow::SerPolicy;
 use proto_flow::{capture, derive, flow, flow::inference, materialize, ops};
 use proto_gazette::{broker, consumer};
 use serde_json::json;
@@ -650,6 +651,11 @@ fn ex_materialize_response() -> materialize::Response {
         }),
         opened: Some(materialize::response::Opened {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
+            ser_policy: Some(SerPolicy{
+                str_truncate_after: 1 << 16,
+                array_truncate_after: 1000,
+                nested_obj_truncate_after: 1500,
+            }),
         }),
         acknowledged: Some(materialize::response::Acknowledged {
             state: Some(ex_connector_state()),

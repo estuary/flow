@@ -123,7 +123,10 @@ pub async fn recv_connector_opened(
 )> {
     let verify = verify("connector", "Opened");
     let mut opened = verify.not_eof(opened)?;
-    let response::Opened { runtime_checkpoint } = match &mut opened {
+    let response::Opened {
+        runtime_checkpoint,
+        ser_policy,
+    } = match &mut opened {
         Response {
             opened: Some(opened),
             ..
@@ -131,7 +134,7 @@ pub async fn recv_connector_opened(
         _ => return verify.fail(opened),
     };
 
-    let task = Task::new(&open)?;
+    let task = Task::new(&open, ser_policy.as_ref())?;
     let accumulator = Accumulator::new(task.combine_spec()?)?;
 
     let mut checkpoint = db

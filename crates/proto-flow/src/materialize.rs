@@ -447,6 +447,9 @@ pub mod response {
         pub runtime_checkpoint: ::core::option::Option<
             ::proto_gazette::consumer::Checkpoint,
         >,
+        /// Task-specific serialization policy to use for this materialization.
+        #[prost(message, optional, tag = "2")]
+        pub ser_policy: ::core::option::Option<super::super::flow::SerPolicy>,
     }
     /// Loaded responds to Request.Load.
     /// It returns documents of requested keys which have previously been stored.

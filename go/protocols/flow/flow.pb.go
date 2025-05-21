@@ -1582,8 +1582,10 @@ type SerPolicy struct {
 	// underlying object iterator provides the keys in a deterministic order.
 	// We generally use sorted maps, which works for this.
 	// The root object is never truncated.
+	// When zero, there is no limit.
 	NestedObjTruncateAfter uint32 `protobuf:"varint,2,opt,name=nested_obj_truncate_after,json=nestedObjTruncateAfter,proto3" json:"nested_obj_truncate_after,omitempty"`
 	// Truncate arrays with more items than this limit.
+	// When zero, there is no limit.
 	ArrayTruncateAfter   uint32   `protobuf:"varint,3,opt,name=array_truncate_after,json=arrayTruncateAfter,proto3" json:"array_truncate_after,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

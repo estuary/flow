@@ -326,6 +326,9 @@ message Response {
     // rebuilding the materialization from scratch. This sentinel is a trivial
     // encoding of the max-value 2^29-1 protobuf tag with boolean true.
     consumer.Checkpoint runtime_checkpoint = 1;
+
+    // Task-specific serialization policy to use for this materialization.
+    flow.SerPolicy ser_policy = 2;
   }
   Opened opened = 4;
 

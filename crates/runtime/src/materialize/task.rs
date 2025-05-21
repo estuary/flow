@@ -4,7 +4,10 @@ use proto_flow::flow;
 use proto_flow::materialize::{request, Request};
 
 impl Task {
-    pub fn new(open: &Request) -> anyhow::Result<Self> {
+    pub fn new(
+        open: &Request,
+        negotiated_ser_policy: Option<&flow::SerPolicy>,
+    ) -> anyhow::Result<Self> {
         let request::Open {
             materialization: spec,
             range,
@@ -30,8 +33,7 @@ impl Task {
 
         // TODO(johnny): Hack to limit serialized value sizes for these common materialization connectors
         // that don't handle large strings very well. This should be negotiated via connector protocol.
-        // See go/runtime/materialize.go:135
-        let ser_policy = if let Some(limit) = [
+        let mut ser_policy = if let Some(limit) = [
             ("ghcr.io/estuary/materialize-azure-fabric-warehouse", 1000),
             ("ghcr.io/estuary/materialize-bigquery", 1500),
             ("ghcr.io/estuary/materialize-kafka", 1000),
@@ -52,6 +54,20 @@ impl Task {
         } else {
             doc::SerPolicy::noop()
         };
+
+        if let Some(negotiated) = negotiated_ser_policy {
+            ser_policy = doc::SerPolicy::noop();
+            if negotiated.str_truncate_after > 0 {
+                ser_policy.str_truncate_after = negotiated.str_truncate_after as usize;
+            };
+            if negotiated.nested_obj_truncate_after > 0 {
+                ser_policy.nested_obj_truncate_after =
+                    negotiated.nested_obj_truncate_after as usize;
+            };
+            if negotiated.array_truncate_after > 0 {
+                ser_policy.array_truncate_after = negotiated.array_truncate_after as usize;
+            };
+        }
 
         let bindings = bindings
             .into_iter()

@@ -609,8 +609,10 @@ message SerPolicy {
   // underlying object iterator provides the keys in a deterministic order.
   // We generally use sorted maps, which works for this.
   // The root object is never truncated.
+  // When zero, there is no limit.
   uint32 nested_obj_truncate_after = 2;
   // Truncate arrays with more items than this limit.
+  // When zero, there is no limit.
   uint32 array_truncate_after = 3;
 }
 

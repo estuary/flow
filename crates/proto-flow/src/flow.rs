@@ -913,9 +913,11 @@ pub struct SerPolicy {
     /// underlying object iterator provides the keys in a deterministic order.
     /// We generally use sorted maps, which works for this.
     /// The root object is never truncated.
+    /// When zero, there is no limit.
     #[prost(uint32, tag = "2")]
     pub nested_obj_truncate_after: u32,
     /// Truncate arrays with more items than this limit.
+    /// When zero, there is no limit.
     #[prost(uint32, tag = "3")]
     pub array_truncate_after: u32,
 }

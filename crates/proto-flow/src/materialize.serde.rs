@@ -2524,9 +2524,15 @@ impl serde::Serialize for response::Opened {
         if self.runtime_checkpoint.is_some() {
             len += 1;
         }
+        if self.ser_policy.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Opened", len)?;
         if let Some(v) = self.runtime_checkpoint.as_ref() {
             struct_ser.serialize_field("runtimeCheckpoint", v)?;
+        }
+        if let Some(v) = self.ser_policy.as_ref() {
+            struct_ser.serialize_field("serPolicy", v)?;
         }
         struct_ser.end()
     }
@@ -2540,11 +2546,14 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
         const FIELDS: &[&str] = &[
             "runtime_checkpoint",
             "runtimeCheckpoint",
+            "ser_policy",
+            "serPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RuntimeCheckpoint,
+            SerPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2567,6 +2576,7 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                     {
                         match value {
                             "runtimeCheckpoint" | "runtime_checkpoint" => Ok(GeneratedField::RuntimeCheckpoint),
+                            "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2587,6 +2597,7 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut runtime_checkpoint__ = None;
+                let mut ser_policy__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RuntimeCheckpoint => {
@@ -2595,10 +2606,17 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                             }
                             runtime_checkpoint__ = map_.next_value()?;
                         }
+                        GeneratedField::SerPolicy => {
+                            if ser_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serPolicy"));
+                            }
+                            ser_policy__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(response::Opened {
                     runtime_checkpoint: runtime_checkpoint__,
+                    ser_policy: ser_policy__,
                 })
             }
         }
