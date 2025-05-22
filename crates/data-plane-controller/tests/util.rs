@@ -128,7 +128,11 @@ pub fn initial_state() -> stack::State {
       "builds_kms_keys": [
         "projects/example/key"
       ],
-      "control_plane_api": "https://example.api/"
+      "control_plane_api": "https://example.api/",
+      "connector_limits": {
+        "cpu": "200m",
+        "memory": "1g"
+      }
     }))
     .unwrap();
 

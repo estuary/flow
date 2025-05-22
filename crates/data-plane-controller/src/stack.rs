@@ -114,6 +114,14 @@ pub struct DataPlane {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<PrivateLink>,
     pub deployments: Vec<Deployment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector_limits: Option<ConnectorLimits>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectorLimits {
+    pub cpu: String,
+    pub memory: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
