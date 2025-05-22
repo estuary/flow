@@ -172,7 +172,11 @@ expression: trace.lock().unwrap().as_slice()
               "desired": 4,
               "current": 0
             }
-          ]
+          ],
+          "connector_limits": {
+            "cpu": "200m",
+            "memory": "1g"
+          }
         }
       }
     }
@@ -882,7 +886,11 @@ expression: trace.lock().unwrap().as_slice()
               "desired": 4,
               "current": 4
             }
-          ]
+          ],
+          "connector_limits": {
+            "cpu": "200m",
+            "memory": "1g"
+          }
         }
       }
     }
