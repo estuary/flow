@@ -63,7 +63,11 @@
         "builds_kms_keys": [
           "projects/the-project/locations/us-central1/keyRings/the-key-ring/cryptoKeys/the-key"
         ],
-        "control_plane_api": "https://agent-api-amj6adhsnq-uc.a.run.app/"
+        "control_plane_api": "https://agent-api-amj6adhsnq-uc.a.run.app/",
+        "connector_limits": {
+          "cpu": "200m",
+          "memory": "1g"
+        }
       }
     },
     "encryptedkey": "encryptedkey",
