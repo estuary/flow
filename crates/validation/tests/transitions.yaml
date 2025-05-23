@@ -63,7 +63,7 @@ test://example/catalog.yaml:
             table: bar
           fields:
             recommended: true
-            include:
+            require:
               F1: {}
               f_two: {}
             exclude:

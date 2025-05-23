@@ -979,7 +979,7 @@ test://example/webhook-deliveries:
         - source: testing/int-halve
           resource: { fixture: two }
           fields:
-            include:
+            require:
               int: {} # Include and exclude.
               biT: {} # Unknown.
               Len: {} # OK.
@@ -1073,7 +1073,7 @@ test://example/db-views:
         - source: testing/int-string
           resource: { table: the_table }
           fields:
-            include:
+            require:
               str: {}
             exclude:
               - bit
