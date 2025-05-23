@@ -41,6 +41,7 @@ pub struct State {
     // Token to which controller logs are directed.
     pub logs_token: sqlx::types::Uuid,
     // Private links configuration for this data-plane
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<PrivateLink>,
     // Pulumi configuration for this data-plane.
     pub stack: PulumiStack,
