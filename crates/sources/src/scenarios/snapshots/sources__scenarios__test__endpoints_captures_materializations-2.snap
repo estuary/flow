@@ -150,7 +150,7 @@ DraftCatalog {
                     }
                   },
                   "fields": {
-                    "include": {
+                    "require": {
                       "add": {}
                     },
                     "exclude": [

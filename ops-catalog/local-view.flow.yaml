@@ -14,7 +14,7 @@ materializations:
           table: inferred_schemas
         fields:
           recommended: false
-          include:
+          require:
             collection_name: {}
             schema: {}
             flow_document: {}
@@ -23,7 +23,7 @@ materializations:
           table: catalog_stats
         fields:
           recommended: false
-          include:
+          require:
             catalog_name: {}
             grain: {}
             ts: {}
@@ -51,7 +51,7 @@ materializations:
           table: connector_status
         fields:
           recommended: false
-          include:
+          require:
             catalog_name: {}
             flow_document: {}
           exclude:
@@ -67,7 +67,7 @@ materializations:
           delta_updates: true
         fields:
           recommended: false
-          include:
+          require:
             catalog_name: {}
             build: { "DDL": "flowid" }
             ts: {}
@@ -84,7 +84,7 @@ materializations:
           table: config_updates
         fields:
           recommended: false
-          include:
+          require:
             catalog_name: {}
             build: { "DDL": "flowid" }
             ts: {}

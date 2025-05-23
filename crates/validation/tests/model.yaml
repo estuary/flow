@@ -114,7 +114,7 @@ test://example/webhook-deliveries:
             notBefore: 2017-03-03T03:02:01Z
           resource: { fixture: one }
           fields:
-            include:
+            require:
               str: { pass: through }
             exclude:
               - bit
@@ -123,7 +123,7 @@ test://example/webhook-deliveries:
           resource: { fixture: two }
           priority: 3
           fields:
-            include:
+            require:
               Len: {}
             recommended: false
           backfill: 7
