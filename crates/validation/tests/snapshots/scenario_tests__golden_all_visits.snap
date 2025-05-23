@@ -5853,6 +5853,7 @@ Outcome {
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
@@ -6360,22 +6361,27 @@ Outcome {
                             "Int": Constraint {
                                 r#type: LocationRecommended,
                                 reason: "recommended",
+                                folded_field: "",
                             },
                             "bit": Constraint {
                                 r#type: FieldForbidden,
                                 reason: "field forbidden",
+                                folded_field: "",
                             },
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "int": Constraint {
                                 r#type: FieldRequired,
                                 reason: "field required",
+                                folded_field: "",
                             },
                             "str": Constraint {
                                 r#type: FieldOptional,
                                 reason: "optional",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
@@ -6390,18 +6396,22 @@ Outcome {
                             "Extra": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "Len": Constraint {
                                 r#type: LocationRecommended,
                                 reason: "optional",
+                                folded_field: "",
                             },
                             "Root": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "int": Constraint {
                                 r#type: FieldRequired,
                                 reason: "required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [

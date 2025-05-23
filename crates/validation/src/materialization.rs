@@ -828,6 +828,7 @@ fn walk_materialization_response(
                 .unwrap_or(materialize::response::validated::Constraint {
                     r#type: Type::FieldForbidden as i32,
                     reason: String::new(),
+                    folded_field: String::new(),
                 });
 
         let type_ = match Type::try_from(constraint.r#type) {

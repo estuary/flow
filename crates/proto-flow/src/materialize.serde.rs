@@ -3112,6 +3112,9 @@ impl serde::Serialize for response::validated::Constraint {
         if !self.reason.is_empty() {
             len += 1;
         }
+        if !self.folded_field.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Constraint", len)?;
         if self.r#type != 0 {
             let v = response::validated::constraint::Type::try_from(self.r#type)
@@ -3120,6 +3123,9 @@ impl serde::Serialize for response::validated::Constraint {
         }
         if !self.reason.is_empty() {
             struct_ser.serialize_field("reason", &self.reason)?;
+        }
+        if !self.folded_field.is_empty() {
+            struct_ser.serialize_field("foldedField", &self.folded_field)?;
         }
         struct_ser.end()
     }
@@ -3133,12 +3139,15 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
         const FIELDS: &[&str] = &[
             "type",
             "reason",
+            "folded_field",
+            "foldedField",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Type,
             Reason,
+            FoldedField,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3162,6 +3171,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                         match value {
                             "type" => Ok(GeneratedField::Type),
                             "reason" => Ok(GeneratedField::Reason),
+                            "foldedField" | "folded_field" => Ok(GeneratedField::FoldedField),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3183,6 +3193,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
             {
                 let mut r#type__ = None;
                 let mut reason__ = None;
+                let mut folded_field__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Type => {
@@ -3197,11 +3208,18 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                             }
                             reason__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::FoldedField => {
+                            if folded_field__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("foldedField"));
+                            }
+                            folded_field__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(response::validated::Constraint {
                     r#type: r#type__.unwrap_or_default(),
                     reason: reason__.unwrap_or_default(),
+                    folded_field: folded_field__.unwrap_or_default(),
                 })
             }
         }

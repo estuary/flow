@@ -3,7 +3,7 @@ use crate::{connector::DekafConfig, source::OnIncompatibleSchemaChange, Collecti
 
 use crate::source_capture::SourceType;
 
-use super::{ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source};
+use super::{ConnectorConfig, Field, LocalConfig, RawValue, ShardTemplate, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -178,15 +178,6 @@ impl Default for MaterializationFields {
             recommended: true,
         }
     }
-}
-
-/// Sqlite endpoint configuration.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SqliteConfig {
-    /// # Path of the database, relative to this catalog source.
-    /// The path may include query arguments. See:
-    /// https://github.com/mattn/go-sqlite3#connection-string
-    pub path: RelativeUrl,
 }
 
 impl super::ModelDef for MaterializationDef {
