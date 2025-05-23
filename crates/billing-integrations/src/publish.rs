@@ -1,18 +1,19 @@
+use crate::stripe_utils::{stripe_search, SearchParams};
 use anyhow::{bail, Context};
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
 use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
 use std::collections::HashMap;
-use stripe::{InvoiceStatus, List};
+use stripe::InvoiceStatus;
 
-const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
+pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
 const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
-const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
-const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
-const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
+pub const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
+pub const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
+pub const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 #[clap(rename_all = "kebab_case")]
@@ -52,6 +53,9 @@ pub struct PublishInvoice {
     /// changes what happens once the invoice is approved.
     #[clap(long, value_enum, default_value_t = ChargeType::AutoCharge)]
     charge_type: ChargeType,
+    /// Number of invoices to publish concurrently
+    #[clap(long, default_value_t = 2)]
+    pub concurrency: usize,
 }
 
 fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
@@ -67,25 +71,6 @@ enum InvoiceType {
     Preview,
     #[serde(rename = "manual")]
     Manual,
-}
-
-#[derive(Serialize, Default, Debug)]
-struct SearchParams {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<u64>,
-}
-
-async fn stripe_search<R: DeserializeOwned + 'static + Send>(
-    client: &stripe::Client,
-    resource: &str,
-    params: SearchParams,
-) -> Result<List<R>, stripe::StripeError> {
-    client
-        .get_query(&format!("/{}/search", resource), &params)
-        .await
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -204,7 +189,7 @@ impl Invoice {
         .await
         .context("Searching for an invoice")?;
 
-        Ok(invoice_search.data.into_iter().next())
+        Ok(invoice_search.into_iter().next())
     }
 
     #[tracing::instrument(skip(self, client, db_client), fields(tenant=self.billed_prefix, invoice_type=format!("{:?}",self.invoice_type), subtotal=format!("${:.2}", self.subtotal as f64 / 100.0)))]
@@ -703,7 +688,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
 
     let collected: HashMap<InvoiceResult, (i64, i32, Vec<(String, i64)>)> =
         futures::stream::iter(invoice_futures)
-            .buffer_unordered(2)
+            .buffer_unordered(cmd.concurrency)
             .or_else(|(err, invoice)| async move {
                 if !cmd.fail_fast {
                     tracing::error!("[{}]: {err:#}", invoice.billed_prefix);
@@ -799,7 +784,7 @@ async fn get_or_create_customer_for_tenant(
     .await
     .context(format!("Searching for tenant {tenant}"))?;
 
-    let customer = if let Some(customer) = customers.data.into_iter().next() {
+    let customer = if let Some(customer) = customers.into_iter().next() {
         tracing::debug!("Found existing customer {id}", id = customer.id.to_string());
         customer
     } else if create {

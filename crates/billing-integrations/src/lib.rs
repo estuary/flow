@@ -1,6 +1,8 @@
 use clap::Parser;
 
-mod stripe;
+mod publish;
+mod stripe_utils;
+mod send;
 
 #[derive(Debug, Parser)]
 #[clap(version)]
@@ -12,13 +14,17 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
-    Stripe(stripe::PublishInvoice),
+    PublishInvoices(publish::PublishInvoice),
+    SendInvoices(send::SendInvoices),
 }
 
 impl Cli {
     pub async fn run(&self) -> anyhow::Result<()> {
         match &self.cmd {
-            Command::Stripe(publish_invoice) => stripe::do_publish_invoices(publish_invoice).await,
+            Command::PublishInvoices(publish_invoice) => {
+                publish::do_publish_invoices(publish_invoice).await
+            }
+            Command::SendInvoices(send_invoices) => send::do_send_invoices(send_invoices).await,
         }
     }
 }
