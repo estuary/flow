@@ -684,7 +684,8 @@ fn walk_materialization_fields<'a>(
     errors: &mut tables::Errors,
 ) -> (models::MaterializationFields, BTreeMap<String, String>) {
     let models::MaterializationFields {
-        include: require,
+        group_by: key,
+        require,
         mut exclude,
         recommended,
     } = model;
@@ -757,7 +758,8 @@ fn walk_materialization_fields<'a>(
     });
 
     let model = models::MaterializationFields {
-        include: require,
+        group_by: key,
+        require,
         exclude,
         recommended,
     };
@@ -774,7 +776,8 @@ fn walk_materialization_response(
     errors: &mut tables::Errors,
 ) -> flow::FieldSelection {
     let models::MaterializationFields {
-        include,
+        group_by: _,
+        require,
         exclude,
         recommended,
     } = fields;
@@ -784,6 +787,8 @@ fn walk_materialization_response(
         key: key_ptrs,
         ..
     } = collection;
+
+    let recommended = matches!(recommended, models::RecommendedDepth::Bool(true));
 
     // |keys| and |document| are initialized with placeholder None,
     // that we'll revisit as we walk projections & constraints.
@@ -809,7 +814,7 @@ fn walk_materialization_response(
     let projections = projections
         .iter()
         .sorted_by_key(|p| {
-            let must_include = include.get(&models::Field::new(&p.field)).is_some()
+            let must_include = require.get(&models::Field::new(&p.field)).is_some()
                 || constraints
                     .get(&p.field)
                     .map(|c| c.r#type == Type::FieldRequired as i32)
@@ -854,7 +859,7 @@ fn walk_materialization_response(
         let key_index = key_ptrs.iter().enumerate().find(|(_, k)| *k == ptr);
 
         let resolution = match (
-            include.get(&models::Field::new(field)).is_some(),
+            require.get(&models::Field::new(field)).is_some(),
             exclude.iter().any(|f| f.as_str() == field),
             type_,
         ) {
@@ -883,7 +888,7 @@ fn walk_materialization_response(
             (false, false, Type::LocationRequired) if !is_selected_ptr => Ok(true),
             // We desire recommended fields, and this location is unseen & recommended.
             // (Note we'll visit a user-provided projection of the location before an inferred one).
-            (false, false, Type::LocationRecommended) if !is_selected_ptr && *recommended => {
+            (false, false, Type::LocationRecommended) if !is_selected_ptr && recommended => {
                 Ok(true)
             }
 
@@ -894,7 +899,7 @@ fn walk_materialization_response(
                 Ok(false)
             }
             (false, false, Type::LocationRecommended) => {
-                assert!(is_selected_ptr || !*recommended);
+                assert!(is_selected_ptr || !recommended);
                 Ok(false)
             }
             (_, _, Type::Invalid) => unreachable!("invalid is filtered prior to this point"),
@@ -923,7 +928,7 @@ fn walk_materialization_response(
                 }
 
                 // Pass-through JSON-encoded field configuration.
-                if let Some(cfg) = include.get(&models::Field::new(field)) {
+                if let Some(cfg) = require.get(&models::Field::new(field)) {
                     field_config_json_map.insert(field.clone(), cfg.to_string());
                 }
                 // Mark location as having been selected.
