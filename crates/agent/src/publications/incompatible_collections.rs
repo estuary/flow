@@ -108,6 +108,7 @@ mod test {
                 validated::Constraint {
                     r#type: ty as i32,
                     reason: "cuz this is a test".to_string(),
+                    folded_field: String::new(),
                 },
             );
             m

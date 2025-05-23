@@ -438,10 +438,12 @@ Outcome {
                             "flow_document": Constraint {
                                 r#type: FieldRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "id": Constraint {
                                 r#type: FieldRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
