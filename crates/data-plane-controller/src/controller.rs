@@ -162,7 +162,10 @@ impl Controller {
             Status::SetEncryption => self.on_set_encryption(state, checkouts).await?,
             Status::PulumiPreview => self.on_pulumi_preview(state, checkouts).await?,
             Status::PulumiRefresh => self.on_pulumi_refresh(state, checkouts).await?,
-            Status::PulumiUp1 => self.on_pulumi_up_1(state, checkouts).await?,
+            Status::PulumiUp1 => {
+                self.on_pulumi_up_1(state, checkouts, row_state.stack.config.model.private_links)
+                    .await?
+            }
             Status::AwaitDNS1 => self.on_await_dns_1(state).await?,
             Status::Ansible => self.on_ansible(state, checkouts).await?,
             Status::PulumiUp2 => self.on_pulumi_up_2(state, checkouts).await?,
@@ -447,7 +450,10 @@ impl Controller {
         &self,
         state: &mut State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
+        private_links: Vec<stack::PrivateLink>,
     ) -> anyhow::Result<std::time::Duration> {
+        state.stack.config.model.private_links = private_links;
+
         let checkout = self
             .dry_dock_checkout(state, checkouts, &state.deploy_branch)
             .await?;
