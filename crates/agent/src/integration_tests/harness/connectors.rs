@@ -222,6 +222,7 @@ impl Connectors for TestConnectors {
                                             r#type: 3,
                                             reason: "all fields are recommended in tests"
                                                 .to_string(),
+                                            folded_field: String::new(),
                                         },
                                     )
                                 })

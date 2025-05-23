@@ -308,10 +308,26 @@ pub mod response {
         pub struct Constraint {
             #[prost(enumeration = "constraint::Type", tag = "2")]
             pub r#type: i32,
-            /// Optional human readable reason for the given constraint.
-            /// Implementations are strongly encouraged to supply a descriptive message.
+            /// User-facing reason for the given constraint. The control-plane will
+            /// supply additional context as to the collection, binding and field.
+            ///
+            /// Connectors are strongly encouraged to supply a rationale
+            /// for constraints other than FIELD_OPTIONAL.
             #[prost(string, tag = "3")]
             pub reason: ::prost::alloc::string::String,
+            /// Some endpoints are unable to represent various field names due to
+            /// technical limitations on length, character set, or case sensitivity.
+            /// For these cases, the connector should provide a "folded" field name to
+            /// be used instead. Examples of folds include:
+            /// - Lower-casing
+            /// - Replacing `/` with `_`
+            /// - Mapping Unicode to ASCII via <https://en.wikipedia.org/wiki/Punycode>
+            ///
+            /// Folds may be lossy and result in duplicated folded field values.
+            /// That's okay. The control plane will ensure at most one field is
+            /// selected among a set of fields having identical folds.
+            #[prost(string, tag = "4")]
+            pub folded_field: ::prost::alloc::string::String,
         }
         /// Nested message and enum types in `Constraint`.
         pub mod constraint {
@@ -330,19 +346,46 @@ pub mod response {
             #[repr(i32)]
             pub enum Type {
                 Invalid = 0,
-                /// This specific projection must be present.
+                /// A field with this specific name MUST be present.
+                ///
+                /// Connectors should return FIELD_REQUIRED for field names that have
+                /// special meaning to the function of the connector. For example, a
+                /// Slack connector might require a "text" field which is the body of
+                /// Slack messages to author.
+                ///
+                /// Connectors may return FIELD_REQUIRED constraints for fields which
+                /// were not present in the presented collection projections, in which
+                /// case the control plane will generate a suitable user-facing error.
                 FieldRequired = 1,
-                /// At least one projection with this location pointer must be present.
+                /// A field projection with this location pointer must be present.
+                ///
+                /// Connectors may return LOCATION_REQUIRED for the root JSON document
+                /// pointer within a standard materialization that stores the document
+                /// as a single column. Or alternatively, a connector may require
+                /// all top-level document properties and store each as separate
+                /// columns, which are merged together again in Loaded responses.
                 LocationRequired = 2,
-                /// A projection with this location is recommended, and should be included by
-                /// default.
+                /// DEPRECATED. LOCATION_RECOMMENDED is equivalent to FIELD_OPTIONAL.
                 LocationRecommended = 3,
-                /// This projection may be included, but should be omitted by default.
+                /// This field projection may be included in the materialization.
+                ///
+                /// Connectors must return FIELD_OPTIONAL for all fields which they
+                /// are capable of supporting.
                 FieldOptional = 4,
-                /// This projection must not be present in the materialization.
+                /// This field projection cannot participate in the materialization.
+                /// This condition is permanent and cannot be resolved with a backfill.
+                ///
+                /// Connectors must return FIELD_FORBIDDEN for fields having
+                /// unsupported types, such as JSON `null`.
                 FieldForbidden = 5,
-                /// This specific projection is required but is also unacceptable (e.x.,
-                /// because it uses an incompatible type with a previous applied version).
+                /// This field projection cannot participate in the materialization.
+                /// However, a backfill of the binding would clear this condition
+                /// and the field could again participate.
+                ///
+                /// Connectors must return UNSATISFIABLE for fields which would be
+                /// FIELD_OPTIONAL if (and only if) the binding were to be backfilled.
+                /// A common use is for fields that map to an existing SQL column having
+                /// an incompatible type which cannot be migrated automatically.
                 Unsatisfiable = 6,
             }
             impl Type {
@@ -381,9 +424,9 @@ pub mod response {
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
-            /// Constraints over collection projections imposed by the Driver,
-            /// keyed by the projection field name. Projections of the CollectionSpec
-            /// which are missing from constraints are implicitly forbidden.
+            /// Constraints imposed by the connector, keyed by field name.
+            /// Projections of the CollectionSpec which are missing from
+            /// constraints are implicitly forbidden.
             #[prost(btree_map = "string, message", tag = "1")]
             pub constraints: ::prost::alloc::collections::BTreeMap<
                 ::prost::alloc::string::String,
