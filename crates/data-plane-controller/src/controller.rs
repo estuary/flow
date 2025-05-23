@@ -157,6 +157,8 @@ impl Controller {
             self.validate_state(ops_checkout, state).await?;
         }
 
+        state.stack.config.model.private_links = row_state.stack.config.model.private_links.clone();
+
         let sleep = match state.status {
             Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
             Status::SetEncryption => self.on_set_encryption(state, checkouts).await?,
