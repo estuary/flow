@@ -46,7 +46,6 @@ pub use journals::{
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
-    SqliteConfig,
 };
 pub use raw_value::RawValue;
 pub use references::{

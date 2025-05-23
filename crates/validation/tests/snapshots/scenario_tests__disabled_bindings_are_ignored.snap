@@ -1837,6 +1837,7 @@ Outcome {
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
