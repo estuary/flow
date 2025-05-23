@@ -190,9 +190,11 @@ impl Read {
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
 
-        if self.stream_exp <= (std::time::SystemTime::now() + std::time::Duration::from_secs(30)) {
+        let now = std::time::SystemTime::now();
+
+        if (now + timeout + std::time::Duration::from_secs(30)) > self.stream_exp {
             tracing::debug!("stream auth expired, fetching new token");
-            let (stream, exp) = Self::new_stream(
+            (self.stream, self.stream_exp) = Self::new_stream(
                 self.not_before,
                 self.listener.clone(),
                 self.partition_template_name.clone(),
@@ -201,8 +203,6 @@ impl Read {
                 self.offset,
             )
             .await?;
-            self.stream = stream;
-            self.stream_exp = exp;
         }
 
         let mut records: Vec<Record> = Vec::new();
@@ -217,13 +217,15 @@ impl Read {
 
         // If we happen to get a very long timeout, we want to make sure that
         // we don't exceed the token expiration time
-        let mut timeout_at = std::time::SystemTime::now() + timeout;
-        if timeout_at > self.stream_exp {
-            timeout_at = self.stream_exp;
-        }
+        let capped_timeout = {
+            let mut timeout_at = now + timeout;
+            if timeout_at > self.stream_exp {
+                timeout_at = self.stream_exp;
+            }
+            tokio::time::Instant::now() + timeout_at.duration_since(now)?
+        };
 
-        let timeout = tokio::time::sleep(timeout_at.duration_since(std::time::SystemTime::now())?);
-        let timeout = futures::future::maybe_done(timeout);
+        let timeout = tokio::time::sleep_until(capped_timeout);
         tokio::pin!(timeout);
 
         let mut did_timeout = false;
