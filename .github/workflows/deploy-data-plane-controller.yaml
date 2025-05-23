@@ -1,7 +1,13 @@
 name: Deploy data-plane-controller
 
 on:
-  workflow_dispatch: {}
+  push:
+    # Only on pushes to the master branch
+    branches: [master]
+    # Only run if function code or the ci config itself has changed
+    paths:
+      - crates/data-plane-controller/**
+      - .github/workflows/deploy-data-plane-controller.yaml
 
 env:
   CARGO_INCREMENTAL: 0 # Faster from-scratch builds.
