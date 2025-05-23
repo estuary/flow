@@ -217,7 +217,7 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            let listener = self.task_manager.get_listener(&username).await;
+            let listener = self.task_manager.get_listener(&username);
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
             let TaskState {
