@@ -157,15 +157,6 @@ impl Controller {
             self.validate_state(ops_checkout, state).await?;
         }
 
-        if !state.private_links.is_empty()
-            && !state.stack.config.model.private_links.is_empty()
-            && state.private_links != state.stack.config.model.private_links
-        {
-            anyhow::bail!(
-                "cannot set both config.private_links and private_links, prefer the latter."
-            );
-        }
-
         state.stack.config.model.private_links = state.private_links.clone();
 
         let sleep = match state.status {

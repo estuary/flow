@@ -842,5 +842,548 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Status": "Idle"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Status": "PulumiUp1"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/test-branch"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
+      "poetry-install",
+      "poetry install"
+    ]
+  },
+  {
+    "Cmd": [
+      "pulumi-up-one",
+      "pulumi up --stack test-stack --diff --non-interactive --skip-preview --yes"
+    ]
+  },
+  {
+    "Cmd": [
+      "pulumi-stack-history",
+      "pulumi stack history --stack test-stack --json --page-size 1"
+    ]
+  },
+  {
+    "Log": [
+      "controller",
+      "Waiting 0ns for DNS propagation."
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Status": "AwaitDNS1"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Status": "Ansible"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/test-branch"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
+      "poetry-install",
+      "poetry install"
+    ]
+  },
+  {
+    "Cmd": [
+      "pulumi-stack-output",
+      "pulumi stack output --stack test-stack --json --non-interactive --show-secrets"
+    ]
+  },
+  {
+    "Cmd": [
+      "ansible-install",
+      "./venv/bin/ansible-galaxy install --role-file requirements.yml"
+    ]
+  },
+  {
+    "Cmd": [
+      "ansible-playbook",
+      "./venv/bin/ansible-playbook data-plane.ansible.yaml"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Exports": {
+      "aws_iam_user_arn": "arn:aws:iam::123456:user/data-planes/data-plane-abcd",
+      "aws_link_endpoints": [
+        {
+          "dns_entries": [
+            {
+              "dns_name": "vpce-123-abc.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+              "hosted_zone_id": "ZZ1"
+            },
+            {
+              "dns_name": "vpce-123-abc-us-east-1a.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+              "hosted_zone_id": "ZZ1"
+            }
+          ],
+          "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-foo"
+        }
+      ],
+      "azure_application_client_id": "12345678-1234-1234-1234-123456789abc",
+      "azure_application_name": "data-plane-123.dp.estuary-data.com",
+      "azure_link_endpoints": [
+        {
+          "ip": "10.0.0.2",
+          "service_name": "/subscriptions/subscriptionId/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc-bar"
+        }
+      ],
+      "bastion_tunnel_private_key": "bastion_tunnel_private_key fixture",
+      "cidr_blocks": [
+        "2600:1234:567:8900::/56",
+        "12.34.56.78/32",
+        "23.45.67.89/32"
+      ],
+      "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
+      "hmac_keys": [
+        "a2V5MQ==",
+        "a2V5Mg==",
+        "a2V5Mw=="
+      ],
+      "ssh_key": ""
+    }
+  },
+  {
+    "Status": "PulumiUp2"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/test-branch"
+    ]
+  },
+  {
+    "Cmd": [
+      "python-venv",
+      "python3.12 -m venv ./venv"
+    ]
+  },
+  {
+    "Cmd": [
+      "poetry-install",
+      "poetry install"
+    ]
+  },
+  {
+    "Cmd": [
+      "pulumi-up-two",
+      "pulumi up --stack test-stack --diff --non-interactive --skip-preview --yes"
+    ]
+  },
+  {
+    "Cmd": [
+      "pulumi-stack-history",
+      "pulumi stack history --stack test-stack --json --page-size 1"
+    ]
+  },
+  {
+    "Log": [
+      "controller",
+      "Waiting 0ns for DNS propagation."
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Status": "AwaitDNS2"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Stack": {
+      "secretsprovider": "testing",
+      "encryptedkey": "test-fixture",
+      "config": {
+        "est-dry-dock:model": {
+          "name": "test-plane",
+          "fqdn": "test-plane.estuary.dev",
+          "builds_root": "gs://estuary-control/builds/",
+          "builds_kms_keys": [
+            "projects/example/key"
+          ],
+          "control_plane_api": "https://example.api/",
+          "data_buckets": [
+            "gs://example-bucket"
+          ],
+          "gcp_project": "some-gcp-project",
+          "ssh_subnets": [
+            "12.34.56.78/32",
+            "2600:1234:5000:6000::/128"
+          ],
+          "private_links": [
+            {
+              "region": "us-west-2",
+              "az_ids": [
+                "a",
+                "b"
+              ],
+              "service_name": "service"
+            },
+            {
+              "region": "us-west-2",
+              "az_ids": [
+                "b",
+                "c"
+              ],
+              "service_name": "service-2"
+            }
+          ],
+          "deployments": [
+            {
+              "role": "etcd",
+              "template": {
+                "os_id": 2284,
+                "plan": "vc2-1c-2gb",
+                "provider": "vultr",
+                "region": "ord"
+              },
+              "oci_image": "quay.io/coreos/etcd:v3.5",
+              "desired": 3,
+              "current": 3
+            },
+            {
+              "role": "reactor",
+              "template": {
+                "os_id": 2284,
+                "plan": "vc2-1c-2gb",
+                "provider": "vultr",
+                "region": "ord"
+              },
+              "oci_image": "ghcr.io/estuary/flow:v2.3.4",
+              "desired": 1,
+              "current": 1
+            },
+            {
+              "role": "gazette",
+              "template": {
+                "os_id": 2284,
+                "plan": "vc2-1c-2gb",
+                "provider": "vultr",
+                "region": "ord"
+              },
+              "oci_image": "ghcr.io/gazette/broker:v1.2.3",
+              "desired": 4,
+              "current": 4
+            }
+          ],
+          "connector_limits": {
+            "cpu": "200m",
+            "memory": "1g"
+          }
+        }
+      }
+    }
+  },
+  {
+    "Status": "Idle"
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-clean",
+      "git clean --force"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-fetch",
+      "git fetch"
+    ]
+  },
+  {
+    "Cmd": [
+      "git-checkout",
+      "git checkout --detach --force --quiet origin/master"
+    ]
+  },
+  {
+    "Status": "Idle"
   }
 ]
