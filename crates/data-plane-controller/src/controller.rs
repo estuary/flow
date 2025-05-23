@@ -280,6 +280,11 @@ impl Controller {
             state.pending_converge = true;
         }
 
+        if state.private_links != next.private_links {
+            state.private_links = next.private_links;
+            state.pending_converge = true;
+        }
+
         // Decide upon an action to take given the current `state`.
         if state.stack.encrypted_key.is_empty() {
             state.status = Status::SetEncryption;
