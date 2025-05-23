@@ -156,6 +156,5 @@ pub fn initial_state() -> stack::State {
         pending_converge: false, // Start false, should be set by diffing
         publish_exports: None,
         publish_stack: None,
-        private_links: Vec::new(),
     }
 }
