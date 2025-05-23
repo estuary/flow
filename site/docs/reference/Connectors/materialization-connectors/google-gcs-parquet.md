@@ -7,7 +7,7 @@ description: This connector materializes delta updates of Flow collections into 
 This connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of
 Flow collections into a GCS bucket in the Apache Parquet format.
 
-The delta updates are batched within Flow, converted to CSV files, and then pushed to the S3 bucket
+The delta updates are batched within Flow, converted to Parquet files, and then pushed to the GCS bucket
 at a time interval that you set. Files are limited to a configurable maximum size. Each materialized
 Flow collection will produce many separate files.
 

@@ -38,6 +38,9 @@ In the future, other open-source materialization connectors from third parties c
 * Apache Kafka
   * [Configuration](./apache-kafka.md)
   * Package — ghcr.io/estuary/materialize-kafka:dev
+* Apache Parquet Files in Azure Blob Storage
+  * [Configuration](./azure-blob-parquet.md)
+  * Package — ghcr.io/estuary/materialize-azure-blob-parquet:dev
 * Apache Parquet Files in GCS
   * [Configuration](./google-gcs-parquet.md)
   * Package — ghcr.io/estuary/materialize-gcs-parquet:dev

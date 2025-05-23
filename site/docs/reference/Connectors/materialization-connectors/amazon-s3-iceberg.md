@@ -64,7 +64,6 @@ Flow collections to your tables.
 | **`/region`**                | Region                | AWS Region.                                                                                                 | string | Required         |
 | **`/namespace`**             | Namespace             | Namespace for bound collection tables (unless overridden within the binding resource configuration).        | string | Required         |
 | `/upload_interval`           | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours. | string | PT5M             |
-| `/upload_interval`           | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours. | string | PT5M             |
 | **`/catalog/catalog_type`**  | Catalog Type          | Either "Iceberg REST Server" or "AWS Glue".                                                                 | string | Required         |
 | **`/catalog/uri`**           | URI                   | URI identifying the REST catalog, in the format of 'https://yourserver.com/catalog'.                        | string | Required         |
 | `/catalog/credential`        | Credential            | Credential for connecting to the REST catalog.                                                              | string |                  |
