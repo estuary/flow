@@ -157,8 +157,6 @@ impl Controller {
             self.validate_state(ops_checkout, state).await?;
         }
 
-        state.stack.config.model.private_links = state.private_links.clone();
-
         let sleep = match state.status {
             Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
             Status::SetEncryption => self.on_set_encryption(state, checkouts).await?,
@@ -268,11 +266,6 @@ impl Controller {
         }
         if state.stack.config != next.stack.config {
             state.stack.config = next.stack.config;
-            state.pending_converge = true;
-        }
-
-        if state.private_links != next.private_links {
-            state.private_links = next.private_links;
             state.pending_converge = true;
         }
 
@@ -928,6 +921,8 @@ async fn fetch_row_state(
     config.model.name = Some(row.data_plane_name);
     config.model.fqdn = Some(row.data_plane_fqdn);
 
+    config.model.private_links = row.private_links.into_iter().map(|link| link.0).collect();
+
     let stack = if let Some(key) = row.pulumi_key {
         stack::PulumiStack {
             config,
@@ -948,7 +943,6 @@ async fn fetch_row_state(
         last_pulumi_up: chrono::DateTime::default(),
         last_refresh: chrono::DateTime::default(),
         logs_token: row.logs_token,
-        private_links: row.private_links.into_iter().map(|link| link.0).collect(),
         stack,
         stack_name: row.pulumi_stack,
         status: Status::Idle,

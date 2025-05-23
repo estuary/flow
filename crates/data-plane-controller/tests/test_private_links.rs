@@ -25,11 +25,12 @@ async fn test_private_links() {
     let mut inbox: VecDeque<(models::Id, Option<controller::Message>)> = VecDeque::new();
     let mut checkouts: HashMap<String, tempfile::TempDir> = HashMap::new();
     let mut row_state = initial_state();
-    row_state.private_links = vec![stack::PrivateLink::AWS(stack::AWSPrivateLink {
-        az_ids: vec!["a".to_string(), "b".to_string()],
-        region: "us-west-2".to_string(),
-        service_name: "service".to_string(),
-    })];
+    row_state.stack.config.model.private_links =
+        vec![stack::PrivateLink::AWS(stack::AWSPrivateLink {
+            az_ids: vec!["a".to_string(), "b".to_string()],
+            region: "us-west-2".to_string(),
+            service_name: "service".to_string(),
+        })];
 
     inbox.push_back((
         models::Id::zero(),
@@ -67,6 +68,9 @@ async fn test_private_links() {
     }
 
     row_state
+        .stack
+        .config
+        .model
         .private_links
         .push(stack::PrivateLink::AWS(stack::AWSPrivateLink {
             az_ids: vec!["b".to_string(), "c".to_string()],
