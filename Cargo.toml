@@ -30,7 +30,7 @@ async-compression = { version = "0.3", features = [
     "tokio",
     "zstd",
 ] }
-async-stripe = { version = "0.37", features = ["runtime-tokio-hyper"] }
+async-stripe = { version = "0.41", features = ["runtime-tokio-hyper"] }
 async-trait = "0.1"
 atty = "0.2"
 apache-avro = { version = "0.17.0", features = ["snappy"] }
@@ -99,6 +99,8 @@ metrics-exporter-prometheus = "0.15.3"
 prometheus = "0.13.4"
 md5 = "0.7.0"
 num-bigint = "0.4"
+num-format = "0.4"
+indicatif = "0.17"
 
 open = "3"
 
