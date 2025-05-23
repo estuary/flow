@@ -410,7 +410,7 @@ Outcome {
                   "resource": {"whatever":"and ever"},
                   "source": "acmeCo/foo",
                   "fields": {
-                    "include": {
+                    "require": {
                       "val": {}
                     },
                     "recommended": true
@@ -624,7 +624,7 @@ Outcome {
                   "resource": {"whatever":"and ever"},
                   "source": "acmeCo/foo",
                   "fields": {
-                    "include": {
+                    "require": {
                       "val": {}
                     },
                     "recommended": true
@@ -643,7 +643,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"acmeCo/testCapture":{"bindings":[{"resource":{"whatever":"and ever"},"target":"acmeCo/foo"}],"endpoint":{"connector":{"config":{"any":"thing"},"image":"someSourceImage"}},"shards":{"disable":true}}},"collections":{"acmeCo/foo":{"key":["/id"],"schema":{"properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"}}},"materializations":{"acmeCo/testMaterialization":{"bindings":[{"fields":{"include":{"val":{}},"recommended":true},"resource":{"whatever":"and ever"},"source":"acmeCo/foo"}],"endpoint":{"connector":{"config":{"any":"thing"},"image":"someMaterializationImage"}},"shards":{"disable":true}}}},
+            content_dom: {"captures":{"acmeCo/testCapture":{"bindings":[{"resource":{"whatever":"and ever"},"target":"acmeCo/foo"}],"endpoint":{"connector":{"config":{"any":"thing"},"image":"someSourceImage"}},"shards":{"disable":true}}},"collections":{"acmeCo/foo":{"key":["/id"],"schema":{"properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"}}},"materializations":{"acmeCo/testMaterialization":{"bindings":[{"fields":{"recommended":true,"require":{"val":{}}},"resource":{"whatever":"and ever"},"source":"acmeCo/foo"}],"endpoint":{"connector":{"config":{"any":"thing"},"image":"someMaterializationImage"}},"shards":{"disable":true}}}},
         },
     ],
     storage_mappings: [
