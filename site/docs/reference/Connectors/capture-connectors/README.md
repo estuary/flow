@@ -134,6 +134,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Iterate
   - [Configuration](./iterate.md)
   - Package - ghcr.io/estuary/source-iterate:dev
+- Jira (legacy)
+  - [Configuration](./jira-legacy.md)
+  - Package - ghcr.io/estuary/source-jira-legacy:dev
 - Jira
   - [Configuration](./jira-native.md)
   - Package - ghcr.io/estuary/source-jira-native:dev
