@@ -5,17 +5,18 @@ pub mod connector_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
-    /// Captures is a very long lived RPC through which the Flow runtime and a
+    /// A capture is a long-lived RPC through which the Flow runtime and a
     /// connector cooperatively execute an unbounded number of transactions.
     ///
-    /// The Pull workflow pulls streams of documents into capturing Flow
-    /// collections. Streams are incremental and resume-able, with resumption
+    /// Capture connectors produce a stream of Captured documents and transaction
+    /// Checkpoints, and the Flow runtime maps and commits captured documents into
+    /// collections. Captures are incremental and resume-able, with resumption
     /// semantics defined by the connector. The Flow Runtime uses a transactional
     /// recovery log to support this workflow, and the connector may persist arbitrary
     /// driver checkpoints into that log as part of the RPC lifecycle,
     /// to power its chosen resumption semantics.
     ///
-    /// Pull tasks are split-able, and many concurrent invocations of the RPC
+    /// Capture tasks are split-able, and many concurrent invocations of the RPC
     /// may collectively capture from a source, where each task split has an
     /// identified range of keys it's responsible for. The meaning of a "key",
     /// and it's application within the remote store being captured from, is up
@@ -27,7 +28,7 @@ pub mod connector_client {
     /// =============
     ///
     /// :Request.Open:
-    ///    - The Flow runtime opens the pull stream.
+    ///    - The Flow runtime opens the capture stream.
     /// :Response.Opened:
     ///    - The connector responds with Opened.
     ///
@@ -40,6 +41,12 @@ pub mod connector_client {
     ///    - If the connector sends multiple Documents messages without an
     ///      interleaving Checkpoint, the Flow runtime MUST commit
     ///      documents of all such messages in a single transaction.
+    /// :Response.SourcedSchema:
+    ///    - The connector tells the runtime of an updated document schema,
+    ///      drawn from the source system. SourcedSchema influences the
+    ///      inferred schemas of mapped collections. The control-plane will
+    ///      widen the inferred schema as required to accommodate the new schema.
+    ///    - The connector must follow SourcedSchema with a Checkpoint.
     /// :Response.Checkpoint:
     ///    - The connector tells the runtime of a checkpoint: a watermark in the
     ///      captured documents stream which is eligible to be used as a
@@ -48,8 +55,7 @@ pub mod connector_client {
     ///      discretion of the Flow runtime. It may combine multiple checkpoints
     ///      into a single transaction.
     /// :Request.Acknowledge:
-    ///    - The Flow runtime tells the connector that its Checkpoint has committed.
-    ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
+    ///    - The Flow runtime tells the connector that Checkpoints have committed.
     #[derive(Debug, Clone)]
     pub struct ConnectorClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -180,17 +186,18 @@ pub mod connector_server {
             request: tonic::Request<tonic::Streaming<::proto_flow::capture::Request>>,
         ) -> std::result::Result<tonic::Response<Self::CaptureStream>, tonic::Status>;
     }
-    /// Captures is a very long lived RPC through which the Flow runtime and a
+    /// A capture is a long-lived RPC through which the Flow runtime and a
     /// connector cooperatively execute an unbounded number of transactions.
     ///
-    /// The Pull workflow pulls streams of documents into capturing Flow
-    /// collections. Streams are incremental and resume-able, with resumption
+    /// Capture connectors produce a stream of Captured documents and transaction
+    /// Checkpoints, and the Flow runtime maps and commits captured documents into
+    /// collections. Captures are incremental and resume-able, with resumption
     /// semantics defined by the connector. The Flow Runtime uses a transactional
     /// recovery log to support this workflow, and the connector may persist arbitrary
     /// driver checkpoints into that log as part of the RPC lifecycle,
     /// to power its chosen resumption semantics.
     ///
-    /// Pull tasks are split-able, and many concurrent invocations of the RPC
+    /// Capture tasks are split-able, and many concurrent invocations of the RPC
     /// may collectively capture from a source, where each task split has an
     /// identified range of keys it's responsible for. The meaning of a "key",
     /// and it's application within the remote store being captured from, is up
@@ -202,7 +209,7 @@ pub mod connector_server {
     /// =============
     ///
     /// :Request.Open:
-    ///    - The Flow runtime opens the pull stream.
+    ///    - The Flow runtime opens the capture stream.
     /// :Response.Opened:
     ///    - The connector responds with Opened.
     ///
@@ -215,6 +222,12 @@ pub mod connector_server {
     ///    - If the connector sends multiple Documents messages without an
     ///      interleaving Checkpoint, the Flow runtime MUST commit
     ///      documents of all such messages in a single transaction.
+    /// :Response.SourcedSchema:
+    ///    - The connector tells the runtime of an updated document schema,
+    ///      drawn from the source system. SourcedSchema influences the
+    ///      inferred schemas of mapped collections. The control-plane will
+    ///      widen the inferred schema as required to accommodate the new schema.
+    ///    - The connector must follow SourcedSchema with a Checkpoint.
     /// :Response.Checkpoint:
     ///    - The connector tells the runtime of a checkpoint: a watermark in the
     ///      captured documents stream which is eligible to be used as a
@@ -223,8 +236,7 @@ pub mod connector_server {
     ///      discretion of the Flow runtime. It may combine multiple checkpoints
     ///      into a single transaction.
     /// :Request.Acknowledge:
-    ///    - The Flow runtime tells the connector that its Checkpoint has committed.
-    ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
+    ///    - The Flow runtime tells the connector that Checkpoints have committed.
     #[derive(Debug)]
     pub struct ConnectorServer<T: Connector> {
         inner: Arc<T>,

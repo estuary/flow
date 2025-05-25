@@ -439,6 +439,7 @@ fn ex_capture_response() -> capture::Response {
                 resource_config_json: json!({"resource": 1234}).to_string(),
                 key: vec!["/key/ptr".to_string()],
                 resource_path: vec!["1234".to_string()],
+                is_fallback_key: false,
             }],
         }),
         validated: Some(capture::response::Validated {

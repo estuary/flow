@@ -108,11 +108,12 @@ pub struct Binding {
     target: models::Collection,
     document_schema: models::Schema,
     collection_key: Vec<String>,
+    is_fallback_key: bool,
     resource_path: ResourcePath,
     disable: bool,
 }
 
-/// Updates the bingings of the given `model`, and returns a tuple of:
+/// Updates the bindings of the given `model`, and returns a tuple of:
 /// - Intermediate representations of all the discovered bindings. This list
 ///   reflects the new state of the capture bindings after the merge.
 /// - The set of newly added bindings
@@ -143,6 +144,7 @@ pub fn update_capture_bindings(
             resource_config_json,
             document_schema_json,
             key,
+            is_fallback_key,
             resource_path: discovered_path,
             disable: _,
         } = discovered_binding;
@@ -191,6 +193,7 @@ pub fn update_capture_bindings(
             target: new_binding.target.clone(),
             document_schema,
             collection_key: key,
+            is_fallback_key,
             resource_path,
             disable: new_binding.disable,
         });
@@ -227,9 +230,17 @@ pub fn merge_collections(
             target,
             document_schema,
             collection_key,
+            is_fallback_key,
             resource_path,
             disable,
         } = binding;
+
+        let discovered_key = models::CompositeKey::new(
+            collection_key
+                .into_iter()
+                .map(models::JsonPointer::new)
+                .collect::<Vec<_>>(),
+        );
 
         let draft_target = draft.get_or_insert_with(&target, || {
             if let Some(live_collection) = live.get_by_key(&target) {
@@ -251,7 +262,7 @@ pub fn merge_collections(
                     schema: None,
                     write_schema: None,
                     read_schema: None,
-                    key: models::CompositeKey::new(Vec::new()),
+                    key: discovered_key.clone(),
                     projections: Default::default(),
                     journals: Default::default(),
                     derive: None,
@@ -285,34 +296,19 @@ pub fn merge_collections(
             continue;
         };
 
-        // If the discover didn't provide a key, don't over-write a user's chosen key.
-        if !collection_key.is_empty() {
-            let discovered_key = models::CompositeKey::new(
-                collection_key
-                    .into_iter()
-                    .map(models::JsonPointer::new)
-                    .collect::<Vec<_>>(),
+        let mut modified = false;
+
+        if !is_fallback_key && !discovered_key.is_empty() && discovered_key != draft_model.key {
+            tracing::debug!(
+                %collection,
+                ?discovered_key,
+                model_key = ?draft_model.key,
+                "discovered key change"
             );
-            if discovered_key != draft_model.key {
-                tracing::debug!(
-                    %collection,
-                    ?discovered_key,
-                    model_key = ?draft_model.key,
-                    "discovered key change"
-                );
-                *is_touch = false;
-                modified_collections.insert(
-                    resource_path.clone(),
-                    Changed {
-                        target: collection.clone(),
-                        disable,
-                    },
-                );
-                draft_model.key = discovered_key;
-            }
+            modified = true;
+            draft_model.key = discovered_key;
         }
 
-        let mut modified = false;
         if draft_model.read_schema.is_some() {
             if is_schema_changed(&document_schema, draft_model.write_schema.as_ref()) {
                 tracing::debug!(
@@ -342,6 +338,7 @@ pub fn merge_collections(
             modified = true;
             draft_model.schema = Some(document_schema);
         }
+
         if modified {
             *is_touch = false;
             modified_collections.insert(
@@ -457,6 +454,7 @@ mod tests {
                     models::RawValue::from_str(r#"{"const": 42}"#).unwrap(),
                 ),
                 collection_key: string_vec(&["/foo", "/bar"]),
+                is_fallback_key: false,
                 resource_path: string_vec(&["1"]),
                 disable: false,
             },
@@ -467,6 +465,7 @@ mod tests {
                     models::RawValue::from_str(r#"{"const": 42}"#).unwrap(),
                 ),
                 collection_key: string_vec(&["/foo", "/bar"]),
+                is_fallback_key: false,
                 resource_path: string_vec(&["2"]),
                 disable: false,
             },
@@ -477,6 +476,7 @@ mod tests {
                     models::RawValue::from_str(r#"{"const": 42}"#).unwrap(),
                 ),
                 collection_key: Vec::new(),
+                is_fallback_key: false,
                 resource_path: string_vec(&["3"]),
                 disable: false,
             },
@@ -488,6 +488,7 @@ mod tests {
                         .unwrap(),
                 ),
                 collection_key: string_vec(&["/foo", "/bar"]),
+                is_fallback_key: false,
                 resource_path: string_vec(&["4"]),
                 disable: true,
             },
@@ -499,6 +500,7 @@ mod tests {
                         .unwrap(),
                 ),
                 collection_key: string_vec(&["/key"]),
+                is_fallback_key: false,
                 resource_path: string_vec(&["5"]),
                 disable: true,
             },
@@ -510,8 +512,20 @@ mod tests {
                         .unwrap(),
                 ),
                 collection_key: string_vec(&["/key"]),
+                is_fallback_key: false,
                 resource_path: string_vec(&["6"]),
                 disable: true,
+            },
+            // case/7: If discovered key is a fallback, it doesn't replace the collection key.
+            Binding {
+                target: models::Collection::new("case/7"),
+                document_schema: models::Schema::new(
+                    models::RawValue::from_str(r#"{"const": 42}"#).unwrap(),
+                ),
+                collection_key: string_vec(&["/fallback", "/key"]),
+                is_fallback_key: true,
+                resource_path: string_vec(&["7"]),
+                disable: false,
             },
         ];
 
@@ -535,6 +549,10 @@ mod tests {
                     "writeSchema": false,
                     "readSchema": {"const": "read!"},
                     "key": ["/old"],
+                },
+                "case/7": {
+                    "schema": false,
+                    "key": ["/chosen", "/key"],
                 },
             }
         }))
@@ -576,6 +594,117 @@ mod tests {
             &mut draft.collections,
             &live.collections,
         );
+
+        insta::assert_debug_snapshot!(draft.collections, @r###"
+        [
+            DraftCollection {
+                collection: case/1,
+                scope: flow://collection/case/1,
+                expect_pub_id: "0000000000000000",
+                model: {
+                  "schema": {"const": 42},
+                  "key": [
+                    "/foo",
+                    "/bar"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/2,
+                scope: flow://collection/case/2,
+                expect_pub_id: NULL,
+                model: {
+                  "schema": {"const": 42},
+                  "key": [
+                    "/foo",
+                    "/bar"
+                  ],
+                  "projections": {
+                    "field": "/ptr"
+                  },
+                  "journals": {
+                    "fragments": {
+                      "length": 1234
+                    }
+                  },
+                  "derive": {
+                    "using": {
+                      "sqlite": {}
+                    },
+                    "transforms": []
+                  }
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/3,
+                scope: flow://collection/case/3,
+                expect_pub_id: NULL,
+                model: {
+                  "schema": {"const": 42},
+                  "key": [
+                    "/one",
+                    "/two"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/4,
+                scope: flow://collection/case/4,
+                expect_pub_id: NULL,
+                model: {
+                  "writeSchema": { "const": "write!", "x-infer-schema": true },
+                  "readSchema": {"const":"read!"},
+                  "key": [
+                    "/foo",
+                    "/bar"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/5,
+                scope: flow://collection/case/5,
+                expect_pub_id: "0000000000000000",
+                model: {
+                  "writeSchema": { "const": "write!", "x-infer-schema": true },
+                  "readSchema": {"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
+                  "key": [
+                    "/key"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/6,
+                scope: flow://collection/case/6,
+                expect_pub_id: "0000000000000000",
+                model: {
+                  "writeSchema": { "const": "write!", "x-infer-schema": true },
+                  "readSchema": {"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
+                  "key": [
+                    "/key"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/7,
+                scope: flow://collection/case/7,
+                expect_pub_id: NULL,
+                model: {
+                  "schema": {"const": 42},
+                  "key": [
+                    "/chosen",
+                    "/key"
+                  ]
+                },
+                is_touch: 0,
+            },
+        ]
+        "###);
 
         insta::assert_debug_snapshot!(modified, @r###"
         Ok(
@@ -628,22 +757,22 @@ mod tests {
                     ),
                     disable: true,
                 },
+                [
+                    "7",
+                ]: Changed {
+                    target: Collection(
+                        "case/7",
+                    ),
+                    disable: false,
+                },
             },
         )
         "###);
-
-        let case6 = draft
-            .collections
-            .get_by_key(&models::Collection::new("case/6"))
-            .unwrap();
-        assert!(case6.model().unwrap().schema.is_none());
-        assert!(case6.model().unwrap().read_schema.is_some());
-        assert!(case6.model().unwrap().write_schema.is_some());
     }
 
     #[test]
     fn test_capture_merge_resource_paths_update() {
-        // This is meant to test our merge behavior in the presense of additional fields in the
+        // This is meant to test our merge behavior in the presence of additional fields in the
         // `resource` that are not part of the resource path.
         // Fixture is an update of an existing capture, which uses a non-suggested collection name.
         // There is also a disabled binding, which is expected to remain disabled after the merge.

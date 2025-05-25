@@ -20,7 +20,8 @@ async fn test_user_discovers() {
                 resource_config_json: String::from(r#"{"id": "acorns"}"#),
                 key: vec!["/id".to_string()],
                 disable: false,
-                resource_path: Vec::new(), // deprecated field
+                resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: String::from("walnuts"),
@@ -28,7 +29,8 @@ async fn test_user_discovers() {
                 resource_config_json: String::from(r#"{"id": "walnuts"}"#),
                 key: vec!["/id".to_string()],
                 disable: false,
-                resource_path: Vec::new(), // deprecated field
+                resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: String::from("crab apples"),
@@ -36,7 +38,8 @@ async fn test_user_discovers() {
                 resource_config_json: String::from(r#"{"id": "crab apples"}"#),
                 key: vec!["/id".to_string()],
                 disable: true,
-                resource_path: Vec::new(), // deprecated field
+                resource_path: Vec::new(),
+                is_fallback_key: false,
             },
         ],
     };
@@ -76,7 +79,11 @@ async fn test_user_discovers() {
         .create_user_publication(user_id, draft_id, "initial publication")
         .await;
 
+    pub_result.errors.iter().for_each(|e| {
+        println!("Error: {:?}", e);
+    });
     assert!(pub_result.status.is_success());
+
     let published_specs = pub_result
         .live_specs
         .into_iter()
@@ -189,7 +196,8 @@ async fn test_user_discovers() {
                 resource_config_json: String::from(r#"{"id": "acorns"}"#),
                 key: vec!["/id".to_string()],
                 disable: false,
-                resource_path: Vec::new(), // deprecated field
+                resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: String::from("walnuts"),
@@ -197,7 +205,8 @@ async fn test_user_discovers() {
                 resource_config_json: String::from(r#"{"id": "walnuts"}"#),
                 key: vec!["/id".to_string()],
                 disable: true,
-                resource_path: Vec::new(), // deprecated field
+                resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: String::from("hickory nuts!"),
@@ -205,7 +214,8 @@ async fn test_user_discovers() {
                 resource_config_json: String::from(r#"{"id": "hickory-nuts"}"#),
                 key: vec!["/id".to_string()],
                 disable: false,
-                resource_path: Vec::new(), // deprecated field
+                resource_path: Vec::new(),
+                is_fallback_key: false,
             },
         ],
     };

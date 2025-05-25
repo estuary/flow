@@ -92,6 +92,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -100,6 +101,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
         ],
     };
@@ -198,6 +200,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: "flowers".to_string(),
@@ -206,6 +209,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
         ],
     };
@@ -366,6 +370,7 @@ async fn test_auto_discovers_no_evolution() {
             key: vec!["/id".to_string()],
             disable: false,
             resource_path: Vec::new(),
+            is_fallback_key: false,
         }],
     };
     let result = harness
@@ -395,6 +400,7 @@ async fn test_auto_discovers_no_evolution() {
             key: vec!["/id".to_string(), "/squeaks".to_string()],
             disable: false,
             resource_path: Vec::new(),
+            is_fallback_key: false,
         }],
     };
     harness.set_auto_discover_due("mules/capture").await;
@@ -663,6 +669,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -672,6 +679,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: "lichen".to_string(),
@@ -680,6 +688,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
         ],
     };
@@ -803,6 +812,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -812,6 +822,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             // Lichens is missing, and we expect the corresponding binding to be
             // removed once a successful discover is published.
@@ -878,6 +889,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string(), "/squeaks".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -887,6 +899,7 @@ async fn test_auto_discovers_update_only() {
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
+                is_fallback_key: false,
             },
             // Lichens is missing, and we expect the corresponding binding to be
             // removed once a successful discover is published.
