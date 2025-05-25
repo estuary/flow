@@ -1754,6 +1754,9 @@ impl serde::Serialize for response::discovered::Binding {
         if !self.resource_path.is_empty() {
             len += 1;
         }
+        if self.is_fallback_key {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Response.Discovered.Binding", len)?;
         if !self.recommended_name.is_empty() {
             struct_ser.serialize_field("recommendedName", &self.recommended_name)?;
@@ -1772,6 +1775,9 @@ impl serde::Serialize for response::discovered::Binding {
         }
         if !self.resource_path.is_empty() {
             struct_ser.serialize_field("resourcePath", &self.resource_path)?;
+        }
+        if self.is_fallback_key {
+            struct_ser.serialize_field("isFallbackKey", &self.is_fallback_key)?;
         }
         struct_ser.end()
     }
@@ -1793,6 +1799,8 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
             "disable",
             "resource_path",
             "resourcePath",
+            "is_fallback_key",
+            "isFallbackKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1803,6 +1811,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
             Key,
             Disable,
             ResourcePath,
+            IsFallbackKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1830,6 +1839,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                             "key" => Ok(GeneratedField::Key),
                             "disable" => Ok(GeneratedField::Disable),
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
+                            "isFallbackKey" | "is_fallback_key" => Ok(GeneratedField::IsFallbackKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1855,6 +1865,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                 let mut key__ = None;
                 let mut disable__ = None;
                 let mut resource_path__ = None;
+                let mut is_fallback_key__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RecommendedName => {
@@ -1893,6 +1904,12 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                             }
                             resource_path__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::IsFallbackKey => {
+                            if is_fallback_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isFallbackKey"));
+                            }
+                            is_fallback_key__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(response::discovered::Binding {
@@ -1902,6 +1919,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                     key: key__.unwrap_or_default(),
                     disable: disable__.unwrap_or_default(),
                     resource_path: resource_path__.unwrap_or_default(),
+                    is_fallback_key: is_fallback_key__.unwrap_or_default(),
                 })
             }
         }

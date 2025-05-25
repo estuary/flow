@@ -16,6 +16,7 @@ expression: path_merge_out
             collection_key: [
                 "/foo-key",
             ],
+            is_fallback_key: false,
             resource_path: [
                 "foo",
             ],
@@ -33,6 +34,7 @@ expression: path_merge_out
             collection_key: [
                 "/bar-key",
             ],
+            is_fallback_key: false,
             resource_path: [
                 "bar",
             ],

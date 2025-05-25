@@ -11,17 +11,18 @@ option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
-// Captures is a very long lived RPC through which the Flow runtime and a
+// A capture is a long-lived RPC through which the Flow runtime and a
 // connector cooperatively execute an unbounded number of transactions.
 //
-// The Pull workflow pulls streams of documents into capturing Flow
-// collections. Streams are incremental and resume-able, with resumption
+// Capture connectors produce a stream of Captured documents and transaction
+// Checkpoints, and the Flow runtime maps and commits captured documents into
+// collections. Captures are incremental and resume-able, with resumption
 // semantics defined by the connector. The Flow Runtime uses a transactional
 // recovery log to support this workflow, and the connector may persist arbitrary
 // driver checkpoints into that log as part of the RPC lifecycle,
 // to power its chosen resumption semantics.
 //
-// Pull tasks are split-able, and many concurrent invocations of the RPC
+// Capture tasks are split-able, and many concurrent invocations of the RPC
 // may collectively capture from a source, where each task split has an
 // identified range of keys it's responsible for. The meaning of a "key",
 // and it's application within the remote store being captured from, is up
@@ -33,7 +34,7 @@ option (gogoproto.goproto_getters_all) = false;
 // =============
 //
 // :Request.Open:
-//    - The Flow runtime opens the pull stream.
+//    - The Flow runtime opens the capture stream.
 // :Response.Opened:
 //    - The connector responds with Opened.
 //
@@ -46,6 +47,12 @@ option (gogoproto.goproto_getters_all) = false;
 //    - If the connector sends multiple Documents messages without an
 //      interleaving Checkpoint, the Flow runtime MUST commit
 //      documents of all such messages in a single transaction.
+// :Response.SourcedSchema:
+//    - The connector tells the runtime of an updated document schema,
+//      drawn from the source system. SourcedSchema influences the
+//      inferred schemas of mapped collections. The control-plane will
+//      widen the inferred schema as required to accommodate the new schema.
+//    - The connector must follow SourcedSchema with a Checkpoint.
 // :Response.Checkpoint:
 //    - The connector tells the runtime of a checkpoint: a watermark in the
 //      captured documents stream which is eligible to be used as a
@@ -54,8 +61,7 @@ option (gogoproto.goproto_getters_all) = false;
 //      discretion of the Flow runtime. It may combine multiple checkpoints
 //      into a single transaction.
 // :Request.Acknowledge:
-//    - The Flow runtime tells the connector that its Checkpoint has committed.
-//    - The runtime sends one ordered Acknowledge for each Checkpoint.
+//    - The Flow runtime tells the connector that Checkpoints have committed.
 service Connector {
   rpc Capture(stream Request) returns (stream Response);
 }
@@ -246,6 +252,26 @@ message Response {
       // - For Kafka, this might be []{topic}.
       // - For Redis, this might be []{key_prefix}.
       repeated string resource_path = 6;
+      // Discovered bindings should reflect the natural identifiers of the
+      // endpoint resources that they serve, such as user IDs of a `users` table.
+      // At times there is no known identifier: an S3 file capture might key on
+      // file name and row offset. Such keys should be marked as fallback keys.
+      //
+      // A simple criteria for determining whether a key is a fallback key is
+      // to ask "will the connector emit deletions for this key?".
+      // If the answer is "yes", the key is NOT a fallback.
+      //
+      // For regular (non-fallback) keys:
+      // - The Estuary control-plane will update collection keys to reflect
+      //   the latest discovered keys from the source endpoint.
+      // - Users should not change such collection keys (they'll be overwritten).
+      //
+      // For fallback keys:
+      // - The Estuary control-plane will initialize a new collection with the
+      //   fallback key.
+      // - Users may change the collection key, and it will not be overwritten
+      //   by future discoveries.
+      bool is_fallback_key = 7;
     }
     repeated Binding bindings = 1;
   }

@@ -258,6 +258,27 @@ pub mod response {
             /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "6")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            /// Discovered bindings should reflect the natural identifiers of the
+            /// endpoint resources that they serve, such as user IDs of a `users` table.
+            /// At times there is no known identifier: an S3 file capture might key on
+            /// file name and row offset. Such keys should be marked as fallback keys.
+            ///
+            /// A simple criteria for determining whether a key is a fallback key is
+            /// to ask "will the connector emit deletions for this key?".
+            /// If the answer is "yes", the key is NOT a fallback.
+            ///
+            /// For regular (non-fallback) keys:
+            /// - The Estuary control-plane will update collection keys to reflect
+            ///    the latest discovered keys from the source endpoint.
+            /// - Users should not change such collection keys (they'll be overwritten).
+            ///
+            /// For fallback keys:
+            /// - The Estuary control-plane will initialize a new collection with the
+            ///    fallback key.
+            /// - Users may change the collection key, and it will not be overwritten
+            ///    by future discoveries.
+            #[prost(bool, tag = "7")]
+            pub is_fallback_key: bool,
         }
     }
     /// Validated responds to Request.Validate.
