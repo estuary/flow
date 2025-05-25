@@ -14,6 +14,7 @@ expression: out
                 ),
             ),
             collection_key: [],
+            is_fallback_key: false,
             resource_path: [
                 "foo",
             ],
@@ -29,6 +30,7 @@ expression: out
                 ),
             ),
             collection_key: [],
+            is_fallback_key: false,
             resource_path: [
                 "foo",
                 "spacename",
@@ -45,6 +47,7 @@ expression: out
                 ),
             ),
             collection_key: [],
+            is_fallback_key: false,
             resource_path: [
                 "bar",
             ],
@@ -60,6 +63,7 @@ expression: out
                 ),
             ),
             collection_key: [],
+            is_fallback_key: false,
             resource_path: [
                 "disabled",
             ],
