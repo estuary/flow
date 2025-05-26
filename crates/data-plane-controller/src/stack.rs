@@ -259,7 +259,7 @@ pub struct ControlExports {
     pub bastion_tunnel_private_key: Option<String>,
     pub cidr_blocks: Vec<ipnetwork::IpNetwork>,
     pub gcp_service_account_email: String,
-    pub hmac_keys: Vec<String>,
+    pub hmac_keys: String,
     pub ssh_key: String,
 }
 
