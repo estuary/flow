@@ -153,7 +153,7 @@ ${PKGDIR}/bin/fetch-open-graph:
 
 # `sops` is used for encrypt/decrypt of connector configurations.
 ${PKGDIR}/bin/sops:
-	go install go.mozilla.org/sops/v3/cmd/sops@v3.7.3
+	go install github.com/getsops/sops/v3/cmd/sops@v3.10.2
 	cp $(shell go env GOPATH)/bin/sops $@
 
 ########################################################################
