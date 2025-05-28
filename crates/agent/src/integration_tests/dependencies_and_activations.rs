@@ -8,8 +8,11 @@ use crate::{
     },
     ControlPlane,
 };
+use gazette::consumer::replica_status;
 use models::{
-    status::{publications::PublicationStatus, ShardRef},
+    status::{
+        activation::ShardsStatus, publications::PublicationStatus, ShardRef, StatusSummaryType,
+    },
     CatalogType,
 };
 use uuid::Uuid;
@@ -350,21 +353,140 @@ async fn test_shard_failures_and_retries() {
             ("pandas/luck", Some(CatalogType::Collection)),
         ],
     );
+    // Mock the shard status as not yet Primary and expect that it's
+    // reflectected in the controller status and summary.
+    harness
+        .control_plane()
+        .mock_shard_status("pandas/capture", vec![replica_status::Code::Backfill]);
 
     let before_capture_state = harness.get_controller_state("pandas/capture").await;
-    let before_activation = before_capture_state
-        .current_status
-        .unwrap_capture()
-        .activation
-        .last_activated_at
-        .unwrap();
-
     let capture_shard = ShardRef {
         name: "pandas/capture".to_string(),
         build: before_capture_state.last_build_id,
         key_begin: "00000000".to_string(),
         r_clock_begin: "00000000".to_string(),
     };
+
+    // Add a stale status, and expect that it's ignored due to the non-matching build id
+    harness
+        .upsert_connector_status(
+            "pandas/capture",
+            models::status::ConnectorStatus {
+                shard: ShardRef {
+                    build: models::Id::new([1; 8]),
+                    ..capture_shard.clone()
+                },
+                ts: chrono::Utc::now() - chrono::Duration::minutes(60),
+                message: "a stale status".to_string(),
+                fields: Default::default(),
+            },
+        )
+        .await;
+
+    // Task status summary should indicate that we're waiting for shards to reach primary status.
+    let capture_summary = harness.status_summary("pandas/capture").await;
+    insta::assert_debug_snapshot!(capture_summary, @r###"
+    Summary {
+        status: Warning,
+        message: "waiting for task shards to be ready",
+    }
+    "###);
+
+    let after_activation_shard_health = before_capture_state
+        .current_status
+        .activation_status()
+        .unwrap()
+        .shard_status
+        .as_ref()
+        .unwrap();
+    assert_eq!(0, after_activation_shard_health.count);
+    assert_eq!(ShardsStatus::Pending, after_activation_shard_health.status);
+    // Subsequent status checks should update the `ts`, leaving the shards status as Pending.
+    let mut last_check = harness.control_plane().current_time();
+    for expect_count in 1..6 {
+        override_shard_status_check_at(
+            "pandas/capture",
+            chrono::Duration::minutes(expect_count as i64),
+            &mut harness,
+        )
+        .await;
+        let state = harness.run_pending_controller("pandas/capture").await;
+        let shard_health = state
+            .current_status
+            .activation_status()
+            .unwrap()
+            .shard_status
+            .as_ref()
+            .unwrap();
+        assert_eq!(expect_count as u32, shard_health.count);
+        assert_eq!(ShardsStatus::Pending, shard_health.status);
+        assert!(shard_health.last_ts > last_check);
+        last_check = shard_health.last_ts;
+
+        let capture_summary = harness.status_summary("pandas/capture").await;
+        assert_eq!(StatusSummaryType::Warning, capture_summary.status);
+        assert_eq!(
+            "waiting for task shards to be ready",
+            &capture_summary.message
+        );
+    }
+
+    // Promote the shard to Primary and run the controller again. Expect that
+    // the status summary to show it waiting on a connector health check.
+    // TODO(phil): The activation status should also reflect this if it becomes something we alert on.
+    harness
+        .control_plane()
+        .mock_shard_status("pandas/capture", vec![replica_status::Code::Primary]);
+    override_shard_status_check_at("pandas/capture", chrono::Duration::minutes(5), &mut harness)
+        .await;
+    let capture_state = harness.run_pending_controller("pandas/capture").await;
+    assert!(capture_state.error.is_none());
+    // The controller status should show the shards are OK.
+    let shards_status = capture_state
+        .current_status
+        .activation_status()
+        .unwrap()
+        .shard_status
+        .as_ref()
+        .unwrap();
+    assert_eq!(ShardsStatus::Ok, shards_status.status);
+    assert_eq!(1, shards_status.count);
+    // But the summary should show that it's waiting on a connector status
+    let capture_summary = harness.status_summary("pandas/capture").await;
+    insta::assert_debug_snapshot!(capture_summary, @r###"
+    Summary {
+        status: Warning,
+        message: "waiting on connector status",
+    }
+    "###);
+
+    // Now mock a connector status, and expect the summary to show that everything is Ok
+    harness
+        .upsert_connector_status(
+            "pandas/capture",
+            models::status::ConnectorStatus {
+                shard: capture_shard.clone(),
+                ts: chrono::Utc::now(),
+                message: "we doin aight".to_string(),
+                fields: Default::default(),
+            },
+        )
+        .await;
+
+    let capture_summary = harness.status_summary("pandas/capture").await;
+    insta::assert_debug_snapshot!(capture_summary, @r###"
+    Summary {
+        status: Ok,
+        message: "we doin aight",
+    }
+    "###);
+
+    let before_activation = before_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation
+        .last_activated_at
+        .unwrap();
 
     fail_shard(&mut harness, &capture_shard).await;
 
@@ -468,15 +590,12 @@ async fn test_shard_failures_and_retries() {
     // Assert that the restart gets performed and recorded properly
     override_next_retry_now("pandas/capture", &mut harness).await;
 
-    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    let capture_state = harness.run_pending_controller("pandas/capture").await;
     harness.control_plane().assert_activations(
         "after restart",
         vec![("pandas/capture", Some(CatalogType::Capture))],
     );
-    let capture_activation = &after_capture_state
-        .current_status
-        .unwrap_capture()
-        .activation;
+    let capture_activation = &capture_state.current_status.unwrap_capture().activation;
     assert!(
         capture_activation.last_activated_at.unwrap() > reactivation_ts,
         "activation timestamp should have been updated"
@@ -487,14 +606,21 @@ async fn test_shard_failures_and_retries() {
     );
     assert_eq!(7, capture_activation.recent_failure_count);
 
+    // Simulate the shard remaining in failed status after the activation, without
+    // logging out a shard failed event. This can happen in some failure scenarios, and
+    // we'll expect the controller to re-try the activation.
+    harness
+        .control_plane()
+        .mock_shard_status("pandas/capture", vec![replica_status::Code::Failed]);
+    override_last_activated_at("pandas/capture", chrono::Duration::minutes(2), &mut harness).await;
+    let capture_state = harness.run_pending_controller("pandas/capture").await;
+    let capture_activation = &capture_state.current_status.unwrap_capture().activation;
+
     // fail the shard again, and expect another backoff
     let last_activation_ts = capture_activation.last_activated_at.unwrap();
     fail_shard(&mut harness, &capture_shard).await;
-    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
-    let capture_activation = &after_capture_state
-        .current_status
-        .unwrap_capture()
-        .activation;
+    let capture_state = harness.run_pending_controller("pandas/capture").await;
+    let capture_activation = &capture_state.current_status.unwrap_capture().activation;
     assert_eq!(
         capture_activation.last_activated_at.unwrap(),
         last_activation_ts,
@@ -511,7 +637,7 @@ async fn test_shard_failures_and_retries() {
         capture: models::Capture::new("pandas/capture"),
         scope: tables::synthetic_scope("capture", "pandas/capture"),
         expect_pub_id: None,
-        model: after_capture_state
+        model: capture_state
             .live_spec
             .as_ref()
             .and_then(|s| s.as_capture())
@@ -580,7 +706,7 @@ async fn test_shard_failures_and_retries() {
 
 async fn override_next_retry_now(catalog_name: &str, harness: &mut TestHarness) {
     let retry_at = harness.control_plane().current_time().to_rfc3339();
-    tracing::debug!(%catalog_name, %retry_at, "overrieding next_retry");
+    tracing::debug!(%catalog_name, %retry_at, "overriding next_retry");
     sqlx::query!(
         r#"update controller_jobs set
         status = jsonb_set(status::jsonb, '{activation, next_retry}', to_jsonb($2::text))::json
@@ -593,6 +719,50 @@ async fn override_next_retry_now(catalog_name: &str, harness: &mut TestHarness) 
     .fetch_one(&harness.pool)
     .await
     .expect("failed to override next_retry time");
+}
+
+async fn override_shard_status_check_at(
+    catalog_name: &str,
+    time_since: chrono::Duration,
+    harness: &mut TestHarness,
+) {
+    let new_ts = (chrono::Utc::now() - time_since).to_rfc3339();
+
+    tracing::debug!(%catalog_name, %new_ts, "overriding activation shard_status ts");
+    sqlx::query!(
+        r#"update controller_jobs set
+        status = jsonb_set(status::jsonb, '{activation, shard_status, last_ts}', to_jsonb($2::text))::json
+        where live_spec_id = (select id from live_specs where catalog_name = $1)
+        and status->'activation'->'shard_status'->>'last_ts' is not null
+        returning 1 as "must_exist: bool";"#,
+        catalog_name,
+        new_ts,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to override activation shard_health ts");
+}
+
+async fn override_last_activated_at(
+    catalog_name: &str,
+    time_since: chrono::Duration,
+    harness: &mut TestHarness,
+) {
+    let new_ts = (chrono::Utc::now() - time_since).to_rfc3339();
+
+    tracing::debug!(%catalog_name, %new_ts, "overriding last_activated_at");
+    sqlx::query!(
+        r#"update controller_jobs set
+        status = jsonb_set(status::jsonb, '{activation, last_activated_at}', to_jsonb($2::text))::json
+        where live_spec_id = (select id from live_specs where catalog_name = $1)
+        and status->'activation'->>'last_activated_at' is not null
+        returning 1 as "must_exist: bool";"#,
+        catalog_name,
+        new_ts,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to override last_activated_at time");
 }
 
 async fn fail_shard(harness: &mut TestHarness, shard: &ShardRef) {
@@ -621,6 +791,11 @@ async fn fail_shard(harness: &mut TestHarness, shard: &ShardRef) {
     .execute(&harness.pool)
     .await
     .expect("failed to insert shard failure");
+
+    // Mock so that a shard listing will also show the shards as failed
+    harness
+        .control_plane()
+        .mock_shard_status(&shard.name, vec![replica_status::Code::Failed]);
 }
 
 #[tokio::test]
