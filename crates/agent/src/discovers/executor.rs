@@ -287,6 +287,7 @@ async fn prepare_discover(
 
     Ok(Discover {
         user_id,
+        filter_user_authz: true,
         capture_name,
         data_plane,
         draft,

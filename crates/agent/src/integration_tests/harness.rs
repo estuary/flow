@@ -451,6 +451,14 @@ impl TestHarness {
         .await
         .expect("failed to provision tenant");
 
+        // Remove the estuary_support/ role grant, which gets automatically
+        // added by a trigger whenever we create a new tenant. Removing it here
+        // ensures that things still work correctly without it.
+        sqlx::query!(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
+            .execute(&mut txn)
+            .await
+            .expect("failed to remove estuary_support/ role");
+
         txn.commit().await.expect("failed to commit transaction");
         user_id
     }
@@ -1419,7 +1427,6 @@ impl ControlPlane for TestControlPlane {
             .delete_config_updates(catalog_name, min_build)
             .await
     }
-
 
     async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>> {
         self.inner.get_shard_failures(catalog_name).await
