@@ -8,7 +8,7 @@ mod authorize_user_prefix;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
-mod public;
+pub mod public;
 mod snapshot;
 mod update_l2_reporting;
 

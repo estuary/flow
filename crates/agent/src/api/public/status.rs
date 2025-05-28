@@ -79,7 +79,7 @@ pub async fn handle_get_status(
     Ok(Json(status))
 }
 
-async fn fetch_status(
+pub async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[String],
     short: bool,
