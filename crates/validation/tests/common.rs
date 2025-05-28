@@ -886,6 +886,7 @@ impl validation::Connectors for MockDriverCalls {
                             constraints: b.constraints.clone(),
                             delta_updates: call.delta_updates,
                             resource_path: b.resource_path.clone(),
+                            ser_policy: None,
                         };
 
                         // NOTE(johnny): clunky support for test_materialization_driver_unknown_constraints,

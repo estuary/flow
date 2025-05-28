@@ -413,6 +413,9 @@ pub mod response {
             /// such that a reader of the stream will arrive at the correct total count.
             #[prost(bool, tag = "3")]
             pub delta_updates: bool,
+            /// Serialization policy to use for this binding.
+            #[prost(message, optional, tag = "4")]
+            pub ser_policy: ::core::option::Option<super::super::super::flow::SerPolicy>,
         }
     }
     /// Applied responds to Request.Apply.

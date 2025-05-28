@@ -95,7 +95,7 @@ impl Task {
 impl Binding {
     pub fn new(
         spec: &flow::materialization_spec::Binding,
-        ser_policy: &doc::SerPolicy,
+        default_ser_policy: &doc::SerPolicy,
     ) -> anyhow::Result<Self> {
         let flow::materialization_spec::Binding {
             backfill: _,
@@ -111,6 +111,7 @@ impl Binding {
             resource_config_json: _,
             resource_path: _,
             state_key,
+            ser_policy: binding_ser_policy,
         } = spec;
 
         let flow::FieldSelection {
@@ -135,8 +136,29 @@ impl Binding {
             write_schema_json,
         } = collection.as_ref().context("missing collection")?;
 
-        let key_extractors = extractors::for_fields(selected_key, projections, ser_policy)?;
-        let value_extractors = extractors::for_fields(selected_values, projections, ser_policy)?;
+        // TODO(whb): At some point once all built materialization specs have
+        // been updated we can get rid of the `default_ser_policy` parameter and
+        // just default to doc::SerPolicy::noop() with overrides from the
+        // specific binding serialization policy.
+        let ser_policy = if let Some(binding_ser_policy) = binding_ser_policy {
+            let mut base = doc::SerPolicy::noop();
+            if binding_ser_policy.str_truncate_after > 0 {
+                base.str_truncate_after = binding_ser_policy.str_truncate_after as usize;
+            };
+            if binding_ser_policy.nested_obj_truncate_after > 0 {
+                base.nested_obj_truncate_after =
+                    binding_ser_policy.nested_obj_truncate_after as usize;
+            };
+            if binding_ser_policy.array_truncate_after > 0 {
+                base.array_truncate_after = binding_ser_policy.array_truncate_after as usize;
+            };
+            base
+        } else {
+            default_ser_policy.clone()
+        };
+
+        let key_extractors = extractors::for_fields(selected_key, projections, &ser_policy)?;
+        let value_extractors = extractors::for_fields(selected_values, projections, &ser_policy)?;
 
         let read_schema_json = if read_schema_json.is_empty() {
             write_schema_json
@@ -153,7 +175,7 @@ impl Binding {
             journal_read_suffix: journal_read_suffix.clone(),
             key_extractors,
             read_schema_json,
-            ser_policy: ser_policy.clone(),
+            ser_policy,
             state_key: state_key.clone(),
             store_document: !selected_root.is_empty(),
             value_extractors,

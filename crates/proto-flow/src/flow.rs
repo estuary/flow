@@ -608,7 +608,7 @@ pub mod materialization_spec {
     /// Bindings between endpoint resources, uniquely identified by their
     /// resource path, and the collections from which they're materialized.
     ///
-    /// Next tag: 14.
+    /// Next tag: 15.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
@@ -656,6 +656,9 @@ pub mod materialization_spec {
         /// A suggested key to use for this binding within connector state.
         #[prost(string, tag = "13")]
         pub state_key: ::prost::alloc::string::String,
+        /// Serialization policy used for this binding.
+        #[prost(message, optional, tag = "14")]
+        pub ser_policy: ::core::option::Option<super::SerPolicy>,
     }
     /// Nested message and enum types in `Binding`.
     pub mod binding {

@@ -1793,6 +1793,7 @@ Outcome {
                             "path",
                         ],
                         delta_updates: false,
+                        ser_policy: None,
                     },
                 ],
             },
@@ -2153,6 +2154,7 @@ Outcome {
                         not_after: None,
                         backfill: 1,
                         state_key: "table%2Fpath.v1",
+                        ser_policy: None,
                     },
                 ],
                 shard_template: Some(
@@ -2323,6 +2325,7 @@ Outcome {
                         not_after: None,
                         backfill: 0,
                         state_key: "",
+                        ser_policy: None,
                     },
                 ],
                 shard_template: Some(

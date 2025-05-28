@@ -296,6 +296,8 @@ message Response {
       // its materialization will produce a stream of delta updates to the count,
       // such that a reader of the stream will arrive at the correct total count.
       bool delta_updates = 3;
+      // Serialization policy to use for this binding.
+      flow.SerPolicy ser_policy = 4;
     }
     repeated Binding bindings = 1;
   }
