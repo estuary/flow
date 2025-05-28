@@ -5,7 +5,7 @@ It uses Salesforce's [Bulk API 2.0](https://developer.salesforce.com/docs/atlas.
 
 This connector offers several unique advantages:
 
-- **Efficient Backfills**: Uses Salesforce's Bulk API 2.0 for initial data loads and backfills, which doesn't consume API credits and provides significantly faster data transfer rates.
+- **Efficient Backfills**: Uses Salesforce's Bulk API 2.0 for initial data loads and backfills, enabling significantly faster data transfer rates while preserving REST API call limits. Note: Bulk API 2.0 has its own usage limits, and bulk jobs submitted by the connector count against those.
 
 - **Formula Field Handling**: The connector automatically refreshes formula fields on a configurable schedule (default: daily). This ensures your formula field data stays current without manual intervention, even though Salesforce doesn't track formula field changes in record modification timestamps.
 
