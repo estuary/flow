@@ -3,6 +3,8 @@ use crate::{
     CatalogType, Id,
 };
 
+use super::activation::ShardsStatus;
+
 /// A machine-readable summary of the status
 ///
 /// This summary is derived from multiple different sources of information about
@@ -11,7 +13,7 @@ use crate::{
 /// things, but here we're primarily concerned with answering the question: "do
 /// we see any problems that might be affecting the correct operation of the
 /// task".
-#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum StatusSummaryType {
     /// Things seem ...not bad
@@ -109,23 +111,47 @@ impl Summary {
             };
         }
 
-        // Has there been a connector status written since the task was last
-        // activated? We ignore health checks from prior builds because
-        // technically it's possible for an old version of a task shard to log a
-        // connector status after we've activated the new version. This still
-        // isn't a guarantee that all task shards have logged a connector
-        // status, but it's considered "goodenuf for now" as a simple health
-        // check.
-        let connector_status_at = connector_status
-            .filter(|s| s.shard.build == activation_status.last_activated)
-            .map(|s| s.ts);
-        if connector_status_at < activation_status.last_activated_at {
-            return Summary::warning("waiting on connector health check");
+        // The `shard_health` will be `None` if this spec does not have task shards.
+        if let Some(shard_health) = activation_status.shard_status.as_ref() {
+            match shard_health.status {
+                ShardsStatus::Ok => { /* pass */ }
+                ShardsStatus::Pending if shard_health.count <= 20 => {
+                    return Summary::warning("waiting for task shards to be ready");
+                }
+                ShardsStatus::Pending => {
+                    return Summary::error("task shards have been pending for a long time");
+                }
+                ShardsStatus::Failed => {
+                    return Summary::error("1 or more task shards are failed");
+                }
+            }
         }
+
+        // Not all tasks will have a connector status, but if they do then we
+        // want to warn if we haven't observed one yet. If any connector status
+        // has ever been materialized, then we'll warn if that status is stale,
+        // since we'll expect a fresh status to have been emitted after the last
+        // activation.
+        // If the connector status is present, this will be the message of the
+        // status summary. Otherwise, we'll just say "Ok". Yes, this means
+        // that when a new task is first created, the status summary will show
+        // as "Ok" before it ever writes a ConnectorStatus event. This seems
+        // acceptable, since we have no better means of determining whether
+        // to expect a connector status for a given task.
+        let message = if let Some(conn_status) = connector_status {
+            if conn_status.shard.build != activation_status.last_activated
+                || Some(conn_status.ts) < activation_status.last_activated_at
+            {
+                return Summary::warning("waiting on connector status");
+            }
+            conn_status.message.clone()
+        } else {
+            "Ok".to_string()
+        };
 
         Summary {
             status: StatusSummaryType::Ok,
-            message: "Ok".to_string(),
+            message,
         }
     }
 
@@ -148,7 +174,7 @@ impl Summary {
 mod test {
     use super::*;
     use crate::status::{
-        activation::{ActivationStatus, ShardFailure},
+        activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
         capture::CaptureStatus,
         catalog_test::TestStatus,
         materialization::MaterializationStatus,
@@ -194,6 +220,7 @@ mod test {
                 last_failure: None,
                 recent_failure_count: 999, // should be ignored
                 next_retry: None,
+                shard_status: None,
             },
             ..Default::default()
         });
@@ -224,6 +251,11 @@ mod test {
                 }),
                 recent_failure_count: 999, // should be ignored
                 next_retry: None,
+                shard_status: Some(ShardStatusCheck {
+                    count: 0,
+                    last_ts: "2024-02-03T09:10:11Z".parse().unwrap(),
+                    status: ShardsStatus::Ok,
+                }),
             },
             ..Default::default()
         });
@@ -231,8 +263,8 @@ mod test {
             Summary::of(false, last_build, no_error, Some(&activated_ok), None);
         insta::assert_debug_snapshot!(no_connector_status, @r###"
         Summary {
-            status: Warning,
-            message: "waiting on connector health check",
+            status: Ok,
+            message: "Ok",
         }
         "###);
 
@@ -256,7 +288,7 @@ mod test {
         insta::assert_debug_snapshot!(pending_connector_ok, @r###"
         Summary {
             status: Warning,
-            message: "waiting on connector health check",
+            message: "waiting on connector status",
         }
         "###);
 
@@ -277,7 +309,7 @@ mod test {
         insta::assert_debug_snapshot!(ok_status, @r###"
         Summary {
             status: Ok,
-            message: "Ok",
+            message: "connector is ready",
         }
         "###);
 

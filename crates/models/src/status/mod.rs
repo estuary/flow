@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub use self::connector::ConnectorStatus;
 pub use self::summary::{StatusSummaryType, Summary};
 
 /// Response type for the status endpoint
@@ -233,6 +234,7 @@ pub struct PendingConfigUpdateStatus {
 mod test {
     use std::collections::{BTreeSet, VecDeque};
 
+    use activation::{ShardStatusCheck, ShardsStatus};
     use chrono::{TimeZone, Utc};
 
     use super::*;
@@ -280,6 +282,11 @@ mod test {
             activation: ActivationStatus {
                 last_activated: Id::new([1, 2, 3, 4, 4, 3, 2, 1]),
                 last_activated_at: Some("2024-01-02T03:04:05.06Z".parse().unwrap()),
+                shard_status: Some(ShardStatusCheck {
+                    count: 0,
+                    status: ShardsStatus::Pending,
+                    last_ts: "2024-01-02T03:04:05.06Z".parse().unwrap(),
+                }),
                 last_failure: None,
                 recent_failure_count: 3,
                 next_retry: Some("2025-01-02T03:04:05.06Z".parse().unwrap()),
