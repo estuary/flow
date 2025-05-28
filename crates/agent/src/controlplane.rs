@@ -60,7 +60,11 @@ pub trait ControlPlane: Send + Sync {
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
-    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>>;
+    async fn get_config_updates(
+        &self,
+        catalog_name: String,
+        build_id: Id,
+    ) -> anyhow::Result<Option<ConfigUpdate>>;
 
     async fn delete_config_updates(
         &self,
@@ -92,6 +96,13 @@ pub trait ControlPlane: Send + Sync {
         spec_type: CatalogType,
         data_plane_id: models::Id,
     ) -> anyhow::Result<()>;
+
+    async fn list_task_shards(
+        &self,
+        data_plane_id: models::Id,
+        task_type: ops::TaskType,
+        task_name: String,
+    ) -> anyhow::Result<proto_gazette::consumer::ListResponse>;
 
     /// Triggers controller runs for all dependents of the live spec with the given id.
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()>;
@@ -281,7 +292,11 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         Ok(())
     }
 
-    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>> {
+    async fn get_config_updates(
+        &self,
+        catalog_name: String,
+        build_id: Id,
+    ) -> anyhow::Result<Option<ConfigUpdate>> {
         sqlx::query_scalar!(
             r#"
             select
@@ -363,6 +378,18 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         .context("clearing shard failures")?;
         tracing::debug!(%min_build_id, %min_ts, ?deleted_count, "deleted old failure records");
         Ok(())
+    }
+
+    async fn list_task_shards(
+        &self,
+        data_plane_id: models::Id,
+        task_type: ops::TaskType,
+        task_name: String,
+    ) -> anyhow::Result<proto_gazette::consumer::ListResponse> {
+        let (shard_client, _, _, _) = self.build_data_plane_context(data_plane_id).await?;
+        let req = activate::list_shards_request(task_type, &task_name);
+        let resp = shard_client.list(req).await?;
+        Ok(resp)
     }
 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {

@@ -1,5 +1,5 @@
 mod open_metrics;
-mod status;
+pub mod status;
 
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::Arc;

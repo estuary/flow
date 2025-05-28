@@ -15,11 +15,14 @@ use crate::{
     ControlPlane, PGControlPlane,
 };
 use agent_sql::{Capability, TextJson};
+use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::status::connector::ConfigUpdate;
+use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
+use models::status::connector::ConfigUpdate;
 use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
+use proto_gazette::consumer::replica_status;
 use serde::Deserialize;
 use serde_json::{value::RawValue, Value};
 use sqlx::types::Uuid;
@@ -1203,6 +1206,33 @@ impl TestHarness {
         .await
         .expect("failed to get publication specs")
     }
+
+    pub async fn upsert_connector_status(
+        &mut self,
+        catalog_name: &str,
+        status: models::status::ConnectorStatus,
+    ) {
+        sqlx::query!(
+            r#"insert into connector_status (catalog_name, flow_document)
+            values ($1, $2)
+            on conflict (catalog_name) do update set flow_document = $2"#,
+            catalog_name as &str,
+            status as models::status::ConnectorStatus,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to upsert connector status");
+    }
+
+    pub async fn status_summary(&mut self, catalog_name: &str) -> models::status::Summary {
+        let results =
+            crate::api::public::status::fetch_status(&self.pool, &[catalog_name.to_string()], true)
+                .await
+                .expect("failed to fetch status for summary");
+        assert_eq!(1, results.len(), "expected 1 status for '{catalog_name}'");
+        let status = results.into_iter().next().unwrap();
+        status.summary
+    }
 }
 
 #[allow(unused)]
@@ -1278,10 +1308,18 @@ impl FailBuild for InjectBuildError {
     }
 }
 
+struct ActivationStatus {
+    shard_spec: proto_gazette::consumer::ShardSpec,
+    statuses: Vec<replica_status::Code>,
+}
+
+impl ActivationStatus {}
+
 struct ControlPlaneMocks {
     activations: Vec<Activation>,
     fail_activations: BTreeSet<String>,
     build_failures: InjectBuildFailures,
+    shards: BTreeMap<String, ActivationStatus>,
 }
 
 /// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
@@ -1326,6 +1364,7 @@ impl TestControlPlane {
                 activations: Vec::new(),
                 fail_activations: BTreeSet::new(),
                 build_failures: InjectBuildFailures(Arc::new(Mutex::new(BTreeMap::new()))),
+                shards: BTreeMap::new(),
             })),
         }
     }
@@ -1388,6 +1427,14 @@ impl TestControlPlane {
         let modifications = build_failures.entry(catalog_name.to_string()).or_default();
         modifications.push_back(Box::new(modify));
     }
+
+    pub fn mock_shard_status(&mut self, catalog_name: &str, statuses: Vec<replica_status::Code>) {
+        let mut mocks = self.mocks.lock().unwrap();
+        let Some(shards) = mocks.shards.get_mut(catalog_name) else {
+            panic!("no shards found for catalog name: {catalog_name}");
+        };
+        shards.statuses = statuses;
+    }
 }
 
 /// Returns the collection generation id, or panics if the spec is not for a
@@ -1414,7 +1461,11 @@ impl ControlPlane for TestControlPlane {
         self.inner.notify_dependents(live_spec_id).await
     }
 
-    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>> {
+    async fn get_config_updates(
+        &self,
+        catalog_name: String,
+        build_id: Id,
+    ) -> anyhow::Result<Option<ConfigUpdate>> {
         self.inner.get_config_updates(catalog_name, build_id).await
     }
 
@@ -1441,6 +1492,41 @@ impl ControlPlane for TestControlPlane {
         self.inner
             .delete_shard_failures(catalog_name, min_build, min_ts)
             .await
+    }
+
+    async fn list_task_shards(
+        &self,
+        _data_plane_id: models::Id,
+        _task_type: ops::TaskType,
+        task_name: String,
+    ) -> anyhow::Result<proto_gazette::consumer::ListResponse> {
+        let mocks = self.mocks.lock().unwrap();
+
+        let mut resp = proto_gazette::consumer::ListResponse::default();
+        let Some(status) = mocks.shards.get(&task_name) else {
+            // Return an empty response
+            return Ok(resp);
+        };
+
+        for (i, code) in status.statuses.iter().enumerate() {
+            let mut errors = Vec::new();
+            if *code == replica_status::Code::Failed {
+                errors.push(format!("mock error shard {i} failed"));
+            }
+            resp.shards
+                .push(proto_gazette::consumer::list_response::Shard {
+                    spec: Some(status.shard_spec.clone()),
+                    mod_revision: 1,
+                    // Nothing prevents us from mocking the `route` if we need to
+                    route: None,
+                    status: vec![ReplicaStatus {
+                        code: *code as i32,
+                        errors,
+                    }],
+                    create_revision: 1,
+                });
+        }
+        Ok(resp)
     }
 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
@@ -1514,12 +1600,37 @@ impl ControlPlane for TestControlPlane {
         if mocks.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
         }
-        let catalog_type = match spec {
-            AnyBuiltSpec::Capture(_) => CatalogType::Capture,
-            AnyBuiltSpec::Collection(_) => CatalogType::Collection,
-            AnyBuiltSpec::Materialization(_) => CatalogType::Materialization,
+        let (catalog_type, shard_template) = match spec {
+            AnyBuiltSpec::Capture(b) => (CatalogType::Capture, b.shard_template.as_ref()),
+            AnyBuiltSpec::Collection(b) => (
+                CatalogType::Collection,
+                b.derivation
+                    .as_ref()
+                    .and_then(|d| d.shard_template.as_ref()),
+            ),
+            AnyBuiltSpec::Materialization(b) => {
+                (CatalogType::Materialization, b.shard_template.as_ref())
+            }
             AnyBuiltSpec::Test(_) => panic!("unexpected catalog_type Test for data_plane_activate"),
         };
+
+        if let Some(shard_spec) = shard_template {
+            if let Some(existing) = mocks.shards.get_mut(&catalog_name) {
+                existing.shard_spec = shard_spec.clone();
+                for status in existing.statuses.iter_mut() {
+                    *status = replica_status::Code::Primary;
+                }
+            } else {
+                mocks.shards.insert(
+                    catalog_name.clone(),
+                    ActivationStatus {
+                        shard_spec: shard_spec.clone(),
+                        statuses: vec![proto_gazette::consumer::replica_status::Code::Primary],
+                    },
+                );
+            }
+        }
+
         mocks.activations.push(Activation {
             catalog_name,
             catalog_type,

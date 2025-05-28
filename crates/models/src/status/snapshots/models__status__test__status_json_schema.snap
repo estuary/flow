@@ -44,6 +44,17 @@ expression: schema
           "format": "uint32",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "shard_status": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ShardStatusCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "If this is a task with shards, this will track their last observed status."
         }
       },
       "type": "object"
@@ -756,6 +767,58 @@ expression: schema
         "rClockBegin"
       ],
       "type": "object"
+    },
+    "ShardStatusCheck": {
+      "properties": {
+        "count": {
+          "description": "The number of checks that have returned ths status",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_ts": {
+          "description": "The time of the most recent status check",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/ShardsStatus",
+          "description": "The observed status"
+        }
+      },
+      "required": [
+        "last_ts",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ShardsStatus": {
+      "description": "Represents a high level status aggregate of all the shards for a given task.",
+      "oneOf": [
+        {
+          "description": "All task shards have a `Primary` member.",
+          "enum": [
+            "Ok"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Any task shards are in `Pending` or `Backfill`, and none are `Failed`. Or no task shards yet exist.",
+          "enum": [
+            "Pending"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Any task shard is `Failed`",
+          "enum": [
+            "Failed"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "SourceCaptureStatus": {
       "description": "Status information about the `sourceCapture`",
