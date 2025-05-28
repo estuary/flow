@@ -3,6 +3,14 @@
 This connector captures data from Salesforce objects into Flow collections.
 It uses Salesforce's [Bulk API 2.0](https://developer.salesforce.com/docs/atlas.en-us.api_asynch.meta/api_asynch/asynch_api_intro.htm) and [REST API](https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm).
 
+This connector offers several unique advantages:
+
+- **Efficient Backfills**: Uses Salesforce's Bulk API 2.0 for initial data loads and backfills, which doesn't consume API credits and provides significantly faster data transfer rates.
+
+- **Formula Field Handling**: The connector automatically refreshes formula fields on a configurable schedule (default: daily). This ensures your formula field data stays current without manual intervention, even though Salesforce doesn't track formula field changes in record modification timestamps.
+
+- **Custom Field Support**: Enhanced handling of custom fields with better type detection and mapping, ensuring all your custom Salesforce objects and fields are captured accurately.
+
 This connector is available for use in the Flow web application.
 For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce-native:dev`](https://ghcr.io/estuary/source-salesforce-native:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
