@@ -491,6 +491,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         };
         let req = Discover {
             user_id: *system_user_id,
+            filter_user_authz: false,
             capture_name,
             draft,
             update_only,

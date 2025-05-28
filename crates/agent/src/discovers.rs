@@ -20,9 +20,11 @@ pub struct Discover {
     /// that is not required.
     pub data_plane: tables::DataPlane,
     pub logs_token: Uuid,
-    /// The id of the user that is performing the discover. This will be used to
-    /// filter any live specs that the user does not have `read` capability to.
+    /// The id of the user that is performing the discover.
     pub user_id: Uuid,
+    /// Whether to apply authorization policies to restrict the specs that are visible
+    /// to the user. If `false` then no authorization policies will be applied, so be careful.
+    pub filter_user_authz: bool,
     /// Whether newly discovered bindings should be enabled by default. If
     /// `true`, then newly added bindings will be added with `disable: true`.
     pub update_only: bool,
@@ -161,6 +163,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             data_plane,
             logs_token,
             user_id,
+            filter_user_authz,
             update_only,
             mut draft,
         } = req;
@@ -215,6 +218,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         let output = Self::build_merged_catalog(
             capture_name,
             user_id,
+            filter_user_authz,
             update_only,
             draft,
             discovered,
@@ -241,6 +245,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
     async fn build_merged_catalog(
         capture_name: models::Capture,
         user_id: uuid::Uuid,
+        filter_user_authz: bool,
         update_only: bool,
         mut draft: tables::DraftCatalog,
         discovered: capture::response::Discovered,
@@ -293,12 +298,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .iter()
             .map(|b| b.target.to_string())
             .collect::<Vec<_>>();
-        // Filter to only specs that the user can read. If they can't admin a spec, then that error
-        // will be returned if and when they try to publish.
+
         let live = crate::live_specs::get_live_specs(
             user_id,
             &collection_names,
-            Some(models::Capability::Read),
+            filter_user_authz.then_some(models::Capability::Read),
             db,
         )
         .await?;
