@@ -159,6 +159,7 @@ where
                                 constraints,
                                 resource_path: vec![resource_config.topic_name],
                                 delta_updates: false,
+                                ser_policy: None,
                             },
                         )
                     })

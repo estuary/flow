@@ -50,7 +50,12 @@ expression: json_test(msg)
           "some",
           "path"
         ],
-        "deltaUpdates": true
+        "deltaUpdates": true,
+        "serPolicy": {
+          "strTruncateAfter": 65536,
+          "nestedObjTruncateAfter": 1000,
+          "arrayTruncateAfter": 1000
+        }
       }
     ]
   },

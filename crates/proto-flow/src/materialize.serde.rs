@@ -2968,6 +2968,9 @@ impl serde::Serialize for response::validated::Binding {
         if self.delta_updates {
             len += 1;
         }
+        if self.ser_policy.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Binding", len)?;
         if !self.constraints.is_empty() {
             struct_ser.serialize_field("constraints", &self.constraints)?;
@@ -2977,6 +2980,9 @@ impl serde::Serialize for response::validated::Binding {
         }
         if self.delta_updates {
             struct_ser.serialize_field("deltaUpdates", &self.delta_updates)?;
+        }
+        if let Some(v) = self.ser_policy.as_ref() {
+            struct_ser.serialize_field("serPolicy", v)?;
         }
         struct_ser.end()
     }
@@ -2993,6 +2999,8 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
             "resourcePath",
             "delta_updates",
             "deltaUpdates",
+            "ser_policy",
+            "serPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3000,6 +3008,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
             Constraints,
             ResourcePath,
             DeltaUpdates,
+            SerPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3024,6 +3033,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                             "constraints" => Ok(GeneratedField::Constraints),
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             "deltaUpdates" | "delta_updates" => Ok(GeneratedField::DeltaUpdates),
+                            "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3046,6 +3056,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                 let mut constraints__ = None;
                 let mut resource_path__ = None;
                 let mut delta_updates__ = None;
+                let mut ser_policy__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Constraints => {
@@ -3068,12 +3079,19 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                             }
                             delta_updates__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::SerPolicy => {
+                            if ser_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serPolicy"));
+                            }
+                            ser_policy__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(response::validated::Binding {
                     constraints: constraints__.unwrap_or_default(),
                     resource_path: resource_path__.unwrap_or_default(),
                     delta_updates: delta_updates__.unwrap_or_default(),
+                    ser_policy: ser_policy__,
                 })
             }
         }

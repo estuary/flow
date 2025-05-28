@@ -5859,6 +5859,7 @@ Outcome {
                             "view",
                         ],
                         delta_updates: false,
+                        ser_policy: None,
                     },
                 ],
             },
@@ -6166,6 +6167,7 @@ Outcome {
                         not_after: None,
                         backfill: 0,
                         state_key: "view",
+                        ser_policy: None,
                     },
                 ],
                 shard_template: Some(
@@ -6381,6 +6383,7 @@ Outcome {
                             "foo bar",
                         ],
                         delta_updates: true,
+                        ser_policy: None,
                     },
                     Binding {
                         constraints: {
@@ -6406,6 +6409,7 @@ Outcome {
                             "two",
                         ],
                         delta_updates: true,
+                        ser_policy: None,
                     },
                 ],
             },
@@ -6730,6 +6734,7 @@ Outcome {
                         not_after: None,
                         backfill: 0,
                         state_key: "Web%21hook%2Ffoo%20bar",
+                        ser_policy: None,
                     },
                     Binding {
                         resource_config_json: "{\"fixture\":\"two\"}",
@@ -7179,6 +7184,7 @@ Outcome {
                         not_after: None,
                         backfill: 7,
                         state_key: "targe+%2Ftwo.v7",
+                        ser_policy: None,
                     },
                 ],
                 shard_template: Some(

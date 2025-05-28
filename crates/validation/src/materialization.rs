@@ -362,6 +362,7 @@ async fn walk_materialization<C: Connectors>(
             constraints,
             delta_updates,
             resource_path: validated_path,
+            ser_policy,
         } = validated;
 
         if validated_path.is_empty() {
@@ -435,6 +436,7 @@ async fn walk_materialization<C: Connectors>(
             not_after: not_after.map(assemble::pb_datetime),
             backfill,
             state_key,
+            ser_policy: *ser_policy,
         };
 
         bindings_path.push(path);
