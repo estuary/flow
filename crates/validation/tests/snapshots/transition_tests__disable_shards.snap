@@ -1344,6 +1344,7 @@ Outcome {
                         not_after: None,
                         backfill: 0,
                         state_key: "",
+                        ser_policy: None,
                     },
                 ],
             },
@@ -1392,6 +1393,7 @@ Outcome {
                         not_after: None,
                         backfill: 0,
                         state_key: "",
+                        ser_policy: None,
                     },
                 ],
                 shard_template: Some(

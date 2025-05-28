@@ -118,11 +118,13 @@ mod test {
                     constraints: test_constraints(constraint::Type::LocationRecommended),
                     resource_path: vec!["nice".to_string()],
                     delta_updates: false,
+                    ser_policy: None,
                 },
                 validated::Binding {
                     constraints: test_constraints(constraint::Type::Unsatisfiable),
                     resource_path: vec!["naughty".to_string()],
                     delta_updates: false,
+                    ser_policy: None,
                 },
             ],
         };

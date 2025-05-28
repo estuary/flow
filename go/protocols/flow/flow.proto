@@ -380,7 +380,7 @@ message MaterializationSpec {
   // Bindings between endpoint resources, uniquely identified by their
   // resource path, and the collections from which they're materialized.
   message Binding {
-    // Next tag: 14.
+    // Next tag: 15.
 
     // JSON-encoded configuration of the bound resource.
     string resource_config_json = 1 [
@@ -419,6 +419,8 @@ message MaterializationSpec {
     uint32 backfill = 12;
     // A suggested key to use for this binding within connector state.
     string state_key = 13;
+    // Serialization policy used for this binding.
+    flow.SerPolicy ser_policy = 14;
   }
   repeated Binding bindings = 4;
   // Template for shards of this materialization.

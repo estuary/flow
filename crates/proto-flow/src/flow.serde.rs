@@ -3725,6 +3725,9 @@ impl serde::Serialize for materialization_spec::Binding {
         if !self.state_key.is_empty() {
             len += 1;
         }
+        if self.ser_policy.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
@@ -3765,6 +3768,9 @@ impl serde::Serialize for materialization_spec::Binding {
         if !self.state_key.is_empty() {
             struct_ser.serialize_field("stateKey", &self.state_key)?;
         }
+        if let Some(v) = self.ser_policy.as_ref() {
+            struct_ser.serialize_field("serPolicy", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -3798,6 +3804,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             "backfill",
             "state_key",
             "stateKey",
+            "ser_policy",
+            "serPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3815,6 +3823,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             NotAfter,
             Backfill,
             StateKey,
+            SerPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3849,6 +3858,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
                             "backfill" => Ok(GeneratedField::Backfill),
                             "stateKey" | "state_key" => Ok(GeneratedField::StateKey),
+                            "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3881,6 +3891,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                 let mut not_after__ = None;
                 let mut backfill__ = None;
                 let mut state_key__ = None;
+                let mut ser_policy__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -3965,6 +3976,12 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             }
                             state_key__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::SerPolicy => {
+                            if ser_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serPolicy"));
+                            }
+                            ser_policy__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(materialization_spec::Binding {
@@ -3981,6 +3998,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                     not_after: not_after__,
                     backfill: backfill__.unwrap_or_default(),
                     state_key: state_key__.unwrap_or_default(),
+                    ser_policy: ser_policy__,
                 })
             }
         }

@@ -1,4 +1,5 @@
 use prost::Message;
+use proto_flow::flow::SerPolicy;
 use proto_flow::{capture, derive, flow, flow::inference, materialize, ops};
 use proto_gazette::{broker, consumer};
 use serde_json::json;
@@ -289,6 +290,11 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
             }),
             backfill: 1,
             state_key: "some%20path.v1".to_string(),
+            ser_policy: Some(SerPolicy {
+                str_truncate_after: 1 << 16,
+                nested_obj_truncate_after: 1000,
+                array_truncate_after: 1000,
+            }),
         }],
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
@@ -643,6 +649,11 @@ fn ex_materialize_response() -> materialize::Response {
                 ]
                 .into(),
                 delta_updates: true,
+                ser_policy: Some(SerPolicy {
+                    str_truncate_after: 1 << 16,
+                    nested_obj_truncate_after: 1000,
+                    array_truncate_after: 1000,
+                }),
             }],
         }),
         applied: Some(materialize::response::Applied {

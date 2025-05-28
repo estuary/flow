@@ -133,7 +133,12 @@ expression: json_test(msg)
       "notBefore": "2023-08-11T03:00:27+00:00",
       "notAfter": "2023-03-28T10:40:00+00:00",
       "backfill": 1,
-      "stateKey": "some%20path.v1"
+      "stateKey": "some%20path.v1",
+      "serPolicy": {
+        "strTruncateAfter": 65536,
+        "nestedObjTruncateAfter": 1000,
+        "arrayTruncateAfter": 1000
+      }
     }
   ],
   "shardTemplate": {

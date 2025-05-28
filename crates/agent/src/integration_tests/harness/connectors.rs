@@ -231,6 +231,7 @@ impl Connectors for TestConnectors {
                                 constraints,
                                 resource_path,
                                 delta_updates,
+                                ser_policy: None,
                             }
                         })
                         .collect();
