@@ -43,7 +43,7 @@ static MAX_SHARD_HEALTH_CHECK_INTERVAL: std::sync::LazyLock<chrono::Duration> =
             chrono::Duration::from_std(parsed.into())
                 .expect("FLOW_MAX_SHARD_STATUS_INTERVAL out of range")
         } else {
-            chrono::Duration::minutes(15)
+            chrono::Duration::hours(2)
         }
     });
 
