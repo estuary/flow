@@ -27,7 +27,12 @@ static REACTIVATE_INTERVAL: std::sync::OnceLock<chrono::Duration> = std::sync::O
 /// and no `ShardFailed` event was observed, then we'll re-attempt activation
 /// after this interval. This can happen due to problems with the ops catalog,
 /// or (hopefully rare) edge cases in the data plane.
-fn get_reactivate_interval() -> chrono::Duration {
+fn get_reactivate_interval(state: &ControllerState) -> chrono::Duration {
+    // Special case for ops catalog tasks, which we need to ensure get restarted
+    // quickly.
+    if is_ops_catalog_task(state) {
+        return chrono::Duration::seconds(30);
+    }
     let dur = REACTIVATE_INTERVAL.get_or_init(|| {
         if let Ok(val) = std::env::var("FLOW_REACTIVATE_INTERVAL") {
             let parsed: humantime::Duration =
@@ -188,6 +193,7 @@ async fn update_shard_health<C: ControlPlane>(
     state: &ControllerState,
 ) -> anyhow::Result<Option<NextRun>> {
     let wait_interval = shard_health_check_interval(
+        state,
         status
             .shard_health
             .as_ref()
@@ -254,7 +260,8 @@ async fn update_shard_health<C: ControlPlane>(
     });
 
     let time_since_activation = now - status.last_activated_at.unwrap();
-    if new_status == ShardsStatus::Failed && time_since_activation >= get_reactivate_interval() {
+    if new_status == ShardsStatus::Failed && time_since_activation >= get_reactivate_interval(state)
+    {
         // If we've reached this section, then we have _not_ received any
         // ShardFailed events, which would have caused us to set a `next_retry`.
         // This can happen if the ops catalog is broken, or in certain edge
@@ -263,9 +270,13 @@ async fn update_shard_health<C: ControlPlane>(
         do_activate(now, state, status, control_plane).await?;
     }
 
-    let next_check = shard_health_check_interval(count);
+    let next_check = shard_health_check_interval(state, count);
     tracing::debug!(%count, ?next_check, ?new_status, "finished task shard health check");
     Ok(Some(NextRun::from_duration(next_check)))
+}
+
+fn is_ops_catalog_task(state: &ControllerState) -> bool {
+    state.catalog_name.starts_with("ops/") || state.catalog_name.starts_with("ops.us-central1.v1/")
 }
 
 fn aggregate_shard_status(list_response: &consumer::ListResponse) -> ShardsStatus {
@@ -323,13 +334,18 @@ fn to_ops_task_type(catalog_type: models::CatalogType) -> Option<ops::TaskType> 
     }
 }
 
-fn shard_health_check_interval(prev_checks: u32) -> chrono::Duration {
-    let secs = match prev_checks {
+fn shard_health_check_interval(state: &ControllerState, prev_checks: u32) -> chrono::Duration {
+    let mut secs = match prev_checks {
         0..3 => 30,
         3..10 => 60,
         10..60 => 180,
         _ => 3600,
     };
+    // Special case for ops catalog tasks, we health check them more frequently
+    // because we're unable to get `ShardFailed` events for them if they fail.
+    if is_ops_catalog_task(state) {
+        secs = secs.min(300);
+    }
     chrono::Duration::seconds(secs)
 }
 
