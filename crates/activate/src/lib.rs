@@ -328,7 +328,8 @@ pub async fn fetch_task_splits<'a>(
     (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops logs.
     (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops stats.
 )> {
-    let (list_shards, list_recovery) = list_task_request(task_type, task_name);
+    let list_shards = list_shards_request(task_type, task_name);
+    let list_recovery = list_recoverly_logs_request(task_type, task_name);
     let list_ops_logs = list_ops_journal(journal_client, task_type, task_name, ops_logs_template);
     let list_ops_stats = list_ops_journal(journal_client, task_type, task_name, ops_stats_template);
 
@@ -370,12 +371,8 @@ pub async fn fetch_partition_splits(
     Ok(partitions)
 }
 
-/// Build ListRequests of a Task's shard splits and recovery logs.
-fn list_task_request(
-    task_type: ops::TaskType,
-    task_name: &str,
-) -> (consumer::ListRequest, broker::ListRequest) {
-    let list_shards = consumer::ListRequest {
+pub fn list_shards_request(task_type: ops::TaskType, task_name: &str) -> consumer::ListRequest {
+    consumer::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
                 (labels::TASK_TYPE, task_type.as_str_name()),
@@ -384,8 +381,11 @@ fn list_task_request(
             exclude: None,
         }),
         ..Default::default()
-    };
-    let list_recovery = broker::ListRequest {
+    }
+}
+
+fn list_recoverly_logs_request(task_type: ops::TaskType, task_name: &str) -> broker::ListRequest {
+    broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
                 (labels::CONTENT_TYPE, labels::CONTENT_TYPE_RECOVERY_LOG),
@@ -395,8 +395,7 @@ fn list_task_request(
             exclude: None,
         }),
         ..Default::default()
-    };
-    (list_shards, list_recovery)
+    }
 }
 
 /// Build a ListRequest of a collections partitions.
@@ -921,9 +920,9 @@ mod test {
 
     #[test]
     fn test_list_task_request() {
-        insta::assert_debug_snapshot!(list_task_request(
-            ops::TaskType::Derivation,
-            "the/derivation",
+        insta::assert_debug_snapshot!((
+            list_shards_request(ops::TaskType::Derivation, "the/derivation"),
+            list_recoverly_logs_request(ops::TaskType::Derivation, "the/derivation"),
         ),)
     }
 

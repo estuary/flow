@@ -5,6 +5,30 @@ use serde::{Deserialize, Serialize};
 
 use super::ShardRef;
 
+/// Represents a high level status aggregate of all the shards for a given task.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub enum ShardsStatus {
+    /// All task shards have a `Primary` member.
+    Ok,
+    /// Any task shards are in `Pending` or `Backfill`, and none are `Failed`.
+    /// Or no task shards yet exist.
+    Pending,
+    /// Any task shard is `Failed`
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct ShardStatusCheck {
+    /// The number of checks that have returned ths status
+    #[serde(default, skip_serializing_if = "crate::is_u32_zero")]
+    pub count: u32,
+    /// The time of the most recent status check
+    #[schemars(schema_with = "crate::datetime_schema")]
+    pub ts: DateTime<Utc>,
+    /// The observed status
+    pub status: ShardsStatus,
+}
+
 /// Status of the task shards running in the data-plane. This records information about
 /// the activations of builds in the data-plane, including any subsequent re-activations
 /// due to shard failures.
@@ -15,6 +39,10 @@ pub struct ActivationStatus {
     /// then an activation is still pending.
     #[serde(default = "Id::zero", skip_serializing_if = "Id::is_zero")]
     pub last_activated: Id,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shard_health: Option<ShardStatusCheck>,
+
     /// The time at which the last data plane activation was performed.
     /// This could have been in order to activate a recent publication,
     /// or in response to a shard failure.
@@ -73,6 +101,7 @@ impl Default for ActivationStatus {
             last_failure: None,
             recent_failure_count: 0,
             next_retry: None,
+            shard_health: None,
         }
     }
 }

@@ -419,6 +419,7 @@ async fn test_auto_discovers_no_evolution() {
     insta::assert_json_snapshot!(capture_status, {
         ".activation.last_activated" => "[build_id]",
         ".activation.last_activated_at" => "[ts]",
+        ".activation.shard_health.ts" => "[ts]",
         ".auto_discover.next_at" => "[ts]",
         ".auto_discover.failure.first_ts" => "[ts]",
         ".auto_discover.failure.last_outcome.ts" => "[ts]",
@@ -459,6 +460,10 @@ async fn test_auto_discovers_no_evolution() {
       },
       "activation": {
         "last_activated": "[build_id]",
+        "shard_health": {
+          "ts": "[ts]",
+          "status": "Pending"
+        },
         "last_activated_at": "[ts]"
       },
       "auto_discover": {
