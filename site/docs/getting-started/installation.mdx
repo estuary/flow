@@ -27,6 +27,9 @@ To switch to your own bucket, choose a cloud provider and complete the setup ste
 
 Once you're done, [add the bucket](#add-the-bucket) in Estuary.
 
+Once your collections begin to persist data, you can view your storage bucket to confirm that the
+bucket is receiving data as expected. This should indicate that your bucket has been set up correctly.
+
 ## Google Cloud Storage buckets
 
 You'll need to grant Estuary Flow access to your GCS bucket.
@@ -38,7 +41,7 @@ You'll need to grant Estuary Flow access to your GCS bucket.
    As you do so:
 
    <Tabs>
-   <TabItem value="Global Data Plane" default>
+   <TabItem value="US Data Plane" default>
     - For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
 
     - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
@@ -61,11 +64,11 @@ You'll need to grant Estuary Flow access to your S3 bucket.
 
 2. Follow the steps
    to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting in one of the
-   policies below. Use either the global policy or the policy specific to the EU Data Plane.
+   policies below.
    Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
 
 <Tabs>
-<TabItem value="Global Data Plane policy" default>
+<TabItem value="US Data Plane policy" default>
 ```json
 {
   "Version": "2012-10-17",
@@ -179,15 +182,30 @@ You'll also need to provide some identifying information.
 import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 
-<BrowserOnly>{() => <AzureAuthorizeComponent />}</BrowserOnly>
-<br />
+   <Tabs>
+   <TabItem value="US Data Plane" default>
 
-If you're having trouble using the input field above, you may also modify this OAuth link
-with your Azure tenant ID and paste it directly into your browser:
+    <BrowserOnly>{() => <AzureAuthorizeComponent />}</BrowserOnly>
+    <br />
 
-```
-https://login.microsoftonline.com/<YOUR_AZURE_TENANT>/oauth2/authorize?client_id=42cb0c6c-dab0-411f-9c21-16d5a2b1b025&response_type=code&redirect_uri=https%3A%2F%2Feyrcnmuzzyriypdajwdk.supabase.co%2Ffunctions%2Fv1%2Fazure-dpc-oauth&resource_id=https://storage.azure.com
-```
+    If you're having trouble using the input field above, you may also modify this OAuth link
+    with your Azure tenant ID and paste it directly into your browser:
+
+    ```
+    https://login.microsoftonline.com/<YOUR_AZURE_TENANT>/oauth2/authorize?client_id=42cb0c6c-dab0-411f-9c21-16d5a2b1b025&response_type=code&redirect_uri=https%3A%2F%2Feyrcnmuzzyriypdajwdk.supabase.co%2Ffunctions%2Fv1%2Fazure-dpc-oauth&resource_id=https://storage.azure.com
+    ```
+   </TabItem>
+   <TabItem value="EU Data Plane">
+    Add the Estuary EU Application to your Azure tenant using the following link:
+    [Add Azure Application To Your Tenant](https://login.microsoftonline.com/common/oauth2/authorize?client_id=24bedcf9-4b7b-4417-b91b-6cc126b57e20&response_type=code&redirect_uri=https%3A%2F%2Festuary.dev%2F&resource_id=https%3A%2F%2Fstorage.azure.com)
+
+    If you are signed in to multiple Azure tenants, and the above link takes you to the incorrect tenant, you can manually replace 'common' with the desired azure tenant ID in the link:
+
+    ```
+    https://login.microsoftonline.com/common/oauth2/authorize?client_id=24bedcf9-4b7b-4417-b91b-6cc126b57e20&response_type=code&redirect_uri=https%3A%2F%2Festuary.dev%2F&resource_id=https%3A%2F%2Fstorage.azure.com
+    ```
+   </TabItem>
+   </Tabs>
 
 4. Grant the application access to your storage account via the
    [
@@ -200,7 +218,9 @@ https://login.microsoftonline.com/<YOUR_AZURE_TENANT>/oauth2/authorize?client_id
 
     - On the next page, make sure `User, group, or service principal` is selected, then click **+ Select Members**.
 
-    - You must search for the exact name of the application, otherwise it won't show up: `Estuary Storage Mappings Prod`
+    - You must search for the exact name of the application, otherwise it won't show up.
+      - **US Data Plane:** `Estuary Storage Mappings Prod`
+      - **EU Data Plane:** `data-plane-aws-eu-west-1-c1.dp.estuary-data.com`
 
     - Once you've selected the application, finish granting the role.
 
