@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en" dir="ltr" class="docs-wrapper plugin-docs plugin-id-default docs-version-current docs-doc-page docs-doc-id-reference/Connectors/materialization-protocol" data-has-hydrated="false">
+<head>
+<meta charset="UTF-8">
+<meta name="generator" content="Docusaurus v3.7.0">
+<title data-rh="true">Materialization Protocol | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://docs.estuary.dev/pr-preview/pr-2181/img/estuary-new.png"><meta data-rh="true" name="twitter:image" content="https://docs.estuary.dev/pr-preview/pr-2181/img/estuary-new.png"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/pr-preview/pr-2181/reference/Connectors/materialization-protocol/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Materialization Protocol | Estuary Flow Documentation"><meta data-rh="true" name="description" content="Materializations are processed as cooperative transactions between the Flow"><meta data-rh="true" property="og:description" content="Materializations are processed as cooperative transactions between the Flow"><link data-rh="true" rel="icon" href="/pr-preview/pr-2181/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/pr-preview/pr-2181/reference/Connectors/materialization-protocol/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-2181/reference/Connectors/materialization-protocol/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-2181/reference/Connectors/materialization-protocol/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
+<script>window.dataLayer=window.dataLayer||[]</script>
+<script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
+<script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)."></script><link rel="stylesheet" href="/pr-preview/pr-2181/assets/css/styles.5ecd8a62.css">
+<script src="/pr-preview/pr-2181/assets/js/runtime~main.74c5d052.js" defer="defer"></script>
+<script src="/pr-preview/pr-2181/assets/js/main.28fc4aac.js" defer="defer"></script>
+</head>
+<body class="navigation-with-keyboard">
+<script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
+
+
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WK8SB2L" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript><div id="__docusaurus"><div role="region" aria-label="Skip to main content"><a class="skipToContent_fXgn" href="#__docusaurus_skipToContent_fallback">Skip to main content</a></div><nav aria-label="Main" class="navbar navbar--fixed-top"><div class="navbar__inner"><div class="navbar__items"><button aria-label="Toggle navigation bar" aria-expanded="false" class="navbar__toggle clean-btn" type="button"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="2" d="M4 7h22M4 15h22M4 23h22"></path></svg></button><a class="navbar__brand" href="/pr-preview/pr-2181/"><div class="navbar__logo"><img src="/pr-preview/pr-2181/img/estuary-new.png" alt="Estuary Flow Logo" class="themedComponent_mlkZ themedComponent--light_NVdE"><img src="/pr-preview/pr-2181/img/estuary-new.png" alt="Estuary Flow Logo" class="themedComponent_mlkZ themedComponent--dark_xIcU"></div><b class="navbar__title text--truncate">Estuary Flow</b></a><a aria-current="page" class="navbar__item navbar__link navbar__link--active" href="/pr-preview/pr-2181/">Documentation</a><div class="navbar__item"><a href="https://estuary.dev/blog">Blog</a></div><div class="navbar__item button-link"><a href="https://dashboard.estuary.dev/register">Try Estuary</a></div></div><div class="navbar__items navbar__items--right"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="navbar__item navbar__link">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a><div class="toggle_vylO colorModeToggle_DEke"><button class="clean-btn toggleButton_gllP toggleButtonDisabled_aARS" type="button" disabled="" title="Switch between dark and light mode (currently light mode)" aria-label="Switch between dark and light mode (currently light mode)" aria-live="polite" aria-pressed="false"><svg viewBox="0 0 24 24" width="24" height="24" class="lightToggleIcon_pyhR"><path fill="currentColor" d="M12,9c1.65,0,3,1.35,3,3s-1.35,3-3,3s-3-1.35-3-3S10.35,9,12,9 M12,7c-2.76,0-5,2.24-5,5s2.24,5,5,5s5-2.24,5-5 S14.76,7,12,7L12,7z M2,13l2,0c0.55,0,1-0.45,1-1s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S1.45,13,2,13z M20,13l2,0c0.55,0,1-0.45,1-1 s-0.45-1-1-1l-2,0c-0.55,0-1,0.45-1,1S19.45,13,20,13z M11,2v2c0,0.55,0.45,1,1,1s1-0.45,1-1V2c0-0.55-0.45-1-1-1S11,1.45,11,2z M11,20v2c0,0.55,0.45,1,1,1s1-0.45,1-1v-2c0-0.55-0.45-1-1-1C11.45,19,11,19.45,11,20z M5.99,4.58c-0.39-0.39-1.03-0.39-1.41,0 c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0s0.39-1.03,0-1.41L5.99,4.58z M18.36,16.95 c-0.39-0.39-1.03-0.39-1.41,0c-0.39,0.39-0.39,1.03,0,1.41l1.06,1.06c0.39,0.39,1.03,0.39,1.41,0c0.39-0.39,0.39-1.03,0-1.41 L18.36,16.95z M19.42,5.99c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06c-0.39,0.39-0.39,1.03,0,1.41 s1.03,0.39,1.41,0L19.42,5.99z M7.05,18.36c0.39-0.39,0.39-1.03,0-1.41c-0.39-0.39-1.03-0.39-1.41,0l-1.06,1.06 c-0.39,0.39-0.39,1.03,0,1.41s1.03,0.39,1.41,0L7.05,18.36z"></path></svg><svg viewBox="0 0 24 24" width="24" height="24" class="darkToggleIcon_wfgR"><path fill="currentColor" d="M9.37,5.51C9.19,6.15,9.1,6.82,9.1,7.5c0,4.08,3.32,7.4,7.4,7.4c0.68,0,1.35-0.09,1.99-0.27C17.45,17.19,14.93,19,12,19 c-3.86,0-7-3.14-7-7C5,9.07,6.81,6.55,9.37,5.51z M12,3c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9c0-0.46-0.04-0.92-0.1-1.36 c-0.98,1.37-2.58,2.26-4.4,2.26c-2.98,0-5.4-2.42-5.4-5.4c0-1.81,0.89-3.42,2.26-4.4C12.92,3.04,12.46,3,12,3L12,3z"></path></svg></button></div><div class="navbarSearchContainer_Bca1"><div class="navbar__search"><span aria-label="expand searchbar" role="button" class="search-icon" tabindex="0"></span><input id="search_input_react" type="search" placeholder="Loading..." aria-label="Search" class="navbar__search-input search-bar" disabled=""></div></div></div></div><div role="presentation" class="navbar-sidebar__backdrop"></div></nav><div id="__docusaurus_skipToContent_fallback" class="main-wrapper mainWrapper_z2l0"><div class="docsWrapper_hBAB"><button aria-label="Scroll back to top" class="clean-btn theme-back-to-top-button backToTopButton_sjWU" type="button"></button><div class="docRoot_UBD9"><aside class="theme-doc-sidebar-container docSidebarContainer_YfHR"><div class="sidebarViewport_aRkj"><div class="sidebar_njMd"><nav aria-label="Docs sidebar" class="menu thin-scrollbar menu_SIkG"><ul class="theme-doc-sidebar-menu menu__list"><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" href="/pr-preview/pr-2181/">Getting Started</a><button aria-label="Expand sidebar category &#x27;Getting Started&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" href="/pr-preview/pr-2181/guides/">User guides</a><button aria-label="Expand sidebar category &#x27;User guides&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" href="/pr-preview/pr-2181/concepts/">Concepts</a><button aria-label="Expand sidebar category &#x27;Concepts&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-1 menu__list-item"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist menu__link--sublist-caret menu__link--active" role="button" aria-expanded="true" href="/pr-preview/pr-2181/reference/Connectors/">Reference</a></div><ul style="display:block;overflow:visible;height:auto" class="menu__list"><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist menu__link--active" tabindex="0" href="/pr-preview/pr-2181/reference/Connectors/">Connectors</a><button aria-label="Collapse sidebar category &#x27;Connectors&#x27;" aria-expanded="true" type="button" class="clean-btn menu__caret"></button></div><ul style="display:block;overflow:visible;height:auto" class="menu__list"><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-3 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" tabindex="0" href="/pr-preview/pr-2181/reference/Connectors/capture-connectors/">Capture connectors</a><button aria-label="Expand sidebar category &#x27;Capture connectors&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-3 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" tabindex="0" href="/pr-preview/pr-2181/reference/Connectors/materialization-connectors/">Materialization connectors</a><button aria-label="Expand sidebar category &#x27;Materialization connectors&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/Connectors/dekaf/">Dekaf integrations</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-3 menu__list-item"><a class="menu__link menu__link--active" aria-current="page" tabindex="0" href="/pr-preview/pr-2181/reference/Connectors/materialization-protocol/">Materialization Protocol</a></li></ul></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/authentication/">Authorizing users and authenticating with Flow</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/editing/">Editing considerations</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/notifications/">Notifications</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/time-travel/">Time Travel</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/Configuring-task-shards/">Configuring task shards</a></li><li class="theme-doc-sidebar-item-category theme-doc-sidebar-item-category-level-2 menu__list-item menu__list-item--collapsed"><div class="menu__list-item-collapsible"><a class="menu__link menu__link--sublist" tabindex="0" href="/pr-preview/pr-2181/reference/reduction-strategies/">Reduction strategies</a><button aria-label="Expand sidebar category &#x27;Reduction strategies&#x27;" aria-expanded="false" type="button" class="clean-btn menu__caret"></button></div></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/working-logs-stats/">Working with logs and statistics</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/organizing-catalogs/">Organizing a Flow catalog</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/allow-ip-addresses/">Allowlisting IP Addresses for Estuary Flow</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/backfilling-data/">Backfilling Data</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/deletions/">Handling Deletions in Estuary Flow</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/materialization-sync-schedule/">Materialization sync schedule</a></li><li class="theme-doc-sidebar-item-link theme-doc-sidebar-item-link-level-2 menu__list-item"><a class="menu__link" tabindex="0" href="/pr-preview/pr-2181/reference/openmetrics-api/">OpenMetrics API</a></li></ul></li></ul></nav></div></div></aside><main class="docMainContainer_TBSr"><div class="container padding-top--md padding-bottom--lg"><div class="row"><div class="col docItemCol_VOVn"><div class="docItemContainer_Djhp"><article><nav class="theme-doc-breadcrumbs breadcrumbsContainer_Z_bl" aria-label="Breadcrumbs"><ul class="breadcrumbs" itemscope="" itemtype="https://schema.org/BreadcrumbList"><li class="breadcrumbs__item"><a aria-label="Home page" class="breadcrumbs__link" href="/pr-preview/pr-2181/"><svg viewBox="0 0 24 24" class="breadcrumbHomeIcon_YNFT"><path d="M10 19v-5h4v5c0 .55.45 1 1 1h3c.55 0 1-.45 1-1v-7h1.7c.46 0 .68-.57.33-.87L12.67 3.6c-.38-.34-.96-.34-1.34 0l-8.36 7.53c-.34.3-.13.87.33.87H5v7c0 .55.45 1 1 1h3c.55 0 1-.45 1-1z" fill="currentColor"></path></svg></a></li><li class="breadcrumbs__item"><span class="breadcrumbs__link">Reference</span><meta itemprop="position" content="1"></li><li itemscope="" itemprop="itemListElement" itemtype="https://schema.org/ListItem" class="breadcrumbs__item"><a class="breadcrumbs__link" itemprop="item" href="/pr-preview/pr-2181/reference/Connectors/"><span itemprop="name">Connectors</span></a><meta itemprop="position" content="2"></li><li itemscope="" itemprop="itemListElement" itemtype="https://schema.org/ListItem" class="breadcrumbs__item breadcrumbs__item--active"><span class="breadcrumbs__link" itemprop="name">Materialization Protocol</span><meta itemprop="position" content="3"></li></ul></nav><div class="tocCollapsible_ETCw theme-doc-toc-mobile tocMobile_ITEo"><button type="button" class="clean-btn tocCollapsibleButton_TO0P">On this page</button></div><div class="theme-doc-markdown markdown"><header><h1>Materialization Protocol</h1></header>
+<p>Materializations are processed as cooperative transactions between the Flow
+Runtime and a connector Driver, over a long-lived RPC through which the Runtime
+and Driver exchange messages.</p>
+<p>This RPC workflow maintains a materialized view of a Flow collection in an
+external system. It has distinct acknowledge, load, and store phases.
+The Flow runtime and driver cooperatively maintain a fully-reduced view of each
+document by loading current states from the store, reducing in a number of
+updates, and then storing updated documents and checkpoints.</p>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="sequence-diagram">Sequence Diagram<a href="#sequence-diagram" class="hash-link" aria-label="Direct link to Sequence Diagram" title="Direct link to Sequence Diagram">​</a></h2>
+<p>As a convention and to reduce ambiguity, message types from the Runtime are
+named in an imperative fashion (<code>Load</code>), while responses from the driver always
+have a past-tense name (<code>Loaded</code>):</p>
+<div class="mermaid">
+  sequenceDiagram
+    Runtime-&gt;&gt;Driver: Open{MaterializationSpec, driverCP}
+    Note right of Driver: Connect to endpoint.&lt;br/&gt;Optionally fetch last-committed&lt;br/&gt;runtime checkpoint.
+    Driver-&gt;&gt;Runtime: Opened{runtimeCP}
+    Note over Runtime, Driver: One-time initialization ☝️.&lt;br/&gt; 👇 Repeats for each transaction.
+    Note left of Runtime: Prior txn commits&lt;br/&gt;to recovery log.
+    Note right of Driver: Prior txn commits to DB&lt;br/&gt;(where applicable).
+    Runtime-&gt;&gt;Driver: Acknowledge
+    Note right of Runtime: Acknowledged MAY be sent&lt;br/&gt;before Acknowledge.
+    Note right of Driver: MAY perform an idempotent&lt;br/&gt;apply of last txn.
+    Note left of Runtime: Runtime does NOT await&lt;br/&gt;Acknowledged before&lt;br/&gt;proceeding to send Load.
+    Driver-&gt;&gt;Runtime: Acknowledged
+    Note left of Runtime: Runtime may now finalize&lt;br/&gt;a pipelined transaction.
+    Note over Runtime, Driver: End of Acknowledge phase.
+    Runtime-&gt;&gt;Driver: Load&lt;A&gt;
+    Note left of Runtime: Load keys may&lt;br/&gt; not exist (yet).
+    Runtime-&gt;&gt;Driver: Load&lt;B&gt;
+    Note right of Driver: MAY evaluate Load immediately,&lt;br/&gt;or stage for deferred retrieval.
+    Driver-&gt;&gt;Runtime: Loaded&lt;A&gt;
+    Runtime-&gt;&gt;Driver: Load&lt;C&gt;
+    Runtime-&gt;&gt;Driver: Flush
+    Driver-&gt;&gt;Runtime: Loaded&lt;C&gt;
+    Note right of Driver: Omits Loaded for keys&lt;br/&gt;that don&#x27;t exist.
+    Driver-&gt;&gt;Runtime: Flushed
+    Note left of Runtime: All existing keys&lt;br/&gt;have been retrieved.
+    Note over Runtime, Driver: End of Load phase.
+    Runtime-&gt;&gt;Driver: Store&lt;X&gt;
+    Runtime-&gt;&gt;Driver: Store&lt;Y&gt;
+    Runtime-&gt;&gt;Driver: Store&lt;Z&gt;
+    Runtime-&gt;&gt;Driver: StartCommit{runtimeCP}
+    Note right of Driver: * Completes all Store processing.&lt;br/&gt;* MAY include runtimeCP in DB txn.
+    Note right of Driver: Commit to DB&lt;br/&gt;now underway.
+    Driver-&gt;&gt;Runtime: StartedCommit{driverCP}
+    Note left of Runtime: Begins commit to&lt;br/&gt; recovery log.
+    Note over Runtime, Driver: End of Store phase. Loops around&lt;br/&gt;to Acknowledge &lt;=&gt; Acknowledged.
+</div>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="exactly-once-semantics">Exactly-Once Semantics<a href="#exactly-once-semantics" class="hash-link" aria-label="Direct link to Exactly-Once Semantics" title="Direct link to Exactly-Once Semantics">​</a></h2>
+<p>The central tenant of transactional materializations is this:
+there is a consumption checkpoint, and there is a state of the view.
+As the materialization progresses, both the checkpoint and the view state will change.
+Updates to the checkpoint and to the view state MUST always commit together,
+in the exact same transaction.</p>
+<p>Flow materialization tasks have a backing transactional recovery log,
+which is capable of durable commits that update both the checkpoint and also a
+(reasonably small) driver-defined state. More on driver states later.</p>
+<p>Many interesting endpoint systems are also fully transactional in nature.</p>
+<p>When implementing a materialization driver, the first question an implementor
+must answer is: whose commit is authoritative?
+Flow&#x27;s recovery log, or the materialized system?
+This protocol supports either.</p>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="common-implementation-patterns">Common Implementation Patterns<a href="#common-implementation-patterns" class="hash-link" aria-label="Direct link to Common Implementation Patterns" title="Direct link to Common Implementation Patterns">​</a></h2>
+<p>There are a few common implementation patterns for materializations. The choice
+of pattern depends on the transaction capabilities of the remote endpoint.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="remote-store-is-authoritative">Remote Store is Authoritative<a href="#remote-store-is-authoritative" class="hash-link" aria-label="Direct link to Remote Store is Authoritative" title="Direct link to Remote Store is Authoritative">​</a></h3>
+<p>In this pattern, the remote store (for example, a database) persists view states
+and the Flow consumption checkpoints which those views reflect. There are many
+such checkpoints: one per task split, and in this pattern the Flow recovery log
+is effectively ignored.</p>
+<p>Typically this workflow runs in the context of a synchronous <code>BEGIN/COMMIT</code>
+transaction, which updates table states and a Flow checkpoint together. The
+transaction need be scoped only to the store phase of this workflow, as the
+materialization protocol requires only read-committed isolation semantics.</p>
+<p>Flow is a distributed system, and an important consideration is the effect of a
+&quot;zombie&quot; assignment of a materialization task, which can race a newly-promoted
+assignment of that same task.</p>
+<p>Fencing is a technique which uses the transactional capabilities of a store to
+&quot;fence off&quot; an older zombie assignment, such that it&#x27;s prevented from committing
+further transactions. This avoids a failure mode where:</p>
+<ul>
+<li>New assignment N recovers a checkpoint at Ti.</li>
+<li>Zombie assignment Z commits another transaction at Ti+1.</li>
+<li>N beings processing from Ti, inadvertently duplicating the effects of Ti+1.</li>
+</ul>
+<p>When a remote store is authoritative, it must implement fencing behavior. As a
+sketch, the store can maintain a nonce value alongside the checkpoint of each
+task split. The nonce is updated on each open of this RPC, and each commit
+transaction then verifies that the nonce has not been changed.</p>
+<p>In the future, if another RPC opens and updates the nonce, it fences off this
+instance of the task split and prevents it from committing further transactions.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="recovery-log-with-non-transactional-store">Recovery Log with Non-Transactional Store<a href="#recovery-log-with-non-transactional-store" class="hash-link" aria-label="Direct link to Recovery Log with Non-Transactional Store" title="Direct link to Recovery Log with Non-Transactional Store">​</a></h3>
+<p>In this pattern, the runtime&#x27;s recovery log persists the Flow checkpoint and
+handles fencing semantics. During the Load and Store phases, the driver directly
+manipulates a non-transactional store or API, such as a key/value store.</p>
+<p>Note that this pattern is at-least-once. A transaction may fail part-way through
+and be restarted, causing its effects to be partially or fully replayed.</p>
+<p>Care must be taken if the collection&#x27;s schema has reduction annotations such as
+<code>sum</code>, as those reductions may be applied more than once due to a partially
+completed, but ultimately failed transaction.</p>
+<p>If the collection&#x27;s schema is last-write-wins, this mode still provides
+effectively-once behavior. Collections which aren&#x27;t last-write-wins can be
+turned into last-write-wins through the use of derivations.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="recovery-log-with-idempotent-apply">Recovery Log with Idempotent Apply<a href="#recovery-log-with-idempotent-apply" class="hash-link" aria-label="Direct link to Recovery Log with Idempotent Apply" title="Direct link to Recovery Log with Idempotent Apply">​</a></h3>
+<p>In this pattern the recovery log is authoritative, but the driver uses external
+stable storage to stage the effects of a transaction -- rather than directly
+applying them to the store -- such that those effects can be idempotently
+applied after the transaction commits.</p>
+<p>This allows stores which feature a weaker transaction guarantee to still be
+used in an exactly-once way, so long as they support an idempotent apply
+operation.</p>
+<p>Driver checkpoints can facilitate this pattern. For example, a driver might
+generate a unique filename in S3 and reference it in its prepared checkpoint,
+which is committed to the recovery log. During the &quot;store&quot; phase, it writes to
+this S3 file. After the transaction commits, it tells the store of the new file
+to incorporate. The store must handle idempotency, by applying the effects of
+the unique file just once, even if told of the file multiple times.</p>
+<p>A related extension of this pattern is for the driver to embed a Flow checkpoint
+into its driver checkpoint. Doing so allows the driver to express an intention
+to restart from an older alternative checkpoint, as compared to the most recent
+committed checkpoint of the recovery log.</p>
+<p>As mentioned above, it&#x27;s crucial that store states and checkpoints commit
+together. While seemingly bending that rule, this pattern is consistent with it
+because, on commit, the semantic contents of the store include BOTH its base
+state, as well as the staged idempotent update. The store just may not know it
+yet, but eventually it must because of the retried idempotent apply.</p>
+<p>Note the driver must therefore ensure that staged updates are fully applied
+before returning <code>Loaded</code> responses, in order to provide the correct
+read-committed semantics required by the Flow runtime.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="push-only-endpoints--delta-updates">Push-only Endpoints &amp; Delta Updates<a href="#push-only-endpoints--delta-updates" class="hash-link" aria-label="Direct link to Push-only Endpoints &amp; Delta Updates" title="Direct link to Push-only Endpoints &amp; Delta Updates">​</a></h3>
+<p>Some systems, such as APIs, Webhooks, and Pub/Sub, are push-only in nature. Flow
+materializations can run in a &quot;delta updates&quot; mode, where loads are always
+skipped and Flow does not attempt to store fully-reduced documents. Instead,
+during the store phase, the runtime sends delta updates which reflect the
+combined roll-up of collection documents processed only within this transaction.</p>
+<p>To illustrate the meaning of a delta update, consider documents which are simple
+counters, having a collection schema that uses a <code>sum</code> reduction strategy.</p>
+<p>Without delta updates, Flow would reduce documents -1, 3, and 2 by <code>sum</code> to
+arrive at document 4, which is stored. The next transaction, document 4 is
+loaded and reduced with 6, -7, and -1 to arrive at a new stored document 2. This
+document, 2, represents the full reduction of the collection documents
+materialized thus far.</p>
+<p>Compare to delta updates mode: collection documents -1, 3, and 2 are combined to
+store a delta-update document of 4. The next transaction starts anew, and 6, -7,
+and -1 combine to arrive at a delta-update document of -2. These delta updates
+are a windowed combine over documents seen in the current transaction only, and
+unlike before are not a full reduction of the document. If delta updates were
+written to pub/sub, note that a subscriber could further reduce over each delta
+update to recover the fully reduced document of 2.</p>
+<p>Note that many use cases require only <code>lastWriteWins</code> reduction behavior, and
+for these use cases delta updates does the &quot;right thing&quot; by trivially re-writing
+each document with its most recent version. This matches the behavior of Kafka
+Connect, for example.</p>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="protocol-phases">Protocol Phases<a href="#protocol-phases" class="hash-link" aria-label="Direct link to Protocol Phases" title="Direct link to Protocol Phases">​</a></h2>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="acknowledge">Acknowledge<a href="#acknowledge" class="hash-link" aria-label="Direct link to Acknowledge" title="Direct link to Acknowledge">​</a></h3>
+<p><code>Acknowledge</code> and <code>Acknowledged</code> are always the first messages sent every
+transaction, including the very first transaction of an RPC. The Runtime sends
+<code>Acknowledge</code> to indicate that the last transaction has committed to the
+recovery log. The Driver sends <code>Acknowledged</code> to indicate that its endpoint
+transaction has committed.</p>
+<p>Acknowledge and Acknowledged <em>are not ordered</em>. Acknowledged may be sent before
+Acknowledge and vice versa.</p>
+<p>The Runtime <em>does not</em> wait for <code>Acknowledged</code> before sending <code>Load</code> messages.
+In most cases the Driver should simply not read these <code>Load</code> messages until it
+has completed its own commit and sent its own <code>Acknowledged</code>.</p>
+<p>A Driver MAY instead process its commit and acknowledgment in the background
+while actively reading <code>Load</code> messages. It MUST NOT evaluate <code>Load</code>s yet, as
+this could otherwise be a violation of read-committed semantics, but it MAY
+stage them for deferred evaluation. This is <strong>recommended</strong> for Drivers that
+have very long commit and/or acknowledgement operations. While a background
+commit progresses the Flow runtime will optimistically pipeline the next
+transaction, processing documents and preparing for when the Driver sends
+<code>Acknowledged</code>.</p>
+<p>Drivers following the &quot;Recovery Log with Idempotent Apply&quot; pattern must take
+care to properly handle the very first acknowledgement phase of an RPC. At
+startup, a driver cannot know if the last commit has been acknowledged. For
+example, a previous RPC invocation may have failed immediately after commit but
+prior to acknowledgement. The Driver must thus idempotent-ly apply or re-apply
+changes staged by a prior Driver invocation, and reply with <code>Acknowledged</code> only
+once done.</p>
+<p>Drivers with transactional semantics SHOULD send Acknowledged immediately after
+a previous, started commit completes.</p>
+<p>Drivers with at-least-once semantics SHOULD send Acknowledged immediately after
+sending StartedCommit.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="load">Load<a href="#load" class="hash-link" aria-label="Direct link to Load" title="Direct link to Load">​</a></h3>
+<p>Zero or more <code>Load</code> messages are sent by the Runtime with documents to fetch. A
+given document key will appear at most once in a transaction, and will not be
+repeated across <code>Load</code> messages.</p>
+<p>Drivers may immediately evaluate each <code>Load</code> and respond, or may queue many keys
+to load and defer their evaluation. The Runtime does not await any individual
+<code>Load</code> requests.</p>
+<p>After the previous transaction has fully completed, and the driver has sent
+<code>Acknowledged</code> to the Runtime, the current transaction may begin to close.</p>
+<p>The Runtime indicates this by sending a <code>Flush</code> message, which is NEVER sent
+before <code>Acknowledged</code> is received. <code>Acknowledged</code> is thus an important signal as
+to when the Runtime may begin to finalize an optimistic, pipelined transaction.</p>
+<p>On reading <code>Flush</code>, Drivers must process all remaining <code>Load</code> messages,
+including any deferred evaluations, and send all <code>Loaded</code> responses prior to
+sending its own <code>Flushed</code> response.</p>
+<p>This signals to the Runtime that all documents which can be loaded <em>have</em> been
+loaded, and the transaction proceeds to the Store phase.</p>
+<p>Materialization bindings which are processing in delta-updates mode will never
+receive a <code>Load</code> message, but will receive a <code>Flush</code> and must still respond with
+<code>Flushed</code>.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="store">Store<a href="#store" class="hash-link" aria-label="Direct link to Store" title="Direct link to Store">​</a></h3>
+<p>Zero or more <code>Store</code> messages are sent by the Runtime to the Driver, indicating
+keys, documents, and extracted fields to store. No response is required of the
+Driver for these messages.</p>
+<p>Once all documents have been stored, the Runtime sends a <code>StartCommit</code> message
+which carries its opaque runtime checkpoint.</p>
+<p>Drivers implementing the &quot;Remote Store is Authoritative&quot; pattern must include
+the runtime checkpoint in its current transaction, for retrieval in a future
+Open of a new transactions RPC. Other driver patterns MAY ignore this
+checkpoint.</p>
+<p>On reading <code>StartCommit</code> the driver ensures that all <code>Store</code> messages have been
+processed. It begins to commit its own transaction (where applicable), and then
+responds with <code>StartedCommit</code> which contain an update to the driver&#x27;s
+checkpoint.</p>
+<p>On the Runtime&#x27;s receipt of <code>StartedCommit</code>, the Runtime now knows that all
+<code>Store</code> messages have been fully processed. It preserves the updated Driver
+checkpoint in its recovery log and begins to commit.</p>
+<p>From here, the protocol loops back around to the Acknowledge phase.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/estuary/flow/edit/master/site/docs/reference/Connectors/materialization-protocol.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/pr-preview/pr-2181/reference/Connectors/dekaf/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Dekaf integrations</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/pr-preview/pr-2181/reference/authentication/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Authorizing users and authenticating with Flow</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#sequence-diagram" class="table-of-contents__link toc-highlight">Sequence Diagram</a></li><li><a href="#exactly-once-semantics" class="table-of-contents__link toc-highlight">Exactly-Once Semantics</a></li><li><a href="#common-implementation-patterns" class="table-of-contents__link toc-highlight">Common Implementation Patterns</a><ul><li><a href="#remote-store-is-authoritative" class="table-of-contents__link toc-highlight">Remote Store is Authoritative</a></li><li><a href="#recovery-log-with-non-transactional-store" class="table-of-contents__link toc-highlight">Recovery Log with Non-Transactional Store</a></li><li><a href="#recovery-log-with-idempotent-apply" class="table-of-contents__link toc-highlight">Recovery Log with Idempotent Apply</a></li><li><a href="#push-only-endpoints--delta-updates" class="table-of-contents__link toc-highlight">Push-only Endpoints &amp; Delta Updates</a></li></ul></li><li><a href="#protocol-phases" class="table-of-contents__link toc-highlight">Protocol Phases</a><ul><li><a href="#acknowledge" class="table-of-contents__link toc-highlight">Acknowledge</a></li><li><a href="#load" class="table-of-contents__link toc-highlight">Load</a></li><li><a href="#store" class="table-of-contents__link toc-highlight">Store</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/pr-preview/pr-2181/">Flow Documentation</a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://go.estuary.dev/slack" target="_blank" rel="noopener noreferrer" class="footer__link-item">Slack<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://twitter.com/EstuaryDev" target="_blank" rel="noopener noreferrer" class="footer__link-item">Twitter<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.youtube.com/@estuarydev" target="_blank" rel="noopener noreferrer" class="footer__link-item">YouTube<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2025 Estuary Technologies, Inc. Built with Docusaurus.</div></div></div></footer></div>
+</body>
+</html>
