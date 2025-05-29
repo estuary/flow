@@ -633,7 +633,7 @@ impl Session {
                             .increment(1);
                             tokio::spawn(propagate_task_forwarder(
                                 Read::new(
-                                    collection.journal_client.clone(),
+                                    self.app.task_manager.get_listener(task_name.as_str()),
                                     &collection,
                                     partition,
                                     fragment_start,
@@ -642,13 +642,14 @@ impl Session {
                                     Some(partition_request.fetch_offset - 1),
                                     &auth,
                                     self.read_buffer_size,
-                                )?
+                                )
+                                .await?
                                 .next_batch(
                                     // Have to read at least 2 docs, as the very last doc
                                     // will probably be a control document and will be
                                     // ignored by the consumer, looking like 0 docs were read
                                     crate::read::ReadTarget::Docs(max(diff as usize, 2)),
-                                    std::time::Instant::now() + timeout,
+                                    timeout,
                                 ),
                             ))
                         }
@@ -663,7 +664,7 @@ impl Session {
                             .increment(1);
                             tokio::spawn(propagate_task_forwarder(
                                 Read::new(
-                                    collection.journal_client.clone(),
+                                    self.app.task_manager.get_listener(task_name.as_str()),
                                     &collection,
                                     partition,
                                     fetch_offset,
@@ -672,12 +673,13 @@ impl Session {
                                     None,
                                     &auth,
                                     self.read_buffer_size,
-                                )?
+                                )
+                                .await?
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
                                         partition_request.partition_max_bytes as usize,
                                     ),
-                                    std::time::Instant::now() + timeout,
+                                    timeout,
                                 ),
                             ))
                         }
@@ -754,7 +756,7 @@ impl Session {
                                 crate::read::ReadTarget::Bytes(
                                     partition_request.partition_max_bytes as usize,
                                 ),
-                                std::time::Instant::now() + timeout,
+                                timeout,
                             )),
                         ));
 
