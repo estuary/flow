@@ -2865,7 +2865,7 @@ dependencies = [
 
 [[package]]
 name = "flow-web"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "console_error_panic_hook",
  "doc",
