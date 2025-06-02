@@ -36,7 +36,7 @@ use crate::api::{authorize, error::ApiErrorExt, ApiError, App};
 /// returns JSON, which is all of them. Just ensure that `T` implements
 /// `serde::Serialize` and `schemars::JsonSchema`. See the `crate::api::error` module
 /// docs for more information on error handling.
-pub fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
+pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     // When errors occur during the process of generating an openapi spec, aide
     // will call this function with the error so we can log it. They have a note
     // in their docs warning about false positives where it logs errors even
