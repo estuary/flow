@@ -27,7 +27,7 @@ pub struct StatusQuery {
 }
 
 #[axum::debug_handler]
-pub async fn handle_get_status(
+pub(crate) async fn handle_get_status(
     state: axum::extract::State<Arc<App>>,
     Extension(claims): Extension<ControlClaims>,
     Query(StatusQuery {
