@@ -50,13 +50,15 @@ configuration details specific to the Sage Intacct source connector.
 
 #### Endpoint
 
-| Property               | Title           | Description                  | Type   | Required/Default |
-|------------------------|-----------------|------------------------------|--------|------------------|
-| **`/sender_id`**       | Sender ID       | Web Services Sender ID       | string | Required         |
-| **`/sender_password`** | Sender Password | Web Services Sender Password | string | Required         |
-| **`/company_id`**      | Company ID      | Sage Intacct Company ID      | string | Required         |
-| **`/user_id`**         | User ID         | Sage Intacct User ID         | string | Required         |
-| **`/password`**        | Password        | Sage Intacct Password        | string | Required         |
+| Property                                    | Title                           | Description                                                                                                                                                                                                               | Type    | Required/Default |
+|---------------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
+| **`/sender_id`**                            | Sender ID                       | Web Services Sender ID                                                                                                                                                                                                    | string  | Required         |
+| **`/sender_password`**                      | Sender Password                 | Web Services Sender Password                                                                                                                                                                                              | string  | Required         |
+| **`/company_id`**                           | Company ID                      | Sage Intacct Company ID                                                                                                                                                                                                   | string  | Required         |
+| **`/user_id`**                              | User ID                         | Sage Intacct User ID                                                                                                                                                                                                      | string  | Required         |
+| **`/password`**                             | Password                        | Sage Intacct Password                                                                                                                                                                                                     | string  | Required         |
+| `/advanced`                                 | Advanced Options                | Options for advanced users. You should not typically need to modify these.                                                                                                                                                | object  |                  |
+| `/advanced/include_company_id_in_documents` | Include Company ID in Documents | Include the configured Sage Intacct Company ID in captured documents, with the field name 'COMPANY_ID'. Every captured document will have the same value for this field, equal to the configured Sage Intacct Company ID. | boolean |                  |
 
 #### Bindings
 
