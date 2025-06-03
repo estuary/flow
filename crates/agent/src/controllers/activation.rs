@@ -148,6 +148,24 @@ pub async fn update_activation<C: ControlPlane>(
             status.next_retry = Some(next);
         }
 
+        if shard_failures > 0 {
+            // If we've just observed a shard failure, then update the shard status to reflect that
+            if let Some(shards_status) = status.shard_status.as_mut() {
+                if shards_status.status == ShardsStatus::Failed {
+                    shards_status.count += 1;
+                    shards_status.last_ts = now;
+                } else {
+                    tracing::debug!(prev_status = ?shards_status, "updating shard_status to Failed due to ShardFailed event");
+                    *shards_status = ShardStatusCheck {
+                        first_ts: now,
+                        last_ts: now,
+                        status: ShardsStatus::Failed,
+                        count: 0,
+                    }
+                }
+            }
+        }
+
         // Update the `lastFailure` status field
         if let Some(latest) = failures.iter().max_by_key(|f| f.ts) {
             let last_failure_ts = status
@@ -293,6 +311,17 @@ async fn update_shard_health<C: ControlPlane>(
         // cases in the data plane.
         tracing::warn!(%time_since_activation, failed_checks = %count, "re-activating task shards because they still show as Failed after prior activation");
         do_activate(now, state, status, control_plane).await?;
+        status.shard_status = Some(ShardStatusCheck {
+            count: 0,
+            first_ts: now,
+            last_ts: now,
+            status: ShardsStatus::Pending,
+        });
+        return Ok(Some(NextRun::from_duration(shard_health_check_interval(
+            state,
+            0,
+            ShardsStatus::Pending,
+        ))));
     }
 
     let next_check = shard_health_check_interval(state, count, new_status);
@@ -317,11 +346,11 @@ fn aggregate_shard_status(
     shards
         .iter()
         .map(|shard| {
-            // Map any shards with a stale build id to a Pending status. In the
+            // If any shards have a stale build id, return a Pending. In the
             // happy path, we should never observe this condition, but it can
             // technically happen, since we don't pass a minimum etcd revision
             // with our list request. So if we see an old build id here, it's
-            // just stale data.
+            // just stale data and we'll check again soon.
             let matching_build = shard.spec.as_ref().is_some_and(|spec| {
                 spec.labels.as_ref().is_some_and(|labels| {
                     ::labels::values(labels, ::labels::BUILD)
