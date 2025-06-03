@@ -15,11 +15,11 @@ use crate::{
     ControlPlane, PGControlPlane,
 };
 use agent_sql::{Capability, TextJson};
-use anyhow::Context;
 use chrono::{DateTime, Utc};
 use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
 use models::status::connector::ConfigUpdate;
+use models::status::ShardRef;
 use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
@@ -971,6 +971,38 @@ impl TestHarness {
         );
 
         UserDiscoverResult::load(disco_id, &self.pool).await
+    }
+
+    pub async fn fail_shard(&mut self, shard: &ShardRef) {
+        let fields = serde_json::from_value(serde_json::json!({
+            "eventType": "shardFailure",
+            "eventTarget": shard.name.as_str(),
+            "error": "a test error"
+        }))
+        .unwrap();
+        let ts = self.control_plane().current_time();
+        let event = serde_json::to_value(models::status::activation::ShardFailure {
+            shard: shard.clone(),
+            ts,
+            message: "test shard failure".to_string(),
+            fields,
+        })
+        .unwrap();
+
+        sqlx::query!(
+            r#"insert into shard_failures(catalog_name, build, ts, flow_document) values ($1::catalog_name, $2::flowid, $3, $4)"#,
+            shard.name.as_str() as &str,
+            shard.build as models::Id,
+            ts,
+            event,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to insert shard failure");
+
+        // Mock so that a shard listing will also show the shards as failed
+        self.control_plane()
+            .mock_shard_status(&shard.name, vec![replica_status::Code::Failed]);
     }
 
     /// Performs a publication as if it were initiated by `flowctl` or the UI,

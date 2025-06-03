@@ -57,13 +57,6 @@ impl Summary {
             return Summary::error(err);
         }
 
-        if disabled {
-            return Summary {
-                status: StatusSummaryType::TaskDisabled,
-                message: "Task shards are disabled".to_string(),
-            };
-        }
-
         // Return early if there's no activation status
         let activation_status = match controller_status {
             ControllerStatus::Test(test_status) => {
@@ -92,6 +85,14 @@ impl Summary {
             return Summary::warning("pending data-plane activation");
         }
 
+        let is_collection = matches!(controller_status, ControllerStatus::Collection(_));
+        if disabled && !is_collection {
+            return Summary {
+                status: StatusSummaryType::TaskDisabled,
+                message: "Task shards are disabled".to_string(),
+            };
+        }
+
         // Has there been a shard failure that hasn't been re-tried yet?
         if let Some(next) = activation_status.next_retry {
             let fail_ts = activation_status
@@ -100,15 +101,6 @@ impl Summary {
                 .map(|fail| format!(" at {}", fail.ts))
                 .unwrap_or_default();
             return Summary::error(format!("task shard failed{fail_ts}, next retry at {next}"));
-        }
-
-        // If this is a collection or a derivation, then skip checks of the connector status.
-        // We'll need to update this once start emitting connector status for derivations.
-        if controller_status.catalog_type() == Some(CatalogType::Collection) {
-            return Summary {
-                status: StatusSummaryType::Ok,
-                message: "Ok".to_string(),
-            };
         }
 
         // The `shard_health` will be `None` if this spec does not have task shards.
@@ -122,7 +114,7 @@ impl Summary {
                     return Summary::error("task shards have been pending for a long time");
                 }
                 ShardsStatus::Failed => {
-                    return Summary::error("1 or more task shards are failed");
+                    return Summary::error("one or more task shards are failed");
                 }
             }
         }
@@ -138,7 +130,7 @@ impl Summary {
         // as "Ok" before it ever writes a ConnectorStatus event. This seems
         // acceptable, since we have no better means of determining whether
         // to expect a connector status for a given task.
-        let message = if let Some(conn_status) = connector_status {
+        let message = if let Some(conn_status) = connector_status.filter(|_| !disabled) {
             if conn_status.shard.build != activation_status.last_activated
                 || Some(conn_status.ts) < activation_status.last_activated_at
             {
@@ -196,14 +188,6 @@ mod test {
         "###);
 
         let blank_capture = ControllerStatus::Capture(CaptureStatus::default());
-        let disabled = Summary::of(true, last_build, no_error, Some(&blank_capture), None);
-        insta::assert_debug_snapshot!(disabled, @r###"
-        Summary {
-            status: TaskDisabled,
-            message: "Task shards are disabled",
-        }
-        "###);
-
         let controller_error =
             Summary::of(true, last_build, some_error, Some(&blank_capture), None);
         insta::assert_debug_snapshot!(controller_error, @r###"
@@ -252,7 +236,8 @@ mod test {
                 recent_failure_count: 999, // should be ignored
                 next_retry: None,
                 shard_status: Some(ShardStatusCheck {
-                    count: 0,
+                    count: 1,
+                    first_ts: "2024-02-03T09:10:11Z".parse().unwrap(),
                     last_ts: "2024-02-03T09:10:11Z".parse().unwrap(),
                     status: ShardsStatus::Ok,
                 }),
@@ -265,6 +250,13 @@ mod test {
         Summary {
             status: Ok,
             message: "Ok",
+        }
+        "###);
+        let disabled = Summary::of(true, last_build, no_error, Some(&activated_ok), None);
+        insta::assert_debug_snapshot!(disabled, @r###"
+        Summary {
+            status: TaskDisabled,
+            message: "Task shards are disabled",
         }
         "###);
 
