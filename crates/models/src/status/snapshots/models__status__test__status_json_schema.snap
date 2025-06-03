@@ -776,6 +776,13 @@ expression: schema
           "minimum": 0.0,
           "type": "integer"
         },
+        "first_ts": {
+          "description": "The time of the first status check that returned this status",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        },
         "last_ts": {
           "description": "The time of the most recent status check",
           "format": "date-time",
@@ -789,6 +796,7 @@ expression: schema
         }
       },
       "required": [
+        "first_ts",
         "last_ts",
         "status"
       ],

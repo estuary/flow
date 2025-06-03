@@ -285,6 +285,7 @@ mod test {
                 shard_status: Some(ShardStatusCheck {
                     count: 0,
                     status: ShardsStatus::Pending,
+                    first_ts: "2024-01-02T03:04:05.06Z".parse().unwrap(),
                     last_ts: "2024-01-02T03:04:05.06Z".parse().unwrap(),
                 }),
                 last_failure: None,
