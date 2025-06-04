@@ -253,7 +253,9 @@ fn evaluate_authorization(
         ).with_status(StatusCode::FORBIDDEN));
     }
 
-    let Some(encoding_key) = collection_data_plane.hmac_keys.first() else {
+    let Some(encoding_key) =
+        snapshot.data_plane_first_hmac_key(&collection_data_plane.data_plane_name)
+    else {
         return Err(anyhow::anyhow!(
             "collection data-plane {} has no configured HMAC keys",
             collection_data_plane.data_plane_name
