@@ -1,0 +1,392 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap
+---
+Snap {
+    selects: [
+        (
+            "ABool",
+            UserDefined,
+        ),
+        (
+            "ABool",
+            DesiredDepth,
+        ),
+        (
+            "ADateTime",
+            UserDefined,
+        ),
+        (
+            "ADateTime",
+            DesiredDepth,
+        ),
+        (
+            "AMap",
+            UserDefined,
+        ),
+        (
+            "AMap",
+            DesiredDepth,
+        ),
+        (
+            "ANumberOne",
+            UserDefined,
+        ),
+        (
+            "ANumberOne",
+            DesiredDepth,
+        ),
+        (
+            "AnArray",
+            UserDefined,
+        ),
+        (
+            "AnArray",
+            DesiredDepth,
+        ),
+        (
+            "AnInt",
+            UserDefined,
+        ),
+        (
+            "AnInt",
+            DesiredDepth,
+        ),
+        (
+            "NestedFoo",
+            UserDefined,
+        ),
+        (
+            "NestedFoo",
+            DesiredDepth,
+        ),
+        (
+            "_meta/op",
+            CoreMetadata,
+        ),
+        (
+            "a_bool",
+            GroupByKey,
+        ),
+        (
+            "a_bool",
+            CurrentValue,
+        ),
+        (
+            "a_bool",
+            DesiredDepth,
+        ),
+        (
+            "a_date_time",
+            CurrentValue,
+        ),
+        (
+            "a_date_time",
+            DesiredDepth,
+        ),
+        (
+            "a_map",
+            CurrentValue,
+        ),
+        (
+            "a_map",
+            DesiredDepth,
+        ),
+        (
+            "a_num1",
+            CurrentValue,
+        ),
+        (
+            "a_num1",
+            DesiredDepth,
+        ),
+        (
+            "a_num2",
+            CurrentValue,
+        ),
+        (
+            "a_num2",
+            DesiredDepth,
+        ),
+        (
+            "an_array",
+            CurrentValue,
+        ),
+        (
+            "an_array",
+            DesiredDepth,
+        ),
+        (
+            "an_array_redux",
+            DesiredDepth,
+        ),
+        (
+            "an_extra",
+            DesiredDepth,
+        ),
+        (
+            "an_int",
+            GroupByKey,
+        ),
+        (
+            "an_int",
+            DesiredDepth,
+        ),
+        (
+            "flow_document",
+            CurrentDocument,
+        ),
+        (
+            "flow_document",
+            ConnectorRequiresLocation {
+                reason: "",
+            },
+        ),
+        (
+            "flow_published_at",
+            CurrentValue,
+        ),
+        (
+            "flow_published_at",
+            CoreMetadata,
+        ),
+        (
+            "forbid",
+            DesiredDepth,
+        ),
+        (
+            "nested",
+            UserRequires,
+        ),
+        (
+            "nested/bar",
+            CurrentValue,
+        ),
+        (
+            "nested/bar",
+            DesiredDepth,
+        ),
+        (
+            "nested/baz",
+            DesiredDepth,
+        ),
+        (
+            "nested/foo",
+            DesiredDepth,
+        ),
+        (
+            "not-in-collection",
+            CurrentValue,
+        ),
+    ],
+    rejects: [
+        (
+            "_meta/before/forbid",
+            ConnectorForbids {
+                reason: "naughty",
+            },
+        ),
+        (
+            "an_extra",
+            UserExcludes,
+        ),
+        (
+            "forbid",
+            ConnectorForbids {
+                reason: "frosts the jib",
+            },
+        ),
+    ],
+    group_by: [
+        "an_int",
+        "a_bool",
+    ],
+    document: Some(
+        "flow_document",
+    ),
+    field_outcomes: {
+        "ABool": Left(
+            UserDefined,
+        ),
+        "ADateTime": Left(
+            UserDefined,
+        ),
+        "AMap": Left(
+            UserDefined,
+        ),
+        "ANumberOne": Right(
+            DuplicateFold {
+                folded_field: "NUM",
+            },
+        ),
+        "AnArray": Left(
+            UserDefined,
+        ),
+        "AnInt": Left(
+            UserDefined,
+        ),
+        "NestedFoo": Left(
+            UserDefined,
+        ),
+        "_meta": Right(
+            NotSelected,
+        ),
+        "_meta/before": Right(
+            NotSelected,
+        ),
+        "_meta/before/a_bool": Right(
+            NotSelected,
+        ),
+        "_meta/before/a_date_time": Right(
+            NotSelected,
+        ),
+        "_meta/before/a_map": Right(
+            NotSelected,
+        ),
+        "_meta/before/a_num1": Right(
+            NotSelected,
+        ),
+        "_meta/before/a_num2": Right(
+            NotSelected,
+        ),
+        "_meta/before/an_array": Right(
+            NotSelected,
+        ),
+        "_meta/before/an_array_redux": Right(
+            NotSelected,
+        ),
+        "_meta/before/an_extra": Right(
+            NotSelected,
+        ),
+        "_meta/before/an_int": Right(
+            NotSelected,
+        ),
+        "_meta/before/forbid": Right(
+            ConnectorForbids {
+                reason: "naughty",
+            },
+        ),
+        "_meta/before/nested": Right(
+            NotSelected,
+        ),
+        "_meta/before/nested/bar": Right(
+            NotSelected,
+        ),
+        "_meta/before/nested/baz": Right(
+            NotSelected,
+        ),
+        "_meta/before/nested/foo": Right(
+            NotSelected,
+        ),
+        "_meta/flow_truncated": Right(
+            NotSelected,
+        ),
+        "_meta/op": Left(
+            CoreMetadata,
+        ),
+        "_meta/source": Right(
+            NotSelected,
+        ),
+        "_meta/source/loc": Right(
+            NotSelected,
+        ),
+        "_meta/source/schema": Right(
+            NotSelected,
+        ),
+        "_meta/source/snapshot": Right(
+            NotSelected,
+        ),
+        "_meta/source/table": Right(
+            NotSelected,
+        ),
+        "_meta/source/ts_ms": Right(
+            NotSelected,
+        ),
+        "_meta/source/txid": Right(
+            NotSelected,
+        ),
+        "a_bool": Left(
+            GroupByKey,
+        ),
+        "a_date_time": Left(
+            CurrentValue,
+        ),
+        "a_map": Left(
+            CurrentValue,
+        ),
+        "a_num1": Left(
+            CurrentValue,
+        ),
+        "a_num2": Right(
+            DuplicateFold {
+                folded_field: "NUM",
+            },
+        ),
+        "an_array": Left(
+            CurrentValue,
+        ),
+        "an_array_redux": Left(
+            DesiredDepth,
+        ),
+        "an_extra": Right(
+            UserExcludes,
+        ),
+        "an_int": Left(
+            GroupByKey,
+        ),
+        "flow_document": Left(
+            CurrentDocument,
+        ),
+        "flow_published_at": Left(
+            CurrentValue,
+        ),
+        "forbid": Right(
+            ConnectorForbids {
+                reason: "frosts the jib",
+            },
+        ),
+        "nested": Left(
+            UserRequires,
+        ),
+        "nested/bar": Left(
+            CurrentValue,
+        ),
+        "nested/baz": Right(
+            CoveredLocation,
+        ),
+        "nested/foo": Right(
+            DuplicateLocation,
+        ),
+        "not-in-collection": Right(
+            CollectionOmits,
+        ),
+    },
+    selection: FieldSelection {
+        keys: [
+            "an_int",
+            "a_bool",
+        ],
+        values: [
+            "ABool",
+            "ADateTime",
+            "AMap",
+            "AnArray",
+            "AnInt",
+            "NestedFoo",
+            "_meta/op",
+            "a_date_time",
+            "a_map",
+            "a_num1",
+            "an_array",
+            "an_array_redux",
+            "flow_published_at",
+            "nested",
+            "nested/bar",
+        ],
+        document: "flow_document",
+        field_config_json_map: {
+            "nested": "{\"cfg\":42}",
+        },
+    },
+    conflicts: [],
+}
