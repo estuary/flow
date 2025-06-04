@@ -142,7 +142,7 @@ fn evaluate_authorization(
         return Err(anyhow::anyhow!("data-plane {data_plane_name} not found")
             .with_status(StatusCode::NOT_FOUND));
     };
-    let Some(encoding_key) = data_plane.hmac_keys.first() else {
+    let Some(encoding_key) = snapshot.data_plane_first_hmac_key(&data_plane_name) else {
         return Err(
             anyhow::anyhow!("data-plane {data_plane_name} has no configured HMAC keys")
                 .with_status(StatusCode::INTERNAL_SERVER_ERROR),
