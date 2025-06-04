@@ -322,6 +322,11 @@ async fn update_shard_health<C: ControlPlane>(
             0,
             ShardsStatus::Pending,
         ))));
+    } else if new_status == ShardsStatus::Pending && count == 12 {
+        // We check `count` so that we only log this once per task per
+        // activation, so we don't spam our logs. 12 was chosen rather
+        // arbitrarily, but corresponds to roughly 15 minutes after activation.
+        tracing::warn!(%time_since_activation, "task shards have been Pending for suspiciously long");
     }
 
     let next_check = shard_health_check_interval(state, count, new_status);
