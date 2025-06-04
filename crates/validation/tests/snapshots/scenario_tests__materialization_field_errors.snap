@@ -4,8 +4,8 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/include/biT,
-        error: include projection biT does not exist in collection testing/int-halve,
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/require/biT,
+        error: required projection biT does not exist in collection testing/int-halve,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/exclude/0,

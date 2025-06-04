@@ -6328,6 +6328,9 @@ Outcome {
                     "notBefore": "2017-03-03T03:02:01Z"
                   },
                   "fields": {
+                    "groupBy": [
+                      "Int"
+                    ],
                     "require": {
                       "str": {"pass":"through"}
                     },
@@ -7991,6 +7994,9 @@ Outcome {
                     "notBefore": "2017-03-03T03:02:01Z"
                   },
                   "fields": {
+                    "groupBy": [
+                      "Int"
+                    ],
                     "require": {
                       "str": {"pass":"through"}
                     },
@@ -8118,7 +8124,7 @@ Outcome {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"recommended":true,"require":{"str":{"pass":"through"}}},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"recommended":false,"require":{"Len":{}}},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"groupBy":["Int"],"recommended":true,"require":{"str":{"pass":"through"}}},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"recommended":false,"require":{"Len":{}}},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [
