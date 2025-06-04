@@ -191,6 +191,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - PostgreSQL Batch
   - [Configuration](./PostgreSQL/postgres-batch.md)
   - Package - ghcr.io/estuary/source-postgres-batch:dev
+- Qualtrics
+  - [Configuration](./qualtrics.md)
+  - Package - ghcr.io/estuary/source-qualtrics:dev
 - Sage Intacct
   - [Configuration](./sage-intacct.md)
   - Package — ghcr.io/estuary/source-sage-intacct:dev
