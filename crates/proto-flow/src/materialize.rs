@@ -101,6 +101,10 @@ pub mod request {
             /// Backfill counter for this binding.
             #[prost(uint32, tag = "4")]
             pub backfill: u32,
+            /// Ordered group-by key fields of the materialization.
+            /// Identical to `keys` of the post-validation FieldSelection.
+            #[prost(string, repeated, tag = "5")]
+            pub group_by: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         }
     }
     /// Apply an updated materialization specification to its endpoint,

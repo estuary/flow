@@ -68,6 +68,9 @@ message Request {
       ];
       // Backfill counter for this binding.
       uint32 backfill = 4;
+      // Ordered group-by key fields of the materialization.
+      // Identical to `keys` of the post-validation FieldSelection.
+      repeated string group_by = 5;
     }
     repeated Binding bindings = 4;
     // Last MaterializationSpec which was validated and published.
