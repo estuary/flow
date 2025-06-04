@@ -1,0 +1,7 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap.conflicts
+---
+[
+    "conflict for field \"sporks\": field is required by the connector (It's the fork of the future, man!) but field does not exist within the source collection",
+]
