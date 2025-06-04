@@ -1,12 +1,12 @@
 use super::{
-    collection, indexed, reference, storage_mapping, walk_transition, Connectors, Error,
-    NoOpConnectors, Scope,
+    collection, field_selection, indexed, reference, storage_mapping, walk_transition, Connectors,
+    Error, NoOpConnectors, Scope,
 };
 use futures::SinkExt;
 use itertools::Itertools;
 use json::schema::types;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use tables::EitherOrBoth as EOB;
 
 pub async fn walk_all_materializations<C: Connectors>(
@@ -365,7 +365,7 @@ async fn walk_materialization<C: Connectors>(
             collection,
             field_config_json_map: _,
             backfill,
-            group_by: _,
+            group_by,
         } = validate;
         let collection = collection.unwrap();
 
@@ -425,10 +425,35 @@ async fn walk_materialization<C: Connectors>(
             errors,
         );
 
-        // TODO(johnny): It's tempting to say that an incompatible field should
-        // respond to onIncompatibleSchemaChange. We can certainly handle disabling
-        // a binding or the whole task here. However, we can't backfill a binding
-        // without calling Validate again... which we could do?
+        // TODO(johnny): Run new field selection logic as a "shadow" selection,
+        // which is compared and logged but not used while we validate its correctness.
+        {
+            let ((shadow_selection, conflicts), outcomes) = field_selection::evaluate(
+                &collection.projections,
+                group_by,
+                live_spec,
+                &model,
+                constraints,
+            );
+
+            if !errors.is_empty() {
+                // Don't log.
+            } else if field_selection != shadow_selection || !conflicts.is_empty() {
+                log_shadow_value_differences(
+                    &collection.name,
+                    &path,
+                    &field_selection,
+                    &shadow_selection,
+                    &conflicts,
+                    &outcomes,
+                );
+            }
+
+            // TODO(johnny): if field selection returns non-empty conflicts
+            // which are all Reject::Unsatisfiable, then we must apply the
+            // `onIncompatibleSchemaChange` action. The selection is valid
+            // for use if the "backfill" action is taken.
+        }
 
         // Build a partition LabelSelector for this source.
         let (source_partitions, not_before, not_after) = match &model.source {
@@ -737,9 +762,7 @@ fn walk_materialization_fields<'a>(
         ..
     } = collection;
 
-    let live_exclude: HashSet<&models::Field> = live_model
-        .map(|l| l.exclude.iter().collect())
-        .unwrap_or_default();
+    let live_exclude = live_model.map(|l| l.exclude.as_slice()).unwrap_or_default();
 
     let mut effective_group_by = Vec::new();
     let mut field_config = BTreeMap::new();
@@ -1033,4 +1056,38 @@ fn walk_materialization_response(
         document,
         field_config_json_map,
     }
+}
+
+fn log_shadow_value_differences(
+    collection_name: &str,
+    path: &[String],
+    current: &flow::FieldSelection,
+    shadow: &flow::FieldSelection,
+    conflicts: &[field_selection::Conflict],
+    outcomes: &BTreeMap<String, EOB<field_selection::Select, field_selection::Reject>>,
+) {
+    assert!(current.values.is_sorted());
+    assert!(shadow.values.is_sorted());
+
+    let (mut added, mut removed) = (Vec::new(), Vec::new());
+    for eob in itertools::merge_join_by(&current.values, &shadow.values, |a, b| a.cmp(b)) {
+        match eob {
+            EOB::Left(current) => removed.push((current, outcomes.get(current))),
+            EOB::Right(shadow) => added.push((shadow, outcomes.get(shadow))),
+            EOB::Both(_, _) => {} // No difference.
+        }
+    }
+
+    tracing::warn!(
+        collection = collection_name,
+        conflicts = ?conflicts,
+        doc.cur = ?current.document,
+        doc.new = ?shadow.document,
+        keys.cur = ?current.keys,
+        keys.new = ?shadow.keys,
+        path = ?path,
+        vals.added = ?added,
+        vals.removed = ?removed,
+        "shadow field selection mismatch"
+    );
 }
