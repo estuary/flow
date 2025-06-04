@@ -579,6 +579,7 @@ fn ex_materialize_request() -> materialize::Request {
                 resource_config_json: json!({"resource":"config"}).to_string(),
                 field_config_json_map: ex_field_config(),
                 backfill: 3,
+                group_by: vec!["key/one".to_string()],
             }],
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),

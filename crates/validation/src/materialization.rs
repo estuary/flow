@@ -266,7 +266,15 @@ async fn walk_materialization<C: Connectors>(
     // Filter to validation requests of active bindings.
     let bindings_validate: Vec<materialize::request::validate::Binding> = bindings
         .iter()
-        .filter_map(|(_path, _model, _disable_task, validate)| validate.clone())
+        .filter_map(|(_path, _model, _disable_task, validate)| {
+            // TODO(johnny): Switch back to `validate.clone()` once connectors expect `Validate.group_by`.
+            if let Some(mut validate) = validate.clone() {
+                validate.group_by.clear();
+                Some(validate)
+            } else {
+                None
+            }
+        })
         .collect();
     let bindings_validate_len = bindings_validate.len();
 
@@ -357,6 +365,7 @@ async fn walk_materialization<C: Connectors>(
             collection,
             field_config_json_map: _,
             backfill,
+            group_by: _,
         } = validate;
         let collection = collection.unwrap();
 
@@ -563,10 +572,10 @@ fn walk_materialization_binding<'a>(
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
-    models::ResourcePath,
-    models::MaterializationBinding,
-    bool,
-    Option<materialize::request::validate::Binding>,
+    models::ResourcePath,           // Path extracted from the model resource.
+    models::MaterializationBinding, // Model with fixes applied.
+    bool,                           // Should we disable the task due to onIncompatibleSchemaChange?
+    Option<materialize::request::validate::Binding>, // Validate request if active.
 ) {
     let model_path = super::load_resource_meta_path(model.resource.get());
 
@@ -674,11 +683,15 @@ fn walk_materialization_binding<'a>(
     // TODO(johnny): Take `on_incompatible_schema_change` action on `group_by_changed`.
     _ = group_by_changed; // Not used yet.
 
+    // TODO(johnny): Update projections of `source_spec`, setting `is_primary_key`
+    // for (only) those projections which are part of `group_by`
+
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
         collection: Some(source_spec),
         field_config_json_map,
         backfill: model.backfill,
+        group_by,
     };
 
     (model_path, model, false, Some(validate))

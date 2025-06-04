@@ -526,6 +526,7 @@ fn walk_collection_projections(
             ptr: raw_ptr.to_string(),
             field: field.to_string(),
             explicit: true,
+            // TODO(johnny): Only canonical projections of key pointers should be `is_primary_key`.
             is_primary_key: key.iter().any(|k| k == raw_ptr),
             is_partition_key: partition,
             inference: Some(assemble::inference(r_shape, r_exists)),
