@@ -5,18 +5,18 @@ expression: errors
 [
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
-        error: materialization testing/webhook/deliveries field str is not satisfiable (selector includes field, but connector forbids it with reason: ),
+        error: connector returned invalid constraint for field int: Err(UnknownEnumValue(98)),
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
-        error: unknown constraint type 98,
+        error: materialization testing/webhook/deliveries field str is not satisfiable (selector includes field, but connector forbids it with reason: ),
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
+        error: connector returned invalid constraint for field str: Err(UnknownEnumValue(99)),
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
         error: materialization testing/webhook/deliveries field Len is not satisfiable (selector includes field, but connector forbids it with reason: ),
-    },
-    Error {
-        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
-        error: unknown constraint type 99,
     },
 ]
