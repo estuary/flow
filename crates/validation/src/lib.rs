@@ -3,7 +3,7 @@ use sources::Scope;
 use tables::EitherOrBoth as EOB;
 
 mod capture;
-mod collection;
+pub mod collection;
 mod derivation;
 mod errors;
 mod indexed;
