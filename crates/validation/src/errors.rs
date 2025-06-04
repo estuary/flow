@@ -183,12 +183,16 @@ pub enum Error {
         #[source]
         detail: anyhow::Error,
     },
+    #[error(transparent)]
+    FieldConflict(#[from] crate::field_selection::Conflict),
+    // TODO(johnny): Remove this error, and use FieldConflict instead.
     #[error("materialization {name} field {field} is not satisfiable ({reason})")]
     FieldUnsatisfiable {
         name: String,
         field: String,
         reason: String,
     },
+    // TODO(johnny): Remove this error, and use FieldConflict instead.
     #[error(
         "materialization {name} has no acceptable field that satisfies required location {location}"
     )]
