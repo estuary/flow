@@ -4,7 +4,7 @@ use proto_flow::flow;
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
-pub fn walk_all_collections(
+pub(crate) fn walk_all_collections(
     pub_id: models::Id,
     build_id: models::Id,
     default_plane_id: Option<models::Id>,
@@ -86,12 +86,6 @@ fn walk_collection(
         errors,
     );
 
-    if key.is_empty() {
-        Error::CollectionKeyEmpty {
-            collection: collection.to_string(),
-        }
-        .push(scope.push_prop("key"), errors);
-    }
     if let Some(live_model) = live_model {
         if !reset && key != live_model.key {
             Error::CollectionKeyChanged {
@@ -174,77 +168,14 @@ fn walk_collection(
         }
     }
 
-    let write_spec: Schema;
-    let read_spec: Option<Schema>;
-
-    (write_spec, read_spec) = match (&schema_model, &write_model, &read_model) {
-        // A single schema is used for writes and reads.
-        (Some(schema_model), None, None) => {
-            let scope = scope.push_prop("schema");
-            let schema_spec = walk_collection_schema(scope, schema_model.clone(), errors);
-
-            (schema_spec?, None)
-        }
-        // Separate schemas for writes and reads.
-        (None, Some(write_model), Some(read_model)) => {
-            // We inline flow://write-schema and flow://relaxed-write-schema
-            // into BuiltCollection.read_schema_json, but NOT `read_model`.
-
-            let mut defs = Vec::new();
-            let relaxed: Option<models::Schema>;
-            let scope_read = scope.push_prop("readSchema");
-            let scope_write = scope.push_prop("writeSchema");
-
-            if read_model.references_write_schema() {
-                defs.push(models::schemas::AddDef {
-                    id: models::Schema::REF_WRITE_SCHEMA_URL,
-                    schema: &write_model,
-                    overwrite: true,
-                });
-            }
-            if read_model.references_relaxed_write_schema() {
-                let has_inferred_schema =
-                    // TODO(johnny): This should simply be inferred_schema.is_some().
-                    // We cannot do this until `agent` is consistent about threading in inferred schemas.
-                    // Instead, use a hack which looks for the inferred schema placeholder,
-                    // as a proxy for whether an actual inferred schema is available.
-                    !read_model.get().contains("\"inferredSchemaIsNotAvailable\"");
-
-                relaxed = has_inferred_schema
-                    .then(|| write_model.to_relaxed_schema())
-                    .transpose()
-                    .unwrap_or_else(|err| {
-                        Error::SerdeJson(err).push(scope_write, errors);
-                        None
-                    });
-
-                defs.push(models::schemas::AddDef {
-                    id: models::Schema::REF_RELAXED_WRITE_SCHEMA_URL,
-                    schema: relaxed.as_ref().unwrap_or(&write_model),
-                    overwrite: true,
-                });
-            }
-
-            let read_spec = walk_collection_schema(
-                scope_read,
-                read_model.add_defs(&defs).unwrap_or_else(|err| {
-                    Error::SerdeJson(err).push(scope_read, errors);
-                    read_model.clone()
-                }),
-                errors,
-            );
-            let write_spec = walk_collection_schema(scope_write, write_model.clone(), errors);
-
-            (write_spec?, Some(read_spec?))
-        }
-        _ => {
-            Error::InvalidSchemaCombination {
-                collection: collection.to_string(),
-            }
-            .push(scope, errors);
-            return None;
-        }
-    };
+    let (write_spec, read_spec) = walk_collection_read_write_schemas(
+        scope,
+        &collection,
+        &schema_model,
+        &write_model,
+        &read_model,
+        errors,
+    )?;
 
     let effective_read_spec = read_spec
         .as_ref()
@@ -252,18 +183,14 @@ fn walk_collection(
         .unwrap_or(&write_spec.spec);
     let distinct_write_spec = read_model.is_some().then_some(&write_spec.spec);
 
-    // The collection key must validate as a key-able location
-    // across both read and write schemas.
-    for (index, ptr) in key.iter().enumerate() {
-        let scope = scope.push_prop("key");
-        let scope = scope.push_item(index);
-
-        if let Err(err) =
-            schema::Schema::walk_ptr(effective_read_spec, distinct_write_spec, ptr, true)
-        {
-            Error::from(err).push(scope, errors);
-        }
-    }
+    walk_collection_key(
+        scope.push_prop("key"),
+        &collection,
+        &key,
+        effective_read_spec,
+        distinct_write_spec,
+        errors,
+    );
 
     let (projection_models, projection_specs) = walk_collection_projections(
         scope.push_prop("projections"),
@@ -362,6 +289,86 @@ fn walk_collection(
     })
 }
 
+fn walk_collection_read_write_schemas(
+    scope: Scope,
+    collection: &models::Collection,
+    schema_model: &Option<models::Schema>,
+    write_model: &Option<models::Schema>,
+    read_model: &Option<models::Schema>,
+    errors: &mut tables::Errors,
+) -> Option<(Schema, Option<Schema>)> {
+    let (write_spec, read_spec) = match (&schema_model, &write_model, &read_model) {
+        // A single schema is used for writes and reads.
+        (Some(schema_model), None, None) => {
+            let scope = scope.push_prop("schema");
+            let schema_spec = walk_collection_schema(scope, schema_model.clone(), errors);
+
+            (schema_spec?, None)
+        }
+        // Separate schemas for writes and reads.
+        (None, Some(write_model), Some(read_model)) => {
+            // We inline flow://write-schema and flow://relaxed-write-schema
+            // into BuiltCollection.read_schema_json, but NOT `read_model`.
+
+            let mut defs = Vec::new();
+            let relaxed: Option<models::Schema>;
+            let scope_read = scope.push_prop("readSchema");
+            let scope_write = scope.push_prop("writeSchema");
+
+            if read_model.references_write_schema() {
+                defs.push(models::schemas::AddDef {
+                    id: models::Schema::REF_WRITE_SCHEMA_URL,
+                    schema: &write_model,
+                    overwrite: true,
+                });
+            }
+            if read_model.references_relaxed_write_schema() {
+                let has_inferred_schema =
+                    // TODO(johnny): This should simply be inferred_schema.is_some().
+                    // We cannot do this until `agent` is consistent about threading in inferred schemas.
+                    // Instead, use a hack which looks for the inferred schema placeholder,
+                    // as a proxy for whether an actual inferred schema is available.
+                    !read_model.get().contains("\"inferredSchemaIsNotAvailable\"");
+
+                relaxed = has_inferred_schema
+                    .then(|| write_model.to_relaxed_schema())
+                    .transpose()
+                    .unwrap_or_else(|err| {
+                        Error::SerdeJson(err).push(scope_write, errors);
+                        None
+                    });
+
+                defs.push(models::schemas::AddDef {
+                    id: models::Schema::REF_RELAXED_WRITE_SCHEMA_URL,
+                    schema: relaxed.as_ref().unwrap_or(&write_model),
+                    overwrite: true,
+                });
+            }
+
+            let read_spec = walk_collection_schema(
+                scope_read,
+                read_model.add_defs(&defs).unwrap_or_else(|err| {
+                    Error::SerdeJson(err).push(scope_read, errors);
+                    read_model.clone()
+                }),
+                errors,
+            );
+            let write_spec = walk_collection_schema(scope_write, write_model.clone(), errors);
+
+            (write_spec?, Some(read_spec?))
+        }
+        _ => {
+            Error::InvalidSchemaCombination {
+                collection: collection.to_string(),
+            }
+            .push(scope, errors);
+            return None;
+        }
+    };
+
+    Some((write_spec, read_spec))
+}
+
 fn walk_collection_schema(
     scope: Scope,
     model: models::Schema,
@@ -388,6 +395,32 @@ fn walk_collection_schema(
     }
 
     Some(Schema { model, spec })
+}
+
+fn walk_collection_key(
+    scope: Scope,
+    collection: &models::Collection,
+    key: &models::CompositeKey,
+    effective_read_spec: &schema::Schema,
+    write_spec: Option<&schema::Schema>,
+    errors: &mut tables::Errors,
+) {
+    if key.is_empty() {
+        Error::CollectionKeyEmpty {
+            collection: collection.to_string(),
+        }
+        .push(scope, errors);
+    }
+
+    // The collection key must validate as a key-able location
+    // across both read and write schemas.
+    for (index, ptr) in key.iter().enumerate() {
+        let scope = scope.push_item(index);
+
+        if let Err(err) = schema::Schema::walk_ptr(effective_read_spec, write_spec, ptr, true) {
+            Error::from(err).push(scope, errors);
+        }
+    }
 }
 
 fn walk_collection_projections(
@@ -601,7 +634,7 @@ fn walk_collection_projections(
     (models, specs)
 }
 
-pub fn walk_selector(
+pub(crate) fn walk_selector(
     scope: Scope,
     collection: &flow::CollectionSpec,
     selector: &models::PartitionSelector,
@@ -668,6 +701,63 @@ pub fn walk_selector(
             }
         }
     }
+}
+
+pub fn skim_projections(
+    scope: Scope,
+    collection: &models::Collection,
+    model: &models::CollectionDef,
+    errors: &mut tables::Errors,
+) -> Vec<flow::Projection> {
+    let models::CollectionDef {
+        schema: schema_model,
+        write_schema: write_model,
+        read_schema: read_model,
+        key,
+        projections: projection_models,
+        ..
+    } = model;
+
+    let mut ignored_model_fixes = Vec::new();
+
+    let Some((write_spec, read_spec)) = walk_collection_read_write_schemas(
+        scope,
+        collection,
+        schema_model,
+        write_model,
+        read_model,
+        errors,
+    ) else {
+        return Vec::new();
+    };
+
+    let effective_read_spec = read_spec
+        .as_ref()
+        .map(|Schema { spec, .. }| spec)
+        .unwrap_or(&write_spec.spec);
+    let distinct_write_spec = read_model.is_some().then_some(&write_spec.spec);
+
+    walk_collection_key(
+        scope.push_prop("key"),
+        collection,
+        &key,
+        effective_read_spec,
+        distinct_write_spec,
+        errors,
+    );
+
+    let (_projection_models, projection_specs) = walk_collection_projections(
+        scope.push_prop("projections"),
+        projection_models.clone(),
+        effective_read_spec,
+        &key,
+        None,
+        &mut ignored_model_fixes,
+        distinct_write_spec,
+        errors,
+    );
+
+    projection_specs
 }
 
 struct Schema {
