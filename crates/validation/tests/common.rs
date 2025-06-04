@@ -126,7 +126,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             "ops/dp/public/test".to_string(),
             "the-data-plane.dp.estuary-data.com".to_string(),
             mock.default,
-            vec!["hmac-key".to_string()],
+            "hmac-key".to_string(),
             models::Collection::new("ops/logs"),
             models::Collection::new("ops/stats"),
             "broker:address".to_string(),

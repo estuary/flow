@@ -130,6 +130,7 @@ dependencies = [
  "jsonwebtoken",
  "labels",
  "lazy_static",
+ "locate-bin",
  "log",
  "md5",
  "models",
@@ -163,6 +164,7 @@ dependencies = [
  "validation",
  "validator",
  "xxhash-rust",
+ "zeroize",
 ]
 
 [[package]]
@@ -4566,6 +4568,7 @@ name = "migrate"
 version = "0.0.0"
 dependencies = [
  "activate",
+ "agent",
  "anyhow",
  "assemble",
  "build",

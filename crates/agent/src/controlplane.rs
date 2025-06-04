@@ -60,7 +60,11 @@ pub trait ControlPlane: Send + Sync {
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
-    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>>;
+    async fn get_config_updates(
+        &self,
+        catalog_name: String,
+        build_id: Id,
+    ) -> anyhow::Result<Option<ConfigUpdate>>;
 
     async fn delete_config_updates(
         &self,
@@ -242,13 +246,17 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
+        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&data_plane.hmac_keys)
+            .await
+            .context("decrypting HMAC keys")?;
+
         let mut metadata = gazette::Metadata::default();
         metadata
             .signed_claims(
                 proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
                 &data_plane.data_plane_fqdn,
                 std::time::Duration::from_secs(60),
-                &data_plane.hmac_keys,
+                &decrypted_hmac_keys,
                 broker::LabelSelector::default(),
                 "agent",
             )
@@ -281,7 +289,11 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         Ok(())
     }
 
-    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>> {
+    async fn get_config_updates(
+        &self,
+        catalog_name: String,
+        build_id: Id,
+    ) -> anyhow::Result<Option<ConfigUpdate>> {
         sqlx::query_scalar!(
             r#"
             select
