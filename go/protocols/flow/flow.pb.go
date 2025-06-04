@@ -962,11 +962,11 @@ func (m *CollectionSpec_Derivation_Transform) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_CollectionSpec_Derivation_Transform proto.InternalMessageInfo
 
-// FieldSelection is a selection of a collection's projection fields.
+// FieldSelection is a materialization binding's selection of collection projection fields.
 type FieldSelection struct {
-	// Fields for each key component of the collection. Included key fields appear
-	// in the collection's key component order, and a given key pointer will be
-	// included at most once.
+	// Ordered group-by key fields of the materialization.
+	// Standard materializations use these fields as the indexed primary key.
+	// Identical to `group_by` of Validate.Binding.
 	Keys []string `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
 	// All other selected fields, other than those in keys and the document field.
 	// Entries are in ascending sorted order, and may be empty.
