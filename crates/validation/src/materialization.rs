@@ -376,6 +376,19 @@ async fn walk_materialization<C: Connectors>(
             ser_policy,
         } = validated;
 
+        for (field, constraint) in constraints {
+            use materialize::response::validated::constraint::Type;
+            let type_ = Type::try_from(constraint.r#type);
+            if matches!(type_, Ok(Type::Invalid) | Err(_)) {
+                Error::Connector {
+                    detail: anyhow::anyhow!(
+                        "connector returned invalid constraint for field {field}: {type_:?}"
+                    ),
+                }
+                .push(scope, errors);
+            }
+        }
+
         if validated_path.is_empty() {
             Error::BindingMissingResourcePath {
                 entity: "materialization",
@@ -900,13 +913,7 @@ fn walk_materialization_response(
                 });
 
         let type_ = match Type::try_from(constraint.r#type) {
-            Err(_) | Ok(Type::Invalid) => {
-                Error::Connector {
-                    detail: anyhow::anyhow!("unknown constraint type {}", constraint.r#type),
-                }
-                .push(scope, errors);
-                Type::FieldForbidden
-            }
+            Err(_) | Ok(Type::Invalid) => Type::FieldForbidden,
             Ok(t) => t,
         };
         let reason = constraint.reason.as_str();
