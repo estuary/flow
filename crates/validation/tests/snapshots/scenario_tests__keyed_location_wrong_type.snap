@@ -27,4 +27,8 @@ expression: errors
         scope: test://example/int-string#/collections/testing~1int-string.v2/key/0,
         error: location /int accepts "number", "object" in schema test://inlined/canonical/id, but locations used as keys may only be null-able integers, strings, or booleans,
     },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0/fields/groupBy/0,
+        error: groupBy field Int accepts "number", "object", but groupBy locations may only be null-able integers, strings, or booleans,
+    },
 ]

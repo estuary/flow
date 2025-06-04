@@ -4,6 +4,7 @@ use super::{
 };
 use futures::SinkExt;
 use itertools::Itertools;
+use json::schema::types;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tables::EitherOrBoth as EOB;
@@ -357,6 +358,7 @@ async fn walk_materialization<C: Connectors>(
             field_config_json_map: _,
             backfill,
         } = validate;
+        let collection = collection.unwrap();
 
         let materialize::response::validated::Binding {
             constraints,
@@ -376,27 +378,30 @@ async fn walk_materialization<C: Connectors>(
             n_meta_updated += 1;
         }
 
-        // Compare backfill now that we have a validated resource path.
-        if let Some(last) = live_bindings_spec.get(path.as_slice()) {
-            if backfill < last.backfill {
+        // Map to the live binding now that we have a validated resource path.
+        let live_spec: Option<&flow::materialization_spec::Binding> =
+            live_bindings_spec.get(path.as_slice()).cloned();
+
+        if let Some(live_spec) = live_spec {
+            if backfill < live_spec.backfill {
                 Error::BindingBackfillDecrease {
                     entity: "materialization binding",
                     resource: path.iter().join("."),
                     draft: backfill,
-                    last: last.backfill,
+                    last: live_spec.backfill,
                 }
                 .push(scope, errors);
             }
         }
 
-        let field_selection = Some(walk_materialization_response(
+        let field_selection = walk_materialization_response(
             scope,
             materialization,
             &model.fields,
-            collection.as_ref().unwrap(),
+            &collection,
             constraints.clone(),
             errors,
-        ));
+        );
 
         // TODO(johnny): It's tempting to say that an incompatible field should
         // respond to onIncompatibleSchemaChange. We can certainly handle disabling
@@ -413,10 +418,7 @@ async fn walk_materialization<C: Connectors>(
                 not_after,
             }) => (partitions.as_ref(), not_before.as_ref(), not_after.as_ref()),
         };
-        let partition_selector = Some(assemble::journal_selector(
-            collection.as_ref().unwrap(),
-            source_partitions,
-        ));
+        let partition_selector = Some(assemble::journal_selector(&collection, source_partitions));
 
         // Build a state key and read suffix using the validated resource path.
         let state_key = assemble::encode_state_key(&path, backfill);
@@ -425,10 +427,10 @@ async fn walk_materialization<C: Connectors>(
         let spec = flow::materialization_spec::Binding {
             resource_config_json,
             resource_path: path.clone(),
-            collection,
+            collection: Some(collection),
             partition_selector,
             priority: model.priority,
-            field_selection,
+            field_selection: Some(field_selection),
             delta_updates: *delta_updates,
             deprecated_shuffle: None,
             journal_read_suffix,
@@ -574,6 +576,7 @@ fn walk_materialization_binding<'a>(
     }
 
     let live_model = live_bindings_model.get(&model_path);
+    let live_spec = live_bindings_spec.get(model_path.as_slice());
     let modified_source = Some(&model.source) != live_model.map(|l| &l.source);
 
     // We must resolve the source collection to continue.
@@ -615,7 +618,8 @@ fn walk_materialization_binding<'a>(
     }
 
     let field_config_json_map: BTreeMap<String, String>;
-    (model.fields, field_config_json_map) = walk_materialization_fields(
+    let group_by: Vec<String>;
+    (model.fields, field_config_json_map, group_by) = walk_materialization_fields(
         scope.push_prop("fields"),
         model.fields,
         catalog_name,
@@ -633,10 +637,13 @@ fn walk_materialization_binding<'a>(
         .unwrap_or(default_on_incompatible_schema_change);
 
     // Was this binding's source collection reset under its current backfill count?
-    let live_spec = live_bindings_spec.get(model_path.as_slice());
     let was_reset = live_spec.is_some_and(|live_spec| {
         live_spec.backfill == model.backfill
             && super::collection_was_reset(&source_spec, &live_spec.collection)
+    });
+    // Has the effective group-by key of the live materialization changed?
+    let group_by_changed = live_spec.is_some_and(|live_spec| {
+        live_spec.field_selection.as_ref().map(|f| &f.keys) != Some(&group_by)
     });
 
     match (was_reset, on_incompatible_schema_change) {
@@ -664,6 +671,9 @@ fn walk_materialization_binding<'a>(
         }
     }
 
+    // TODO(johnny): Take `on_incompatible_schema_change` action on `group_by_changed`.
+    _ = group_by_changed; // Not used yet.
+
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
         collection: Some(source_spec),
@@ -682,15 +692,20 @@ fn walk_materialization_fields<'a>(
     live_model: Option<&models::MaterializationFields>,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
-) -> (models::MaterializationFields, BTreeMap<String, String>) {
+) -> (
+    models::MaterializationFields, // `model` with fixes.
+    BTreeMap<String, String>,      // `field_config` for the connector.
+    Vec<String>,                   // Effective group-by keys of the binding.
+) {
     let models::MaterializationFields {
-        group_by: key,
+        group_by,
         require,
         mut exclude,
         recommended,
     } = model;
 
     let flow::CollectionSpec {
+        key,
         name: source,
         projections,
         ..
@@ -700,19 +715,54 @@ fn walk_materialization_fields<'a>(
         .map(|l| l.exclude.iter().collect())
         .unwrap_or_default();
 
+    let mut effective_group_by = Vec::new();
     let mut field_config = BTreeMap::new();
 
-    // TODO(johnny): replace `include` => `require` throughout here.
-    // We're changing the name of this field to indicate its "required" semantics.
+    // Enforce each `groupBy` field is present in projections and is a key-able type.
+    for (index, field) in group_by.iter().enumerate() {
+        let scope = scope.push_prop("groupBy");
+        let scope = scope.push_item(index);
+
+        let Some(proj) = projections.iter().find(|p| p.field == field.as_str()) else {
+            Error::NoSuchProjection {
+                category: "groupBy".to_string(),
+                field: field.to_string(),
+                collection: source.clone(),
+            }
+            .push(scope, errors);
+            continue;
+        };
+
+        let ty_set = proj
+            .inference
+            .as_ref()
+            .map(|inf| types::Set::from_iter(&inf.types))
+            .unwrap_or(types::INVALID);
+
+        if !ty_set.is_keyable_type() {
+            Error::GroupByWrongType {
+                field: field.to_string(),
+                type_: ty_set,
+            }
+            .push(scope, errors);
+        }
+        effective_group_by.push(field.to_string());
+    }
+
+    if effective_group_by.is_empty() {
+        // Fall back to the canonical projections of collection key fields.
+        effective_group_by.extend(key.iter().map(|f| f[1..].to_string()));
+    }
+
     for (field, config) in &require {
-        let scope = scope.push_prop("include");
+        let scope = scope.push_prop("require");
         let scope = scope.push_prop(field);
 
         if projections.iter().any(|p| p.field == field.as_str()) {
             field_config.insert(field.to_string(), config.to_string());
         } else {
             Error::NoSuchProjection {
-                category: "include".to_string(),
+                category: "required".to_string(),
                 field: field.to_string(),
                 collection: source.clone(),
             }
@@ -758,13 +808,13 @@ fn walk_materialization_fields<'a>(
     });
 
     let model = models::MaterializationFields {
-        group_by: key,
+        group_by,
         require,
         exclude,
         recommended,
     };
 
-    (model, field_config)
+    (model, field_config, effective_group_by)
 }
 
 fn walk_materialization_response(
