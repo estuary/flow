@@ -16,6 +16,7 @@ pub mod publications;
 pub(crate) mod integration_tests;
 
 pub use agent_sql::{CatalogType, Id};
+use anyhow::Context;
 pub use connector_tags::TagExecutor;
 pub use controlplane::{ControlPlane, PGControlPlane};
 pub use directives::DirectiveHandler;
@@ -99,6 +100,48 @@ where
         Ok(result) => result,
         Err(err) => Err(anyhow::anyhow!(err)).with_context(with_context),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct EncryptedHMACKeys {
+    hmac_keys: Vec<String>,
+}
+
+async fn decrypt_hmac_keys(raw: &str) -> anyhow::Result<Vec<String>> {
+    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
+    // Note that input_output() pre-allocates an output buffer as large as its input buffer,
+    // and our decrypted result will never be larger than its input.
+    let async_process::Output {
+        stderr,
+        stdout,
+        status,
+    } = async_process::input_output(
+        async_process::Command::new(sops).args([
+            "--decrypt",
+            "--input-type",
+            "json",
+            "--output-type",
+            "json",
+            "/dev/stdin",
+        ]),
+        raw.as_bytes(),
+    )
+    .await
+    .context("failed to run sops")?;
+
+    let stdout = zeroize::Zeroizing::from(stdout);
+
+    if !status.success() {
+        anyhow::bail!(
+            "decrypting hmac sops document failed: {}",
+            String::from_utf8_lossy(&stderr),
+        );
+    }
+
+    Ok(serde_json::from_slice::<EncryptedHMACKeys>(&stdout)
+        .context("parsing decrypted sops document")?
+        .hmac_keys)
 }
 
 #[cfg(test)]

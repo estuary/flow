@@ -25,7 +25,7 @@ pub struct Manual {
     #[validate(url)]
     reactor_address: String,
     /// HMAC keys of the data-plane.
-    hmac_keys: Vec<String>,
+    hmac_keys: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
@@ -116,18 +116,13 @@ pub async fn create_data_plane(
         Category::Managed => (
             format!("https://gazette.{data_plane_fqdn}"),
             format!("https://reactor.{data_plane_fqdn}"),
-            Vec::new(),
+            String::new(),
         ),
         Category::Manual(Manual {
             broker_address,
             reactor_address,
             hmac_keys,
-        }) => {
-            for key in &hmac_keys {
-                let _ = base64::decode(key).context("HMAC keys must be base64")?;
-            }
-            (broker_address, reactor_address, hmac_keys)
-        }
+        }) => (broker_address, reactor_address, hmac_keys),
     };
 
     // Grant a private tenant access to their data-plane and task logs & stats.
@@ -172,7 +167,7 @@ pub async fn create_data_plane(
             broker_address = $11,
             reactor_address = $12,
             -- Don't replace non-empty hmac_keys with empty ones.
-            hmac_keys = case when array_length($13, 1) > 0 then $13
+            hmac_keys = case when length($13) > 0 then $13
                         else data_planes.hmac_keys end
         returning logs_token
         ;
@@ -189,7 +184,7 @@ pub async fn create_data_plane(
         &ops_l2_events_transform,
         broker_address,
         reactor_address,
-        hmac_keys.as_slice(),
+        hmac_keys,
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
     )

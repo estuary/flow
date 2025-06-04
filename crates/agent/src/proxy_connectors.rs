@@ -224,12 +224,16 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
 
         let mut metadata = gazette::Metadata::default();
 
+        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&hmac_keys)
+            .await
+            .context("decrypting HMAC keys")?;
+
         metadata
             .signed_claims(
                 proto_flow::capability::PROXY_CONNECTOR,
                 data_plane_fqdn,
                 *CONNECTOR_TIMEOUT * 2,
-                hmac_keys,
+                &decrypted_hmac_keys,
                 Default::default(),
                 task,
             )
