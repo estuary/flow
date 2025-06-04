@@ -99,6 +99,8 @@ pub enum Error {
         type_: types::Set,
         schema: Url,
     },
+    #[error("groupBy field {field} accepts {type_:?}, but groupBy locations may only be null-able integers, strings, or booleans")]
+    GroupByWrongType { field: String, type_: types::Set },
     #[error("location {ptr} is {read_type:?} in readSchema {read_schema}, but {write_type:?} in writeSchema {write_schema}. Types of keyed locations must be the same in read and write schemas.")]
     KeyReadWriteTypesDiffer {
         ptr: String,
