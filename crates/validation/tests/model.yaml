@@ -114,6 +114,8 @@ test://example/webhook-deliveries:
             notBefore: 2017-03-03T03:02:01Z
           resource: { fixture: one }
           fields:
+            groupBy:
+              - Int
             require:
               str: { pass: through }
             exclude:

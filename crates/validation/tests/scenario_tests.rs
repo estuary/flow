@@ -1098,6 +1098,33 @@ driver:
 }
 
 #[test]
+fn test_invalid_group_by_field() {
+    // Create a new test with a non-scalar group_by
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/webhook-deliveries:
+  materializations:
+    testing/webhook/deliveries:
+      bindings:
+        - source: testing/int-string
+          resource: { fixture: one }
+          fields:
+            recommended: true
+            groupBy:
+              - flow_document
+        - source: testing/int-halve
+          resource: { fixture: two }
+          fields:
+            recommended: false
+            groupBy:
+              - Unknown
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_test_step_unknown_collection() {
     let errors = common::run_errors(
         &MODEL_YAML,
