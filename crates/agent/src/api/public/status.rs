@@ -153,6 +153,15 @@ impl StatusRow {
             controller_status.as_ref(),
             connector_status.as_ref(),
         );
+
+        // Omit the connector status if it's known to be stale.
+        let last_activation_ts = controller_status
+            .as_ref()
+            .and_then(|status| status.activation_status())
+            .and_then(|activation| activation.last_activated_at);
+        connector_status
+            .take_if(|cs| last_activation_ts.is_none_or(|ts| !cs.is_current(last_build_id, ts)));
+
         if summary_only {
             connector_status.take();
             controller_status.take();
