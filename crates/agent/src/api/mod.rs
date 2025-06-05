@@ -8,7 +8,7 @@ mod authorize_user_prefix;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
-mod public;
+pub mod public;
 mod snapshot;
 mod update_l2_reporting;
 
@@ -48,7 +48,7 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
-struct App {
+pub(crate) struct App {
     _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,

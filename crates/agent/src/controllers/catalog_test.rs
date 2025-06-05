@@ -32,6 +32,8 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
+    // If dependencies are up to date, then the test is passing.
+    status.passing = true;
     Ok(periodic::next_periodic_publish(state))
 }
 

@@ -13,6 +13,7 @@ mod null_bytes;
 mod periodic_publications;
 mod quotas;
 mod schema_evolution;
+mod shard_failures;
 mod source_captures;
 mod unknown_connectors;
 mod user_discovers;

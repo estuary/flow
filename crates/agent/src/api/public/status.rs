@@ -27,7 +27,7 @@ pub struct StatusQuery {
 }
 
 #[axum::debug_handler]
-pub async fn handle_get_status(
+pub(crate) async fn handle_get_status(
     state: axum::extract::State<Arc<App>>,
     Extension(claims): Extension<ControlClaims>,
     Query(StatusQuery {
@@ -79,7 +79,7 @@ pub async fn handle_get_status(
     Ok(Json(status))
 }
 
-async fn fetch_status(
+pub async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[String],
     short: bool,

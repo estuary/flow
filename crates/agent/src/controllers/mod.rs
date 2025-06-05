@@ -283,6 +283,15 @@ impl NextRun {
         }
     }
 
+    pub fn from_duration(dur: chrono::Duration) -> NextRun {
+        let after_seconds =
+            u32::try_from(dur.num_seconds()).expect("invalid duration for NextRun::from_duration");
+        NextRun {
+            after_seconds,
+            jitter_percent: NextRun::DEFAULT_JITTER,
+        }
+    }
+
     pub fn with_jitter_percent(self, jitter_percent: u16) -> Self {
         NextRun {
             after_seconds: self.after_seconds,
