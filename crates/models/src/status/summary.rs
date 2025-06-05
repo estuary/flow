@@ -84,6 +84,7 @@ impl Summary {
         {
             return Summary::warning("pending data-plane activation");
         }
+        let last_activation_ts = activation_status.last_activated_at.unwrap();
 
         let is_collection = matches!(controller_status, ControllerStatus::Collection(_));
         if disabled && !is_collection {
@@ -131,9 +132,7 @@ impl Summary {
         // acceptable, since we have no better means of determining whether
         // to expect a connector status for a given task.
         let message = if let Some(conn_status) = connector_status.filter(|_| !disabled) {
-            if conn_status.shard.build != activation_status.last_activated
-                || Some(conn_status.ts) < activation_status.last_activated_at
-            {
+            if !conn_status.is_current(last_build_id, last_activation_ts) {
                 return Summary::warning("waiting on connector status");
             }
             conn_status.message.clone()
