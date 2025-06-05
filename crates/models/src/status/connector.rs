@@ -1,4 +1,4 @@
-use crate::status::ShardRef;
+use crate::{status::ShardRef, Id};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,16 @@ pub struct ConnectorStatus {
     /// specific fields and their meanings are entirely up to the connector.
     #[serde(default)]
     pub fields: serde_json::Map<String, serde_json::Value>,
+}
+
+impl ConnectorStatus {
+    /// Returns true if this connector status comes from the same build, and was
+    /// written after the `last_activation_ts`. If both of those conditions are
+    /// met, then we can assume that the status information is up to date and
+    /// relevant, barring any bugs in the connector itself.
+    pub fn is_current(&self, last_build_id: Id, last_activation_ts: DateTime<Utc>) -> bool {
+        self.shard.build == last_build_id && self.ts > last_activation_ts
+    }
 }
 
 crate::sqlx_json::sqlx_json!(ConnectorStatus);
