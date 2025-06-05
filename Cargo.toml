@@ -141,7 +141,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0.8"
 serde-transcode = "1.1"
-serde-wasm-bindgen = "0.4"
+serde-wasm-bindgen = "0.6.5"
 size = "0.4"
 socket2 = "0.5.7"
 strsim = "0.10"
@@ -211,7 +211,7 @@ uuid = { version = "1.1", features = ["serde", "v4"] }
 validator = { version = "0.15", features = ["derive"] }
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
-wasm-bindgen = "0.2.62"
+wasm-bindgen = "0.2.100"
 # `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
 # compared to the default allocator's ~10K. It is slower than the default
 # allocator, however. It is an optional dependency for WASM modules.
@@ -244,7 +244,7 @@ schema_registry_converter = { version = "4.2.0", features = [
 ] }
 serial_test = "0.9"
 tracing-test = "0.2.5"
-wasm-bindgen-test = "0.3.13"
+wasm-bindgen-test = "0.3.50"
 
 # Used exclusively as build-dependencies
 cbindgen = "0.23"

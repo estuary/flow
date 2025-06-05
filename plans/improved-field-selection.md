@@ -157,24 +157,24 @@ When differences are detected between old and new selection logic:
 ## Implementation Plan
 
 ### Phase 1: Core Data Model & Protocol Updates
-- [ ] Extend MaterializationFields model with group_by and RecommendedDepth
+- [x] Extend MaterializationFields model with group_by and RecommendedDepth
   - Add `group_by: Vec<Field>` field to MaterializationFields struct
   - Replace `recommended: bool` with `recommended: RecommendedDepth` enum
   - Add backward compatibility serialization/deserialization with `#[serde(alias = "depth")]`
   - [`crates/models/src/materializations.rs`](crates/models/src/materializations.rs)
-- [ ] Update materialization constraint protocol
+- [x] Update materialization constraint protocol
   - Add `folded_field` string field to Constraint message
   - Update constraint type documentation and semantics
   - Deprecate `LOCATION_RECOMMENDED` in favor of `FIELD_OPTIONAL`
   - [`go/protocols/materialize/materialize.proto`](go/protocols/materialize/materialize.proto)
 
 ### Phase 2: Implement Selection and Shadow
-- [ ] Implement Select and Reject enums
+- [x] Implement Select and Reject enums
   - Create ordered enum variants with error message implementations
   - Add priority comparison logic for selection strength
   - Include context fields for reasons (e.g., order, config, folded_field)
   - [`crates/validation/src/field_selection.rs`](crates/validation/src/field_selection.rs)
-- [ ] Implement new field selection logic
+- [x] Implement new field selection logic
   - Logic to map fields into Select / Reject reasons
   - Implement as pure functions to facilitate snapshot testing with `insta`
   - Logic to gather / group each field into strongest reason
@@ -183,12 +183,15 @@ When differences are detected between old and new selection logic:
   - Add logic to preserve current field selections during upgrades
   - Handle folded field name conflict detection and resolution
   - [`crates/validation/src/field_selection.rs`](crates/validation/src/field_selection.rs)
-- [ ] Integrate new logic in "shadow" mode
+- [x] Integrate new logic in "shadow" mode
   - Selection logic is active but not primary
   - Differences in FieldSelection `keys`/`values`/`document` are logged
   - [`crates/validation/src/materialization.rs`](crates/validation/src/materialization.rs)
-- [ ] Expose new logic in `flow-web` crate
-  - Add a "selection outcome" type which exposes rationale to JavaScript
+- [x] Expose new logic in `flow-web` WASM crate
+  - Introduce new type(s) in flow-web to encapsulate per-field select / reject outcome and FieldSelection
+  - Surface rendered thiserror strings, rather than directly serializing Select / Reject
+    - The rendered errors are intended to be user-facing.
+  - Avoid further changes in field_selection.rs
   - [`crates/flow-web/`](crates/flow-web/)
 - [ ] Update connectors to surface folded fields
   - DO NOT update for new constraint semantics yet
