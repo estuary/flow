@@ -336,7 +336,7 @@ pub fn recv_client_start_commit(
 pub async fn recv_connector_started_commit(
     db: &RocksDB,
     response: Option<Response>,
-    shape: &doc::Shape,
+    shape: &mut doc::Shape,
     task: &Task,
     txn: &Transaction,
     mut wb: rocksdb::WriteBatch,
@@ -361,6 +361,15 @@ pub async fn recv_connector_started_commit(
     // produce a structured log if our inferred schema changed in this
     // transaction.
     if txn.updated_inference {
+        let write_shape = task.write_shape.clone();
+
+        // By construction, all derived documents adhered to the write schema.
+        // Intersect with it to avoid generating incompatible inference updates.
+        // This also restores write-schema elements that may have been dropped
+        // due to simplification upon a widening.
+        *shape =
+            doc::Shape::intersect(std::mem::replace(shape, doc::Shape::nothing()), write_shape);
+
         let serialized = doc::shape::schema::to_schema(shape.clone());
 
         tracing::info!(

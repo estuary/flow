@@ -71,6 +71,12 @@ impl Task {
             .map(|(index, spec)| Transform::new(spec).context(index))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let built_schema = doc::validation::build_bundle(&write_schema_json)
+            .context("collection write_schema_json is not a JSON schema")?;
+        let validator =
+            doc::Validator::new(built_schema).context("could not build a schema validator")?;
+        let write_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
         Ok(Self {
             collection_name,
             collection_generation_id,
@@ -81,14 +87,13 @@ impl Task {
             shard_ref,
             transforms,
             write_schema_json,
+            write_shape,
         })
     }
 
     pub fn combine_spec(&self) -> anyhow::Result<doc::combine::Spec> {
-        let built_schema = doc::validation::build_bundle(&self.write_schema_json)
-            .context("collection write_schema_json is not a JSON schema")?;
-        let validator =
-            doc::Validator::new(built_schema).context("could not build a schema validator")?;
+        let built_schema = doc::validation::build_bundle(&self.write_schema_json).unwrap();
+        let validator = doc::Validator::new(built_schema).unwrap();
 
         Ok(doc::combine::Spec::with_one_binding(
             false,

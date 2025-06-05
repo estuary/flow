@@ -182,7 +182,7 @@ async fn serve_session<L: LogHandler>(
         // Apply sourced schemas to inference before we widen from documents.
         // Assuming documents fit the source shape, this prevents unnecessary
         // widening (consider a schema with tight minItems / maxItems bounds).
-        apply_sourced_schemas(&mut shapes, &task, &mut txn)?;
+        apply_sourced_schemas(&mut shapes, &mut txn)?;
 
         while let Some(drained) = drainer.drain_next()? {
             let response = send_client_captured_or_checkpoint(
@@ -200,7 +200,7 @@ async fn serve_session<L: LogHandler>(
         () = co.yield_(checkpoint).await;
 
         let start_commit = request_rx.try_next().await?;
-        recv_client_start_commit(&db, start_commit, &shapes, &task, &txn, wb).await?;
+        recv_client_start_commit(&db, start_commit, &mut shapes, &task, &txn, wb).await?;
 
         () = co.yield_(send_client_started_commit()).await;
 

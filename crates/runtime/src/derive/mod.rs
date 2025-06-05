@@ -35,6 +35,8 @@ pub struct Task {
     transforms: Vec<Transform>,
     // Write JSON-Schema of the derivation collection.
     write_schema_json: String,
+    // Inferred Shape of written documents.
+    write_shape: doc::Shape,
 }
 
 #[derive(Debug)]

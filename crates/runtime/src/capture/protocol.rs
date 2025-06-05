@@ -300,7 +300,7 @@ pub fn send_client_final_checkpoint(
 pub async fn recv_client_start_commit(
     db: &RocksDB,
     request: Option<Request>,
-    shapes: &[doc::Shape],
+    shapes: &mut [doc::Shape],
     task: &Task,
     txn: &Transaction,
     mut wb: rocksdb::WriteBatch,
@@ -332,6 +332,22 @@ pub async fn recv_client_start_commit(
     // produce structured logs of all inferred schemas that have changed
     // in this transaction.
     for binding in txn.updated_inferences.iter() {
+        let write_shape = task
+            .bindings
+            .get(*binding)
+            .with_context(|| format!("invalid sourced schema binding {binding}"))?
+            .write_shape
+            .clone();
+
+        // By construction, all captured documents adhered to the write schema.
+        // Intersect with it to avoid generating incompatible inference updates.
+        // This also restores write-schema elements that may have been dropped
+        // due to simplification upon a widening.
+        shapes[*binding] = doc::Shape::intersect(
+            std::mem::replace(&mut shapes[*binding], doc::Shape::nothing()),
+            write_shape,
+        );
+
         let serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
 
         tracing::info!(
@@ -447,7 +463,6 @@ pub fn recv_connector_sourced_schema(
 
 pub fn apply_sourced_schemas(
     shapes: &mut [doc::Shape],
-    task: &Task,
     txn: &mut Transaction,
 ) -> anyhow::Result<()> {
     let Transaction {
@@ -456,25 +471,12 @@ pub fn apply_sourced_schemas(
         ..
     } = txn;
 
-    for (binding, sourced_shape) in std::mem::take(sourced_schemas) {
-        let write_shape = task
-            .bindings
-            .get(binding)
-            .with_context(|| format!("invalid sourced schema binding {binding}"))?
-            .write_shape
-            .clone();
-
-        // By construction, we cannot capture documents which don't adhere to
-        // the write schema. Intersect it to avoid generating incompatible
-        // inference updates.
-        let mut sourced_shape = doc::Shape::intersect(sourced_shape, write_shape);
-
-        // Shape::union intersects annotations and retains only those having equal key/values.
+    for (binding, mut sourced_shape) in std::mem::take(sourced_schemas) {
+        // Shape::union() intersects annotations, retaining those with equal key/values.
         sourced_shape.annotations.insert(
             crate::X_GENERATION_ID.to_string(),
             shapes[binding].annotations[crate::X_GENERATION_ID].clone(),
         );
-
         shapes[binding] = doc::Shape::union(
             std::mem::replace(&mut shapes[binding], doc::Shape::nothing()),
             sourced_shape,
