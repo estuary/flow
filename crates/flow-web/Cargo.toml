@@ -29,7 +29,7 @@ opt-level = "s"
 default = ["console_error_panic_hook"]
 
 [dependencies]
-doc = { path = "../doc", default-features = false } # `combine` feature requires `lz4`, which doesn't WASM.
+doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }
 tables = { path = "../tables" }

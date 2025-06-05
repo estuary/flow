@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use sources::Scope;
+use json::Scope;
 use tables::EitherOrBoth as EOB;
 
 mod capture;
