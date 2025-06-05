@@ -74,7 +74,7 @@ ALTER USER estuary_flow_user QUOTA UNLIMITED ON USERS;
 
 ## Container Databases
 
-For working with container databases, access to the root container is necessary. Amazon RDS Oracle databases do not allow access to the root container and so they do not work if  configured as a multi-tenant architecture database (whether single-tenant or multi-tenant). If your Amazon RDS instance has containers, try the [OracleDB Flashback connector](https://go.estuary.dev/source-oracle-flashback) instead.
+For working with container databases, access to the root container is necessary. Amazon RDS Oracle databases do not allow access to the root container and so they do not work if configured as a multi-tenant architecture database (whether single-tenant or multi-tenant).
 
 1. To create a common user (requires `c##` prefix in the name of the user), run the following commands against your database:
 
