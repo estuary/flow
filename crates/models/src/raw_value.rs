@@ -1,5 +1,9 @@
 /// RawValue is like serde_json::value::RawValue, but removes newlines to ensure
 /// values can safely be used in newline-delimited contexts.
+///
+/// As it uses serde_json::RawValue, it MUST be deserialized using serde_json
+/// and not serde_yaml or some other Deserializer. This may require first
+/// transcoding to serde_json::Value and then using serde_json::from_value().
 #[derive(serde::Serialize, Clone)]
 pub struct RawValue(Box<serde_json::value::RawValue>);
 

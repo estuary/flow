@@ -2,7 +2,7 @@
 name = "flow-web"
 
 # wasm-pack isn't yet fully compatible with workspace inheritance, so we can't use that for these fields
-version = "0.5.13"
+version = "0.5.14"
 authors = ["Estuary developers  <engineering@estuary.dev>"]
 edition = "2021"
 license = "BSL"
@@ -32,7 +32,9 @@ default = ["console_error_panic_hook"]
 doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables" }
+validation = { path = "../validation" }
 
 url = { workspace = true }
 thiserror = { workspace = true }
@@ -58,4 +60,3 @@ getrandom = { version = "0.2", features = ["js"]}
 
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }
-

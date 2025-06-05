@@ -3,6 +3,7 @@
 #![cfg(target_arch = "wasm32")]
 
 extern crate wasm_bindgen_test;
+use proto_flow::flow;
 use serde_json::{json, to_string};
 use serde_wasm_bindgen::{from_value as from_js_value, Serializer};
 use wasm_bindgen::JsValue;
@@ -193,15 +194,12 @@ fn test_end_to_end_extend_read_bundle() {
     let output = flow_web::extend_read_bundle(input).expect("extend second bundle");
     let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
 
-    assert_eq!(
-        output,
-        json!({
-          "$defs": {},
-          "maxProperties": 10,
-        })
-    );
+    assert_eq!(output, json!({"maxProperties": 10}));
 
     let input: JsValue = to_js_value(&json!({
+      "write": {
+        "required": ["a_key"]
+      },
       "read": {
         "allOf": [
             {"$ref": "flow://inferred-schema"},
@@ -223,6 +221,10 @@ fn test_end_to_end_extend_read_bundle() {
                 "flow://inferred-schema": {
                     "$id": "flow://inferred-schema",
                     "x-canary-annotation": true
+                },
+                "flow://write-schema": {
+                    "$id": "flow://write-schema",
+                    "required": ["a_key"]
                 }
             },
             "allOf": [
@@ -267,6 +269,178 @@ fn test_update_materialization_resource_spec() {
         }))
         .unwrap()
     );
+}
+
+#[wasm_bindgen_test]
+fn test_skim_projections_basic() {
+    let input: JsValue = to_js_value(&json!({
+        "collection": "test/collection",
+        "model": {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "name": {"type": "string"}
+                },
+                "required": ["id"]
+            },
+            "key": ["/id"],
+            "projections": {
+                "Id": "/id",
+                "Name": "/name"
+            }
+        }
+    }));
+    let result = flow_web::skim_collection_projections(input).unwrap();
+    let result: flow_web::collection::CollectionProjectionsResult =
+        serde_wasm_bindgen::from_value(result).unwrap();
+
+    assert_eq!(
+        result.projections[0],
+        flow::Projection {
+            ptr: "/id".to_string(),
+            field: "Id".to_string(),
+            explicit: true,
+            is_primary_key: true,
+            is_partition_key: false,
+            inference: Some(flow::Inference {
+                types: vec!["integer".to_string()],
+                numeric: Some(Default::default()),
+                exists: flow::inference::Exists::Must as i32,
+                ..Default::default()
+            }),
+        }
+    );
+    assert!(result.errors.is_empty());
+}
+
+#[wasm_bindgen_test]
+fn test_field_selection_basic() {
+    let input: JsValue = to_js_value(&json!({
+        "collectionKey": ["/id"],
+        "collectionProjections": [
+            {
+                "ptr": "/id",
+                "field": "id",
+                "inference": {
+                    "types": ["integer"],
+                    "exists": "MUST"
+                },
+            }
+        ],
+        "liveSpec": null,
+        "model": {
+            "source":"test/collection",
+            "resource": {"table": "foo"},
+            "fields": {
+                "require": {
+                  "id": {"my": "config"}
+                },
+                "recommended": 1
+            }
+        },
+        "validated": {
+            "resourcePath": ["test_table"],
+            "constraints": {
+                "id": {
+                    "type": "FIELD_OPTIONAL",
+                    "reason": "Available field"
+                }
+            },
+            "deltaUpdates": false
+        }
+    }));
+    let result = flow_web::evaluate_field_selection(input).unwrap();
+    let result: serde_json::Value = from_js_value(result).unwrap();
+
+    assert_eq!(
+        result,
+        json!({
+          "outcomes":[
+            {
+              "field":"id",
+              "select":{
+                "reason": "GroupByKey",
+                "detail":"field is part of the materialization group-by key"
+              }
+            }
+          ],
+          "selection":{
+              "keys":["id"],
+              "fieldConfig": {"id": {"my": "config"}}
+          },
+          "hasConflicts":false
+        })
+    );
+}
+
+#[wasm_bindgen_test]
+fn test_field_selection_with_reject() {
+    let input: JsValue = to_js_value(&json!({
+        "collectionKey": ["/id"],
+        "collectionProjections": [
+            {
+                "ptr": "/id",
+                "field": "id",
+                "inference": {
+                    "types": ["integer"],
+                    "exists": "MUST"
+                },
+            },
+            {
+                "ptr": "/name",
+                "field": "name",
+                "inference": {
+                    "types": ["string"],
+                    "exists": "MAY"
+                },
+            }
+        ],
+        "liveSpec": null,
+        "model": {
+            "source":"test/collection",
+            "resource": {"table": "foo"},
+            "fields": {
+                "exclude": ["name"],
+                "recommended": 1
+            }
+        },
+        "validated": {
+            "resourcePath": ["test_table"],
+            "constraints": {
+                "id": {
+                    "type": "FIELD_OPTIONAL",
+                    "reason": "Available field"
+                },
+                "name": {
+                    "type": "FIELD_OPTIONAL",
+                    "reason": "Available field"
+                }
+            },
+            "deltaUpdates": false
+        }
+    }));
+    let result = flow_web::evaluate_field_selection(input).unwrap();
+    let result: serde_json::Value = from_js_value(result).unwrap();
+
+    // Should have both select and reject outcomes
+    let outcomes = &result["outcomes"];
+    assert_eq!(outcomes.as_array().unwrap().len(), 2);
+    
+    // ID field should be selected (group-by key)
+    let id_outcome = &outcomes[0];
+    assert_eq!(id_outcome["field"], "id");
+    assert!(id_outcome["select"]["reason"] == "GroupByKey");
+    assert!(id_outcome["reject"].is_null());
+    
+    // Name field should be rejected (user excluded)
+    let name_outcome = &outcomes[1];
+    assert_eq!(name_outcome["field"], "name");
+    assert!(name_outcome["select"].is_null());
+    assert_eq!(name_outcome["reject"]["reason"], "UserExcludes");
+    assert_eq!(name_outcome["reject"]["detail"], "field is excluded by the user's field selection");
+    
+    assert_eq!(result["hasConflicts"], false);
 }
 
 fn to_js_value(val: &serde_json::Value) -> JsValue {

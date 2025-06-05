@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
 /// Select is a rationale for including a field in selection.
-#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Select {
     #[error("field is within the desired depth")]
     DesiredDepth,
@@ -31,7 +31,7 @@ pub enum Select {
 }
 
 /// Reject is a rationale for rejecting a field from selection.
-#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Reject {
     #[error("field doesn't meet any selection criteria")]
     NotSelected,
