@@ -416,6 +416,7 @@ impl Snapshot {
 }
 
 pub async fn fetch_loop(app: Arc<App>) {
+    let mut decrypted_hmac_keys = HashMap::new();
     loop {
         let (next_tx, next_rx) = futures::channel::oneshot::channel();
 
@@ -425,7 +426,7 @@ pub async fn fetch_loop(app: Arc<App>) {
         let next_rx =
             tokio::time::timeout(Snapshot::MAX_REFRESH_INTERVAL.to_std().unwrap(), next_rx);
 
-        match try_fetch(&app.pg_pool).await {
+        match try_fetch(&app.pg_pool, &mut decrypted_hmac_keys).await {
             Ok(mut snapshot) => {
                 snapshot.refresh_tx = Some(next_tx);
                 *app.snapshot.write().unwrap() = snapshot;
@@ -439,7 +440,10 @@ pub async fn fetch_loop(app: Arc<App>) {
     }
 }
 
-async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
+async fn try_fetch(
+    pg_pool: &sqlx::PgPool,
+    decrypted_hmac_keys: &mut HashMap<String, Vec<String>>,
+) -> anyhow::Result<Snapshot> {
     tracing::info!("started to fetch authorization snapshot");
     let taken = chrono::Utc::now();
 
@@ -548,26 +552,35 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
         "fetched authorization snapshot",
     );
 
-    // iterate over data_planes and run an async map to apply decrypt_hmac_keys on
-    // data_plane.hmac_keys
-    let decrypted_hmac_keys = futures::future::try_join_all(
-        data_planes
-            .iter()
-            .map(|dp| crate::decrypt_hmac_keys(&dp.hmac_keys)),
-    )
-    .await?;
-
-    let data_planes_hmac_keys = data_planes
+    let mut cached_keys = decrypted_hmac_keys.keys().collect::<Vec<&String>>();
+    cached_keys.sort();
+    let mut current_keys = data_planes
         .iter()
-        .map(|dp| dp.data_plane_name.clone())
-        .zip(decrypted_hmac_keys.into_iter())
-        .collect();
+        .map(|d| d.data_plane_name.as_str())
+        .collect::<Vec<&str>>();
+    current_keys.sort();
+    if cached_keys != current_keys {
+        // iterate over data_planes and run an async map to apply decrypt_hmac_keys on
+        // data_plane.hmac_keys
+        let decrypted_keys = futures::future::try_join_all(
+            data_planes
+                .iter()
+                .map(|dp| crate::decrypt_hmac_keys(&dp.hmac_keys)),
+        )
+        .await?;
+
+        *decrypted_hmac_keys = data_planes
+            .iter()
+            .map(|dp| dp.data_plane_name.clone())
+            .zip(decrypted_keys.into_iter())
+            .collect();
+    }
 
     Ok(Snapshot::new(
         taken,
         collections,
         data_planes,
-        data_planes_hmac_keys,
+        decrypted_hmac_keys.clone(),
         migrations,
         role_grants,
         user_grants,
