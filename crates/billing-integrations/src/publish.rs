@@ -476,6 +476,15 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
         .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4));
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                // Raise the statement timeout to 10 minutes
+                sqlx::query("set statement_timeout to 600000")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&cmd.connection_string)
         .await?;
 
