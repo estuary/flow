@@ -22,9 +22,6 @@ fn test_bassssic() -> Result {
        },
        "patternProperties": {
            "foo$": true,
-           // use a "fancy" regex to ensure that we're compiling these with a regex library that
-           // supports them.
-           r##"r(#*)".*?"\1"##: true,
        },
        "readOnly": true,
        "required": ["baz", "foo"],

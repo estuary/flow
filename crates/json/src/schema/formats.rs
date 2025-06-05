@@ -1,7 +1,7 @@
 use addr::{parse_domain_name, parse_email_address};
 use bigdecimal::BigDecimal;
-use fancy_regex::Regex;
 use iri_string::spec::{IriSpec, UriSpec};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{net::IpAddr, str::FromStr};
 use time::macros::format_description;
@@ -60,9 +60,7 @@ lazy_static::lazy_static! {
         r#"^(?:(?:[^\x00-\x20""'<>%\\^`{|}]|%[0-9a-f]{2})|\{[+#.\/;?&=,!@|]?(?:[a-z0-9_]|%[0-9a-f]{2})+(?:\:[1-9][0-9]{0,3}|\*)?(?:,(?:[a-z0-9_]|%[0-9a-f]{2})+(?:\:[1-9][0-9]{0,3}|\*)?)*\})*$"#
     )
     .expect("Is a valid regex");
-    static ref ISO_8601_DURATION_RE: Regex = Regex::new(r"^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(?=\d)(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$").expect("Is a valid regex");
-    static ref ISO_8601_ONLY_WEEKS_RE: Regex = Regex::new(r"^[0-9P|W]*$").expect("Is a valid regex");
-    static ref ISO_8601_NO_WEEKS_RE: Regex = Regex::new(r"^[^W]*$").expect("Is a valid regex");
+    static ref ISO_8601_DURATION_RE: Regex = Regex::new(r"^P(?:\d+W|(?:(?:\d+Y(?:\d+M)?(?:\d+D)?|\d+M(?:\d+D)?|\d+D)(?:T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S))?)|T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S))$").expect("Is a valid regex");
     static ref JSON_POINTER_RE: Regex = Regex::new(r"^(\/([^~]|(~[01]))*)*$").expect("Is a valid regex");
     static ref MACADDR: Regex = Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){5}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
     static ref MACADDR8: Regex = Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){7}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
@@ -85,7 +83,7 @@ impl Format {
                 // Padding with zeroes is ignored by the underlying parser. The most efficient
                 // way to check it will be to use a custom parser that won't ignore zeroes,
                 // but this regex will do the trick and costs ~20% extra time in this validator.
-                if !DATE_RE.is_match(val).unwrap_or(false) {
+                if !DATE_RE.is_match(val) {
                     return ValidationResult::Invalid(None);
                 }
                 ValidationResult::from(time::Date::parse(
@@ -134,26 +132,15 @@ impl Format {
                 Ok(i) => ValidationResult::from(i.is_ipv6()),
                 Err(e) => ValidationResult::Invalid(Some(e.to_string())),
             }),
-            Self::Macaddr => ValidationResult::from(MACADDR.is_match(val).unwrap_or(false)),
-            Self::Macaddr8 => ValidationResult::from(MACADDR8.is_match(val).unwrap_or(false)),
+            Self::Macaddr => ValidationResult::from(MACADDR.is_match(val)),
+            Self::Macaddr8 => ValidationResult::from(MACADDR8.is_match(val)),
             // uuid crate supports non-hyphenated inputs, jsonschema does not
             Self::Uuid if val.len() == 36 => ValidationResult::from(Uuid::parse_str(val)),
             Self::Uuid => ValidationResult::Invalid(Some(format!(
                 "{val} is the wrong length (missing hyphens?)"
             ))),
 
-            Self::Duration => ValidationResult::from(match ISO_8601_DURATION_RE.is_match(val) {
-                Ok(true) => {
-                    if val.contains("W") {
-                        // If we parse as weeks, ensure that ONLY weeks are provided
-                        ISO_8601_ONLY_WEEKS_RE.is_match(val).unwrap_or(false)
-                    } else {
-                        // Otherwise, ensure that NO weeks are provided
-                        ISO_8601_NO_WEEKS_RE.is_match(val).unwrap_or(false)
-                    }
-                }
-                _ => false,
-            }),
+            Self::Duration => ValidationResult::from(ISO_8601_DURATION_RE.is_match(val)),
             Self::Iri => ValidationResult::from(iri_string::validate::iri::<IriSpec>(val)),
             Self::Uri => ValidationResult::from(iri_string::validate::iri::<UriSpec>(val)),
             Self::UriReference => {
@@ -162,15 +149,11 @@ impl Format {
             Self::IriReference => {
                 ValidationResult::from(iri_string::validate::iri_reference::<IriSpec>(val))
             }
-            Self::UriTemplate => {
-                ValidationResult::from(URI_TEMPLATE_RE.is_match(val).unwrap_or(false))
-            }
-            Self::JsonPointer => {
-                ValidationResult::from(JSON_POINTER_RE.is_match(val).unwrap_or(false))
-            }
+            Self::UriTemplate => ValidationResult::from(URI_TEMPLATE_RE.is_match(val)),
+            Self::JsonPointer => ValidationResult::from(JSON_POINTER_RE.is_match(val)),
             Self::Regex => ValidationResult::from(Regex::new(val)),
             Self::RelativeJsonPointer => {
-                ValidationResult::from(RELATIVE_JSON_POINTER_RE.is_match(val).unwrap_or(false))
+                ValidationResult::from(RELATIVE_JSON_POINTER_RE.is_match(val))
             }
             Self::Integer => ValidationResult::from(
                 BigDecimal::from_str(val)
@@ -248,6 +231,36 @@ mod test {
             ("uuid", "df518555-34f0-446a-8788-7b36f607bbea", true),
             ("uuid", "DF518555-34F0-446A-8788-7B36F607BBEA", true),
             ("uuid", "not-a-UUID-7B36F607BBEA", false),
+            ("duration", "P1M3DT30H4S", true),
+            ("duration", "P1W", true),
+            ("duration", "P2W", true),
+            ("duration", "P3Y6M4DT12H30M5S", true),
+            ("duration", "P0.5Y", false),
+            ("duration", "P3DT12H", true),
+            ("duration", "PT6H", true),
+            ("duration", "PT1H30M", true),
+            ("duration", "PT45S", true),
+            ("duration", "PT0.75H", false),
+            ("duration", "P3DT4H30M5.75S", false), // Fractional seconds not allowed.
+            ("duration", "PT1.5H2.25M", false),
+            ("duration", "PT0.5S", false),
+            ("duration", "PT1H30.5S", false),
+            ("duration", "PT2M3.75S", false),
+            ("duration", "PT0S", true), // zero‑length duration is allowed
+            ("duration", "PT1M60S", true), // still matches even if semantically > 59 s
+            ("duration", "PT1000000000000H", true),
+            ("duration", "P1W3D", false), // mixes weeks with other calendar units
+            ("duration", "P", false),     // lone designator
+            ("duration", "PT", false),    // lone time designator
+            ("duration", "P1W2D", false), // weeks + days
+            ("duration", "P1D2Y", false), // wrong unit order
+            ("duration", "P1M2H", false), // missing 'T' before time units
+            ("duration", "PT4H1Y", false), // date unit after 'T'
+            ("duration", "1Y", false),    // missing leading 'P'
+            ("duration", "p1D", false),   // lowercase 'p'
+            ("duration", "-P1D", false),  // negative value
+            ("duration", "P1.5.3Y", false), // multiple decimals
+            ("duration", "P1YT", false),  // trailing 'T' with no time fields
             ("duration", "P1M3DT30H4S", true),
             ("duration", "P1W", true),
             ("duration", "P1W3D", false), // Mixes weeks and days (disallowed).

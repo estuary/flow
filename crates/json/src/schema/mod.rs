@@ -1,6 +1,6 @@
 use crate::Number;
 use serde_json as sj;
-use std::fmt::{Write, Display};
+use std::fmt::{Display, Write};
 
 pub mod build;
 pub mod formats;
@@ -114,7 +114,7 @@ pub enum Application {
         name: String,
     },
     PatternProperties {
-        re: fancy_regex::Regex,
+        re: regex::Regex,
     },
     AdditionalProperties,
     UnevaluatedProperties,
@@ -232,7 +232,7 @@ pub enum Validation {
     // String-specific validations.
     MaxLength(usize),
     MinLength(usize),
-    Pattern(fancy_regex::Regex),
+    Pattern(regex::Regex),
     Format(formats::Format),
 
     // Number-specific validations.
@@ -269,15 +269,21 @@ impl Display for Validation {
         use Validation::*;
         match self {
             False => write!(f, "false"),
-            Required { props, .. } => write!(f, "Properties \"{}\" are required", props.join("\", \"")),
+            Required { props, .. } => {
+                write!(f, "Properties \"{}\" are required", props.join("\", \""))
+            }
             MaxLength(size) => write!(f, "Maximum length is {}", size),
             MinLength(size) => write!(f, "Minimum length is {}", size),
             Type(types) => write!(f, "Must be of type {}", types),
             Const(constant) => write!(f, "Must be the constant {}", constant.value),
             Enum { variants } => {
-                let enums = variants.iter().map(|literal| literal.value.to_string()).collect::<Vec<String>>().join("\", ");
+                let enums = variants
+                    .iter()
+                    .map(|literal| literal.value.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\", ");
                 write!(f, "Must be one of \"{}\"", enums)
-            },
+            }
             Pattern(ptrn) => write!(f, "Must match the pattern \"{}\"", ptrn),
             Format(fmt) => write!(f, "Must match the format \"{:?}", fmt),
             MultipleOf(n) => write!(f, "Must be a multiple of {}", n),
@@ -290,9 +296,14 @@ impl Display for Validation {
             UniqueItems => write!(f, "Items must be unique"),
             MaxProperties(n) => write!(f, "Must have a maximum of {} properties", n),
             MinProperties(n) => write!(f, "Must have a minimum of {} properties", n),
-            DependentRequired { if_, then_, .. } => write!(f, "If \"{}\" is present, then \"{}\" must also be present", if_, then_.join("\", \"")),
-            MaxContains(_) => todo!(),
-            MinContains(_) => todo!(),
+            DependentRequired { if_, then_, .. } => write!(
+                f,
+                "If \"{}\" is present, then \"{}\" must also be present",
+                if_,
+                then_.join("\", \"")
+            ),
+            MaxContains(n) => write!(f, "Must have a maximum of {} 'contains' items", n),
+            MinContains(n) => write!(f, "Must have a minimum of {} 'contains' items", n),
         }
     }
 }
