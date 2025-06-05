@@ -36,11 +36,10 @@ impl UserAuth {
 }
 
 impl TaskAuth {
-    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
+    pub fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
         let TaskState { spec, .. } = self
             .task_state_listener
             .get()
-            .await
             .context("failed to fetch task spec")?;
 
         spec.bindings
@@ -54,14 +53,13 @@ impl TaskAuth {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    pub async fn get_binding_for_topic(
+    pub fn get_binding_for_topic(
         &self,
         topic_name: &str,
     ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
         let TaskState { spec, .. } = self
             .task_state_listener
             .get()
-            .await
             .context("failed to fetch task spec")?;
 
         Ok(spec
@@ -81,7 +79,7 @@ impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
             SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
-            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
+            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names(),
         }
     }
 
@@ -90,8 +88,7 @@ impl SessionAuthentication {
             SessionAuthentication::User(_) => Ok(topic_name.to_string()),
             SessionAuthentication::Task(auth) => {
                 let binding = auth
-                    .get_binding_for_topic(topic_name)
-                    .await?
+                    .get_binding_for_topic(topic_name)?
                     .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
 
                 Ok(binding
@@ -156,7 +153,7 @@ impl Collection {
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
         let binding = if let SessionAuthentication::Task(task_auth) = auth {
-            if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
+            if let Some(binding) = task_auth.get_binding_for_topic(topic_name)? {
                 Some(binding)
             } else {
                 bail!("{topic_name} is not a binding of {}", task_auth.task_name)
@@ -199,7 +196,7 @@ impl Collection {
                 (journal_client, parts)
             }
             SessionAuthentication::Task(task_auth) => {
-                let state = task_auth.task_state_listener.get().await?;
+                let state = task_auth.task_state_listener.get()?;
                 let (_, parts) = state
                     .partitions
                     .into_iter()
