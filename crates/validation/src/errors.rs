@@ -285,7 +285,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn push(self, scope: sources::Scope, errors: &mut tables::Errors) {
+    pub fn push(self, scope: crate::Scope, errors: &mut tables::Errors) {
         errors.insert_row(scope.flatten(), anyhow::anyhow!(self));
     }
 }
