@@ -62,7 +62,7 @@ pub async fn read_collection(
         );
     }
 
-    let (journal_name_prefix, journal_client) =
+    let (journal_name_prefix, journal_client, _claims) =
         flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = journal_client

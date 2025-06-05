@@ -2,18 +2,19 @@ use super::{Collection, Partition};
 use crate::{
     connector::DeletionMode,
     logging,
-    task_manager::{self, TaskStateListener},
-    utils, SessionAuthentication,
+    utils::{self, JournalClientProvider},
+    SessionAuthentication,
 };
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
-use futures::{stream, StreamExt};
+use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::uuid::Clock;
-use gazette::{broker, journal, uuid};
+use gazette::{broker, uuid};
 use kafka_protocol::records::{Compression, TimestampType};
 use lz4_flex::frame::BlockMode;
+use std::sync::Arc;
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -30,7 +31,7 @@ pub struct Read {
     not_after: Option<uuid::Clock>,    // Not after this clock.
     stream: ReadJsonLines,             // Underlying document stream.
     stream_exp: std::time::SystemTime, // When the stream's authorization expires.
-    listener: task_manager::TaskStateListener, // Provides up-to-date journal clients
+    client_provider: Arc<dyn JournalClientProvider>, // Provides up-to-date journal clients
     buffer_size: usize,                // How many read chunks to buffer
     uuid_ptr: doc::Pointer,            // Location of document UUID.
     value_schema_id: u32,              // Registry ID of the value's schema.
@@ -38,7 +39,6 @@ pub struct Read {
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
-    partition_template_name: String,
     // Stats are aggregated per collection
     collection_name: String,
 
@@ -72,7 +72,7 @@ pub enum ReadTarget {
 
 impl Read {
     pub async fn new(
-        task_state_listener: task_manager::TaskStateListener,
+        client_provider: Arc<dyn JournalClientProvider>,
         collection: &Collection,
         partition: &Partition,
         offset: i64,
@@ -82,18 +82,9 @@ impl Read {
         auth: &SessionAuthentication,
         buffer_size: usize,
     ) -> anyhow::Result<Self> {
-        let partition_template_name = collection
-            .spec
-            .partition_template
-            .as_ref()
-            .context("missing partition template")?
-            .name
-            .as_str();
-
         let (stream, stream_exp) = Self::new_stream(
             collection.not_before,
-            task_state_listener.clone(),
-            partition_template_name.to_owned(),
+            client_provider.clone(),
             partition.spec.name.clone(),
             buffer_size,
             offset,
@@ -110,7 +101,7 @@ impl Read {
             meta_op_ptr: doc::Pointer::from_str("/_meta/op"),
             not_before: collection.not_before,
             not_after: collection.not_after,
-            listener: task_state_listener,
+            client_provider,
             stream: stream,
             stream_exp: stream_exp,
             buffer_size,
@@ -118,7 +109,6 @@ impl Read {
             value_schema_id,
             extractors: collection.extractors.clone(),
 
-            partition_template_name: partition_template_name.to_owned(),
             journal_name: partition.spec.name.clone(),
             collection_name: collection.name.to_owned(),
             task_name: match auth {
@@ -135,8 +125,7 @@ impl Read {
 
     async fn new_stream(
         not_before: Option<Clock>,
-        listener: TaskStateListener,
-        partition_template_name: String,
+        client_provider: Arc<dyn JournalClientProvider>,
         journal_name: String,
         buffer_size: usize,
         offset_start: i64,
@@ -145,22 +134,7 @@ impl Read {
             .map(|c: Clock| Clock::to_unix(&c))
             .unwrap_or((0, 0));
 
-        let (client, claims, _) = listener
-            .get()
-            .await?
-            .partitions
-            .into_iter()
-            .find_map(|(k, v)| {
-                if k == partition_template_name {
-                    Some(v)
-                } else {
-                    None
-                }
-            })
-            .context(format!(
-                "Collection {} not found in task state listener.",
-                partition_template_name,
-            ))??;
+        let (client, claims) = client_provider.get_journal_client().await?;
 
         Ok((
             client.read_json_lines(
@@ -196,8 +170,7 @@ impl Read {
             tracing::debug!("stream auth expired, fetching new token");
             (self.stream, self.stream_exp) = Self::new_stream(
                 self.not_before,
-                self.listener.clone(),
-                self.partition_template_name.clone(),
+                self.client_provider.clone(),
                 self.journal_name.clone(),
                 self.buffer_size,
                 self.offset,

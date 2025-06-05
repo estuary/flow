@@ -1,10 +1,17 @@
 use crate::connector::DeletionMode;
+use crate::{task_manager::TaskStateListener, App};
+use anyhow::Context;
+use async_trait::async_trait;
 use avro::{located_shape_to_avro, shape_to_avro};
+use aws_config::imds::client;
 use doc::shape::location;
+use flow_client::client::Client as FlowClient;
+use gazette::{broker, journal};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use proto_flow::flow;
 use std::{borrow::Cow, iter};
+use std::{sync::Arc, time::SystemTime};
 
 lazy_static! {
     static ref META_OP_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/op");
@@ -217,5 +224,85 @@ pub fn build_LEGACY_field_extractors(
                 )),
             )],
         ))
+    }
+}
+
+#[async_trait]
+pub trait JournalClientProvider: Send + Sync {
+    async fn get_journal_client(&self) -> anyhow::Result<(journal::Client, proto_gazette::Claims)>;
+}
+
+pub struct TaskAuthClientProvider {
+    partition_template_name: String,
+    task_state_listener: TaskStateListener,
+}
+
+impl TaskAuthClientProvider {
+    pub fn new(partition_template_name: String, task_state_listener: TaskStateListener) -> Self {
+        Self {
+            partition_template_name,
+            task_state_listener,
+        }
+    }
+}
+
+#[async_trait]
+impl JournalClientProvider for TaskAuthClientProvider {
+    async fn get_journal_client(&self) -> anyhow::Result<(journal::Client, proto_gazette::Claims)> {
+        let task_state = self
+            .task_state_listener
+            .get()
+            .await
+            .context("Failed to get task state from listener")?;
+
+        let (client, claims, _) = task_state
+            .partitions
+            .iter()
+            .find_map(|(k, v)| {
+                if *k == self.partition_template_name {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+            .context(format!(
+                "Partition template {} not found in task state",
+                self.partition_template_name
+            ))?
+            .as_ref()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Error accessing client for partition template {}: {}",
+                    self.partition_template_name,
+                    e
+                )
+            })?;
+
+        Ok((client.clone(), claims.clone()))
+    }
+}
+
+pub struct UserAuthClientProvider {
+    client: Arc<FlowClient>,
+    collection_name: String,
+}
+
+impl UserAuthClientProvider {
+    pub fn new(client: Arc<FlowClient>, collection_name: String) -> Self {
+        Self {
+            client,
+            collection_name,
+        }
+    }
+}
+
+#[async_trait]
+impl JournalClientProvider for UserAuthClientProvider {
+    async fn get_journal_client(&self) -> anyhow::Result<(journal::Client, proto_gazette::Claims)> {
+        let (_, client, claims) =
+            flow_client::fetch_user_collection_authorization(&self.client, &self.collection_name)
+                .await?;
+
+        Ok((client, claims))
     }
 }
