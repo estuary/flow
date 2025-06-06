@@ -1,9 +1,6 @@
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd";
 import { expect } from "jsr:@std/expect";
 
-// We previously used this package - including here just to make sure the values are the same
-import { sha256 } from "https://denopkg.com/chiefbiiko/sha256@v1.0.0/mod.ts";
-
 import { hashStrBase64 } from "../_shared/helpers.ts";
 
 describe("helpers", () => {
