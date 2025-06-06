@@ -687,7 +687,7 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
                 | proto_gazette::capability::READ,
             &row.data_plane_fqdn,
             std::time::Duration::from_secs(300),
-            &agent::decrypt_hmac_keys(&row.hmac_keys).await?,
+            &row.hmac_keys,
             broker::LabelSelector::default(),
             "migrate-tool",
         )

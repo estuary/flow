@@ -428,6 +428,7 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
                 "ops/dp/public/noop".to_string(),
                 "noop.dp.estuary-data.com".to_string(),
                 true,
+                vec!["hmac-key".to_string()],
                 "encrypted-keys".to_string(),
                 models::Collection::new("ops/logs"),
                 models::Collection::new("ops/stats"),

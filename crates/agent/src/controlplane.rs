@@ -246,7 +246,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&data_plane.hmac_keys)
+        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&data_plane.encrypted_hmac_keys)
             .await
             .context("decrypting HMAC keys")?;
 
