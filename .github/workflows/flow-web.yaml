@@ -30,22 +30,14 @@ jobs:
 
       - name: Install wasm-bindgen
         run: |
-          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.93/wasm-bindgen-0.2.93-x86_64-unknown-linux-musl.tar.gz | tar -zxv
-          mv wasm-bindgen-0.2.93-x86_64-unknown-linux-musl/wasm* ~/.cargo/bin/
+          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-x86_64-unknown-linux-musl.tar.gz | tar -zxv
+          mv wasm-bindgen-0.2.100-x86_64-unknown-linux-musl/wasm* ~/.cargo/bin/
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build flow-web
         run: wasm-pack build --scope estuary crates/flow-web --out-name flow_web
-
-      # Fix from: https://github.com/rustwasm/wasm-pack/issues/1039#issuecomment-1712491804
-      # We need to manually insert the main ref until this fix is published
-      # https://github.com/rustwasm/wasm-pack/pull/1061
-      - name: Manually update package.json
-        run: |
-          npm pkg set type='module' --prefix crates/flow-web/pkg
-          npm pkg set main='flow_web.js' --prefix crates/flow-web/pkg
 
       - name: Publish flow-web
         if: ${{ github.ref == 'refs/heads/master' }}

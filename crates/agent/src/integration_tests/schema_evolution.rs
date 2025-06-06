@@ -409,6 +409,7 @@ impl FailBuild for UnsatisfiableConstraints {
             Constraint {
                 r#type: ConstraintType::Unsatisfiable as i32,
                 reason: "mock unsatisfiable field".to_string(),
+                folded_field: String::new(),
             },
         )]
         .into_iter()

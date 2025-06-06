@@ -216,7 +216,7 @@ materializations:
           # Default: [], type: array
           exclude: [myField, otherField]
 
-          # Fields to include. This can supplement recommended fields, or can
+          # Fields to require. This can supplement recommended fields, or can
           # designate explicit fields to use if recommended fields are disabled.
           #
           # Values of this map are used to customize connector behavior on a per-field basis.
@@ -225,7 +225,7 @@ materializations:
           # This is an advanced feature and is not commonly used.
           #
           # default: {}, type: object
-          include:  {goodField: {}, greatField: {}}
+          require:  {goodField: {}, greatField: {}}
 ```
 
 ## Partition selectors

@@ -71,7 +71,7 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
                 .object
                 .pattern_properties
                 .iter_mut()
-                .find(|pattern| regex_matches(&pattern.re, &prop_name))
+                .find(|pattern| pattern.re.is_match(&prop_name))
             {
                 pattern.shape = Shape::union(
                     // Ideally we'd use a function like `replace_with` to allow replacing

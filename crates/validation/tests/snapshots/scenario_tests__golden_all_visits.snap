@@ -5853,6 +5853,7 @@ Outcome {
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
@@ -6327,7 +6328,10 @@ Outcome {
                     "notBefore": "2017-03-03T03:02:01Z"
                   },
                   "fields": {
-                    "include": {
+                    "groupBy": [
+                      "Int"
+                    ],
+                    "require": {
                       "str": {"pass":"through"}
                     },
                     "exclude": [
@@ -6341,7 +6345,7 @@ Outcome {
                   "source": "testing/int-halve",
                   "priority": 3,
                   "fields": {
-                    "include": {
+                    "require": {
                       "Len": {}
                     },
                     "recommended": false
@@ -6360,22 +6364,27 @@ Outcome {
                             "Int": Constraint {
                                 r#type: LocationRecommended,
                                 reason: "recommended",
+                                folded_field: "",
                             },
                             "bit": Constraint {
                                 r#type: FieldForbidden,
                                 reason: "field forbidden",
+                                folded_field: "",
                             },
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "int": Constraint {
                                 r#type: FieldRequired,
                                 reason: "field required",
+                                folded_field: "",
                             },
                             "str": Constraint {
                                 r#type: FieldOptional,
                                 reason: "optional",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
@@ -6390,18 +6399,22 @@ Outcome {
                             "Extra": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "Len": Constraint {
                                 r#type: LocationRecommended,
                                 reason: "optional",
+                                folded_field: "",
                             },
                             "Root": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "int": Constraint {
                                 r#type: FieldRequired,
                                 reason: "required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [
@@ -7981,7 +7994,10 @@ Outcome {
                     "notBefore": "2017-03-03T03:02:01Z"
                   },
                   "fields": {
-                    "include": {
+                    "groupBy": [
+                      "Int"
+                    ],
+                    "require": {
                       "str": {"pass":"through"}
                     },
                     "exclude": [
@@ -7995,7 +8011,7 @@ Outcome {
                   "source": "testing/int-halve",
                   "priority": 3,
                   "fields": {
-                    "include": {
+                    "require": {
                       "Len": {}
                     },
                     "recommended": false
@@ -8108,7 +8124,7 @@ Outcome {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"groupBy":["Int"],"recommended":true,"require":{"str":{"pass":"through"}}},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"recommended":false,"require":{"Len":{}}},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [

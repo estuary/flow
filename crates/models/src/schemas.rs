@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 ///
 /// For example, "schemas/marketing.yaml#/$defs/campaign" would reference the schema
 /// at location {"$defs": {"campaign": ...}} within ./schemas/marketing.yaml.
+///
+// Schema wraps RawValue: see its notes on deserialization, which must use serde_json.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[schemars(example = "Schema::example_absolute")]
 #[schemars(example = "Schema::example_relative")]

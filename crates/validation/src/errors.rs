@@ -99,6 +99,8 @@ pub enum Error {
         type_: types::Set,
         schema: Url,
     },
+    #[error("groupBy field {field} accepts {type_:?}, but groupBy locations may only be null-able integers, strings, or booleans")]
+    GroupByWrongType { field: String, type_: types::Set },
     #[error("location {ptr} is {read_type:?} in readSchema {read_schema}, but {write_type:?} in writeSchema {write_schema}. Types of keyed locations must be the same in read and write schemas.")]
     KeyReadWriteTypesDiffer {
         ptr: String,
@@ -181,12 +183,16 @@ pub enum Error {
         #[source]
         detail: anyhow::Error,
     },
+    #[error(transparent)]
+    FieldConflict(#[from] crate::field_selection::Conflict),
+    // TODO(johnny): Remove this error, and use FieldConflict instead.
     #[error("materialization {name} field {field} is not satisfiable ({reason})")]
     FieldUnsatisfiable {
         name: String,
         field: String,
         reason: String,
     },
+    // TODO(johnny): Remove this error, and use FieldConflict instead.
     #[error(
         "materialization {name} has no acceptable field that satisfies required location {location}"
     )]
@@ -279,7 +285,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn push(self, scope: sources::Scope, errors: &mut tables::Errors) {
+    pub fn push(self, scope: crate::Scope, errors: &mut tables::Errors) {
         errors.insert_row(scope.flatten(), anyhow::anyhow!(self));
     }
 }

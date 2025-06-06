@@ -979,7 +979,7 @@ test://example/webhook-deliveries:
         - source: testing/int-halve
           resource: { fixture: two }
           fields:
-            include:
+            require:
               int: {} # Include and exclude.
               biT: {} # Unknown.
               Len: {} # OK.
@@ -1073,7 +1073,7 @@ test://example/db-views:
         - source: testing/int-string
           resource: { table: the_table }
           fields:
-            include:
+            require:
               str: {}
             exclude:
               - bit
@@ -1092,6 +1092,33 @@ driver:
             bit: { type: 1, reason: "field required" }
             Unknown: { type: 1, reason: "whoops" }
           resourcePath: [tar!get]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_invalid_group_by_field() {
+    // Create a new test with a non-scalar group_by
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/webhook-deliveries:
+  materializations:
+    testing/webhook/deliveries:
+      bindings:
+        - source: testing/int-string
+          resource: { fixture: one }
+          fields:
+            recommended: true
+            groupBy:
+              - flow_document
+        - source: testing/int-halve
+          resource: { fixture: two }
+          fields:
+            recommended: false
+            groupBy:
+              - Unknown
 "#,
     );
     insta::assert_debug_snapshot!(errors);

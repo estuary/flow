@@ -69,7 +69,7 @@ impl ObjShape {
                 if let Some(pattern) = self
                     .pattern_properties
                     .iter_mut()
-                    .find(|pattern| regex_matches(&pattern.re, rhs.property()))
+                    .find(|pattern| pattern.re.is_match(rhs.property()))
                 {
                     return pattern.shape.widen(rhs.value());
                 }

@@ -1502,18 +1502,22 @@ Outcome {
                             "F1": Constraint {
                                 r#type: FieldOptional,
                                 reason: "optional",
+                                folded_field: "",
                             },
                             "f_one": Constraint {
                                 r#type: LocationRecommended,
                                 reason: "recommended",
+                                folded_field: "",
                             },
                             "f_two": Constraint {
                                 r#type: FieldRequired,
                                 reason: "field required",
+                                folded_field: "",
                             },
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                         },
                         resource_path: [

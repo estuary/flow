@@ -12,7 +12,10 @@
           "resource": {"table":"inferred_schemas"},
           "source": "ops.us-central1.v1/inferred-schemas/L2",
           "fields": {
-            "include": {
+            "groupBy": [
+              "collection_name"
+            ],
+            "require": {
               "collection_name": {},
               "flow_document": {},
               "schema": {}
@@ -24,7 +27,12 @@
           "resource": {"table":"catalog_stats"},
           "source": "ops.us-central1.v1/catalog-stats-L2",
           "fields": {
-            "include": {
+            "groupBy": [
+              "catalog_name",
+              "grain",
+              "ts"
+            ],
+            "require": {
               "bytes_read_by_me": {},
               "bytes_read_from_me": {},
               "bytes_written_by_me": {},
@@ -60,13 +68,17 @@
             }
           },
           "fields": {
-            "include": {
+            "groupBy": [
+              "catalog_name"
+            ],
+            "require": {
               "catalog_name": {},
               "flow_document": {}
             },
             "exclude": [
-              "event_type",
-              "fields/eventType"
+              "build",
+              "error",
+              "event_type"
             ],
             "recommended": false
           }
@@ -85,15 +97,19 @@
             }
           },
           "fields": {
-            "include": {
+            "groupBy": [
+              "catalog_name"
+            ],
+            "require": {
               "build": {"DDL":"flowid"},
               "catalog_name": {},
               "flow_document": {},
               "ts": {}
             },
             "exclude": [
-              "event_type",
-              "fields/eventType"
+              "error",
+              "event_target",
+              "event_type"
             ],
             "recommended": false
           }
@@ -112,7 +128,10 @@
             }
           },
           "fields": {
-            "include": {
+            "groupBy": [
+              "catalog_name"
+            ],
+            "require": {
               "build": {"DDL":"flowid"},
               "catalog_name": {},
               "flow_document": {},
@@ -120,7 +139,7 @@
             },
             "exclude": [
               "event_type",
-              "fields/eventType"
+              "error"
             ],
             "recommended": false
           }

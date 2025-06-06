@@ -97,7 +97,10 @@ expression: json_test(msg)
           "a_field": {"field":"config"},
           "other/field": 42.5
         },
-        "backfill": 3
+        "backfill": 3,
+        "groupBy": [
+          "key/one"
+        ]
       }
     ],
     "lastVersion": "00:11:22:33"

@@ -288,11 +288,11 @@ message CollectionSpec {
   Derivation derivation = 12;
 }
 
-// FieldSelection is a selection of a collection's projection fields.
+// FieldSelection is a materialization binding's selection of collection projection fields.
 message FieldSelection {
-  // Fields for each key component of the collection. Included key fields appear
-  // in the collection's key component order, and a given key pointer will be
-  // included at most once.
+  // Ordered group-by key fields of the materialization.
+  // Standard materializations use these fields as the indexed primary key.
+  // Identical to `group_by` of Validate.Binding.
   repeated string keys = 1;
   // All other selected fields, other than those in keys and the document field.
   // Entries are in ascending sorted order, and may be empty.

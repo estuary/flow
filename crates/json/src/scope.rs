@@ -1,4 +1,4 @@
-use json::Location;
+use crate::Location;
 use url::Url;
 
 /// Scope is a stack-based mechanism for tracking fine-grained location

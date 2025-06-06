@@ -1,11 +1,12 @@
 use itertools::Itertools;
-use sources::Scope;
+use json::Scope;
 use tables::EitherOrBoth as EOB;
 
 mod capture;
-mod collection;
+pub mod collection;
 mod derivation;
 mod errors;
+pub mod field_selection;
 mod indexed;
 mod materialization;
 mod noop;

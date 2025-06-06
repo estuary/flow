@@ -3,7 +3,7 @@ use crate::{connector::DekafConfig, source::OnIncompatibleSchemaChange, Collecti
 
 use crate::source_capture::SourceType;
 
-use super::{ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source};
+use super::{ConnectorConfig, Field, LocalConfig, RawValue, ShardTemplate, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -108,22 +108,38 @@ pub struct MaterializationBinding {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "MaterializationFields::example")]
 pub struct MaterializationFields {
+    /// # Fields to use as the grouping key of this materialization.
+    /// If not specified, the key of the source collection is used.
+    /// Materialization bindings may select an ordered subset of scalar fields
+    /// which will be grouped over, resulting in a natural index over the chosen
+    /// group-by key. Fields may or may not be part of the collection key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group_by: Vec<Field>,
     /// # Fields to require.
-    /// This supplements any recommended fields, where enabled.
+    /// This supplements any selected fields, where enabled.
     /// Values are passed to and interpreted by the connector, which may use it
     /// to customize DDL generation or other behaviors with respect to the field.
     /// Consult connector documentation to see what it supports.
     ///
-    /// Note that this field is in the process of being renamed to `require`,
-    /// though `include` will continue to be accepted as an alias.
-    #[serde(default, alias = "require", skip_serializing_if = "BTreeMap::is_empty")]
-    pub include: BTreeMap<Field, RawValue>,
+    /// Note that this field has been renamed from `include`,
+    /// which will continue to be accepted as an alias.
+    #[serde(default, alias = "include", skip_serializing_if = "BTreeMap::is_empty")]
+    pub require: BTreeMap<Field, RawValue>,
     /// # Fields to exclude.
     /// This removes from recommended projections, where enabled.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<Field>,
-    /// # Should recommended projections for the endpoint be used?
-    pub recommended: bool,
+    /// # Desired depth of fields which should be automatically selected.
+    /// 0 = No fields, 1 = Top-level fields only, 2 = Second level fields, and so on.
+    #[serde(alias = "depth")]
+    pub recommended: RecommendedDepth,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum RecommendedDepth {
+    Bool(bool),
+    Usize(usize),
 }
 
 impl MaterializationDef {
@@ -161,11 +177,12 @@ impl MaterializationBinding {
 impl MaterializationFields {
     pub fn example() -> Self {
         MaterializationFields {
-            include: vec![(Field::new("added"), serde_json::from_str("{}").unwrap())]
+            group_by: Vec::new(),
+            require: vec![(Field::new("added"), serde_json::from_str("{}").unwrap())]
                 .into_iter()
                 .collect(),
             exclude: vec![Field::new("removed")],
-            recommended: true,
+            recommended: RecommendedDepth::Bool(true),
         }
     }
 }
@@ -173,20 +190,12 @@ impl MaterializationFields {
 impl Default for MaterializationFields {
     fn default() -> Self {
         Self {
-            include: BTreeMap::new(),
+            group_by: Vec::new(),
+            require: BTreeMap::new(),
             exclude: Vec::new(),
-            recommended: true,
+            recommended: RecommendedDepth::Bool(true),
         }
     }
-}
-
-/// Sqlite endpoint configuration.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SqliteConfig {
-    /// # Path of the database, relative to this catalog source.
-    /// The path may include query arguments. See:
-    /// https://github.com/mattn/go-sqlite3#connection-string
-    pub path: RelativeUrl,
 }
 
 impl super::ModelDef for MaterializationDef {

@@ -17,11 +17,11 @@ base64 = { workspace = true }
 bigdecimal = { workspace = true }
 bumpalo = { workspace = true }
 bytes = { workspace = true }
-fancy-regex = { workspace = true }
 futures = { workspace = true }
 fxhash = { workspace = true }
 itertools = { workspace = true }
 lz4 = { workspace = true, optional = true }
+regex = { workspace = true }
 rkyv = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

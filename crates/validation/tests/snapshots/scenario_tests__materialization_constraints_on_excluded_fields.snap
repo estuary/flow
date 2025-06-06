@@ -298,18 +298,22 @@ Outcome {
                             "flow_document": Constraint {
                                 r#type: FieldRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "id": Constraint {
                                 r#type: FieldRequired,
                                 reason: "location required",
+                                folded_field: "",
                             },
                             "naughty_f": Constraint {
                                 r#type: FieldForbidden,
                                 reason: "field forbidden",
+                                folded_field: "",
                             },
                             "naughty_u": Constraint {
                                 r#type: Unsatisfiable,
                                 reason: "field unsatisfiable",
+                                folded_field: "",
                             },
                         },
                         resource_path: [

@@ -1,0 +1,14 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0/fields/groupBy/0,
+        error: groupBy field flow_document accepts "object", but groupBy locations may only be null-able integers, strings, or booleans,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/groupBy/0,
+        error: groupBy projection Unknown does not exist in collection testing/int-halve,
+    },
+]

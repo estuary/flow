@@ -1,0 +1,7 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap.conflicts
+---
+[
+    "conflict for field \"forbid\": field is required by the user's field selection but field is forbidden by the connector (frosts the jib)",
+]

@@ -1,0 +1,7 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap.conflicts
+---
+[
+    "conflict for field \"an_extra\": field's location is required by the connector (i said so) but field is excluded by the user's field selection",
+]

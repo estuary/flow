@@ -1,0 +1,210 @@
+collection:
+  key: [/an_int, /a_bool]
+  projections:
+    AnInt: /an_int
+    ANumberOne: /a_num1
+    ABool: /a_bool
+    ADateTime: /a_date_time
+    AnArray: /an_array
+    AMap: /a_map
+    NestedFoo: /nested/foo
+  schema:
+    $defs:
+      MyTable:
+        type: object
+        required:
+          - an_int
+        $anchor: MyTable
+        properties:
+          an_int:
+            type: integer
+          a_num1:
+            format: number
+            type:
+              - number
+              - string
+          a_num2:
+            type: number
+          a_bool:
+            type:
+              - boolean
+          a_date_time:
+            type: string
+            format: date-time
+          an_array:
+            type: array
+            items:
+              type: number
+          an_array_redux:
+            type: array
+            items:
+              type: number
+          a_map:
+            type: object
+            additionalProperties:
+              type: string
+            title: map of stuff
+          an_extra:
+            const: extra
+          forbid:
+            const: forbidden
+          nested:
+            type: object
+            properties:
+              foo:
+                const: 42
+              bar:
+                type: string
+              baz:
+                type: boolean
+            required:
+              - foo
+    allOf:
+      - if:
+          properties:
+            _meta:
+              properties:
+                op:
+                  const: d
+        then:
+          reduce:
+            delete: true
+            strategy: merge
+        else:
+          reduce:
+            strategy: merge
+        required:
+          - _meta
+        properties:
+          _meta:
+            type: object
+            required:
+              - op
+              - source
+            properties:
+              before:
+                $ref: "#MyTable"
+                description: Record state immediately before this change was applied.
+                reduce:
+                  strategy: firstWriteWins
+              op:
+                enum:
+                  - c
+                  - d
+                  - u
+                description: >-
+                  Change operation type: 'c' Create/Insert, 'u' Update, 'd'
+                  Delete.
+              source:
+                properties:
+                  ts_ms:
+                    type: integer
+                    description: >-
+                      Unix timestamp (in millis) at which this event was
+                      recorded by the database.
+                  schema:
+                    type: string
+                    description: Database schema (namespace) of the event.
+                  snapshot:
+                    type: boolean
+                    description: >-
+                      Snapshot is true if the record was produced from an
+                      initial table backfill and unset if produced from the
+                      replication log.
+                  table:
+                    type: string
+                    description: Database table of the event.
+                  loc:
+                    items:
+                      type: integer
+                    type: array
+                    maxItems: 3
+                    minItems: 3
+                    description: >-
+                      Location of this WAL event as [last Commit.EndLSN; event
+                      LSN; current Begin.FinalLSN]. See
+                      https: //www.postgresql.org/docs/current/protocol-logicalrep-message-formats.html
+                  txid:
+                    type: integer
+                    description: >-
+                      The 32-bit transaction ID assigned by Postgres to the
+                      commit which produced this change.
+                type: object
+                required:
+                  - schema
+                  - table
+                  - loc
+            reduce:
+              strategy: merge
+      - $ref: "#MyTable"
+model:
+  recommended: true
+  groupBy: [an_int, a_bool]
+  require:
+    nested: { cfg: 42 }
+  exclude:
+    - an_extra
+validated:
+  ABool: { type: FIELD_OPTIONAL }
+  ADateTime: { type: FIELD_OPTIONAL }
+  AMap: { type: FIELD_OPTIONAL }
+  ANumberOne: { type: FIELD_OPTIONAL, folded_field: NUM }
+  AnArray: { type: FIELD_OPTIONAL }
+  AnInt: { type: FIELD_OPTIONAL }
+  NestedFoo: { type: FIELD_OPTIONAL }
+  _meta/before/a_bool: { type: FIELD_OPTIONAL }
+  _meta/before/a_date_time: { type: FIELD_OPTIONAL }
+  _meta/before/a_map: { type: FIELD_OPTIONAL }
+  _meta/before/a_num1: { type: FIELD_OPTIONAL }
+  _meta/before/a_num2: { type: FIELD_OPTIONAL }
+  _meta/before/an_array: { type: FIELD_OPTIONAL }
+  _meta/before/an_array_redux: { type: FIELD_OPTIONAL }
+  _meta/before/an_extra: { type: FIELD_OPTIONAL }
+  _meta/before/an_int: { type: FIELD_OPTIONAL }
+  _meta/before/forbid: { type: FIELD_FORBIDDEN, reason: "naughty" }
+  _meta/before/nested/bar: { type: FIELD_OPTIONAL }
+  _meta/before/nested/baz: { type: FIELD_OPTIONAL }
+  _meta/before/nested/foo: { type: FIELD_OPTIONAL }
+  _meta/before/nested: { type: FIELD_OPTIONAL }
+  _meta/before: { type: FIELD_OPTIONAL }
+  _meta/flow_truncated: { type: FIELD_OPTIONAL }
+  _meta/op: { type: FIELD_OPTIONAL }
+  _meta/source/loc: { type: FIELD_OPTIONAL }
+  _meta/source/schema: { type: FIELD_OPTIONAL }
+  _meta/source/snapshot: { type: FIELD_OPTIONAL }
+  _meta/source/table: { type: FIELD_OPTIONAL }
+  _meta/source/ts_ms: { type: FIELD_OPTIONAL }
+  _meta/source/txid: { type: FIELD_OPTIONAL }
+  _meta/source: { type: FIELD_OPTIONAL }
+  _meta: { type: FIELD_OPTIONAL }
+  a_bool: { type: FIELD_OPTIONAL }
+  a_date_time: { type: FIELD_OPTIONAL }
+  a_map: { type: FIELD_OPTIONAL }
+  a_num1: { type: FIELD_OPTIONAL, folded_field: NUM }
+  a_num2: { type: FIELD_OPTIONAL, folded_field: NUM }
+  an_array: { type: FIELD_OPTIONAL }
+  an_array_redux: { type: FIELD_OPTIONAL }
+  an_int: { type: FIELD_OPTIONAL }
+  flow_document: { type: LOCATION_REQUIRED } # Standard materialization.
+  flow_published_at: { type: FIELD_OPTIONAL }
+  forbid: { type: FIELD_FORBIDDEN, reason: "frosts the jib" }
+  nested/bar: { type: FIELD_OPTIONAL }
+  nested/baz: { type: FIELD_OPTIONAL }
+  nested/foo: { type: FIELD_OPTIONAL }
+  nested: { type: FIELD_OPTIONAL }
+live:
+  # Given the prior selection, expect that user-defined projections are
+  # added (with the exception of ANumberOne, which is ambiguous under folding),
+  # but current `keys` and `values` selections are preserved.
+  document: flow_document
+  keys: [an_int, a_bool]
+  values:
+    - a_bool
+    - a_date_time
+    - a_map
+    - a_num1
+    - a_num2
+    - an_array
+    - flow_published_at
+    - nested/bar
+    - not-in-collection

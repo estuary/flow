@@ -3,6 +3,8 @@ use std::fmt::{self, Write};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 mod number;
 pub use number::Number;
+mod scope;
+pub use scope::Scope;
 
 /// `Span` describes a instance value of a visited JSON document, including
 /// its [begin, end) value indexes in an ordered depth-first walk of the document.

@@ -162,7 +162,7 @@ impl Shape {
             .object
             .pattern_properties
             .iter()
-            .find(|p| regex_matches(&p.re, prop))
+            .find(|p| p.re.is_match(prop))
         {
             (&pattern.shape, Exists::May)
         } else if let Some(addl) = &self.object.additional_properties {

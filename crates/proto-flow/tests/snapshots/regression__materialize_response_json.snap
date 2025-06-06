@@ -37,13 +37,14 @@ expression: json_test(msg)
     "bindings": [
       {
         "constraints": {
-          "rec_field": {
-            "type": "LOCATION_RECOMMENDED",
-            "reason": "is recommended"
+          "opt_field": {
+            "type": "FIELD_OPTIONAL",
+            "reason": "is optional"
           },
           "req_field": {
             "type": "FIELD_REQUIRED",
-            "reason": "is required"
+            "reason": "is required",
+            "foldedField": "REQ_FIELD"
           }
         },
         "resourcePath": [

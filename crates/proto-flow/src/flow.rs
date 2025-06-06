@@ -445,13 +445,13 @@ pub mod collection_spec {
         }
     }
 }
-/// FieldSelection is a selection of a collection's projection fields.
+/// FieldSelection is a materialization binding's selection of collection projection fields.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FieldSelection {
-    /// Fields for each key component of the collection. Included key fields appear
-    /// in the collection's key component order, and a given key pointer will be
-    /// included at most once.
+    /// Ordered group-by key fields of the materialization.
+    /// Standard materializations use these fields as the indexed primary key.
+    /// Identical to `group_by` of Validate.Binding.
     #[prost(string, repeated, tag = "1")]
     pub keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// All other selected fields, other than those in keys and the document field.

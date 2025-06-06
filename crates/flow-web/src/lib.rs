@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use tables::utils::ResourceSpecPointers;
 use wasm_bindgen::prelude::*;
 
+pub mod collection;
+pub mod field_selection;
 mod utils;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -210,6 +212,9 @@ pub fn get_resource_config_pointers(input: JsValue) -> Result<JsValue, JsValue> 
     serde_wasm_bindgen::to_value(&Output { pointers })
         .map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
+
+pub use collection::skim_collection_projections;
+pub use field_selection::evaluate_field_selection;
 
 #[wasm_bindgen]
 pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, JsValue> {

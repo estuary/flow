@@ -74,7 +74,7 @@ test://example/catalog.yaml:
               exclude: { "other": [42] }
           resource: { table: "table_two" }
           fields:
-            include:
+            require:
               add: {}
             exclude: [del]
             recommended: true

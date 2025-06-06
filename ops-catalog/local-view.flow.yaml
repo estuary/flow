@@ -14,7 +14,8 @@ materializations:
           table: inferred_schemas
         fields:
           recommended: false
-          include:
+          groupBy: [collection_name]
+          require:
             collection_name: {}
             schema: {}
             flow_document: {}
@@ -23,7 +24,8 @@ materializations:
           table: catalog_stats
         fields:
           recommended: false
-          include:
+          groupBy: [catalog_name, grain, ts]
+          require:
             catalog_name: {}
             grain: {}
             ts: {}
@@ -51,12 +53,14 @@ materializations:
           table: connector_status
         fields:
           recommended: false
-          include:
+          groupBy: [catalog_name]
+          require:
             catalog_name: {}
             flow_document: {}
           exclude:
+            - build
+            - error
             - event_type
-            - fields/eventType
       - source:
           name: ops.us-central1.v1/events/L2
           partitions:
@@ -67,14 +71,16 @@ materializations:
           delta_updates: true
         fields:
           recommended: false
-          include:
+          groupBy: [catalog_name]
+          require:
             catalog_name: {}
             build: { "DDL": "flowid" }
             ts: {}
             flow_document: {}
           exclude:
+            - error
+            - event_target
             - event_type
-            - fields/eventType
       - source:
           name: ops.us-central1.v1/events/L2
           partitions:
@@ -84,11 +90,12 @@ materializations:
           table: config_updates
         fields:
           recommended: false
-          include:
+          groupBy: [catalog_name]
+          require:
             catalog_name: {}
             build: { "DDL": "flowid" }
             ts: {}
             flow_document: {}
           exclude:
             - event_type
-            - fields/eventType
+            - error

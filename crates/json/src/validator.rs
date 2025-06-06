@@ -369,7 +369,7 @@ where
                     // Properties always applies on equality of the property name.
                     Properties { name } if name == loc.name => true,
                     // PatternProperties always applies on regex match of property name.
-                    PatternProperties { re } if regex_matches(re, loc.name) => true,
+                    PatternProperties { re } if re.is_match(loc.name) => true,
                     // AdditionalProperties applies if Properties and PatternProperties haven't.
                     AdditionalProperties if !evaluated => true,
                     // Finally, UnevaluatedProperties applies if no other application evaluates.
@@ -565,7 +565,7 @@ where
                 }
                 MinLength(bound) => ValidationResult::from(*bound <= s.chars().count()),
                 MaxLength(bound) => ValidationResult::from(*bound >= s.chars().count()),
-                Pattern(re) => ValidationResult::from(regex_matches(re, s)),
+                Pattern(re) => ValidationResult::from(re.is_match(s)),
                 Format(format) => format.validate(s),
                 _ => ValidationResult::Valid,
             }
@@ -1050,20 +1050,4 @@ where
             pivot += 1;
         }
     }
-}
-
-/// Returns true if the text is a match for the given regex. This function exists primarily so we
-/// have a common place to put logging, since there's a weird edge case where `is_match` returns an
-/// `Err`. This can happen if a regex uses backtracking and overflows the `backtracking_limit` when
-/// matching. The logging might be important, since some jerk could potentially use this in a DDOS
-/// attack. But we don't bother returning the error, and just consider this to not match. There's
-/// technically a corner case here where our validation results could be considered non-compliant.
-/// When a regex is used in a conditional schema (for example `patternProperties`), then returning
-/// `false` here could potentially cause a validation to be skipped, and thus make the document
-/// appear valid. The JSON schema spec is particularly unclear about how to handle this situation.
-fn regex_matches(re: &fancy_regex::Regex, text: &str) -> bool {
-    re.is_match(text).unwrap_or_else(|err| {
-        tracing::warn!("error testing for regex match: {}", err);
-        false
-    })
 }

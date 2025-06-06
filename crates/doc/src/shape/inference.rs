@@ -23,7 +23,7 @@ impl ObjShape {
             .into_iter()
             .map(|mut prop| {
                 for pattern in patterns.iter() {
-                    if !regex_matches(&pattern.re, &prop.name) {
+                    if !pattern.re.is_match(&prop.name) {
                         continue;
                     }
                     prop.shape = Shape::intersect(prop.shape, pattern.shape.clone());
@@ -780,7 +780,7 @@ mod test {
                         },
                     ],
                     pattern_properties: vec![ObjPattern {
-                        re: fancy_regex::Regex::new("fo.+").unwrap(),
+                        re: regex::Regex::new("fo.+").unwrap(),
                         shape: enum_fixture(json!(["b"])),
                     }],
                     additional_properties: None,
@@ -1134,7 +1134,7 @@ mod test {
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
                     pattern_properties: vec![ObjPattern {
-                        re: fancy_regex::Regex::new("bar").unwrap(),
+                        re: regex::Regex::new("bar").unwrap(),
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
                     additional_properties: Some(Box::new(enum_fixture(json!([1, 2])))),
@@ -1165,7 +1165,7 @@ mod test {
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
                     pattern_properties: vec![ObjPattern {
-                        re: fancy_regex::Regex::new("bar").unwrap(),
+                        re: regex::Regex::new("bar").unwrap(),
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
                     additional_properties: Some(Box::new(Shape::nothing())),

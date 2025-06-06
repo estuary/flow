@@ -1750,6 +1750,9 @@ impl serde::Serialize for request::validate::Binding {
         if self.backfill != 0 {
             len += 1;
         }
+        if !self.group_by.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Validate.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
@@ -1762,6 +1765,9 @@ impl serde::Serialize for request::validate::Binding {
         }
         if self.backfill != 0 {
             struct_ser.serialize_field("backfill", &self.backfill)?;
+        }
+        if !self.group_by.is_empty() {
+            struct_ser.serialize_field("groupBy", &self.group_by)?;
         }
         struct_ser.end()
     }
@@ -1779,6 +1785,8 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
             "field_config_json_map",
             "fieldConfig",
             "backfill",
+            "group_by",
+            "groupBy",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1787,6 +1795,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
             Collection,
             FieldConfigJsonMap,
             Backfill,
+            GroupBy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1812,6 +1821,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             "collection" => Ok(GeneratedField::Collection),
                             "fieldConfig" | "field_config_json_map" => Ok(GeneratedField::FieldConfigJsonMap),
                             "backfill" => Ok(GeneratedField::Backfill),
+                            "groupBy" | "group_by" => Ok(GeneratedField::GroupBy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1835,6 +1845,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                 let mut collection__ = None;
                 let mut field_config_json_map__ : Option<std::collections::BTreeMap<String, Box<serde_json::value::RawValue>>> = None;
                 let mut backfill__ = None;
+                let mut group_by__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -1865,6 +1876,12 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::GroupBy => {
+                            if group_by__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupBy"));
+                            }
+                            group_by__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(request::validate::Binding {
@@ -1872,6 +1889,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                     collection: collection__,
                     field_config_json_map: field_config_json_map__.unwrap_or_default().into_iter().map(|(field, value)| (field, Box::<str>::from(value).into())).collect(),
                     backfill: backfill__.unwrap_or_default(),
+                    group_by: group_by__.unwrap_or_default(),
                 })
             }
         }
@@ -3112,6 +3130,9 @@ impl serde::Serialize for response::validated::Constraint {
         if !self.reason.is_empty() {
             len += 1;
         }
+        if !self.folded_field.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Constraint", len)?;
         if self.r#type != 0 {
             let v = response::validated::constraint::Type::try_from(self.r#type)
@@ -3120,6 +3141,9 @@ impl serde::Serialize for response::validated::Constraint {
         }
         if !self.reason.is_empty() {
             struct_ser.serialize_field("reason", &self.reason)?;
+        }
+        if !self.folded_field.is_empty() {
+            struct_ser.serialize_field("foldedField", &self.folded_field)?;
         }
         struct_ser.end()
     }
@@ -3133,12 +3157,15 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
         const FIELDS: &[&str] = &[
             "type",
             "reason",
+            "folded_field",
+            "foldedField",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Type,
             Reason,
+            FoldedField,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3162,6 +3189,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                         match value {
                             "type" => Ok(GeneratedField::Type),
                             "reason" => Ok(GeneratedField::Reason),
+                            "foldedField" | "folded_field" => Ok(GeneratedField::FoldedField),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3183,6 +3211,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
             {
                 let mut r#type__ = None;
                 let mut reason__ = None;
+                let mut folded_field__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Type => {
@@ -3197,11 +3226,18 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                             }
                             reason__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::FoldedField => {
+                            if folded_field__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("foldedField"));
+                            }
+                            folded_field__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(response::validated::Constraint {
                     r#type: r#type__.unwrap_or_default(),
                     reason: reason__.unwrap_or_default(),
+                    folded_field: folded_field__.unwrap_or_default(),
                 })
             }
         }

@@ -94,6 +94,7 @@ pub fn validate_new_projection(proposed: ValidateBinding) -> BTreeMap<String, Co
                         r#type: constraint::Type::LocationRequired.into(),
                         reason: "All locations that are part of the collection key are required."
                             .to_string(),
+                        folded_field: String::new(),
                     }
                 } else if projection.ptr.len() == 0 {
                     // root document
@@ -102,6 +103,7 @@ pub fn validate_new_projection(proposed: ValidateBinding) -> BTreeMap<String, Co
                         reason:
                             "The root document is usually not necessary in delta-update connectors."
                                 .to_string(),
+                        folded_field: String::new(),
                     }
                 } else {
                     let types = types::Set::from_iter(infer.types.iter());
@@ -110,16 +112,19 @@ pub fn validate_new_projection(proposed: ValidateBinding) -> BTreeMap<String, Co
                             r#type: constraint::Type::FieldForbidden.into(),
                             reason: "Cannot materialize field with multiple or no types."
                                 .to_string(),
+                            folded_field: String::new(),
                         }
                     } else if types.is_single_scalar_type() {
                         Constraint {
                             r#type: constraint::Type::LocationRecommended.into(),
                             reason: "Scalar values are recommended to be materialized.".to_string(),
+                            folded_field: String::new(),
                         }
                     } else if matches!(types - types::NULL, types::OBJECT | types::ARRAY) {
                         Constraint {
                             r#type: constraint::Type::FieldOptional.into(),
                             reason: "Object and array fields can be materialized.".to_string(),
+                            folded_field: String::new(),
                         }
                     } else {
                         unreachable!("Binding is malformed!")
@@ -150,7 +155,8 @@ pub fn validate_existing_projection(
                         Some(p) => p,
                         None => return Some((field.clone(), Constraint {
                             r#type: constraint::Type::Unsatisfiable.into(),
-                            reason: "The proposed materialization is missing the projection, which is required because it's included in the existing materialization".to_string()
+                            reason: "The proposed materialization is missing the projection, which is required because it's included in the existing materialization".to_string(),
+                            folded_field: String::new(),
                         }))
                     };
 
@@ -168,6 +174,7 @@ pub fn validate_existing_projection(
                                 r#type: constraint::Type::Unsatisfiable.into(),
                                 reason: format!("The proposed projection may contain types {}, which are not part of the original projection.", new_types)
                                     .to_string(),
+                                folded_field: String::new(),
                             }
                         } else if ep_infer.exists == i32::from(Exists::Must) &&
                                   !ep_type_set.overlaps(types::NULL) &&
@@ -176,12 +183,14 @@ pub fn validate_existing_projection(
                                 r#type: constraint::Type::Unsatisfiable.into(),
                                 reason: "The existing projection must exist and be non-null, so the new projection must also exist."
                                     .to_string(),
+                                folded_field: String::new(),
                             }
                         } else {
                             Constraint {
                                 r#type: constraint::Type::FieldRequired.into(),
                                 reason: "This field is part of the current materialization."
                                     .to_string(),
+                                folded_field: String::new(),
                             }
                         };
 
@@ -200,6 +209,7 @@ pub fn validate_existing_projection(
                         r#type: constraint::Type::FieldForbidden.into(),
                         reason: "This field is not included in the existing materialization."
                             .to_string(),
+                        folded_field: String::new(),
                     },
                 );
             }
@@ -278,6 +288,7 @@ mod tests {
                     Constraint {
                         r#type: constraint::Type::FieldRequired.into(),
                         reason: "".to_string(),
+                        folded_field: String::new(),
                     },
                 )]),
                 FieldSelection {
@@ -302,6 +313,7 @@ mod tests {
                     Constraint {
                         r#type: constraint::Type::LocationRequired.into(),
                         reason: "".to_string(),
+                        folded_field: String::new(),
                     },
                 )]),
                 FieldSelection {
@@ -326,6 +338,7 @@ mod tests {
                     Constraint {
                         r#type: constraint::Type::LocationRequired.into(),
                         reason: "".to_string(),
+                        folded_field: String::new(),
                     },
                 )]),
                 FieldSelection {
@@ -351,6 +364,7 @@ mod tests {
                     Constraint {
                         r#type: constraint::Type::Unsatisfiable.into(),
                         reason: "".to_string(),
+                        folded_field: String::new(),
                     },
                 )]),
                 FieldSelection {
@@ -375,6 +389,7 @@ mod tests {
                     Constraint {
                         r#type: constraint::Type::FieldForbidden.into(),
                         reason: "".to_string(),
+                        folded_field: String::new(),
                     },
                 )]),
                 FieldSelection {
@@ -408,6 +423,7 @@ mod tests {
                 r#type: constraint::Type::LocationRequired.into(),
                 reason: "All locations that are part of the collection key are required."
                     .to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -424,6 +440,7 @@ mod tests {
                 r#type: constraint::Type::FieldOptional.into(),
                 reason: "The root document is usually not necessary in delta-update connectors."
                     .to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -440,6 +457,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "Cannot materialize field with multiple or no types.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -456,6 +474,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "Cannot materialize field with multiple or no types.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -472,6 +491,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::LocationRecommended.into(),
                 reason: "Scalar values are recommended to be materialized.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -488,6 +508,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::LocationRecommended.into(),
                 reason: "Scalar values are recommended to be materialized.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -504,6 +525,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::LocationRecommended.into(),
                 reason: "Scalar values are recommended to be materialized.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -520,6 +542,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::LocationRecommended.into(),
                 reason: "Scalar values are recommended to be materialized.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -536,6 +559,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldOptional.into(),
                 reason: "Object and array fields can be materialized.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -552,6 +576,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldOptional.into(),
                 reason: "Object and array fields can be materialized.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -568,6 +593,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "Cannot materialize field with multiple or no types.".to_string(),
+                folded_field: String::new(),
             },
         );
     }
@@ -598,6 +624,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldRequired.into(),
                 reason: "This field is part of the current materialization.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -625,6 +652,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "This field is not included in the existing materialization.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -652,6 +680,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::Unsatisfiable.into(),
                 reason: "The proposed projection may contain types number, which are not part of the original projection.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -679,6 +708,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::Unsatisfiable.into(),
                 reason: "The existing projection must exist and be non-null, so the new projection must also exist.".to_string(),
+                folded_field: String::new(),
             },
         );
 
@@ -707,6 +737,7 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldRequired.into(),
                 reason: "This field is part of the current materialization.".to_string(),
+                folded_field: String::new(),
             },
         );
     }

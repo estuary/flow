@@ -1,4 +1,3 @@
-use fancy_regex::Regex;
 use json::schema::{formats::Format, types};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -81,7 +80,7 @@ pub struct ObjProperty {
 
 #[derive(Clone, Debug)]
 pub struct ObjPattern {
-    pub re: Regex,
+    pub re: regex::Regex,
     pub shape: Shape,
 }
 
@@ -203,19 +202,6 @@ impl Shape {
     }
 }
 
-// Returns true if the text is a match for the given regex. This function exists primarily so we
-// have a common place to put logging, since there's a weird edge case where `is_match` returns an
-// `Err`. This can happen if a regex uses backtracking and overflows the `backtracking_limit` when
-// matching. We _could_ return an error when that happens, but it's not clear what the caller
-// would do with such an error besides consider the document invalid. The logging might be
-// important, though, since some jerk could potentially use this in a DDOS attack.
-fn regex_matches(re: &fancy_regex::Regex, text: &str) -> bool {
-    re.is_match(text).unwrap_or_else(|err| {
-        tracing::warn!("error testing for regex match during inference: {}", err);
-        false
-    })
-}
-
 // Map values into their combined type set.
 fn value_types<'v, I: Iterator<Item = &'v Value>>(it: I) -> types::Set {
     it.fold(types::INVALID, |_type, val| {
@@ -232,7 +218,7 @@ fn impute_property_shape(
 ) -> Option<Shape> {
     // Compute the intersection of all matching property patterns.
     let pattern = patterns.iter().fold(None, |prior, pattern| {
-        if !regex_matches(&pattern.re, property) {
+        if !pattern.re.is_match(property) {
             prior
         } else if let Some(prior) = prior {
             Some(Shape::intersect(prior, pattern.shape.clone()))

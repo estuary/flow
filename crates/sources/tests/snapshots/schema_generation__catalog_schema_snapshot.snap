@@ -963,10 +963,10 @@ expression: "&schema"
           "exclude": [
             "removed"
           ],
-          "include": {
+          "recommended": true,
+          "require": {
             "added": {}
-          },
-          "recommended": true
+          }
         }
       ],
       "type": "object",
@@ -982,15 +982,24 @@ expression: "&schema"
             "$ref": "#/definitions/Field"
           }
         },
-        "include": {
-          "title": "Fields to require.",
-          "description": "This supplements any recommended fields, where enabled. Values are passed to and interpreted by the connector, which may use it to customize DDL generation or other behaviors with respect to the field. Consult connector documentation to see what it supports.\n\nNote that this field is in the process of being renamed to `require`, though `include` will continue to be accepted as an alias.",
-          "type": "object",
-          "additionalProperties": true
+        "groupBy": {
+          "title": "Fields to use as the grouping key of this materialization.",
+          "description": "If not specified, the key of the source collection is used. Materialization bindings may select an ordered subset of scalar fields which will be grouped over, resulting in a natural index over the chosen group-by key. Fields may or may not be part of the collection key.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Field"
+          }
         },
         "recommended": {
-          "title": "Should recommended projections for the endpoint be used?",
-          "type": "boolean"
+          "title": "Desired depth of fields which should be automatically selected.",
+          "description": "0 = No fields, 1 = Top-level fields only, 2 = Second level fields, and so on.",
+          "$ref": "#/definitions/RecommendedDepth"
+        },
+        "require": {
+          "title": "Fields to require.",
+          "description": "This supplements any selected fields, where enabled. Values are passed to and interpreted by the connector, which may use it to customize DDL generation or other behaviors with respect to the field. Consult connector documentation to see what it supports.\n\nNote that this field has been renamed from `include`, which will continue to be accepted as an alias.",
+          "type": "object",
+          "additionalProperties": true
         }
       },
       "additionalProperties": false
@@ -1095,6 +1104,18 @@ expression: "&schema"
             }
           },
           "additionalProperties": false
+        }
+      ]
+    },
+    "RecommendedDepth": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         }
       ]
     },

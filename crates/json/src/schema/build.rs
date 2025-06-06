@@ -3,7 +3,6 @@ use crate::schema::{
     Schema, Validation,
 };
 use crate::{de, NoopWalker, Number};
-use fancy_regex as regex;
 use itertools::Itertools;
 use serde::Deserialize;
 use serde_json as sj;

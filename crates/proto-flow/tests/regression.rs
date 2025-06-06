@@ -579,6 +579,7 @@ fn ex_materialize_request() -> materialize::Request {
                 resource_config_json: json!({"resource":"config"}).to_string(),
                 field_config_json_map: ex_field_config(),
                 backfill: 3,
+                group_by: vec!["key/one".to_string()],
             }],
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
@@ -632,20 +633,27 @@ fn ex_materialize_response() -> materialize::Response {
         validated: Some(materialize::response::Validated {
             bindings: vec![materialize::response::validated::Binding {
                 resource_path: vec!["some".to_string(), "path".to_string()],
-                constraints: [(
-                    "req_field".to_string(),
-                    materialize::response::validated::Constraint {
-                        r#type: materialize::response::validated::constraint::Type::FieldRequired as i32,
-                        reason: "is required".to_string(),
-                    },
-                ),
-                (
-                    "rec_field".to_string(),
-                    materialize::response::validated::Constraint {
-                        r#type: materialize::response::validated::constraint::Type::LocationRecommended as i32,
-                        reason: "is recommended".to_string(),
-                    },
-                )
+                constraints: [
+                    (
+                        "req_field".to_string(),
+                        materialize::response::validated::Constraint {
+                            r#type:
+                                materialize::response::validated::constraint::Type::FieldRequired
+                                    as i32,
+                            reason: "is required".to_string(),
+                            folded_field: "REQ_FIELD".to_string(),
+                        },
+                    ),
+                    (
+                        "opt_field".to_string(),
+                        materialize::response::validated::Constraint {
+                            r#type:
+                                materialize::response::validated::constraint::Type::FieldOptional
+                                    as i32,
+                            reason: "is optional".to_string(),
+                            folded_field: String::new(),
+                        },
+                    ),
                 ]
                 .into(),
                 delta_updates: true,
