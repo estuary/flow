@@ -1,18 +1,22 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js?target=deno";
-import Mustache from "https://esm.sh/mustache?target=deno";
+import Mustache from "npm:mustache";
+import { crypto } from "jsr:@std/crypto";
+import { fromUint8Array } from "https://deno.land/x/base64/base64url.ts"
+
 import { corsHeaders } from "../_shared/cors.ts";
 import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
-import { sha256 } from "https://denopkg.com/chiefbiiko/sha256@v1.0.0/mod.ts";
+interface OauthSettings {
+    oauth2_client_id: string;
+    oauth2_spec: any;
+}
 
-const generateUniqueRandomKey = (size: number = 40) => {
-    const validChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let array = new Uint8Array(size) as any;
-    window.crypto.getRandomValues(array);
-    array = array.map((x: number) => validChars.codePointAt(x % validChars.length));
-    return String.fromCharCode.apply(null, array);
-};
+// https://github.com/chiefbiiko/sha256/issues/5#issuecomment-1766746363
+async function hashStrBase64(str:string):Promise<string> {
+  const msgUint8 = new TextEncoder().encode(str)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8)
+  return fromUint8Array(new Uint8Array(hashBuffer)).padEnd(44, '=')
+}
 
 // map a standard base64 encoding to a url-safe encoding
 // see https://www.oauth.com/oauth2-servers/pkce/authorization-request/
@@ -21,15 +25,19 @@ const base64URLSafe = (str: string) =>
         .replace(/\//g, "_")
         .replace(/\=+/, "");
 
-interface OauthSettings {
-    oauth2_client_id: string;
-    oauth2_spec: any;
-}
+const validChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const generateUniqueRandomKey = (size: number = 40) => {
+    let array = new Uint8Array(size) as any;
+    crypto.getRandomValues(array);
+    array = array.map((x: number) => validChars.codePointAt(x % validChars.length));
+    
+    return String.fromCharCode.apply(null, array);
+};
 
 export async function authURL(req: { connector_id?: string; connector_config?: OauthSettings; config: object; redirect_uri?: string; state?: object }) {
     const { connector_id, config, redirect_uri, state, connector_config } = req;
 
-    let data: OauthSettings;
+    let data: OauthSettings | null;
 
     if (connector_id) {
         const { data: output_data, error }: { data: OauthSettings | null; error: any } = await supabaseClient

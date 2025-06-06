@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.184.0/http/server.ts";
+
 import { billingResponseHeaders } from "./shared.ts";
 import { setupIntent } from "./setup_intent.ts";
 import { getTenantPaymentMethods } from "./get_tenant_payment_methods.ts";
 import { deleteTenantPaymentMethod } from "./delete_tenant_payment_method.ts";
 import { setTenantPrimaryPaymentMethod } from "./set_tenant_primary_payment_method.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@^2.0.0?target=deno";
 import { getTenantInvoice } from "./get_tenant_invoice_data.ts";
+import { createSupabaseClientWithAuthorization } from "../_shared/supabaseClient.ts";
 
 // Now that the supabase CLI supports multiple edge functions,
 // we should refactor this into individual functions instead
