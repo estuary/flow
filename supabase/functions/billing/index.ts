@@ -20,18 +20,15 @@ serve(async (req) => {
             const request = await req.json();
 
             const requested_tenant = request.tenant;
+
+            const authHeader = req.headers.get("Authorization");
+            if (!authHeader) {
+                throw new Error("Missing headers");
+            }
+
             // Create a Supabase client with the Auth context of the logged in user.
             // This is required in order to get the user's name and email address
-
-            const supabaseClient = createClient(
-                Deno.env.get("SUPABASE_URL") ?? "",
-                Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-                {
-                    global: {
-                        headers: { Authorization: req.headers.get("Authorization")! },
-                    },
-                },
-            );
+            const supabaseClient = createSupabaseClientWithAuthorization(authHeader);
 
             const {
                 data: { user },
