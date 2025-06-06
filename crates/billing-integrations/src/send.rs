@@ -23,6 +23,15 @@ pub struct SendInvoices {
     /// The month to send invoices for, in format "YYYY-MM-DD"
     #[clap(long)]
     pub month: NaiveDate,
+    /// A list of tenants to exclude
+    #[clap(long, value_delimiter = ',', conflicts_with = "tenants")]
+    pub exclude_tenants: Vec<String>,
+    /// A list of tenants to include (if set, excludes all others)
+    #[clap(long, value_delimiter = ',', required_unless_present = "all_tenants")]
+    pub tenants: Vec<String>,
+    /// Whether to run on all tenants
+    #[clap(long, conflicts_with = "tenants")]
+    pub all_tenants: bool,
 }
 
 pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
@@ -46,6 +55,21 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
 
     tracing::info!(
         "Fetched {} draft invoices for {month_human_repr}.",
+        draft_invoices.len()
+    );
+
+    // Filter out any excluded tenants
+    draft_invoices.retain(|inv| !cmd.exclude_tenants.contains(&inv.tenant()));
+    finalized_invoices.retain(|inv| !cmd.exclude_tenants.contains(&inv.tenant()));
+
+    if !cmd.all_tenants {
+        // If a list of tenants is provided, filter to only those tenants
+        draft_invoices.retain(|inv| cmd.tenants.contains(&inv.tenant()));
+        finalized_invoices.retain(|inv| cmd.tenants.contains(&inv.tenant()));
+    }
+
+    tracing::info!(
+        "Running against {} draft invoices for {month_human_repr}.",
         draft_invoices.len()
     );
 
@@ -276,7 +300,8 @@ async fn collect_invoices(stripe_client: &Client, to_send: Vec<Invoice>) {
                 }
                 Err(e) => {
                     pb.println(format!(
-                        "Error sending/paying invoice {}: {:?}",
+                        "Error sending/paying invoice {} (invoice {}): {:?}",
+                        row.tenant(),
                         row.id(),
                         e
                     ));
