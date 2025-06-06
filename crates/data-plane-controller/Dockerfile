@@ -19,7 +19,7 @@ RUN ln -s /root/.pulumi/bin/pulumi /usr/local/bin/pulumi
 
 # Install the `sops` CLI.
 RUN curl -L -o /usr/local/bin/sops \
-      https://github.com/getsops/sops/releases/download/v3.9.1/sops-v3.9.1.linux.amd64 \
+      https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 \
    && chmod +x /usr/local/bin/sops
 
 # Copy in our local assets.

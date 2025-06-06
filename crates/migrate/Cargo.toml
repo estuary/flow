@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 activate = { path = "../activate" }
+agent = { path = "../agent" }
 assemble = { path = "../assemble" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }

@@ -22,6 +22,7 @@ doc = { path = "../doc" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
+locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
@@ -71,6 +72,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 validator = { workspace = true }
 xxhash-rust = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 assemble = { path = "../assemble" }

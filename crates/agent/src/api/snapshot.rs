@@ -1,5 +1,6 @@
 use super::App;
 use anyhow::Context;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // Snapshot is a point-in-time view of control-plane state
@@ -13,6 +14,8 @@ pub struct Snapshot {
     pub collections_idx_name: Vec<usize>,
     // Platform data-planes.
     pub data_planes: tables::DataPlanes,
+    // Signing HMAC key of data-planes, keyed on data_plane_name
+    pub data_planes_hmac_keys: HashMap<String, Vec<String>>,
     // Indices of `data_planes`, indexed on `data_plane_fqdn`.
     pub data_planes_idx_fqdn: Vec<usize>,
     // Indices of `data_planes`, indexed on `data_plane_name`.
@@ -79,6 +82,7 @@ impl Snapshot {
             collections: Vec::new(),
             collections_idx_name: Vec::new(),
             data_planes: tables::DataPlanes::default(),
+            data_planes_hmac_keys: HashMap::new(),
             data_planes_idx_fqdn: Vec::new(),
             data_planes_idx_name: Vec::new(),
             migrations: Vec::new(),
@@ -95,6 +99,7 @@ impl Snapshot {
         taken: chrono::DateTime<chrono::Utc>,
         mut collections: Vec<SnapshotCollection>,
         data_planes: Vec<tables::DataPlane>,
+        data_planes_hmac_keys: HashMap<String, Vec<String>>,
         mut migrations: Vec<SnapshotMigration>,
         role_grants: Vec<tables::RoleGrant>,
         user_grants: Vec<tables::UserGrant>,
@@ -146,6 +151,7 @@ impl Snapshot {
             collections,
             collections_idx_name,
             data_planes,
+            data_planes_hmac_keys,
             data_planes_idx_fqdn,
             data_planes_idx_name,
             migrations,
@@ -314,6 +320,13 @@ impl Snapshot {
             })
     }
 
+    pub fn data_plane_first_hmac_key<'s>(&'s self, data_plane_name: &str) -> Option<&'s str> {
+        self.data_planes_hmac_keys
+            .get(data_plane_name)
+            .and_then(|v| v.first())
+            .map(|v| v.as_str())
+    }
+
     pub fn verify_data_plane_token<'s>(
         &'s self,
         iss_fqdn: &str,
@@ -335,11 +348,13 @@ impl Snapshot {
 
         let validation = jsonwebtoken::Validation::default();
 
-        for hmac_key in &data_plane.hmac_keys {
-            let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)?;
+        if let Some(hmac_keys) = self.data_planes_hmac_keys.get(&data_plane.data_plane_name) {
+            for hmac_key in hmac_keys {
+                let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)?;
 
-            if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
-                return Ok(Some(data_plane));
+                if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
+                    return Ok(Some(data_plane));
+                }
             }
         }
         Ok(None)
@@ -401,6 +416,7 @@ impl Snapshot {
 }
 
 pub async fn fetch_loop(app: Arc<App>) {
+    let mut decrypted_hmac_keys = HashMap::new();
     loop {
         let (next_tx, next_rx) = futures::channel::oneshot::channel();
 
@@ -410,7 +426,7 @@ pub async fn fetch_loop(app: Arc<App>) {
         let next_rx =
             tokio::time::timeout(Snapshot::MAX_REFRESH_INTERVAL.to_std().unwrap(), next_rx);
 
-        match try_fetch(&app.pg_pool).await {
+        match try_fetch(&app.pg_pool, &mut decrypted_hmac_keys).await {
             Ok(mut snapshot) => {
                 snapshot.refresh_tx = Some(next_tx);
                 *app.snapshot.write().unwrap() = snapshot;
@@ -424,7 +440,10 @@ pub async fn fetch_loop(app: Arc<App>) {
     }
 }
 
-async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
+async fn try_fetch(
+    pg_pool: &sqlx::PgPool,
+    decrypted_hmac_keys: &mut HashMap<String, Vec<String>>,
+) -> anyhow::Result<Snapshot> {
     tracing::info!("started to fetch authorization snapshot");
     let taken = chrono::Utc::now();
 
@@ -451,7 +470,8 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
             d.data_plane_name,
             d.data_plane_fqdn,
             false AS "is_default!: bool",
-            d.hmac_keys,
+            '{}'::text[] as "hmac_keys!",
+            d.encrypted_hmac_keys,
             d.broker_address,
             d.reactor_address,
             d.ops_logs_name AS "ops_logs_name: models::Collection",
@@ -533,10 +553,33 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
         "fetched authorization snapshot",
     );
 
+    let mut cached_keys = decrypted_hmac_keys.keys().collect::<Vec<&String>>();
+    cached_keys.sort();
+    let mut current_keys = data_planes
+        .iter()
+        .map(|d| d.data_plane_name.as_str())
+        .collect::<Vec<&str>>();
+    current_keys.sort();
+    if cached_keys != current_keys {
+        let decrypted_keys = futures::future::try_join_all(
+            data_planes
+                .iter()
+                .map(|dp| crate::decrypt_hmac_keys(&dp.encrypted_hmac_keys)),
+        )
+        .await?;
+
+        *decrypted_hmac_keys = data_planes
+            .iter()
+            .map(|dp| dp.data_plane_name.clone())
+            .zip(decrypted_keys.into_iter())
+            .collect();
+    }
+
     Ok(Snapshot::new(
         taken,
         collections,
         data_planes,
+        decrypted_hmac_keys.clone(),
         migrations,
         role_grants,
         user_grants,
@@ -575,10 +618,8 @@ impl Snapshot {
                 data_plane_name: "ops/dp/public/plane-one".to_string(),
                 data_plane_fqdn: "fqdn1".to_string(),
                 is_default: false,
-                hmac_keys: vec![
-                    base64::encode("key1"), // Valid HMAC key for testing.
-                    base64::encode("key2"),
-                ],
+                hmac_keys: Vec::new(),
+                encrypted_hmac_keys: "encrypted-gibberish".to_string(),
                 broker_address: "broker.1".to_string(),
                 reactor_address: "reactor.1".to_string(),
                 ops_logs_name: models::Collection::new("ops/tasks/public/plane-one/logs"),
@@ -589,13 +630,25 @@ impl Snapshot {
                 data_plane_name: "ops/dp/public/plane-two".to_string(),
                 data_plane_fqdn: "fqdn2".to_string(),
                 is_default: false,
-                hmac_keys: vec![base64::encode("key3")],
+                hmac_keys: Vec::new(),
+                encrypted_hmac_keys: "encrypted-gibberish".to_string(),
                 broker_address: "broker.2".to_string(),
                 reactor_address: "reactor.2".to_string(),
                 ops_logs_name: models::Collection::new("ops/tasks/public/plane-two/logs"),
                 ops_stats_name: models::Collection::new("ops/tasks/public/plane-two/stats"),
             },
         ];
+
+        let data_planes_hmac_keys = HashMap::from([
+            (
+                "ops/dp/public/plane-one".to_string(),
+                vec![base64::encode("key1"), base64::encode("key2")],
+            ),
+            (
+                "ops/dp/public/plane-two".to_string(),
+                vec![base64::encode("key3")],
+            ),
+        ]);
 
         let migrations = vec![
             SnapshotMigration {
@@ -691,6 +744,7 @@ impl Snapshot {
             taken,
             collections,
             data_planes,
+            data_planes_hmac_keys,
             migrations,
             role_grants,
             user_grants,
