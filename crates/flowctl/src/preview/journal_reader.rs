@@ -41,7 +41,7 @@ impl Reader {
             // Concurrently fetch authorizations for all sourced collections.
             let sources = futures::future::try_join_all(sources.iter().map(|source| {
                 flow_client::fetch_user_collection_authorization(&self.client, &source.collection)
-                    .map_ok(move |(_journal_name_prefix, client)| (source, client))
+                    .map_ok(move |(_journal_name_prefix, client, _claims)| (source, client))
             }))
             .await?;
 

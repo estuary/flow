@@ -1,9 +1,13 @@
 use super::{App, Collection, Read};
 use crate::{
-    api_client::KafkaClientAuth, from_downstream_topic_name, from_upstream_topic_name,
-    logging::propagate_task_forwarder, read::BatchResult, to_downstream_topic_name,
-    to_upstream_topic_name, topology::PartitionOffset, DekafError, KafkaApiClient,
-    SessionAuthentication,
+    api_client::KafkaClientAuth,
+    from_downstream_topic_name, from_upstream_topic_name,
+    logging::propagate_task_forwarder,
+    read::BatchResult,
+    to_downstream_topic_name, to_upstream_topic_name,
+    topology::PartitionOffset,
+    utils::{JournalClientProvider, TaskAuthClientProvider, UserAuthClientProvider},
+    DekafError, KafkaApiClient, SessionAuthentication,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -581,9 +585,14 @@ impl Session {
                     _ => {}
                 }
 
-                let auth = self.auth.as_mut().unwrap();
-                let pg_client = auth.flow_client().await?.pg_client();
-                let Some(collection) = Collection::new(&auth, &pg_client, &key.0).await? else {
+                let pg_client = {
+                    let auth = self.auth.as_mut().unwrap();
+                    auth.flow_client().await?.pg_client()
+                };
+
+                let Some(collection) =
+                    Collection::new(self.auth.as_ref().unwrap(), &pg_client, &key.0).await?
+                else {
                     metrics::counter!(
                         "dekaf_fetch_requests",
                         "topic_name" => key.0.to_string(),
@@ -595,6 +604,29 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
+
+                let client_provider: Arc<dyn JournalClientProvider> = match self.auth.as_ref() {
+                    Some(SessionAuthentication::Task(auth)) => {
+                        Arc::new(TaskAuthClientProvider::new(
+                            collection
+                                .spec
+                                .partition_template
+                                .as_ref()
+                                .context("missing partition template")?
+                                .name
+                                .clone(),
+                            self.app.task_manager.get_listener(auth.task_name.as_str()),
+                        ))
+                    }
+                    Some(SessionAuthentication::User(ref auth)) => {
+                        Arc::new(UserAuthClientProvider::new(
+                            Arc::new(auth.client.clone()),
+                            collection.name.clone(),
+                        ))
+                    }
+                    None => bail!("Not authenticated"),
+                };
+
                 let Some(partition) = collection
                     .partitions
                     .get(partition_request.partition as usize)
@@ -610,6 +642,9 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
+
+                let auth_mut = self.auth.as_mut().unwrap();
+
                 let (key_schema_id, value_schema_id) =
                     collection.registered_schema_ids(&pg_client).await?;
                 let pending = PendingRead {
@@ -633,14 +668,14 @@ impl Session {
                             .increment(1);
                             tokio::spawn(propagate_task_forwarder(
                                 Read::new(
-                                    self.app.task_manager.get_listener(task_name.as_str()),
+                                    client_provider,
                                     &collection,
                                     partition,
                                     fragment_start,
                                     key_schema_id,
                                     value_schema_id,
                                     Some(partition_request.fetch_offset - 1),
-                                    &auth,
+                                    &auth_mut,
                                     self.read_buffer_size,
                                 )
                                 .await?
@@ -664,14 +699,14 @@ impl Session {
                             .increment(1);
                             tokio::spawn(propagate_task_forwarder(
                                 Read::new(
-                                    self.app.task_manager.get_listener(task_name.as_str()),
+                                    client_provider,
                                     &collection,
                                     partition,
                                     fetch_offset,
                                     key_schema_id,
                                     value_schema_id,
                                     None,
-                                    &auth,
+                                    &auth_mut,
                                     self.read_buffer_size,
                                 )
                                 .await?

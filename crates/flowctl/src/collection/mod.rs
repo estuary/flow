@@ -184,7 +184,7 @@ async fn do_list_fragments(
         since,
     }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
+    let (journal_name_prefix, client, _claims) =
         flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = client
@@ -224,7 +224,7 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
+    let (journal_name_prefix, client, _claims) =
         flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = client

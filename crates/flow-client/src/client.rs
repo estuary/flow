@@ -342,7 +342,7 @@ pub async fn fetch_user_task_authorization(
 pub async fn fetch_user_collection_authorization(
     client: &Client,
     collection: &str,
-) -> anyhow::Result<(String, gazette::journal::Client)> {
+) -> anyhow::Result<(String, gazette::journal::Client, proto_gazette::Claims)> {
     let started_unix = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -376,6 +376,8 @@ pub async fn fetch_user_collection_authorization(
         break response;
     };
 
+    let claims = parse_jwt_claims(&broker_token)?;
+
     tracing::debug!(
         broker_address,
         broker_token,
@@ -390,7 +392,7 @@ pub async fn fetch_user_collection_authorization(
         .journal_client
         .with_endpoint_and_metadata(broker_address, md);
 
-    Ok((journal_name_prefix, journal_client))
+    Ok((journal_name_prefix, journal_client, claims))
 }
 
 #[tracing::instrument(skip(client), err)]
