@@ -30,7 +30,7 @@ setup.
 
 ## Private Deployment
 
-Private Deployment offers the security and control of a dedicated infrastructure while retaining the simplicity of a
+[Private Deployment](../private-byoc/private-deployments.md) offers the security and control of a dedicated infrastructure while retaining the simplicity of a
 managed service.
 
 Private Deployment is suited for large enterprises and organizations with strict data governance requirements, such as
@@ -52,7 +52,7 @@ join our [Slack channel](https://go.estuary.dev/slack) and send us a message!
 
 ## BYOC (Bring Your Own Cloud)
 
-With BYOC, customers can deploy Estuary Flow directly within their own cloud environment, allowing for greater
+With [BYOC](../private-byoc/byoc-deployments/), customers can deploy Estuary Flow directly within their own cloud environment, allowing for greater
 flexibility and control.
 
 BYOC is the ideal solution for organizations that have heavily invested in their cloud infrastructure and want to
