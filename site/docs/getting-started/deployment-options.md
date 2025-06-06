@@ -52,7 +52,7 @@ join our [Slack channel](https://go.estuary.dev/slack) and send us a message!
 
 ## BYOC (Bring Your Own Cloud)
 
-With [BYOC](../private-byoc/byoc-deployments/), customers can deploy Estuary Flow directly within their own cloud environment, allowing for greater
+With [BYOC](../private-byoc/byoc-deployments/byoc-deployments.md), customers can deploy Estuary Flow directly within their own cloud environment, allowing for greater
 flexibility and control.
 
 BYOC is the ideal solution for organizations that have heavily invested in their cloud infrastructure and want to
