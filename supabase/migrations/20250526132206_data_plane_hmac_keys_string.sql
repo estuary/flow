@@ -1,7 +1,7 @@
--- Make data_plane_hmac_keys into a string column that holds an encrypted sops document
+-- Add encrypted_hmac_keys as a text column that holds an encrypted sops document
 
 begin;
 
-ALTER TABLE public.data_planes ALTER COLUMN hmac_keys SET DATA TYPE text;
+ALTER TABLE public.data_planes ADD encrypted_hmac_keys text not null default '';
 
 commit;
