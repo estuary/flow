@@ -647,6 +647,7 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
             data_plane_fqdn,
             false AS "is_default!: bool",
             hmac_keys,
+            encrypted_hmac_keys,
             broker_address,
             reactor_address,
             ops_logs_name AS "ops_logs_name: models::Collection",
@@ -687,7 +688,7 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
                 | proto_gazette::capability::READ,
             &row.data_plane_fqdn,
             std::time::Duration::from_secs(300),
-            &agent::decrypt_hmac_keys(&row.hmac_keys).await?,
+            &row.hmac_keys,
             broker::LabelSelector::default(),
             "migrate-tool",
         )

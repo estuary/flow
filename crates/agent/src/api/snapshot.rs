@@ -470,7 +470,8 @@ async fn try_fetch(
             d.data_plane_name,
             d.data_plane_fqdn,
             false AS "is_default!: bool",
-            d.hmac_keys,
+            '{}'::text[] as "hmac_keys!",
+            d.encrypted_hmac_keys,
             d.broker_address,
             d.reactor_address,
             d.ops_logs_name AS "ops_logs_name: models::Collection",
@@ -560,12 +561,10 @@ async fn try_fetch(
         .collect::<Vec<&str>>();
     current_keys.sort();
     if cached_keys != current_keys {
-        // iterate over data_planes and run an async map to apply decrypt_hmac_keys on
-        // data_plane.hmac_keys
         let decrypted_keys = futures::future::try_join_all(
             data_planes
                 .iter()
-                .map(|dp| crate::decrypt_hmac_keys(&dp.hmac_keys)),
+                .map(|dp| crate::decrypt_hmac_keys(&dp.encrypted_hmac_keys)),
         )
         .await?;
 
@@ -619,7 +618,8 @@ impl Snapshot {
                 data_plane_name: "ops/dp/public/plane-one".to_string(),
                 data_plane_fqdn: "fqdn1".to_string(),
                 is_default: false,
-                hmac_keys: "encrypted-gibberish".to_string(),
+                hmac_keys: Vec::new(),
+                encrypted_hmac_keys: "encrypted-gibberish".to_string(),
                 broker_address: "broker.1".to_string(),
                 reactor_address: "reactor.1".to_string(),
                 ops_logs_name: models::Collection::new("ops/tasks/public/plane-one/logs"),
@@ -630,7 +630,8 @@ impl Snapshot {
                 data_plane_name: "ops/dp/public/plane-two".to_string(),
                 data_plane_fqdn: "fqdn2".to_string(),
                 is_default: false,
-                hmac_keys: "encrypted-gibberish".to_string(),
+                hmac_keys: Vec::new(),
+                encrypted_hmac_keys: "encrypted-gibberish".to_string(),
                 broker_address: "broker.2".to_string(),
                 reactor_address: "reactor.2".to_string(),
                 ops_logs_name: models::Collection::new("ops/tasks/public/plane-two/logs"),
