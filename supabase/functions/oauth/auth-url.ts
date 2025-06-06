@@ -69,8 +69,8 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
 
     // See https://www.oauth.com/oauth2-servers/pkce/authorization-request/
     const codeVerifier = generateUniqueRandomKey(50);
-    const codeChallenge = base64URLSafe(sha256(codeVerifier, "utf8", "base64") as string);
-    const codeChallengeMethod = "S256";
+    const hashedValue = await hashStrBase64(codeVerifier);
+    const codeChallenge = base64URLSafe(hashedValue);
 
     const url = compileTemplate(
         oauth2_spec.authUrlTemplate,
@@ -80,7 +80,7 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
             client_id: oauth2_client_id,
             config,
             code_challenge: codeChallenge,
-            code_challenge_method: codeChallengeMethod,
+            code_challenge_method: "S256",
         },
     );
 
