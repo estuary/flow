@@ -217,14 +217,14 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
     )> {
         let tables::DataPlane {
             reactor_address,
-            hmac_keys,
+            encrypted_hmac_keys,
             data_plane_fqdn,
             ..
         } = data_plane;
 
         let mut metadata = gazette::Metadata::default();
 
-        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&hmac_keys)
+        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&encrypted_hmac_keys)
             .await
             .context("decrypting HMAC keys")?;
 
