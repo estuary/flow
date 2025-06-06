@@ -1,4 +1,5 @@
-import _ from "https://esm.sh/lodash?target=deno";
+import _ from "npm:lodash";
+
 import { corsHeaders } from "../_shared/cors.ts";
 import { returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";

@@ -1,5 +1,6 @@
+import { isFinite } from "npm:lodash";
+
 import { AlertRecord, EmailConfig } from "../index.ts";
-import { isFinite } from "https://esm.sh/lodash?target=deno";
 import { commonTemplate } from "../template.ts";
 import { Recipient } from "../template.ts";
 
