@@ -19,6 +19,7 @@ build = { path = "../build" }
 coroutines = { path = "../coroutines" }
 dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
+migrate = { path = "../migrate" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
