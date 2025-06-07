@@ -38,6 +38,7 @@ pub mod task_types {
     pub const EVOLUTIONS: TaskType = TaskType(5);
     pub const APPLIED_DIRECTIVES: TaskType = TaskType(6);
     pub const CONNECTOR_TAGS: TaskType = TaskType(7);
+    pub const DATA_PLANE_MIGRATION: TaskType = TaskType(8);
 }
 
 /// Outcome of an `Executor::poll()` for a given task, which encloses

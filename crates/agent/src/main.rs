@@ -246,6 +246,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(agent::EvolutionExecutor)
             .register(directive_executor)
             .register(connector_tags_executor)
+            .register(migrate::automation::MigrationExecutor)
             .serve(
                 args.max_automations,
                 pg_pool.clone(),

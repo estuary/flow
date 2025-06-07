@@ -16,21 +16,21 @@ labels = { path = "../labels" }
 models = { path = "../models", features = ["sqlx-support"] }
 ops = { path = "../ops" }
 tables = { path = "../tables" }
+automations = { path = "../automations" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 
 anyhow = { workspace = true }
 itertools = { workspace = true }
 url = { workspace = true }
-clap = { workspace = true }
-rustls = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+log = { workspace = true }
 
 [dev-dependencies]
 build = { path = "../build" }
