@@ -169,15 +169,13 @@ async fn test_shard_failed_without_event(
     catalog_name: &str,
 ) {
     let starting_state = publish_and_await_ready(harness, task_type, catalog_name).await;
+
     let last_activation_ts = starting_state
         .current_status
         .activation_status()
         .unwrap()
         .last_activated_at
         .unwrap();
-    // Simulate the passage of sufficient time that the controller will attempt re-activating
-    // the shards after the third consecutive status check showing failure.
-    override_last_activated_at(catalog_name, chrono::Duration::minutes(16), harness).await;
 
     harness
         .control_plane()
@@ -213,17 +211,28 @@ async fn test_shard_failed_without_event(
         .await;
     }
 
+    // The last check should result in the controller creating a ShardFailure event
     override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(3), harness).await;
 
-    let after_third_check = harness.run_pending_controller(catalog_name).await;
+    let _after_third_check = harness.run_pending_controller(catalog_name).await;
+    let failures = harness
+        .control_plane()
+        .get_shard_failures(catalog_name.to_string())
+        .await
+        .unwrap();
+    assert_eq!(1, failures.len(), "expected 1 failure, got: {failures:?}");
+    harness
+        .control_plane()
+        .assert_activations("after third failed status check", Vec::new());
+
+    let after_activation = harness.run_pending_controller(catalog_name).await;
+
     harness.control_plane().assert_activations(
-        "after third failed status check and > 15 minutes",
+        "after ShardFailure event created",
         vec![(catalog_name, Some(task_type))],
     );
-    let activation = after_third_check
-        .current_status
-        .activation_status()
-        .unwrap();
+
+    let activation = after_activation.current_status.activation_status().unwrap();
     assert!(
         activation.last_activated_at > Some(last_activation_ts),
         "expect last_activated_at to be updated"
@@ -529,13 +538,8 @@ async fn publish_and_await_ready(
         .assert_activations("after publish", vec![(catalog_name, Some(task_type))]);
     assert_status_shards_pending(harness, catalog_name).await;
 
-    let after_publish_shard_status = after_publish
-        .current_status
-        .activation_status()
-        .unwrap()
-        .shard_status
-        .as_ref()
-        .unwrap();
+    let activation_status = after_publish.current_status.activation_status().unwrap();
+    let after_publish_shard_status = activation_status.shard_status.as_ref().unwrap();
     assert_eq!(
         0, after_publish_shard_status.count,
         "{catalog_name} count should always be 0 right after activating a new build"
@@ -544,6 +548,19 @@ async fn publish_and_await_ready(
         ShardsStatus::Pending,
         after_publish_shard_status.status,
         "{catalog_name} shards status should always be pending right after activating a new build"
+    );
+    assert_eq!(
+        0, activation_status.recent_failure_count,
+        "expect fail count is 0 because a new build was activated"
+    );
+    let failures = harness
+        .control_plane()
+        .get_shard_failures(catalog_name.to_string())
+        .await
+        .unwrap();
+    assert!(
+        failures.is_empty(),
+        "expected no shard failures, got: {failures:?}"
     );
 
     task_becomes_ok(harness, task_type, catalog_name).await

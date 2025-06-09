@@ -6,9 +6,13 @@ use crate::{
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use gazette::consumer::{self, replica_status};
+use gazette::consumer::{self, list_response, replica_status};
+use itertools::Itertools;
 use models::{
-    status::activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
+    status::{
+        activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
+        ShardRef,
+    },
     AnySpec,
 };
 
@@ -21,20 +25,6 @@ use super::{backoff_data_plane_activate, executor::Event, ControllerState, NextR
 /// positive.
 const FAILURE_RETENTION: chrono::Duration = chrono::Duration::hours(24);
 
-/// The default interval after which we'll attempt to re-activate task shards that are
-/// observed via periodic shards listing to have failed.
-static REACTIVATE_INTERVAL: std::sync::LazyLock<chrono::Duration> =
-    std::sync::LazyLock::new(|| {
-        if let Ok(val) = std::env::var("FLOW_REACTIVATE_INTERVAL") {
-            let parsed: humantime::Duration =
-                FromStr::from_str(&val).expect("invalid FLOW_REACTIVATE_INTERVAL");
-            chrono::Duration::from_std(parsed.into())
-                .expect("FLOW_REACTIVATE_INTERVAL out of range")
-        } else {
-            chrono::Duration::minutes(15)
-        }
-    });
-
 static MAX_SHARD_HEALTH_CHECK_INTERVAL: std::sync::LazyLock<chrono::Duration> =
     std::sync::LazyLock::new(|| {
         if let Ok(val) = std::env::var("FLOW_MAX_SHARD_STATUS_INTERVAL") {
@@ -46,19 +36,6 @@ static MAX_SHARD_HEALTH_CHECK_INTERVAL: std::sync::LazyLock<chrono::Duration> =
             chrono::Duration::hours(2)
         }
     });
-
-/// After we activate task shards, if the shards are still in a `Failed` status
-/// and no `ShardFailed` event was observed, then we'll re-attempt activation
-/// after this interval. This can happen due to problems with the ops catalog,
-/// or (hopefully rare) edge cases in the data plane.
-fn get_reactivate_interval(state: &ControllerState) -> chrono::Duration {
-    // Special case for ops catalog tasks, which we need to ensure get restarted
-    // quickly.
-    if is_ops_catalog_task(state) {
-        return chrono::Duration::seconds(30);
-    }
-    *REACTIVATE_INTERVAL
-}
 
 /// Activates the spec in the data plane if necessary.
 pub async fn update_activation<C: ControlPlane>(
@@ -143,8 +120,12 @@ pub async fn update_activation<C: ControlPlane>(
         // indefinitely. Note that this could return `now` in order to restart
         // failed shards immediately.
         if shard_failures > 0 && status.next_retry.is_none() {
-            let next = get_next_retry_time(now, &failures);
-            tracing::info!(next_retry = ?next, "observed shard failure and determined next retry time");
+            let next = if is_ops_catalog_task(state) {
+                tracing::info!("restarting failed ops catalog task shards");
+                now // always retry ops catalog shards immediately
+            } else {
+                get_next_retry_time(now, &failures)
+            };
             status.next_retry = Some(next);
         }
 
@@ -269,15 +250,6 @@ async fn update_shard_health<C: ControlPlane>(
         .await
         .context("listing task shards")?;
 
-    if list_response.status != proto_gazette::consumer::Status::Ok as i32 {
-        return Err(anyhow::anyhow!(
-            "shard list response status not Ok, was {}",
-            list_response.status().as_str_name()
-        ))
-        .with_retry(NextRun::after_minutes(1))
-        .map_err(Into::into);
-    }
-
     // Determine aggregate status from list response
     let new_status = aggregate_shard_status(state.last_build_id, &list_response.shards);
 
@@ -296,32 +268,20 @@ async fn update_shard_health<C: ControlPlane>(
         status: new_status,
     });
 
-    // If there's been at least 3 failed checks in a row, and it's been longer than the
-    // re-activation interval, then re-activate failed shards. We require at least two
-    // failed checks in a row because sometimes shards can temporarily be in failed state
-    // just due normal infrastructure changes in the data plane.
+    // If there's been at least 3 failed checks in a row, then consider the
+    // shard failed. We require at least 3 failed checks in a row because it's
+    // possible that the ShardFailed event delivery is simply delayed we don't
+    // want to insert a synthetic ShardFailure event if a "real" event is on the
+    // way soon.
     let time_since_activation = now - status.last_activated_at.unwrap();
-    if new_status == ShardsStatus::Failed
-        && time_since_activation >= get_reactivate_interval(state)
-        && count >= 3
-    {
+    if new_status == ShardsStatus::Failed && count >= 3 && status.next_retry.is_none() {
         // If we've reached this section, then we have _not_ received any
         // ShardFailed events, which would have caused us to set a `next_retry`.
         // This can happen if the ops catalog is broken, or in certain edge
-        // cases in the data plane.
-        tracing::warn!(%time_since_activation, failed_checks = %count, "re-activating task shards because they still show as Failed after prior activation");
-        do_activate(now, state, status, control_plane).await?;
-        status.shard_status = Some(ShardStatusCheck {
-            count: 0,
-            first_ts: now,
-            last_ts: now,
-            status: ShardsStatus::Pending,
-        });
-        return Ok(Some(NextRun::from_duration(shard_health_check_interval(
-            state,
-            0,
-            ShardsStatus::Pending,
-        ))));
+        // cases in the data plane, or for ops catalog shards.
+        let failure_events = synthesize_shard_failed_events(now, state, &list_response.shards);
+        tracing::warn!(%time_since_activation, failed_checks = %count, new_event_count = %failure_events.len(), "observed shard failure via periodic status check");
+        control_plane.insert_shard_failures(failure_events).await?;
     } else if new_status == ShardsStatus::Pending && count == 12 {
         // We check `count` so that we only log this once per task per
         // activation, so we don't spam our logs. 12 was chosen rather
@@ -332,6 +292,48 @@ async fn update_shard_health<C: ControlPlane>(
     let next_check = shard_health_check_interval(state, count, new_status);
     tracing::debug!(%count, ?next_check, ?new_status, "finished task shard health check");
     Ok(Some(NextRun::from_duration(next_check)))
+}
+
+fn synthesize_shard_failed_events(
+    now: DateTime<Utc>,
+    state: &ControllerState,
+    listing: &[list_response::Shard],
+) -> Vec<ShardFailure> {
+    listing.iter()
+        .filter(|s| s.status.iter().all(|rs| rs.code != (replica_status::Code::Primary as i32)))
+        .filter(|s| {
+            let shard_build = shard_build_id(s);
+            if Some(state.last_build_id) == shard_build {
+                true
+            } else {
+                tracing::warn!(?shard_build, last_build_id = %state.last_build_id, "shard has mismatched build id");
+                false
+            }
+        })
+        .filter_map(|s| s.spec.as_ref().and_then(|spec| spec.labels.as_ref()))
+        .map(|set| {
+            //let set = s.spec.as_ref().and_then(|spec| spec.labels.as_ref()).unwrap_or(&proto_gazette::LabelSet::default());
+            let key_begin = ::labels::expect_one(set, ::labels::KEY_BEGIN).unwrap_or_else(|_| {
+                tracing::warn!(label = ::labels::KEY_BEGIN, "task shard spec missing label");
+                "00000000"
+            });
+            let r_clock_begin = ::labels::expect_one(set, ::labels::RCLOCK_BEGIN).unwrap_or_else(|_| {
+                tracing::warn!(label = ::labels::RCLOCK_BEGIN, "task shard spec missing label");
+                "00000000"
+            });
+            ShardFailure {
+                        shard: ShardRef {
+                            name: state.catalog_name.clone(),
+                            key_begin: key_begin.to_string(),
+                            r_clock_begin: r_clock_begin.to_string(),
+                            build: state.last_build_id,
+                        },
+                        ts: now,
+                        message: "shard status check showed failed shards".to_string(),
+                        fields: Default::default(),
+                    }
+        })
+        .collect_vec()
 }
 
 fn is_ops_catalog_task(state: &ControllerState) -> bool {
@@ -356,17 +358,7 @@ fn aggregate_shard_status(
             // technically happen, since we don't pass a minimum etcd revision
             // with our list request. So if we see an old build id here, it's
             // just stale data and we'll check again soon.
-            let matching_build = shard.spec.as_ref().is_some_and(|spec| {
-                spec.labels.as_ref().is_some_and(|labels| {
-                    ::labels::values(labels, ::labels::BUILD)
-                        .first()
-                        .is_some_and(|build_label| {
-                            let parsed = models::Id::from_hex(&build_label.value).ok();
-                            Some(last_build_id) == parsed
-                        })
-                })
-            });
-            if !matching_build {
+            if !shard_has_matching_build(shard, last_build_id) {
                 return Pending;
             }
 
@@ -403,6 +395,30 @@ fn aggregate_shard_status(
             (Pending, Ok) => Pending,
         })
         .unwrap_or(Pending) // Pending if shards list was empty
+}
+
+fn shard_build_id(shard: &list_response::Shard) -> Option<models::Id> {
+    shard.spec.as_ref().and_then(|spec| {
+        spec.labels.as_ref().and_then(|labels| {
+            ::labels::expect_one(labels, ::labels::BUILD)
+                .ok()
+                .and_then(|build_label| models::Id::from_hex(&build_label).ok())
+        })
+    })
+}
+
+fn shard_has_matching_build(shard: &list_response::Shard, last_build_id: models::Id) -> bool {
+    let matching_build = shard.spec.as_ref().is_some_and(|spec| {
+        spec.labels.as_ref().is_some_and(|labels| {
+            ::labels::values(labels, ::labels::BUILD)
+                .first()
+                .is_some_and(|build_label| {
+                    let parsed = models::Id::from_hex(&build_label.value).ok();
+                    Some(last_build_id) == parsed
+                })
+        })
+    });
+    matching_build
 }
 
 fn to_ops_task_type(catalog_type: models::CatalogType) -> Option<ops::TaskType> {
