@@ -1,5 +1,5 @@
 // Need to use the browser version -> https://github.com/mjmlio/mjml/issues/2447
-import mjml2Html from "npm:mjml-browser@4.14.1";
+import mjml2Html from "https://esm.sh/mjml-browser@4.14.1?dts";
 
 export interface Recipient {
     email: string;
