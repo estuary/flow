@@ -1,4 +1,4 @@
-import { isFinite } from "npm:lodash";
+import _ from "npm:lodash";
 
 import { AlertRecord, EmailConfig } from "../index.ts";
 import { commonTemplate } from "../template.ts";
@@ -31,7 +31,7 @@ const formatAlertEmail = ({
         // the hour segment of the evaluation interval is selected (i.e., timeOffset[0]) and attempted to be converted to a number.
         // This conditional is a failsafe, in the event the aforementioned conversion fails which would result in the display
         // of two digits for the hour (e.g., 02 hours instead of 2 hours).
-        formattedEvaluationInterval = isFinite(hours) ? `${hours} hours` : `${timeOffset[0]} hours`;
+        formattedEvaluationInterval = _.isFinite(hours) ? `${hours} hours` : `${timeOffset[0]} hours`;
     }
 
     const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
