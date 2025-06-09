@@ -1,7 +1,7 @@
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd";
 import { expect } from "jsr:@std/expect";
 
-import { hashStrBase64 } from "../_shared/helpers.ts";
+import { base64URLSafe, hashStrBase64 } from "../_shared/helpers.ts";
 
 describe("helpers", () => {
   describe("hashStrBase64", () => {
@@ -49,6 +49,12 @@ describe("helpers", () => {
       expect(randomStringHashed.split("-")).toEqual(testData[0].oldHash.split('+'))
       expect(randomKeyHashed.split("-")).toEqual(testData[1].oldHash.split('+'))
       expect(randomNumberHashed.split("_")).toEqual(testData[2].oldHash.split('/'))
-    })
+    });
+
+    it("and the output will be the same when the output is passed through base64URLSafe", () => {
+      expect(base64URLSafe(randomStringHashed)).toEqual(base64URLSafe(testData[0].oldHash))
+      expect(base64URLSafe(randomKeyHashed)).toEqual(base64URLSafe(testData[1].oldHash))
+      expect(base64URLSafe(randomNumberHashed)).toEqual(base64URLSafe(testData[2].oldHash))
+    });
   });
 });
