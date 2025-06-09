@@ -1,25 +1,9 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js?target=deno";
-import Mustache from "https://esm.sh/mustache?target=deno";
+import Mustache from "npm:mustache";
+import { crypto } from "jsr:@std/crypto";
+
 import { corsHeaders } from "../_shared/cors.ts";
-import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
+import { base64URLSafe, generateUniqueRandomKey, hashStrBase64, compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
-
-import { sha256 } from "https://denopkg.com/chiefbiiko/sha256@v1.0.0/mod.ts";
-
-const generateUniqueRandomKey = (size: number = 40) => {
-    const validChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let array = new Uint8Array(size) as any;
-    window.crypto.getRandomValues(array);
-    array = array.map((x: number) => validChars.codePointAt(x % validChars.length));
-    return String.fromCharCode.apply(null, array);
-};
-
-// map a standard base64 encoding to a url-safe encoding
-// see https://www.oauth.com/oauth2-servers/pkce/authorization-request/
-const base64URLSafe = (str: string) =>
-    str.replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/\=+/, "");
 
 interface OauthSettings {
     oauth2_client_id: string;
@@ -29,7 +13,7 @@ interface OauthSettings {
 export async function authURL(req: { connector_id?: string; connector_config?: OauthSettings; config: object; redirect_uri?: string; state?: object }) {
     const { connector_id, config, redirect_uri, state, connector_config } = req;
 
-    let data: OauthSettings;
+    let data: OauthSettings | null;
 
     if (connector_id) {
         const { data: output_data, error }: { data: OauthSettings | null; error: any } = await supabaseClient
@@ -61,8 +45,7 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
 
     // See https://www.oauth.com/oauth2-servers/pkce/authorization-request/
     const codeVerifier = generateUniqueRandomKey(50);
-    const codeChallenge = base64URLSafe(sha256(codeVerifier, "utf8", "base64") as string);
-    const codeChallengeMethod = "S256";
+    const codeChallenge = base64URLSafe(await hashStrBase64(codeVerifier));
 
     const url = compileTemplate(
         oauth2_spec.authUrlTemplate,
@@ -72,7 +55,7 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
             client_id: oauth2_client_id,
             config,
             code_challenge: codeChallenge,
-            code_challenge_method: codeChallengeMethod,
+            code_challenge_method: "S256",
         },
     );
 
