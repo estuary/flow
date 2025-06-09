@@ -1511,6 +1511,10 @@ impl ControlPlane for TestControlPlane {
             .await
     }
 
+    async fn insert_shard_failures(&self, failures: Vec<ShardFailure>) -> anyhow::Result<()> {
+        self.inner.insert_shard_failures(failures).await
+    }
+
     async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>> {
         self.inner.get_shard_failures(catalog_name).await
     }
