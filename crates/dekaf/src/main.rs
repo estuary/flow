@@ -77,11 +77,6 @@ pub struct Cli {
     #[arg(long, env = "DEFAULT_BROKER_MSK_REGION")]
     default_broker_msk_region: String,
 
-    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
-    // Optional, if omitted then disable legacy connection mode
-    #[command(flatten)]
-    legacy_mode: Option<LegacyModeArgs>,
-    // ------------------------------------------------------------------------------------------------
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
     #[arg(long, env = "ENCRYPTION_SECRET")]
@@ -223,20 +218,6 @@ async fn main() -> anyhow::Result<()> {
 
     let upstream_kafka_urls = cli.build_broker_urls()?;
 
-    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
-    let (legacy_mode_kafka_urls, legacy_broker_username, legacy_broker_password) =
-        if let Some(args) = &cli.legacy_mode {
-            tracing::info!("Enabling refresh-token auth mode");
-            (
-                Some(args.build_broker_urls()?),
-                Some(args.legacy_mode_broker_username.clone()),
-                Some(args.legacy_mode_broker_password.clone()),
-            )
-        } else {
-            (None, None, None)
-        };
-    // ------------------------------------------------------------------------------------------------
-
     test_kafka(&cli).await?;
 
     let (api_endpoint, api_key) = if cli.local {
@@ -360,9 +341,7 @@ async fn main() -> anyhow::Result<()> {
                                     upstream_kafka_urls.clone(),
                                     msk_region.to_string(),
                                     cli.read_buffer_chunk_limit,
-                                    legacy_mode_kafka_urls.clone(),
-                                    legacy_broker_username.as_ref().map(|u| u.to_string()),
-                                    legacy_broker_password.as_ref().map(|p| p.to_string())
+
                                 ),
                                 socket,
                                 addr,
@@ -407,9 +386,7 @@ async fn main() -> anyhow::Result<()> {
                                     upstream_kafka_urls.clone(),
                                     msk_region.to_string(),
                                     cli.read_buffer_chunk_limit,
-                                    legacy_mode_kafka_urls.clone(),
-                                    legacy_broker_username.as_ref().map(|u| u.to_string()),
-                                    legacy_broker_password.as_ref().map(|p| p.to_string())
+
                                 ),
                                 socket,
                                 addr,
@@ -552,17 +529,6 @@ async fn test_kafka(cli: &Cli) -> anyhow::Result<()> {
     let broker_urls = cli.build_broker_urls()?;
 
     KafkaApiClient::connect(broker_urls.as_slice(), iam_creds).await?;
-
-    if let Some(legacy) = &cli.legacy_mode {
-        let legacy_broker_urls = legacy.build_broker_urls()?;
-        let user_pass_creds =
-            KafkaClientAuth::NonRefreshing(rsasl::config::SASLConfig::with_credentials(
-                None,
-                legacy.legacy_mode_broker_username.clone(),
-                legacy.legacy_mode_broker_password.clone(),
-            )?);
-        KafkaApiClient::connect(legacy_broker_urls.as_slice(), user_pass_creds).await?;
-    }
 
     tracing::info!("Successfully connected to upstream kafka");
 
