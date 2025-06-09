@@ -73,6 +73,18 @@ commit;
 
 Be sure to run the entire script with the "Run All" option.
 
+### Snowflake Secure Data Sharing
+
+It is possible to capture tables shared with you via [Snowflake Secure Data Sharing](https://docs.snowflake.com/en/user-guide/data-sharing-intro), though it comes with a couple of additional setup requirements.
+
+1. The source table will need to have change tracking enabled manually by the owner, as described in the Snowflake docs section ["Streams on shared objects"](https://docs.snowflake.com/en/user-guide/data-sharing-provider#streams-on-shared-objects).
+   - In general this will not be something which you, as the _recipient_ of a share, can set up.
+   - If not already enabled, you will need to speak with the owner of the shared table and ask them to set `CHANGE_TRACKING = TRUE` and `DATA_RETENTION_TIME_IN_DAYS = <n>` on the table(s) of interest, as described in the linked documentation.
+2. Configure the capture task's endpoint settings as follows:
+   - Set "Database" to the name of the shared DB containing the table(s) you intend to capture from, as usual.
+   - Set "Advanced Options > Flow Database" to the name of a DB you own. This is where the connector will put the entities it manages, such as change streams and transient staging tables.
+   - Set "Advanced Options > Full Copy Snapshots" to true. Note that with this option enabled the connector will (temporarily) make a full copy of the source table's data during the initial backfill. This is unavoidable, as shared tables do not support zero-copy cloning.
+
 ## Configuration
 
 You can configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Snowflake CDC source connector.
