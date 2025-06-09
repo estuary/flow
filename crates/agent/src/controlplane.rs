@@ -1,6 +1,7 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use gazette::{broker, journal, shard};
+use itertools::Itertools;
 use models::{
     status::{activation::ShardFailure, connector::ConfigUpdate},
     CatalogType, Id,
@@ -71,6 +72,8 @@ pub trait ControlPlane: Send + Sync {
         catalog_name: String,
         min_build_id: Id,
     ) -> anyhow::Result<()>;
+
+    async fn insert_shard_failures(&self, failures: Vec<ShardFailure>) -> anyhow::Result<()>;
 
     async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>>;
 
@@ -334,6 +337,23 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         .await
         .context("clearing config updates")?;
         tracing::info!(%min_build_id, ?deleted_count, "deleted old config updates");
+        Ok(())
+    }
+
+    async fn insert_shard_failures(&self, failures: Vec<ShardFailure>) -> anyhow::Result<()> {
+        let names = failures.iter().map(|f| f.shard.name.clone()).collect_vec();
+        let builds = failures.iter().map(|f| f.shard.build).collect_vec();
+        let timestamps = failures.iter().map(|f| f.ts).collect_vec();
+        sqlx::query!(
+            r#"insert into shard_failures (catalog_name, build, ts, flow_document)
+            select * from unnest($1::catalog_name[], $2::flowid[], $3::timestamptz[], $4::json[])"#,
+            names as Vec<String>,
+            builds as Vec<models::Id>,
+            timestamps as Vec<DateTime<Utc>>,
+            failures as Vec<ShardFailure>,
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

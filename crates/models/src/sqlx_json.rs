@@ -32,6 +32,13 @@ macro_rules! sqlx_json {
                 )
             }
         }
+
+        #[cfg(feature = "sqlx-support")]
+        impl sqlx::postgres::PgHasArrayType for $rust_type {
+            fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+                sqlx::postgres::PgTypeInfo::with_name("_JSON")
+            }
+        }
     };
 }
 
