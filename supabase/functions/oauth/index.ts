@@ -5,8 +5,6 @@ import { authURL } from "./auth-url.ts";
 import { encryptConfig } from "./encrypt-config.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
-console.log("OAuth functions started.");
-
 serve(async (req) => {
   // This is needed if you're planning to invoke your function from a browser.
   // Remember to add the corsHeaders on the other responses as well.
