@@ -12,7 +12,6 @@ The following data resources are supported through the MixPanel APIs:
 * [Export](https://developer.mixpanel.com/reference/raw-event-export)
 * [Engage](https://developer.mixpanel.com/reference/engage-query)
 * [Funnels](https://developer.mixpanel.com/reference/funnels-query)
-* [Revenue](https://developer.mixpanel.com/reference/engage-query)
 * [Annotations](https://developer.mixpanel.com/reference/overview-1)
 * [Cohorts](https://developer.mixpanel.com/reference/cohorts-list)
 * [Cohort Members](https://developer.mixpanel.com/reference/engage-query)
