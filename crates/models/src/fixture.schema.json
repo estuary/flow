@@ -14,6 +14,17 @@
             "null"
           ]
         },
+        "a_const": {
+          "title": "A constant property",
+          "const": "a constant value"
+        },
+        "an_enum": {
+          "description": "One of few",
+          "enum": [
+            "one",
+            2
+          ]
+        },
         "a_string": {
           "description": "(source type: varchar)",
           "type": [
