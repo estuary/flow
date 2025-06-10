@@ -87,7 +87,13 @@ pub async fn update_activation<C: ControlPlane>(
             .await?;
         status.recent_failure_count = 0;
         // We'll check again soon to see whether the shard is actually up
-        return Ok(has_task_shards.then_some(NextRun::after_minutes(5)));
+        return Ok(
+            has_task_shards.then_some(NextRun::from_duration(shard_health_check_interval(
+                state,
+                0,
+                ShardsStatus::Pending,
+            ))),
+        );
     }
 
     // Update our shard failure information. We can skip this if we know that there's
