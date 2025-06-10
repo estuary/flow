@@ -272,6 +272,10 @@ struct RelaxedSchemaObj {
     _required: Vec<String>,
     #[serde(rename = "format", default, skip_serializing)]
     _format: String,
+    #[serde(rename = "const", default, skip_serializing)]
+    _const: String,
+    #[serde(rename = "enum", default, skip_serializing)]
+    _enum: Vec<serde_json::Value>,
 
     // Other keywords are passed-through.
     #[serde(flatten)]
