@@ -332,12 +332,12 @@ pub fn shard_template(
     // We hard-code two hint backups per shard.
     let hint_backups = 2;
 
-    // If not set, the maximum transaction duration is five minutes
+    // If not set, the maximum transaction duration is twenty minutes
     // for materializations and one second for captures and derivations.
     let mut max_txn_duration = if let Some(max_txn_duration) = max_txn_duration {
         *max_txn_duration
     } else if task_type == labels::TASK_TYPE_MATERIALIZATION {
-        Duration::from_secs(5 * 60)
+        Duration::from_secs(20 * 60)
     } else {
         Duration::from_secs(1)
     };
