@@ -1172,7 +1172,7 @@ Outcome {
                         hint_backups: 2,
                         max_txn_duration: Some(
                             Duration {
-                                seconds: 300,
+                                seconds: 1200,
                                 nanos: 0,
                             },
                         ),
