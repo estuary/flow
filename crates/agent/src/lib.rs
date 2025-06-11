@@ -102,13 +102,16 @@ where
     }
 }
 
-#[derive(serde::Deserialize)]
-struct EncryptedHMACKeys {
-    hmac_keys: Vec<String>,
-}
-
 async fn decrypt_hmac_keys(raw: &str) -> anyhow::Result<Vec<String>> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+    #[derive(serde::Deserialize)]
+    struct HMACKeys {
+        hmac_keys: Vec<String>,
+    }
+    let input = raw.get();
+    if input == "{}" {
+        return Ok(Vec::new());
+    }
 
     // Note that input_output() pre-allocates an output buffer as large as its input buffer,
     // and our decrypted result will never be larger than its input.
@@ -125,7 +128,7 @@ async fn decrypt_hmac_keys(raw: &str) -> anyhow::Result<Vec<String>> {
             "json",
             "/dev/stdin",
         ]),
-        raw.as_bytes(),
+        input.as_bytes(),
     )
     .await
     .context("failed to run sops")?;

@@ -256,9 +256,13 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        let decrypted_hmac_keys = crate::decrypt_hmac_keys(&data_plane.encrypted_hmac_keys)
+        let mut decrypted_hmac_keys = crate::decrypt_hmac_keys(&data_plane.encrypted_hmac_keys)
             .await
             .context("decrypting HMAC keys")?;
+
+        if decrypted_hmac_keys.is_empty() {
+            decrypted_hmac_keys = data_plane.hmac_keys.clone();
+        }
 
         let mut metadata = gazette::Metadata::default();
         metadata
