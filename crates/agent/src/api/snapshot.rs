@@ -324,6 +324,10 @@ impl Snapshot {
         self.data_planes_hmac_keys
             .get(data_plane_name)
             .and_then(|v| v.first())
+            .or_else(|| {
+                let dp = self.data_plane_by_catalog_name(data_plane_name)?;
+                dp.hmac_keys.first()
+            })
             .map(|v| v.as_str())
     }
 
@@ -357,6 +361,15 @@ impl Snapshot {
                 }
             }
         }
+
+        for hmac_key in data_plane.clone().hmac_keys {
+            let key = jsonwebtoken::DecodingKey::from_base64_secret(&hmac_key)?;
+
+            if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
+                return Ok(Some(data_plane));
+            }
+        }
+
         Ok(None)
     }
 
@@ -470,8 +483,8 @@ async fn try_fetch(
             d.data_plane_name,
             d.data_plane_fqdn,
             false AS "is_default!: bool",
-            '{}'::text[] as "hmac_keys!",
             d.encrypted_hmac_keys,
+            d.hmac_keys,
             d.broker_address,
             d.reactor_address,
             d.ops_logs_name AS "ops_logs_name: models::Collection",
@@ -619,7 +632,7 @@ impl Snapshot {
                 data_plane_fqdn: "fqdn1".to_string(),
                 is_default: false,
                 hmac_keys: Vec::new(),
-                encrypted_hmac_keys: "encrypted-gibberish".to_string(),
+                encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
                 broker_address: "broker.1".to_string(),
                 reactor_address: "reactor.1".to_string(),
                 ops_logs_name: models::Collection::new("ops/tasks/public/plane-one/logs"),
@@ -631,7 +644,7 @@ impl Snapshot {
                 data_plane_fqdn: "fqdn2".to_string(),
                 is_default: false,
                 hmac_keys: Vec::new(),
-                encrypted_hmac_keys: "encrypted-gibberish".to_string(),
+                encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
                 broker_address: "broker.2".to_string(),
                 reactor_address: "reactor.2".to_string(),
                 ops_logs_name: models::Collection::new("ops/tasks/public/plane-two/logs"),
