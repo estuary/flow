@@ -498,7 +498,7 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
             data_plane_fqdn,
             false AS "is_default!: bool",
             hmac_keys,
-            encrypted_hmac_keys,
+            encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
             broker_address,
             reactor_address,
             ops_logs_name AS "ops_logs_name: models::Collection",

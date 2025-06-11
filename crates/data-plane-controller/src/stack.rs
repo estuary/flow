@@ -260,7 +260,7 @@ pub struct ControlExports {
     pub cidr_blocks: Vec<ipnetwork::IpNetwork>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
-    pub encrypted_hmac_keys: String,
+    pub encrypted_hmac_keys: serde_json::Value,
     pub ssh_key: String,
 }
 

@@ -1,3 +1,6 @@
+#[cfg(feature = "sqlx-support")]
+use sqlx::Decode;
+
 /// RawValue is like serde_json::value::RawValue, but removes newlines to ensure
 /// values can safely be used in newline-delimited contexts.
 ///
@@ -72,6 +75,33 @@ impl From<RawValue> for String {
     fn from(value: RawValue) -> Self {
         let s: Box<str> = value.0.into();
         s.into()
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Type<sqlx::postgres::Postgres> for RawValue {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("json")
+    }
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        *ty == Self::type_info()
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Encode<'_, sqlx::postgres::Postgres> for RawValue {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend_from_slice(self.0.get().as_bytes());
+        sqlx::encode::IsNull::No
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Decode<'_, sqlx::postgres::Postgres> for RawValue {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        <&[u8] as Decode<'_, sqlx::postgres::Postgres>>::decode(value)
+            .and_then(|i| serde_json::from_slice(i).map_err(|e| e.into()))
+            .map(|i| Self(i))
     }
 }
 
