@@ -102,16 +102,16 @@ where
     }
 }
 
-async fn decrypt_hmac_keys(raw: &models::RawValue) -> anyhow::Result<Vec<String>> {
+async fn decrypt_hmac_keys(dp: &mut tables::DataPlane) -> anyhow::Result<()> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
+    if !dp.hmac_keys.is_empty() {
+        return Ok(());
+    }
 
     #[derive(serde::Deserialize)]
     struct HMACKeys {
         hmac_keys: Vec<String>,
-    }
-    let input = raw.get();
-    if input == "{}" {
-        return Ok(Vec::new());
     }
 
     // Note that input_output() pre-allocates an output buffer as large as its input buffer,
@@ -129,7 +129,7 @@ async fn decrypt_hmac_keys(raw: &models::RawValue) -> anyhow::Result<Vec<String>
             "json",
             "/dev/stdin",
         ]),
-        input.as_bytes(),
+        dp.encrypted_hmac_keys.get().as_bytes(),
     )
     .await
     .context("failed to run sops")?;
@@ -143,9 +143,11 @@ async fn decrypt_hmac_keys(raw: &models::RawValue) -> anyhow::Result<Vec<String>
         );
     }
 
-    Ok(serde_json::from_slice::<HMACKeys>(&stdout)
+    dp.hmac_keys = serde_json::from_slice::<HMACKeys>(&stdout)
         .context("parsing decrypted sops document")?
-        .hmac_keys)
+        .hmac_keys;
+
+    Ok(())
 }
 
 #[cfg(test)]

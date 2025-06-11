@@ -124,7 +124,7 @@ fn evaluate_authorization(
         )
         .with_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
-    let Some(encoding_key) = snapshot.data_plane_first_hmac_key(&data_plane.data_plane_name) else {
+    let Some(encoding_key) = data_plane.hmac_keys.first() else {
         return Err(anyhow::anyhow!(
             "collection data-plane {} has no configured HMAC keys",
             data_plane.data_plane_name
