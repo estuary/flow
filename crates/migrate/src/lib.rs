@@ -112,10 +112,14 @@ async fn phase_one(
 
     // Munge FQDNs for use within Gazette label values:
     // - https://flow.localhost:9000 => flow.localhost/9000
-    // - https://reactor.aws-eu-west-1-c1.dp.estuary-data.com => reactor.aws-eu-west-1-c1.dp.estuary-data.com
+    // - https://reactor.aws-eu-west-1-c1.dp.estuary-data.com => reactor.aws-eu-west-1-c1.dp.estuary-data.com/443
     let munge_fqdn = |fqdn: &str| {
         let fqdn = fqdn.strip_prefix("https://").unwrap_or(fqdn);
-        fqdn.replace(":", "/")
+        if fqdn.contains(':') {
+            fqdn.replace(":", "/")
+        } else {
+            format!("{}/443", fqdn)
+        }
     };
 
     // Fetch and cordon shards and journals from the source data-plane.
