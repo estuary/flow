@@ -126,6 +126,7 @@ so many of these properties aren't required.
 | `/custom_queries` | Custom GAQL Queries (Optional) |  | array |  |
 | _`/custom_queries/-/query`_ | Custom Query | A custom defined GAQL query for building the report. Should not contain segments.date expression. See Google&#x27;s [query builder](https://developers.google.com/google-ads/api/fields/v11/overview_query_builder) for more information. | string |  |
 | _`/custom_queries/-/table_name`_ | Destination Table Name | The table name in your destination database for chosen query. | string |  |
+| _`/custom_queries/-/primary_key`_ | Destination Table Primary Key | The primary key in your destination database. Accepts a comma delimited string of fields present in your query. | string |  |
 | **`/customer_id`** | Customer ID(s) | Comma separated list of (client) customer IDs. Each customer ID must be specified as a 10-digit number without dashes. More instruction on how to find this value in our docs.  Metrics streams like AdGroupAdReport cannot be requested for a manager account. | string | Required |
 | `/end_date` | End Date (Optional) | UTC date in the format 2017-01-25. Any data after this date will not be replicated. | string |  |
 | `/login_customer_id` | Login Customer ID for Managed Accounts (Optional) | If your access to the customer account is through a manager account, this field is required and must be set to the customer ID of the manager account (10-digit number without dashes). | string |  |
@@ -166,8 +167,8 @@ captures:
                   campaign.name,
                   campaign.status
                 FROM campaign
-                ORDER BY campaign.id
               table_name: campaigns_custom
+              primary_key: campaign.id,campaign.name
     bindings:
       - resource:
           stream: campaign
