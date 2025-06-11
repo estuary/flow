@@ -256,21 +256,13 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        let mut decrypted_hmac_keys = crate::decrypt_hmac_keys(&data_plane.encrypted_hmac_keys)
-            .await
-            .context("decrypting HMAC keys")?;
-
-        if decrypted_hmac_keys.is_empty() {
-            decrypted_hmac_keys = data_plane.hmac_keys.clone();
-        }
-
         let mut metadata = gazette::Metadata::default();
         metadata
             .signed_claims(
                 proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
                 &data_plane.data_plane_fqdn,
                 std::time::Duration::from_secs(60),
-                &decrypted_hmac_keys,
+                &data_plane.hmac_keys,
                 broker::LabelSelector::default(),
                 "agent",
             )
