@@ -4583,7 +4583,6 @@ name = "migrate"
 version = "0.0.0"
 dependencies = [
  "activate",
- "agent",
  "anyhow",
  "assemble",
  "automations",
