@@ -107,6 +107,11 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
+## Sync Schedule
+
+This connector supports configuring a schedule for sync frequency. You can read
+about how to configure this [here](../../materialization-sync-schedule.md).
+
 ## Delta updates
 
 This connector supports both standard (merge) and [delta

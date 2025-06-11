@@ -16,6 +16,7 @@ takes to load data to it.
 These materialization connectors support configuring a sync schedule:
 - [materialize-bigquery](Connectors/materialization-connectors/BigQuery.md)
 - [materialize-databricks](Connectors/materialization-connectors/databricks.md)
+- [materialize-motherduck](Connectors/materialization-connectors/motherduck.md)
 - [materialize-redshift](Connectors/materialization-connectors/amazon-redshift.md)
 - [materialize-snowflake](Connectors/materialization-connectors/Snowflake.md)
 - [materialize-starburst](Connectors/materialization-connectors/starburst.md)
