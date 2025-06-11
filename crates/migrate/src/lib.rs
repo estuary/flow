@@ -110,10 +110,19 @@ async fn phase_one(
 
     let (task_type, task_template, partition_template) = unpack_templates(built_spec)?;
 
-    // Munge FQDNs for use within Gazette label values:
+    // Munge FQDNs for use within Gazette label values.
+    //
+    // If an input has a :port, that port is preserved in the output as /port:
     // - https://flow.localhost:9000 => flow.localhost/9000
+    // Otherwise if no :port is present, the default port 443 is used:
     // - https://reactor.aws-eu-west-1-c1.dp.estuary-data.com => reactor.aws-eu-west-1-c1.dp.estuary-data.com/443
+    // - https://reactor.f3c2b732d1763a1c.dp.estuary-data.com => reactor.f3c2b732d1763a1c.dp.estuary-data.com/443
+    // As a special case, the internal Cronut service address is re-mapped to the data-plane-gateway:
+    // - http://flow-reactor.flow.svc.cluster.local:8080 => us-central1.v1.estuary-data.dev/443
     let munge_fqdn = |fqdn: &str| {
+        if fqdn == "http://flow-reactor.flow.svc.cluster.local:8080" {
+            return "us-central1.v1.estuary-data.dev/443".to_string();
+        }
         let fqdn = fqdn.strip_prefix("https://").unwrap_or(fqdn);
         if fqdn.contains(':') {
             fqdn.replace(":", "/")
