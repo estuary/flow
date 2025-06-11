@@ -102,8 +102,9 @@ where
     }
 }
 
-async fn decrypt_hmac_keys(raw: &str) -> anyhow::Result<Vec<String>> {
+async fn decrypt_hmac_keys(raw: &models::RawValue) -> anyhow::Result<Vec<String>> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
     #[derive(serde::Deserialize)]
     struct HMACKeys {
         hmac_keys: Vec<String>,
@@ -142,7 +143,7 @@ async fn decrypt_hmac_keys(raw: &str) -> anyhow::Result<Vec<String>> {
         );
     }
 
-    Ok(serde_json::from_slice::<EncryptedHMACKeys>(&stdout)
+    Ok(serde_json::from_slice::<HMACKeys>(&stdout)
         .context("parsing decrypted sops document")?
         .hmac_keys)
 }

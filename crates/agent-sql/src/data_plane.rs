@@ -49,7 +49,7 @@ pub async fn fetch_data_planes<'a, 'b>(
                 where starts_with($2, r.role_prefix)
             ) as "is_default!: bool",
             hmac_keys,
-            encrypted_hmac_keys,
+            encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
             data_plane_fqdn,
             broker_address,
             reactor_address,

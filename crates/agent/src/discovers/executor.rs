@@ -364,7 +364,7 @@ mod test {
             data_plane_fqdn: "data.plane.test".to_string(),
             is_default: true,
             hmac_keys: Vec::new(),
-            encrypted_hmac_keys: "encrypted-gibberish".to_string(),
+            encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
             ops_logs_name: models::Collection::new("tha/logs"),
             ops_stats_name: models::Collection::new("tha/stats"),
             broker_address: "broker.test".to_string(),
