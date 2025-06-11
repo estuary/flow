@@ -38,3 +38,4 @@ Finally, provide the following information to your Estuary point of contact:
 
  - Subscription ID (found in Subscriptions -> Overview)
  - Tenant ID (found in Tenant Properties)
+ - Azure region
