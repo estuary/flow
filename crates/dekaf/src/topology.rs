@@ -416,9 +416,12 @@ impl Collection {
         user_auth: &UserAuth,
         collection_name: &str,
     ) -> anyhow::Result<journal::Client> {
-        let (_, journal_client) =
-            flow_client::fetch_user_collection_authorization(&user_auth.client, collection_name)
-                .await?;
+        let (_, journal_client) = flow_client::fetch_user_collection_authorization(
+            &user_auth.client,
+            collection_name,
+            false,
+        )
+        .await?;
 
         Ok(journal_client)
     }
