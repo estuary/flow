@@ -558,6 +558,8 @@ impl Snapshot {
             ("bobCo/widgets/mangoes", 2),
             ("bobCo/widgets/squashes", 2),
             ("bobCo/anvils/peaches", 2),
+            ("bobCo/tires/collection", 2),
+            ("aliceCo/wonderland/data", 2),
             ("ops/tasks/public/plane-two/logs", 2),
             ("ops/tasks/public/plane-two/stats", 2),
         ]
@@ -639,9 +641,16 @@ impl Snapshot {
                 object_role: models::Prefix::new("ops/dp/public/"),
                 capability: models::Capability::Read,
             },
+            tables::RoleGrant {
+                subject_role: models::Prefix::new("aliceCo/"),
+                object_role: models::Prefix::new("ops/dp/public/"),
+                capability: models::Capability::Read,
+            },
         ];
 
         let user_grants = vec![
+            // bob@bob has write to bobCo/ and admin to bobCo/tires/,
+            // but does not have estuary_support/.
             tables::UserGrant {
                 user_id: uuid::Uuid::from_bytes([32; 16]),
                 object_role: models::Prefix::new("bobCo/"),
@@ -650,6 +659,17 @@ impl Snapshot {
             tables::UserGrant {
                 user_id: uuid::Uuid::from_bytes([32; 16]),
                 object_role: models::Prefix::new("bobCo/tires/"),
+                capability: models::Capability::Admin,
+            },
+            // alice@alice has admin to aliceCo/ and estuary_support/
+            tables::UserGrant {
+                user_id: uuid::Uuid::from_bytes([64; 16]),
+                object_role: models::Prefix::new("aliceCo/"),
+                capability: models::Capability::Admin,
+            },
+            tables::UserGrant {
+                user_id: uuid::Uuid::from_bytes([64; 16]),
+                object_role: models::Prefix::new("estuary_support/"),
                 capability: models::Capability::Admin,
             },
         ];
@@ -674,6 +694,16 @@ impl Snapshot {
             ),
             (
                 "bobCo/anvils/materialize-orange",
+                models::CatalogType::Materialization,
+                2,
+            ),
+            (
+                "aliceCo/wonderland/materialize-tea",
+                models::CatalogType::Materialization,
+                2,
+            ),
+            (
+                "bobCo/tires/materialize-wheels",
                 models::CatalogType::Materialization,
                 2,
             ),
