@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -235,6 +236,47 @@ func TestAPIApplyCases(t *testing.T) {
 		Changes: []pc.ApplyRequest_Change{{Upsert: specB}},
 	})
 	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-B`)
+
+	// Case: Upsert with labels requires claims to match all labels (not just id).
+	// Create claims that require env=staging
+	var claimsRequireStagingEnv = pb.Claims{
+		Capability: pb.Capability_APPLY,
+		Selector:   pb.MustLabelSelector("id=shard-with-labels,env=staging"),
+	}
+	var specWithLabels = &pc.ShardSpec{
+		Id:                "shard-with-labels", // This matches the id in claims
+		Sources:           []pc.ShardSpec_Source{{Journal: sourceA.Name}},
+		RecoveryLogPrefix: aRecoveryLogPrefix,
+		HintPrefix:        "/hints",
+		MaxTxnDuration:    time.Second,
+		LabelSet:          pb.MustLabelSet("env", "production"), // But env=production doesn't match env=staging
+	}
+	_, err = tf.service.Apply(ctx, claimsRequireStagingEnv, &pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{{Upsert: specWithLabels}},
+	})
+	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-with-labels`)
+
+	// Case: Upsert succeeds when claims selector matches all labels.
+	var ctxMatchingClaims = pb.Claims{
+		Capability: pb.Capability_APPLY,
+		Selector:   pb.MustLabelSelector("id=shard-with-labels,env=production"),
+	}
+	resp, err := tf.service.Apply(ctx, ctxMatchingClaims, &pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{{Upsert: specWithLabels}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pc.Status_OK, resp.Status)
+
+	// Case: Delete still only requires id to match (not other labels).
+	var ctxIdOnlyClaims = pb.Claims{
+		Capability: pb.Capability_APPLY,
+		Selector:   pb.MustLabelSelector("id=shard-with-labels"),
+	}
+	resp, err = tf.service.Apply(ctx, ctxIdOnlyClaims, &pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{{Delete: "shard-with-labels", ExpectModRevision: -1}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pc.Status_OK, resp.Status)
 
 	// Case: Invalid requests fail with an error.
 	_, err = tf.service.Apply(ctx, allClaims, &pc.ApplyRequest{

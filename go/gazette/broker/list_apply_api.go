@@ -219,30 +219,26 @@ func (svc *Service) Apply(ctx context.Context, claims pb.Claims, req *pb.ApplyRe
 		return nil, err
 	}
 
-	// The Apply API is authorized exclusively through the "name" label.
-	var authorizeJournal = func(claims *pb.Claims, journal pb.Journal) error {
-		if !claims.Selector.Matches(pb.MustLabelSet("name", journal.String())) {
-			return status.Error(codes.Unauthenticated, fmt.Sprintf("not authorized to %s", journal))
-		}
-		return nil
-	}
-
 	var cmp []clientv3.Cmp
 	var ops []clientv3.Op
 	var s = svc.resolver.state
+	var scratch pb.LabelSet
 
 	for _, change := range req.Changes {
 		var key string
 
 		if change.Upsert != nil {
-			if err = authorizeJournal(&claims, change.Upsert.Name); err != nil {
-				return nil, err
+			// For Upserts, authorize against the journal's labels plus meta-labels
+			scratch = change.Upsert.LabelSetExt(scratch)
+			if !claims.Selector.Matches(scratch) {
+				return nil, status.Error(codes.Unauthenticated, fmt.Sprintf("not authorized to %s", change.Upsert.Name))
 			}
 			key = allocator.ItemKey(s.KS, change.Upsert.Name.String())
 			ops = append(ops, clientv3.OpPut(key, change.Upsert.MarshalString()))
 		} else {
-			if err = authorizeJournal(&claims, change.Delete); err != nil {
-				return nil, err
+			// For Deletes, use name-only authorization
+			if !claims.Selector.Matches(pb.MustLabelSet("name", change.Delete.String())) {
+				return nil, status.Error(codes.Unauthenticated, fmt.Sprintf("not authorized to %s", change.Delete))
 			}
 			key = allocator.ItemKey(s.KS, change.Delete.String())
 			ops = append(ops, clientv3.OpDelete(key))

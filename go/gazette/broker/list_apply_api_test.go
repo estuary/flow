@@ -360,6 +360,47 @@ func TestApplyCases(t *testing.T) {
 		})
 	require.ErrorContains(t, err, "not authorized to journal/B")
 
+	// Case: Upsert with labels requires claims to match all labels (not just name).
+	// Create a context with claims that require env=staging
+	var ctxRequireStagingEnv = pb.WithClaims(ctx,
+		pb.Claims{
+			Capability: pb.Capability_APPLY,
+			Selector:   pb.MustLabelSelector("name=something/else,env=staging"),
+		})
+	var specWithLabels = pb.JournalSpec{
+		Name:        "something/else",                     // This matches the name in claims
+		LabelSet:    pb.MustLabelSet("env", "production"), // But env=production doesn't match env=staging
+		Replication: 1,
+		Fragment:    fragSpec,
+	}
+	_, err = broker.client().Apply(
+		ctxRequireStagingEnv,
+		&pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{{Upsert: &specWithLabels}},
+		})
+	require.ErrorContains(t, err, "not authorized to something/else")
+
+	// Case: Upsert succeeds when claims selector matches all labels.
+	var ctxMatchingClaims = pb.WithClaims(ctx,
+		pb.Claims{
+			Capability: pb.Capability_APPLY,
+			Selector:   pb.MustLabelSelector("name=something/else,env=production"),
+		})
+	require.Equal(t, pb.Status_OK,
+		must(broker.client().Apply(
+			ctxMatchingClaims,
+			&pb.ApplyRequest{
+				Changes: []pb.ApplyRequest_Change{{Upsert: &specWithLabels}},
+			})).Status)
+
+	// Case: Delete still only requires name to match (not other labels).
+	require.Equal(t, pb.Status_OK,
+		must(broker.client().Apply(
+			ctxNarrowClaims,
+			&pb.ApplyRequest{
+				Changes: []pb.ApplyRequest_Change{{Delete: "something/else", ExpectModRevision: -1}},
+			})).Status)
+
 	broker.cleanup()
 }
 
