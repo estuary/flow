@@ -434,7 +434,7 @@ fn unpack_shard_listing(resp: consumer::ListResponse) -> anyhow::Result<Vec<Shar
 }
 
 /// Unpack a broker ListResponse into its structured collection splits.
-fn unpack_journal_listing(resp: broker::ListResponse) -> anyhow::Result<Vec<JournalSplit>> {
+pub fn unpack_journal_listing(resp: broker::ListResponse) -> anyhow::Result<Vec<JournalSplit>> {
     let mut v = Vec::new();
 
     for resp in resp.journals {
@@ -799,8 +799,9 @@ fn apply_initial_splits<'a>(
 }
 
 /// Map a parent JournalSplit into two subdivided splits.
-#[allow(dead_code)]
-fn map_partition_to_split(parent: &JournalSplit) -> anyhow::Result<(JournalSplit, JournalSplit)> {
+pub fn map_partition_to_split(
+    parent: &JournalSplit,
+) -> anyhow::Result<(JournalSplit, JournalSplit)> {
     let (parent_begin, parent_end) = labels::partition::decode_key_range(&parent.labels)?;
 
     let pivot = ((parent_begin as u64 + parent_end as u64 + 1) / 2) as u32;
