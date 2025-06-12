@@ -59,6 +59,8 @@ pub enum Command {
     ListJournals(CollectionJournalSelector),
     /// List the journal fragments of a flow collection
     ListFragments(ListFragmentsArgs),
+    /// Split the journals of a flow collection
+    SplitJournals(SplitJournalsArgs),
 }
 
 impl Collections {
@@ -67,6 +69,7 @@ impl Collections {
             Command::Read(args) => do_read(ctx, args).await,
             Command::ListJournals(selector) => do_list_journals(ctx, selector).await,
             Command::ListFragments(args) => do_list_fragments(ctx, args).await,
+            Command::SplitJournals(args) => do_split_journals(ctx, args).await,
         }
     }
 }
@@ -121,6 +124,16 @@ pub struct ListFragmentsArgs {
     /// the last 10 minutes.
     #[clap(long)]
     pub since: Option<humantime::Duration>,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct SplitJournalsArgs {
+    #[clap(flatten)]
+    pub selector: CollectionJournalSelector,
+
+    /// Show what would be split without actually performing the splits
+    #[clap(long)]
+    pub dry_run: bool,
 }
 
 impl CliOutput for broker::fragments_response::Fragment {
@@ -185,7 +198,8 @@ async fn do_list_fragments(
     }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
     let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
+        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
+            .await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -225,7 +239,8 @@ async fn do_list_journals(
     selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
     let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
+        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
+            .await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -241,4 +256,119 @@ async fn do_list_journals(
         .collect();
 
     ctx.write_all(journals?, ())
+}
+
+async fn do_split_journals(
+    ctx: &mut crate::CliContext,
+    args: &SplitJournalsArgs,
+) -> Result<(), anyhow::Error> {
+    let selector = &args.selector;
+
+    // Get collection's built spec first for better error messages
+    #[derive(serde::Deserialize)]
+    struct LiveSpecResult {
+        built_spec: Option<models::RawValue>,
+    }
+
+    let results: Vec<LiveSpecResult> = crate::api_exec(
+        ctx.client
+            .from("live_specs_ext")
+            .select("built_spec")
+            .eq("catalog_name", &selector.collection)
+            .eq("spec_type", "collection")
+            .limit(1),
+    )
+    .await?;
+
+    let built_spec = match results.first() {
+        Some(LiveSpecResult {
+            built_spec: Some(spec),
+        }) => spec,
+        Some(LiveSpecResult { built_spec: None }) => {
+            anyhow::bail!(
+                "Collection '{}' exists but has no built spec",
+                selector.collection
+            )
+        }
+        None => {
+            anyhow::bail!("Collection '{}' not found", selector.collection)
+        }
+    };
+
+    // Parse the built spec to get partition template
+    let collection_spec: proto_flow::flow::CollectionSpec = serde_json::from_str(built_spec.get())?;
+    let partition_template = collection_spec
+        .partition_template
+        .as_ref()
+        .context("Collection has no partition template")?;
+
+    // Now get collection authorization and journal client (admin required for splitting)
+    let (journal_name_prefix, client) =
+        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, true)
+            .await?;
+
+    // List current journals
+    let list_resp = client
+        .list(proto_gazette::broker::ListRequest {
+            selector: Some(selector.build_label_selector(journal_name_prefix)),
+            ..Default::default()
+        })
+        .await?;
+
+    // Unpack to journal splits
+    let current_splits = activate::unpack_journal_listing(list_resp)?;
+
+    if current_splits.is_empty() {
+        println!("No journals found for collection '{}'", selector.collection);
+        return Ok(());
+    }
+
+    // Split each journal into two
+    let mut new_splits = Vec::new();
+    let mut split_operations = Vec::new();
+
+    for current_split in &current_splits {
+        match activate::map_partition_to_split(current_split) {
+            Ok((lhs, rhs)) => {
+                new_splits.push(lhs);
+                new_splits.push(rhs.clone());
+                split_operations.push((current_split.name.clone(), rhs.name.clone()));
+            }
+            Err(e) => {
+                eprintln!("Failed to split journal '{}': {}", current_split.name, e);
+            }
+        }
+    }
+
+    if new_splits.is_empty() {
+        println!("No journals could be split");
+        return Ok(());
+    }
+
+    // Show what would be split
+    for (current_name, new_name) in &split_operations {
+        println!("Splitting journal: {} -> {}", current_name, new_name);
+    }
+
+    if args.dry_run {
+        println!("Dry run: would split {} journal(s)", split_operations.len());
+        return Ok(());
+    }
+
+    // Generate changes
+    let changes = activate::partition_changes(Some(partition_template), new_splits)?;
+
+    // We need a shard client for apply_changes, but we're only doing journal operations
+    // Create a minimal shard client
+    let shard_client = gazette::shard::Client::new(
+        String::new(),
+        gazette::Metadata::default(),
+        gazette::Router::new("local"),
+    );
+
+    // Apply changes
+    activate::apply_changes(&client, &shard_client, changes).await?;
+
+    println!("Successfully split {} journal(s)", split_operations.len());
+    Ok(())
 }

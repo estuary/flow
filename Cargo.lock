@@ -2904,6 +2904,7 @@ dependencies = [
 name = "flowctl"
 version = "0.0.0"
 dependencies = [
+ "activate",
  "anyhow",
  "assemble",
  "assert_cmd",

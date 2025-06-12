@@ -342,6 +342,7 @@ pub async fn fetch_user_task_authorization(
 pub async fn fetch_user_collection_authorization(
     client: &Client,
     collection: &str,
+    admin: bool,
 ) -> anyhow::Result<(String, gazette::journal::Client)> {
     let started_unix = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -360,7 +361,11 @@ pub async fn fetch_user_collection_authorization(
                 &models::authorizations::UserCollectionAuthorizationRequest {
                     started_unix,
                     collection: models::Collection::new(collection),
-                    capability: models::Capability::Read,
+                    capability: if admin {
+                        models::Capability::Admin
+                    } else {
+                        models::Capability::Read
+                    },
                 },
             )
             .await?;

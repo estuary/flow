@@ -11,6 +11,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+activate = { path = "../activate" }
 assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
 build = { path = "../build" }
