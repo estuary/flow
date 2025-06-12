@@ -142,6 +142,25 @@ fn evaluate_authorization(
         .with_status(StatusCode::FORBIDDEN));
     }
 
+    // For admin capability, require that the user has a transitive role grant to estuary_support/
+    if capability == models::Capability::Admin {
+        let has_support_access = tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            user_id,
+            "estuary_support/",
+            models::Capability::Admin,
+        );
+
+        if !has_support_access {
+            return Err(anyhow::anyhow!(
+                "{} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
+                user_email.map(String::as_str).unwrap_or("user")
+            )
+            .with_status(StatusCode::FORBIDDEN));
+        }
+    }
+
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
         return Err(
             anyhow::anyhow!("task {task_name} is not known").with_status(StatusCode::NOT_FOUND)
@@ -318,7 +337,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_capability_to_high() {
+    async fn test_capability_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
@@ -336,6 +355,7 @@ mod tests {
         }
         "###);
     }
+
     #[tokio::test]
     async fn test_not_found() {
         let outcome = run(
@@ -372,6 +392,91 @@ mod tests {
             "status": 500,
             "error": "retry"
           }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_bob_cannot_get_admin_even_with_admin_grant() {
+        // bob@bob has admin capability on bobCo/tires/ but lacks estuary_support/
+        // We need to add a task under bobCo/tires/ to the fixture for this test
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Name::new("bobCo/tires/materialize-wheels"),
+            models::Capability::Admin,
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "bob@bob is not authorized to bobCo/tires/materialize-wheels for Admin capability (requires estuary_support/ grant)"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_admin_with_estuary_support_grant() {
+        // alice@alice has estuary_support/ grant in the fixture, so admin should succeed
+        let outcome = run(
+            uuid::Uuid::from_bytes([64; 16]),
+            Some("alice@alice".to_string()),
+            models::Name::new("aliceCo/wonderland/materialize-tea"),
+            models::Capability::Admin,
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.2",
+            {
+              "cap": 10,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=aliceCo%2Fwonderland%2Fmaterialize-tea/pivot=00"
+                    },
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=aliceCo%2Fwonderland%2Fmaterialize-tea/pivot=00"
+                    }
+                  ]
+                }
+              },
+              "sub": "40404040-4040-4040-4040-404040404040"
+            },
+            "reactor.2",
+            {
+              "cap": 262174,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "id",
+                      "value": "materialization/aliceCo/wonderland/materialize-tea/0011223344556677/",
+                      "prefix": true
+                    }
+                  ]
+                }
+              },
+              "sub": "40404040-4040-4040-4040-404040404040"
+            },
+            "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=aliceCo%2Fwonderland%2Fmaterialize-tea/pivot=00",
+            "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=aliceCo%2Fwonderland%2Fmaterialize-tea/pivot=00",
+            "materialization/aliceCo/wonderland/materialize-tea/0011223344556677/"
+          ]
         }
         "###);
     }
