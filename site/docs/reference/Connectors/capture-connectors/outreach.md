@@ -47,6 +47,8 @@ you'll sign in directly and won't need the access token.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/start_date` | Start date | UTC date and time in the format 2025-04-24T00:00:00Z. Any data updated before this date will not be replicated. | string | 30 days before the present date |
+| **`/credentials/access_token`** | Access Token | The access token received from the OAuth app. | string | Required |
+| **`/credentials/access_token_expires_at`** | Access Token Expiration Datetime | The access token's expiration date and time in the format 2025-04-24T00:00:00Z. | string | Required |
 | **`/credentials/client_id`** | OAuth Client ID | The OAuth app's client ID. | string | Required |
 | **`/credentials/client_secret`** | OAuth Client Secret | The OAuth app's client secret. | string | Required |
 | **`/credentials/credentials_title`** | Authentication Method | Name of the credentials set. Set to `OAuth Credentials`. | string | Required |
@@ -70,6 +72,8 @@ captures:
         image: ghcr.io/estuary/source-outreach:dev
         config:
           credentials:
+            access_token: <secret>
+            access_token_expires_at: "2025-04-24T12:00:00Z"
             credentials_title: "OAuth Credentials"
             client_id: <secret>
             client_secret: <secret>

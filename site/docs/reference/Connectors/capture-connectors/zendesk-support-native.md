@@ -69,9 +69,11 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/start_date`** | Start Date | The date from which you&#x27;d like to replicate data for Zendesk Support API, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | Required |
 | `/credentials/username` | Email | The user email for your Zendesk account. | string | Required for API token authentication |
 | `/credentials/password` | API Token | The value of the API token generated. | string | Required for API token authentication |
+| **`/credentials/access_token`** | Access Token | The access token received from the OAuth app. | string | Required for OAuth2 authentication |
+| **`/credentials/access_token_expires_at`** | Access Token Expiration Datetime | The access token's expiration date and time in the format 2025-04-24T00:00:00Z. | string | Required for OAuth2 authentication |
 | `/credentials/client_id` | OAuth Client ID | The OAuth app's client ID. | string | Required for OAuth2 authentication |
 | `/credentials/client_secret` | OAuth Client Secret | The OAuth app's client secret. | string | Required for OAuth2 authentication |
-| `/credentials/access_token` | Access Token | The access token received from the OAuth app. | string | Required for OAuth2 authentication |
+| `/credentials/refresh_token` | Refresh Token | The refresh token received from the OAuth app. | string | Required for OAuth2 authentication |
 | `/advanced/incremental_export_page_size` | Incremental Export Streams' Page Size | Page size for incremental export streams. Typically left as the default unless Estuary Support or the connector logs indicate otherwise. | integer | 1,000 |
 
 
