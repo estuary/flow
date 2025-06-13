@@ -21,8 +21,8 @@ To capture change events from SQL Server tables using this connector, you need:
   [See detailed steps](#specifying-flow-collection-keys).
 
 - [CDC enabled](https://learn.microsoft.com/en-us/sql/relational-databases/track-changes/enable-and-disable-change-data-capture-sql-server?view=sql-server-ver16)
-  on the database and the individual tables to be captured.
-  (This creates _change tables_ in the database, from which the connector reads.)
+  on both the database and the individual tables to be captured.
+  - Enabling CDC on a source table create a _change table_ in the database, from which the connector reads. You may optionally enable the "Automatic Capture Instance Management" advanced option to have the connector manage these automatically, but this will require additional permissions. See [Automatic Capture Instance Management](#automatic-capture-instance-management) for more details.
 
 - A user role with:
   - `SELECT` permissions on the CDC schema and the schemas that contain tables to be captured.
@@ -64,6 +64,36 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'foobar', @r
 
 3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
    Together, you'll use the host:port as the `address` property when you configure the connector.
+
+### Handling DDL Alterations to Source Tables
+
+In SQL Server, adding a column to the source table will not automatically cause it to be added to the CDC change table. Instead [Microsoft's recommended approach](https://learn.microsoft.com/en-us/sql/relational-databases/track-changes/about-change-data-capture-sql-server?view=sql-server-ver17#handling-changes-to-source-table) is to create a second capture instance which reflects the new state of the source table, transition over to the new instance, and then delete the old one.
+
+The connector will automatically detect the existence of a second capture instance and will seamlessly switch over to the newest one as soon as it reaches a point in the event stream where they are both valid. After this switchover occurs you may delete the old instance.
+
+If you are managing capture instances manually, you will need to manually create the new instance with `sys.sp_cdc_enable_table`, wait for the new column to begin being captured, and then delete the old instance at your leisure using `sys.sp_cdc_disable_table`.
+
+If you are using [Automatic Capture Instance Management](#automatic-capture-instance-management), the connector detect DDL alterations to the source table and will handle the whole process of creating a new CDC instance and dropping the old one automatically.
+
+### Automatic Capture Instance Management
+
+You may wish to have the connector automatically issue `sys.sp_cdc_enable_table` (and sometimes also `sys.sp_cdc_disable_table`) statements on your behalf. This can be done by enabling the option `Advanced > Automatic Capture Instance Management` and granting the required permission if necessary.
+
+Unfortunately, the `sys.sp_cdc_enable_table` stored procedure [requires membership in the `db_owner` database role](https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sys-sp-cdc-enable-table-transact-sql?view=sql-server-ver17#permissions) to call.
+
+Granting that permission to the capture user is a hard requirement for using this feature, and can be done by executing `ALTER ROLE db_owner ADD MEMBER <user>` on the source database.
+
+### Automatic Change Table Cleanup
+
+By default, CDC change tables will retain change events for [three days](https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sys-sp-cdc-add-job-transact-sql?view=sql-server-ver17#----retention). This can be modified via `sys.sp_cdc_change_job`, but a lower retention period can put you at a higher risk of losing change events in the event of downtime, if the issue persists long enough for unconsumed change events to expire. If this happens a complete backfill will be required to re-establish consistency.
+
+An alternative solution is to enable the option `Advanced > Automatic Change Table Cleanup`. When this option is enabled, the connector will manually remove change events from the relevant change tables once it receives confirmation that they have been durably persisted into a Flow collection.
+
+Unfortunately, the `sys.sp_cdc_cleanup_change_table` stored procedure used to delete CDC events from the change table [requires membership in the `db_owner` database role](https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sys-sp-cdc-cleanup-change-table-transact-sql?view=sql-server-ver17#permissions) to call.
+
+Granting that permission to the capture user is a hard requirement for using this feature, and can be done by executing `ALTER ROLE db_owner ADD MEMBER <user>` on the source database.
+
+Note also that you still need to have enough free storage space to hold the full 3 days of CDC event retention in the worst case. Otherwise, in the event of downtime exceeding what you can store, you have only changed the failure mode to running out of disk space. This option is best used in situations where it is _possible_ to use that much storage but it is still undesirable for other reasons to use that much in normal operation, such as when using flexible storage volumes on a cloud host.
 
 ## Configuration
 
