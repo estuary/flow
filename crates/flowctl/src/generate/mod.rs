@@ -452,7 +452,6 @@ mod test {
 
     // Map a JSON schema, in YAML form, into a Shape.
     fn shape_from(schema_yaml: &str) -> Shape {
-
         let url = url::Url::parse("http://example/schema").unwrap();
         let schema: serde_json::Value = serde_yaml::from_str(schema_yaml).unwrap();
         let schema =
@@ -483,7 +482,10 @@ mod test {
         "#,
         );
 
-        let cfg = stub_config(&obj, Some(&models::Collection::new("my-tenant/my-task/my-collection")));
+        let cfg = stub_config(
+            &obj,
+            Some(&models::Collection::new("my-tenant/my-task/my-collection")),
+        );
 
         insta::assert_json_snapshot!(cfg);
     }

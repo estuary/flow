@@ -63,7 +63,8 @@ pub async fn read_collection(
     }
 
     let (journal_name_prefix, journal_client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
+        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
+            .await?;
 
     let list_resp = journal_client
         .list(broker::ListRequest {

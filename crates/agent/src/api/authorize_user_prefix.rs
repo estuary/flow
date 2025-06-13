@@ -124,6 +124,25 @@ fn evaluate_authorization(
         .with_status(StatusCode::FORBIDDEN));
     }
 
+    // For admin capability, require that the user has a transitive role grant to estuary_support/
+    if capability == models::Capability::Admin {
+        let has_support_access = tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            user_id,
+            "estuary_support/",
+            models::Capability::Admin,
+        );
+
+        if !has_support_access {
+            return Err(anyhow::anyhow!(
+                "{} is not authorized to {prefix} for Admin capability (requires estuary_support/ grant)",
+                user_email.map(String::as_str).unwrap_or("user")
+            )
+            .with_status(StatusCode::FORBIDDEN));
+        }
+    }
+
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
@@ -214,7 +233,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Admin,
+            models::Capability::Read,
         )
         .await;
 
@@ -223,7 +242,7 @@ mod tests {
           "Ok": [
             "broker.2",
             {
-              "cap": 30,
+              "cap": 10,
               "exp": 0,
               "iat": 0,
               "iss": "fqdn2",
@@ -257,7 +276,7 @@ mod tests {
             },
             "reactor.2",
             {
-              "cap": 262174,
+              "cap": 262154,
               "exp": 0,
               "iat": 0,
               "iss": "fqdn2",
@@ -399,7 +418,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/private/something"),
-            models::Capability::Admin,
+            models::Capability::Read,
         )
         .await;
 
@@ -420,7 +439,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-missing"),
-            models::Capability::Admin,
+            models::Capability::Read,
         )
         .await;
 
@@ -451,6 +470,111 @@ mod tests {
             "status": 403,
             "error": "bob@bob is not authorized to acmeCo/shared/stuff/ for Write"
           }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_bob_cannot_get_admin_even_with_admin_grant() {
+        // bob@bob has admin capability on bobCo/tires/ but lacks estuary_support/
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Prefix::new("bobCo/tires/"),
+            models::Name::new("ops/dp/public/plane-two"),
+            models::Capability::Admin,
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "bob@bob is not authorized to bobCo/tires/ for Admin capability (requires estuary_support/ grant)"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_admin_with_estuary_support_grant() {
+        // alice@alice has estuary_support/ grant and can get admin capability
+        let outcome = run(
+            uuid::Uuid::from_bytes([64; 16]),
+            Some("alice@alice".to_string()),
+            models::Prefix::new("aliceCo/"),
+            models::Name::new("ops/dp/public/plane-two"),
+            models::Capability::Admin,
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.2",
+            {
+              "cap": 30,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "name",
+                      "value": "aliceCo/",
+                      "prefix": true
+                    },
+                    {
+                      "name": "name",
+                      "value": "recovery/capture/aliceCo/",
+                      "prefix": true
+                    },
+                    {
+                      "name": "name",
+                      "value": "recovery/derivation/aliceCo/",
+                      "prefix": true
+                    },
+                    {
+                      "name": "name",
+                      "value": "recovery/materialize/aliceCo/",
+                      "prefix": true
+                    }
+                  ]
+                }
+              },
+              "sub": "40404040-4040-4040-4040-404040404040"
+            },
+            "reactor.2",
+            {
+              "cap": 262174,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "id",
+                      "value": "capture/aliceCo/",
+                      "prefix": true
+                    },
+                    {
+                      "name": "id",
+                      "value": "derivation/aliceCo/",
+                      "prefix": true
+                    },
+                    {
+                      "name": "id",
+                      "value": "materialize/aliceCo/",
+                      "prefix": true
+                    }
+                  ]
+                }
+              },
+              "sub": "40404040-4040-4040-4040-404040404040"
+            }
+          ]
         }
         "###);
     }

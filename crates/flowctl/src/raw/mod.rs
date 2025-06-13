@@ -411,16 +411,37 @@ async fn do_combine(
 pub struct GazctlEnv {
     /// Name of the data-plane to work with.
     #[clap(long)]
-    pub data_plane: String,
+    pub data_plane: Option<String>,
     /// Journal and shard prefix to request authorization for.
     #[clap(long)]
-    pub prefix: String,
+    pub prefix: Option<String>,
+    /// Flow catalog name to resolve data plane and use as prefix.
+    #[clap(long)]
+    pub name: Option<String>,
     #[clap(long)]
     pub admin: bool,
 }
 
 impl GazctlEnv {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+        // Validate argument combinations
+        let (data_plane_name, prefix) = match (&self.data_plane, &self.prefix, &self.name) {
+            (Some(dp), Some(pf), None) => {
+                // Traditional mode: --data-plane and --prefix
+                (dp.clone(), pf.clone())
+            }
+            (None, None, Some(name)) => {
+                // New mode: --name (resolve data plane from catalog name)
+                let data_plane_name = self.resolve_data_plane_from_catalog_name(ctx, name).await?;
+                (data_plane_name, format!("{name}/"))
+            }
+            _ => {
+                anyhow::bail!(
+                    "Must provide either (--data-plane and --prefix) or --name, but not both"
+                );
+            }
+        };
+
         let models::authorizations::UserPrefixAuthorization {
             broker_address,
             broker_token,
@@ -435,8 +456,8 @@ impl GazctlEnv {
                 } else {
                     models::Capability::Read
                 },
-                data_plane: models::Name::new(&self.data_plane),
-                prefix: models::Prefix::new(&self.prefix),
+                data_plane: models::Name::new(&data_plane_name),
+                prefix: models::Prefix::new(&prefix),
                 started_unix: 0,
             },
         )
@@ -448,6 +469,43 @@ impl GazctlEnv {
         println!("export CONSUMER_AUTH_TOKEN={reactor_token}");
 
         Ok(())
+    }
+
+    async fn resolve_data_plane_from_catalog_name(
+        &self,
+        ctx: &mut crate::CliContext,
+        catalog_name: &str,
+    ) -> anyhow::Result<String> {
+        #[derive(serde::Deserialize)]
+        struct LiveSpecResult {
+            data_plane_name: Option<String>,
+        }
+
+        let results: Vec<LiveSpecResult> = crate::api_exec(
+            ctx.client
+                .from("live_specs_ext")
+                .select("data_plane_name")
+                .eq("catalog_name", catalog_name)
+                .limit(1),
+        )
+        .await?;
+
+        match results.first() {
+            Some(LiveSpecResult {
+                data_plane_name: Some(dp_name),
+            }) => Ok(dp_name.clone()),
+            Some(LiveSpecResult {
+                data_plane_name: None,
+            }) => {
+                anyhow::bail!(
+                    "Catalog spec '{}' exists but has no data plane assigned",
+                    catalog_name
+                )
+            }
+            None => {
+                anyhow::bail!("Catalog spec '{}' not found", catalog_name)
+            }
+        }
     }
 }
 
