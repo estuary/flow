@@ -1041,6 +1041,7 @@ impl automations::Outcome for Outcome {
             cidr_blocks,
             gcp_service_account_email,
             hmac_keys,
+            encrypted_hmac_keys,
             ssh_key: _,
             bastion_tunnel_private_key,
             azure_application_name,
@@ -1055,10 +1056,11 @@ impl automations::Outcome for Outcome {
                     cidr_blocks = $5,
                     gcp_service_account_email = $6,
                     hmac_keys = $7,
-                    bastion_tunnel_private_key = $8,
-                    azure_application_name = $9,
-                    azure_link_endpoints = $10,
-                    azure_application_client_id = $11
+                    encrypted_hmac_keys = $8,
+                    bastion_tunnel_private_key = $9,
+                    azure_application_name = $10,
+                    azure_link_endpoints = $11,
+                    azure_application_client_id = $12
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -1068,6 +1070,7 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 gcp_service_account_email,
                 &hmac_keys,
+                &encrypted_hmac_keys,
                 bastion_tunnel_private_key,
                 azure_application_name,
                 &azure_link_endpoints,

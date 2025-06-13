@@ -229,7 +229,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
                 proto_flow::capability::PROXY_CONNECTOR,
                 data_plane_fqdn,
                 *CONNECTOR_TIMEOUT * 2,
-                hmac_keys,
+                &hmac_keys,
                 Default::default(),
                 task,
             )

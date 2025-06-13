@@ -26,6 +26,8 @@ pub struct Manual {
     reactor_address: String,
     /// HMAC keys of the data-plane.
     hmac_keys: Vec<String>,
+    /// HMAC keys of the data-plane in encrypted sops format
+    encrypted_hmac_keys: models::RawValue,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
@@ -112,22 +114,24 @@ pub async fn create_data_plane(
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
-    let (broker_address, reactor_address, hmac_keys) = match category {
+    let (broker_address, reactor_address, hmac_keys, encrypted_hmac_keys) = match category {
         Category::Managed => (
             format!("https://gazette.{data_plane_fqdn}"),
             format!("https://reactor.{data_plane_fqdn}"),
             Vec::new(),
+            models::RawValue::from_string("{}".to_string()).unwrap(),
         ),
         Category::Manual(Manual {
             broker_address,
             reactor_address,
             hmac_keys,
-        }) => {
-            for key in &hmac_keys {
-                let _ = base64::decode(key).context("HMAC keys must be base64")?;
-            }
-            (broker_address, reactor_address, hmac_keys)
-        }
+            encrypted_hmac_keys,
+        }) => (
+            broker_address,
+            reactor_address,
+            hmac_keys,
+            encrypted_hmac_keys,
+        ),
     };
 
     // Grant a private tenant access to their data-plane and task logs & stats.
@@ -163,17 +167,20 @@ pub async fn create_data_plane(
             broker_address,
             reactor_address,
             hmac_keys,
+            encrypted_hmac_keys,
             enable_l2,
             pulumi_stack
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
         )
         on conflict (data_plane_name) do update set
             broker_address = $11,
             reactor_address = $12,
             -- Don't replace non-empty hmac_keys with empty ones.
             hmac_keys = case when array_length($13, 1) > 0 then $13
-                        else data_planes.hmac_keys end
+                        else data_planes.hmac_keys end,
+            encrypted_hmac_keys = case when length($14::text) > 2 then $14
+                        else data_planes.encrypted_hmac_keys end
         returning logs_token
         ;
         "#,
@@ -189,7 +196,8 @@ pub async fn create_data_plane(
         &ops_l2_events_transform,
         broker_address,
         reactor_address,
-        hmac_keys.as_slice(),
+        &hmac_keys,
+        serde_json::to_value(encrypted_hmac_keys).unwrap(),
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
     )

@@ -82,6 +82,9 @@ tables!(
         // HMAC-256 keys for this data-plane.
         // The first is used for signing, and any key may validate.
         val hmac_keys: Vec<String>,
+        // HMAC-256 keys for this data-plane in sops-encrypted yaml document format
+        // The first is used for signing, and any key may validate.
+        val encrypted_hmac_keys: models::RawValue,
         // Name of the collection for ops logs of the data-plane.
         val ops_logs_name: models::Collection,
         // Name of the collection for ops stats of the data-plane.
