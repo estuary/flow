@@ -50,12 +50,6 @@ pub struct Session {
     msk_region: String,
     // Number of ReadResponses to buffer in PendingReads
     read_buffer_size: usize,
-
-    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
-    legacy_mode_broker_urls: Option<Vec<String>>,
-    legacy_mode_broker_username: Option<String>,
-    legacy_mode_broker_password: Option<String>,
-    // ------------------------------------------------------------------------------------------------
 }
 
 impl Session {
@@ -65,9 +59,6 @@ impl Session {
         broker_urls: Vec<String>,
         msk_region: String,
         read_buffer_size: usize,
-        legacy_mode_broker_urls: Option<Vec<String>>,
-        legacy_mode_broker_username: Option<String>,
-        legacy_mode_broker_password: Option<String>,
     ) -> Self {
         Self {
             app,
@@ -75,9 +66,6 @@ impl Session {
             broker_urls,
             msk_region,
             read_buffer_size,
-            legacy_mode_broker_urls,
-            legacy_mode_broker_username,
-            legacy_mode_broker_password,
             reads: HashMap::new(),
             auth: None,
             secret,
@@ -90,7 +78,7 @@ impl Session {
             Ok(client)
         } else {
             let (auth, urls) = match self.auth {
-                Some(SessionAuthentication::Task(_)) => (
+                Some(_) => (
                     KafkaClientAuth::MSK {
                         aws_region: self.msk_region.clone(),
                         provider: aws_config::from_env()
@@ -103,26 +91,6 @@ impl Session {
                     },
                     self.broker_urls.as_slice(),
                 ),
-                Some(SessionAuthentication::User(_)) => {
-                    if let (Some(username), Some(password), Some(urls)) = (
-                        &self.legacy_mode_broker_username,
-                        &self.legacy_mode_broker_password,
-                        &self.legacy_mode_broker_urls,
-                    ) {
-                        (
-                            KafkaClientAuth::NonRefreshing(
-                                rsasl::config::SASLConfig::with_credentials(
-                                    None,
-                                    username.clone(),
-                                    password.clone(),
-                                )?,
-                            ),
-                            urls.as_slice(),
-                        )
-                    } else {
-                        anyhow::bail!("This authentication mode is not supported anymore");
-                    }
-                }
                 None => anyhow::bail!("Must be authenticated"),
             };
             self.client.replace(
@@ -270,14 +238,6 @@ impl Session {
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-        let pg_client = &auth.flow_client().await?.pg_client();
-
-        // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
 
         // Concurrently fetch Collection instances for all requested topics.
@@ -285,7 +245,6 @@ impl Session {
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
                     auth,
-                    pg_client,
                     from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
                 )
                 .await?;
@@ -356,14 +315,6 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-        let pg_client = &auth.flow_client().await?.pg_client();
-
-        // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
@@ -372,7 +323,6 @@ impl Session {
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
                     auth,
-                    pg_client,
                     from_downstream_topic_name(topic.name.clone()).as_str(),
                 )
                 .await?;
@@ -463,10 +413,7 @@ impl Session {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
         let task_name = match &self.auth {
-            Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
-            Some(SessionAuthentication::User(auth)) => {
-                format!("user-auth: {:?}", auth.claims.email)
-            }
+            Some(auth) => auth.task_name.clone(),
             None => bail!("Not authenticated"),
         };
 
@@ -582,8 +529,7 @@ impl Session {
                 }
 
                 let auth = self.auth.as_mut().unwrap();
-                let pg_client = auth.flow_client().await?.pg_client();
-                let Some(collection) = Collection::new(&auth, &pg_client, &key.0).await? else {
+                let Some(collection) = Collection::new(&auth, &key.0).await? else {
                     metrics::counter!(
                         "dekaf_fetch_requests",
                         "topic_name" => key.0.to_string(),
@@ -610,6 +556,9 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
+
+                let pg_client = auth.flow_client().await?.pg_client();
+
                 let (key_schema_id, value_schema_id) =
                     collection.registered_schema_ids(&pg_client).await?;
                 let pending = PendingRead {
@@ -1354,28 +1303,35 @@ impl Session {
         Ok(to_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            match self.auth.as_ref().context("Must be authenticated")? {
-                SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
-                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
-            },
+            self.auth
+                .as_ref()
+                .context("Must be authenticated")?
+                .config
+                .token
+                .to_string(),
         ))
     }
     fn decrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
         Ok(from_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            match self.auth.as_ref().context("Must be authenticated")? {
-                SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
-                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
-            },
+            self.auth
+                .as_ref()
+                .context("Must be authenticated")?
+                .config
+                .token
+                .to_string(),
         ))
     }
 
     fn encode_topic_name(&self, name: String) -> anyhow::Result<TopicName> {
-        if match self.auth.as_ref().context("Must be authenticated")? {
-            SessionAuthentication::User(auth) => auth.config.strict_topic_names,
-            SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
-        } {
+        if self
+            .auth
+            .as_ref()
+            .context("Must be authenticated")?
+            .config
+            .strict_topic_names
+        {
             Ok(to_downstream_topic_name(TopicName(StrBytes::from_string(
                 name,
             ))))
@@ -1388,18 +1344,10 @@ impl Session {
         &mut self,
         topics: impl IntoIterator<Item = &TopicName>,
     ) -> anyhow::Result<Vec<(TopicName, Collection)>> {
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-        let flow_client = &auth.flow_client().await?.pg_client();
-
-        // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
 
         futures::future::try_join_all(topics.into_iter().map(|topic| async move {
-            let collection = Collection::new(auth, flow_client, topic.as_ref())
+            let collection = Collection::new(auth, topic.as_ref())
                 .await?
                 .context(format!("unable to look up partitions for {:?}", topic))?;
             Ok::<(TopicName, Collection), anyhow::Error>((topic.clone(), collection))
@@ -1421,12 +1369,10 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let client = auth.flow_client().await?.clone();
-
         tracing::debug!(
             "Loading latest offset for this partition to check if session is data-preview"
         );
-        let collection = Collection::new(auth, &client.pg_client(), collection_name.as_str())
+        let collection = Collection::new(auth, collection_name.as_str())
             .await?
             .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
 
