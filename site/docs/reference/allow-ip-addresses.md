@@ -24,13 +24,13 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 
 While your dashboard is the best location to find accurate, up-to-date IP addresses to allowlist, you may also find the current public data plane IP addresses below.
 
-**GCP** (`us-central1 c1`):
+**US** (`us-central1 c1`):
 
 - **34.121.207.128**
 - **35.226.75.135**
 - **34.68.62.148**
 
-**AWS** (`eu-west-1 c1`):
+**Europe** (`eu-west-1 c1`):
 
 - **18.200.127.124/32**
 - **34.247.94.19/32**
