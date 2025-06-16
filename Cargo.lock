@@ -2297,6 +2297,7 @@ dependencies = [
  "ipnetwork",
  "itertools 0.10.5",
  "jsonschema",
+ "locate-bin",
  "models",
  "ops",
  "rustls 0.23.10",
@@ -2309,6 +2310,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "zeroize",
 ]
 
 [[package]]
