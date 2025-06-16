@@ -178,6 +178,7 @@ impl TestHarness {
             id_gen.clone(),
             discover_handler.clone(),
             logs_tx.clone(),
+            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         ));
 
         let controller_exec =
