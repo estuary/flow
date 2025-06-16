@@ -102,7 +102,7 @@ where
     }
 }
 
-async fn decrypt_hmac_keys(dp: &mut tables::DataPlane) -> anyhow::Result<()> {
+pub async fn decrypt_hmac_keys(dp: &mut tables::DataPlane) -> anyhow::Result<()> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
 
     if !dp.hmac_keys.is_empty() {
