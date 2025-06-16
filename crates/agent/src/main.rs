@@ -210,6 +210,23 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         id_gen.clone(),
         connectors,
     );
+
+    let mut data_planes =
+        agent_sql::data_plane::fetch_data_planes(&pg_pool, Vec::new(), "", uuid::Uuid::nil())
+            .await?;
+
+    futures::future::try_join_all(
+        data_planes
+            .iter_mut()
+            .map(|dp| agent::decrypt_hmac_keys(dp)),
+    )
+    .await?;
+
+    let decrypted_hmac_keys = data_planes
+        .iter()
+        .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
+        .collect();
+
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
         system_user_id,
@@ -217,6 +234,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         id_gen.clone(),
         discover_handler.clone(),
         logs_tx.clone(),
+        decrypted_hmac_keys,
     );
     let connector_tags_executor =
         agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);
