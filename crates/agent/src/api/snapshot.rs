@@ -540,21 +540,25 @@ async fn try_fetch(
         "fetched authorization snapshot",
     );
 
-    let mut cached_keys = decrypted_hmac_keys.keys().collect::<Vec<&String>>();
-    cached_keys.sort();
-    let mut current_keys = data_planes
+    futures::future::try_join_all(
+        data_planes
+            .iter_mut()
+            .filter(|dp| !decrypted_hmac_keys.contains_key(&dp.data_plane_name))
+            .filter(|dp| {
+                !dp.encrypted_hmac_keys
+                    .to_value()
+                    .as_object()
+                    .unwrap()
+                    .is_empty()
+            })
+            .map(|dp| crate::decrypt_hmac_keys(dp)),
+    )
+    .await?;
+
+    *decrypted_hmac_keys = data_planes
         .iter()
-        .map(|d| d.data_plane_name.as_str())
-        .collect::<Vec<&str>>();
-    current_keys.sort();
-    if cached_keys != current_keys {
-        futures::future::try_join_all(
-            data_planes
-                .iter_mut()
-                .map(|dp| crate::decrypt_hmac_keys(dp)),
-        )
-        .await?;
-    }
+        .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
+        .collect();
 
     Ok(Snapshot::new(
         taken,
