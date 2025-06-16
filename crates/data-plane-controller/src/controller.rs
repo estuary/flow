@@ -75,6 +75,8 @@ pub struct Outcome {
     pub publish_exports: Option<stack::ControlExports>,
     // When Some, updated configuration to publish into data_planes row.
     pub publish_stack: Option<stack::PulumiStack>,
+    // KMS key used to encrypt HMAC keys
+    pub kms_key: String,
 }
 
 pub struct Executor {
@@ -195,6 +197,7 @@ impl Controller {
             status: state.status,
             publish_exports: state.publish_exports.take(),
             publish_stack,
+            kms_key: self.secrets_provider.clone(),
         })
     }
 
@@ -986,7 +989,7 @@ async fn fetch_releases(
     Ok(rows)
 }
 
-async fn encrypt_hmac_keys(keys: Vec<String>) -> anyhow::Result<serde_json::Value> {
+async fn encrypt_hmac_keys(kms_key: &str, keys: Vec<String>) -> anyhow::Result<serde_json::Value> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
 
     #[derive(serde::Serialize)]
@@ -1006,7 +1009,7 @@ async fn encrypt_hmac_keys(keys: Vec<String>) -> anyhow::Result<serde_json::Valu
         async_process::Command::new(sops).args([
             "--encrypt",
             "--gcp-kms",
-            "projects/estuary-control/locations/us-central1/keyRings/data-plane-controller/cryptoKeys/secrets",
+            kms_key,
             "--input-type",
             "json",
             "--output-type",
@@ -1091,7 +1094,7 @@ impl automations::Outcome for Outcome {
             azure_application_client_id,
         }) = self.publish_exports
         {
-            let encrypted_hmac_keys = encrypt_hmac_keys(hmac_keys.clone()).await?;
+            let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys.clone()).await?;
 
             _ = sqlx::query!(
                 r#"
