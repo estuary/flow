@@ -540,6 +540,16 @@ async fn try_fetch(
         "fetched authorization snapshot",
     );
 
+    data_planes
+        .iter_mut()
+        .filter(|dp| decrypted_hmac_keys.contains_key(&dp.data_plane_name))
+        .for_each(|dp| {
+            dp.hmac_keys = decrypted_hmac_keys
+                .get(&dp.data_plane_name)
+                .unwrap()
+                .clone()
+        });
+
     futures::future::try_join_all(
         data_planes
             .iter_mut()

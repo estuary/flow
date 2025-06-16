@@ -213,30 +213,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         connectors,
     );
 
-    let mut data_planes =
-        agent_sql::data_plane::fetch_data_planes(&pg_pool, Vec::new(), "", uuid::Uuid::nil())
-            .await?;
-
-    futures::future::try_join_all(
-        data_planes
-            .iter_mut()
-            .filter(|dp| {
-                !dp.encrypted_hmac_keys
-                    .to_value()
-                    .as_object()
-                    .unwrap()
-                    .is_empty()
-            })
-            .map(|dp| agent::decrypt_hmac_keys(dp)),
-    )
-    .await?;
-
-    let decrypted_hmac_keys = Arc::new(RwLock::new(
-        data_planes
-            .iter()
-            .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
-            .collect(),
-    ));
+    let decrypted_hmac_keys = Arc::new(RwLock::new(HashMap::new()));
 
     tokio::spawn(refresh_decrypted_hmac_keys(
         pg_pool.clone(),
@@ -307,13 +284,10 @@ async fn refresh_decrypted_hmac_keys(
     const REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(60);
 
     loop {
-        let mut data_planes =
+        let mut data_planes: Vec<_> =
             agent_sql::data_plane::fetch_data_planes(&pg_pool, Vec::new(), "", uuid::Uuid::nil())
-                .await?;
-
-        futures::future::try_join_all(
-            data_planes
-                .iter_mut()
+                .await?
+                .into_iter()
                 .filter(|dp| {
                     !decrypted_hmac_keys
                         .read()
@@ -327,6 +301,11 @@ async fn refresh_decrypted_hmac_keys(
                         .unwrap()
                         .is_empty()
                 })
+                .collect();
+
+        futures::future::try_join_all(
+            data_planes
+                .iter_mut()
                 .map(|dp| agent::decrypt_hmac_keys(dp)),
         )
         .await?;
