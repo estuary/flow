@@ -585,7 +585,6 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mg==",
         "a2V5Mw=="
       ],
-      "encrypted_hmac_keys": "{\"hmac_keys\": \"encrypted-gibberish\"}",
       "ssh_key": ""
     }
   },
@@ -1198,7 +1197,6 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mg==",
         "a2V5Mw=="
       ],
-      "encrypted_hmac_keys": "{\"hmac_keys\": \"encrypted-gibberish\"}",
       "ssh_key": ""
     }
   },
@@ -1831,7 +1829,6 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mg==",
         "a2V5Mw=="
       ],
-      "encrypted_hmac_keys": "{\"hmac_keys\": \"encrypted-gibberish\"}",
       "ssh_key": ""
     }
   },
@@ -2456,7 +2453,6 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mg==",
         "a2V5Mw=="
       ],
-      "encrypted_hmac_keys": "{\"hmac_keys\": \"encrypted-gibberish\"}",
       "ssh_key": ""
     }
   },

@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 async-process = { path = "../async-process" }
 automations = { path = "../automations" }
+locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 
@@ -33,6 +34,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 jsonschema = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
