@@ -121,12 +121,7 @@ impl Read {
             partition_template_name: partition_template_name.to_owned(),
             journal_name: partition.spec.name.clone(),
             collection_name: collection.name.to_owned(),
-            task_name: match auth {
-                SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
-                SessionAuthentication::User(user_auth) => {
-                    format!("user-auth: {:?}", user_auth.claims.email)
-                }
-            },
+            task_name: auth.task_name.clone(),
             rewrite_offsets_from,
             deletes: auth.deletions(),
             offset_start: offset,

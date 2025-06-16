@@ -69,15 +69,7 @@ pub struct DeprecatedConfigOptions {
     pub deletions: connector::DeletionMode,
 }
 
-pub struct UserAuth {
-    client: flow_client::Client,
-    refresh_token: RefreshToken,
-    access_token: String,
-    claims: models::authorizations::ControlClaims,
-    config: DeprecatedConfigOptions,
-}
-
-pub struct TaskAuth {
+pub struct SessionAuthentication {
     client: flow_client::Client,
     task_name: String,
     config: connector::DekafConfig,
@@ -87,72 +79,25 @@ pub struct TaskAuth {
     exp: time::OffsetDateTime,
 }
 
-pub enum SessionAuthentication {
-    User(UserAuth),
-    Task(TaskAuth),
-}
-
 impl SessionAuthentication {
     pub fn valid_until(&self) -> SystemTime {
-        match self {
-            SessionAuthentication::User(user) => {
-                std::time::UNIX_EPOCH + std::time::Duration::new(user.claims.exp, 0)
-            }
-            SessionAuthentication::Task(task) => task.exp.into(),
-        }
+        self.exp.into()
     }
 
     pub async fn flow_client(&mut self) -> anyhow::Result<&flow_client::Client> {
-        match self {
-            SessionAuthentication::User(auth) => auth.authenticated_client().await,
-            SessionAuthentication::Task(auth) => auth.authenticated_client().await,
-        }
+        self.authenticated_client().await
     }
 
     pub fn refresh_gazette_clients(&mut self) {
-        match self {
-            SessionAuthentication::User(auth) => {
-                auth.client = auth.client.clone().with_fresh_gazette_client();
-            }
-            SessionAuthentication::Task(auth) => {
-                auth.client = auth.client.clone().with_fresh_gazette_client();
-            }
-        }
+        self.client = self.client.clone().with_fresh_gazette_client();
     }
 
     pub fn deletions(&self) -> connector::DeletionMode {
-        match self {
-            SessionAuthentication::User(user_auth) => user_auth.config.deletions,
-            SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
-        }
+        self.config.deletions
     }
 }
 
-impl UserAuth {
-    pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
-        let (access, refresh) = refresh_authorizations(
-            &self.client,
-            Some(self.access_token.to_owned()),
-            Some(self.refresh_token.to_owned()),
-        )
-        .await?;
-
-        if access != self.access_token {
-            self.access_token = access.clone();
-            self.refresh_token = refresh;
-
-            self.client = self
-                .client
-                .clone()
-                .with_user_access_token(Some(access))
-                .with_fresh_gazette_client();
-        }
-
-        Ok(&self.client)
-    }
-}
-
-impl TaskAuth {
+impl SessionAuthentication {
     pub fn new(
         client: flow_client::Client,
         task_name: String,
@@ -256,7 +201,7 @@ impl App {
 
             logging::set_log_level(labels.log_level());
 
-            Ok(SessionAuthentication::Task(TaskAuth::new(
+            Ok(SessionAuthentication::new(
                 self.client_base
                     .clone()
                     .with_user_access_token(Some(token))
@@ -265,42 +210,7 @@ impl App {
                 config,
                 listener,
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
-            )))
-        } else if username.contains("{") {
-            // Since we don't have a task, we also don't have a logs journal to write to,
-            // so we should disable log forwarding for this session.
-            logging::get_log_forwarder().map(|f| f.shutdown());
-
-            let raw_token = String::from_utf8(
-                base64::decode(password)
-                    .map_err(anyhow::Error::from)?
-                    .to_vec(),
-            )
-            .map_err(anyhow::Error::from)?;
-            let refresh: RefreshToken =
-                serde_json::from_str(raw_token.as_str()).map_err(anyhow::Error::from)?;
-
-            let (access, refresh) =
-                refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
-
-            let client = self
-                .client_base
-                .clone()
-                .with_user_access_token(Some(access.clone()))
-                .with_fresh_gazette_client();
-
-            let claims = flow_client::client::client_claims(&client)?;
-
-            let config: DeprecatedConfigOptions = serde_json::from_str(&username)
-                .context("failed to parse username as a JSON object")?;
-
-            Ok(SessionAuthentication::User(UserAuth {
-                client,
-                access_token: access,
-                refresh_token: refresh,
-                claims,
-                config,
-            }))
+            ))
         } else {
             return Err(DekafError::Authentication(
                 "Invalid username or password".into(),

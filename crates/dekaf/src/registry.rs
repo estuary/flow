@@ -36,10 +36,7 @@ async fn all_subjects(
     wrap(async move {
         let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
-        let strict_topic_names = match auth {
-            SessionAuthentication::User(ref auth) => auth.config.strict_topic_names,
-            SessionAuthentication::Task(ref auth) => auth.config.strict_topic_names,
-        };
+        let strict_topic_names = auth.config.strict_topic_names;
 
         auth.fetch_all_collection_names()
             .await
@@ -88,7 +85,6 @@ async fn get_subject_latest(
 
         let collection = super::Collection::new(
             &auth,
-            client,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),
