@@ -1009,7 +1009,7 @@ async fn encrypt_hmac_keys(kms_key: &str, keys: Vec<String>) -> anyhow::Result<s
         async_process::Command::new(sops).args([
             "--encrypt",
             "--gcp-kms",
-            kms_key,
+            kms_key.strip_prefix("gcpkms://").unwrap(),
             "--input-type",
             "json",
             "--output-type",
