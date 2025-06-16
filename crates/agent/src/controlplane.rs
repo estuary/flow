@@ -9,7 +9,7 @@ use models::{
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::{
     discovers::{Discover, DiscoverOutput},
@@ -204,7 +204,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub id_generator: models::IdGenerator,
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
-    decrypted_hmac_keys: HashMap<String, Vec<String>>,
+    pub decrypted_hmac_keys: HashMap<String, Vec<String>>,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -215,6 +215,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         id_generator: models::IdGenerator,
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,
+        decrypted_hmac_keys: HashMap<String, Vec<String>>,
     ) -> Self {
         Self {
             pool,
@@ -223,7 +224,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             id_generator,
             discovers_handler,
             logs_tx,
-            decrypted_hmac_keys: HashMap::new(),
+            decrypted_hmac_keys,
         }
     }
 
@@ -244,7 +245,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         )
         .await?;
 
-        let Some(data_plane) = fetched.pop() else {
+        let Some(mut data_plane) = fetched.pop() else {
             anyhow::bail!("data-plane {data_plane_id} does not exist");
         };
         let ops_logs_template = agent_sql::data_plane::fetch_ops_journal_template(
@@ -260,27 +261,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 
         if data_plane.hmac_keys.is_empty() {
             if let Some(hmac_keys) = self.decrypted_hmac_keys.get(&data_plane.data_plane_name) {
-                data_plane.hmac_keys = hmac_keys;
-            } else {
-                let data_planes = agent_sql::data_plane::fetch_data_planes(
-                    &self.pool,
-                    Vec::new(),
-                    "",
-                    uuid::Uuid::nil(),
-                )
-                .await?;
-
-                futures::future::try_join_all(
-                    data_planes
-                        .iter_mut()
-                        .map(|dp| crate::decrypt_hmac_keys(dp)),
-                )
-                .await?;
-
-                self.decrypted_hmac_keys = data_planes
-                    .iter()
-                    .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
-                    .collect();
+                data_plane.hmac_keys = hmac_keys.clone();
             }
         }
 
