@@ -204,6 +204,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub id_generator: models::IdGenerator,
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
+    decrypted_hmac_keys: HashMap<String, Vec<String>>,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -222,6 +223,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             id_generator,
             discovers_handler,
             logs_tx,
+            decrypted_hmac_keys: HashMap::new(),
         }
     }
 
@@ -255,6 +257,32 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         );
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
+
+        if data_plane.hmac_keys.is_empty() {
+            if let Some(hmac_keys) = self.decrypted_hmac_keys.get(&data_plane.data_plane_name) {
+                data_plane.hmac_keys = hmac_keys;
+            } else {
+                let data_planes = agent_sql::data_plane::fetch_data_planes(
+                    &self.pool,
+                    Vec::new(),
+                    "",
+                    uuid::Uuid::nil(),
+                )
+                .await?;
+
+                futures::future::try_join_all(
+                    data_planes
+                        .iter_mut()
+                        .map(|dp| crate::decrypt_hmac_keys(dp)),
+                )
+                .await?;
+
+                self.decrypted_hmac_keys = data_planes
+                    .iter()
+                    .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
+                    .collect();
+            }
+        }
 
         let mut metadata = gazette::Metadata::default();
         metadata
