@@ -9,6 +9,8 @@ use derivative::Derivative;
 use futures::FutureExt;
 use rand::Rng;
 use sqlx::{ConnectOptions, Connection};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
 #[derive(Derivative, Parser)]
@@ -218,14 +220,28 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     futures::future::try_join_all(
         data_planes
             .iter_mut()
+            .filter(|dp| {
+                !dp.encrypted_hmac_keys
+                    .to_value()
+                    .as_object()
+                    .unwrap()
+                    .is_empty()
+            })
             .map(|dp| agent::decrypt_hmac_keys(dp)),
     )
     .await?;
 
-    let decrypted_hmac_keys = data_planes
-        .iter()
-        .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
-        .collect();
+    let decrypted_hmac_keys = Arc::new(RwLock::new(
+        data_planes
+            .iter()
+            .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
+            .collect(),
+    ));
+
+    tokio::spawn(refresh_decrypted_hmac_keys(
+        pg_pool.clone(),
+        decrypted_hmac_keys.clone(),
+    ));
 
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
@@ -282,4 +298,47 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let ((), (), ()) = tokio::try_join!(api_server, logs_sink, automations_fut)?;
 
     Ok(())
+}
+
+async fn refresh_decrypted_hmac_keys(
+    pg_pool: sqlx::PgPool,
+    decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+) -> anyhow::Result<()> {
+    const REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(60);
+
+    loop {
+        let mut data_planes =
+            agent_sql::data_plane::fetch_data_planes(&pg_pool, Vec::new(), "", uuid::Uuid::nil())
+                .await?;
+
+        futures::future::try_join_all(
+            data_planes
+                .iter_mut()
+                .filter(|dp| {
+                    !decrypted_hmac_keys
+                        .read()
+                        .unwrap()
+                        .contains_key(&dp.data_plane_name)
+                })
+                .filter(|dp| {
+                    !dp.encrypted_hmac_keys
+                        .to_value()
+                        .as_object()
+                        .unwrap()
+                        .is_empty()
+                })
+                .map(|dp| agent::decrypt_hmac_keys(dp)),
+        )
+        .await?;
+
+        {
+            let mut writable = decrypted_hmac_keys.write().unwrap();
+
+            data_planes.iter().for_each(|dp| {
+                writable.insert(dp.data_plane_name.clone(), dp.hmac_keys.clone());
+            });
+        }
+
+        tokio::time::sleep(REFRESH_INTERVAL.to_std().unwrap()).await;
+    }
 }

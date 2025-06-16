@@ -10,6 +10,7 @@ use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, RwLock};
 
 use crate::{
     discovers::{Discover, DiscoverOutput},
@@ -204,7 +205,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub id_generator: models::IdGenerator,
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
-    pub decrypted_hmac_keys: HashMap<String, Vec<String>>,
+    pub decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -215,7 +216,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         id_generator: models::IdGenerator,
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,
-        decrypted_hmac_keys: HashMap<String, Vec<String>>,
+        decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
     ) -> Self {
         Self {
             pool,
@@ -260,7 +261,12 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
         if data_plane.hmac_keys.is_empty() {
-            if let Some(hmac_keys) = self.decrypted_hmac_keys.get(&data_plane.data_plane_name) {
+            if let Some(hmac_keys) = self
+                .decrypted_hmac_keys
+                .read()
+                .unwrap()
+                .get(&data_plane.data_plane_name)
+            {
                 data_plane.hmac_keys = hmac_keys.clone();
             }
         }
