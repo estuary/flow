@@ -986,6 +986,50 @@ async fn fetch_releases(
     Ok(rows)
 }
 
+async fn encrypt_hmac_keys(keys: Vec<String>) -> anyhow::Result<serde_json::Value> {
+    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
+    #[derive(serde::Serialize)]
+    struct HMACKeys {
+        hmac_keys: Vec<String>,
+    }
+
+    let input = serde_json::to_vec(&HMACKeys { hmac_keys: keys })?;
+
+    // Note that input_output() pre-allocates an output buffer as large as its input buffer,
+    // and our decrypted result will never be larger than its input.
+    let async_process::Output {
+        stderr,
+        stdout,
+        status,
+    } = async_process::input_output(
+        async_process::Command::new(sops).args([
+            "--encrypt",
+            "--gcp-kms",
+            "projects/estuary-control/locations/us-central1/keyRings/data-plane-controller/cryptoKeys/secrets",
+            "--input-type",
+            "json",
+            "--output-type",
+            "json",
+            "/dev/stdin",
+        ]),
+        &input,
+    )
+    .await
+    .context("failed to run sops")?;
+
+    let stdout = zeroize::Zeroizing::from(stdout);
+
+    if !status.success() {
+        anyhow::bail!(
+            "encrypting hmac sops document failed: {}",
+            String::from_utf8_lossy(&stderr),
+        );
+    }
+
+    serde_json::from_slice(&stdout).context("parsing encrypted sops document")
+}
+
 impl automations::Outcome for Outcome {
     async fn apply<'s>(
         self,
@@ -1041,13 +1085,14 @@ impl automations::Outcome for Outcome {
             cidr_blocks,
             gcp_service_account_email,
             hmac_keys,
-            encrypted_hmac_keys,
             ssh_key: _,
             bastion_tunnel_private_key,
             azure_application_name,
             azure_application_client_id,
         }) = self.publish_exports
         {
+            let encrypted_hmac_keys = encrypt_hmac_keys(hmac_keys.clone()).await?;
+
             _ = sqlx::query!(
                 r#"
                 UPDATE data_planes SET
