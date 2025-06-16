@@ -215,19 +215,22 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             impl Future<Output = anyhow::Result<()>> + 'a,
         ),
     )> {
+        let mut dp = data_plane.clone();
+        crate::decrypt_hmac_keys(&mut dp).await?;
+
         let tables::DataPlane {
             reactor_address,
             hmac_keys,
             data_plane_fqdn,
             ..
-        } = data_plane;
+        } = dp;
 
         let mut metadata = gazette::Metadata::default();
 
         metadata
             .signed_claims(
                 proto_flow::capability::PROXY_CONNECTOR,
-                data_plane_fqdn,
+                &data_plane_fqdn,
                 *CONNECTOR_TIMEOUT * 2,
                 &hmac_keys,
                 Default::default(),
@@ -241,7 +244,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
 
         let mut proxy_client =
             proto_grpc::runtime::connector_proxy_client::ConnectorProxyClient::with_interceptor(
-                gazette::dial_channel(reactor_address)?,
+                gazette::dial_channel(&reactor_address)?,
                 metadata.clone(),
             );
         let mut proxy_responses = proxy_client

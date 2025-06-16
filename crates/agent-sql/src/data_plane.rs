@@ -56,7 +56,7 @@ pub async fn fetch_data_planes<'a, 'b>(
             ops_logs_name as "ops_logs_name: models::Collection",
             ops_stats_name as "ops_stats_name: models::Collection"
         from data_planes
-        where (array_length($1::flowid[], 1) = 0 OR id in (select id from unnest($1::flowid[]) id))
+        where (array_length($1::flowid[], 1) is null or id in (select id from unnest($1::flowid[]) id))
            or data_plane_name = $2
         "#,
         &data_plane_ids as &[Id],
