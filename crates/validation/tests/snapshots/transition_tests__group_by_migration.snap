@@ -1,0 +1,79 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: "(&outcome.built_materializations[0].model,\n&outcome.built_materializations[0].model_fixes)"
+---
+(
+    Some(
+        MaterializationDef {
+            source: None,
+            on_incompatible_schema_change: Backfill,
+            endpoint: Connector(
+                ConnectorConfig {
+                    image: "other/image",
+                    config: RawValue(
+                        {"a":"config"},
+                    ),
+                },
+            ),
+            bindings: [
+                MaterializationBinding {
+                    resource: RawValue(
+                        {"_meta":{"path":["table","path"]},"table":"bar"},
+                    ),
+                    source: Collection(
+                        Collection(
+                            "the/collection",
+                        ),
+                    ),
+                    disable: false,
+                    priority: 0,
+                    fields: MaterializationFields {
+                        group_by: [
+                            Field(
+                                "F1",
+                            ),
+                        ],
+                        require: {
+                            Field(
+                                "F1",
+                            ): RawValue(
+                                {},
+                            ),
+                            Field(
+                                "f_two",
+                            ): RawValue(
+                                {},
+                            ),
+                        },
+                        exclude: [
+                            Field(
+                                "F2",
+                            ),
+                        ],
+                        recommended: Bool(
+                            true,
+                        ),
+                    },
+                    backfill: 0,
+                    on_incompatible_schema_change: None,
+                },
+            ],
+            shards: ShardTemplate {
+                disable: false,
+                min_txn_duration: None,
+                max_txn_duration: None,
+                hot_standbys: None,
+                ring_buffer_size: None,
+                read_channel_size: None,
+                log_level: None,
+            },
+            expect_pub_id: None,
+            delete: false,
+        },
+    ),
+    [
+        "added groupBy for migrated non-canonical key",
+        "removed dropped exclude projection FY of source collection the/collection",
+        "removed dropped exclude projection does/not/exist of source collection the/collection",
+    ],
+)
