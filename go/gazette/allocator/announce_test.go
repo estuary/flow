@@ -68,6 +68,27 @@ func (s *AnnounceSuite) TestAnnounceConflict(c *gc.C) {
 	c.Check(string(resp.Kvs[0].Value), gc.Equals, "value2")
 }
 
+func (s *AnnounceSuite) TestAnnounceIdempotency(c *gc.C) {
+	var client = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+	const key = "/announce/key"
+
+	var session, err = concurrency.NewSession(client, concurrency.WithTTL(5))
+	c.Check(err, gc.IsNil)
+	defer session.Close()
+
+	// First announce should succeed
+	var a1 = Announce(client, key, "value", session.Lease())
+	c.Check(a1, gc.NotNil)
+
+	// Second announce with same lease should also succeed (idempotent)
+	var a2 = Announce(client, key, "value", session.Lease())
+	c.Check(a2, gc.NotNil)
+	
+	// Both announcements should have the same revision since they're the same key
+	c.Check(a1.Revision, gc.Equals, a2.Revision)
+}
+
 func (s *AnnounceSuite) TestBasicSessionStart(c *gc.C) {
 	var (
 		etcd  = etcdtest.TestClient()

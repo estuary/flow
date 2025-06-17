@@ -32,17 +32,30 @@ func Announce(etcd *clientv3.Client, key, value string, lease clientv3.LeaseID) 
 		var resp, err = etcd.Txn(context.Background()).
 			If(clientv3.Compare(clientv3.Version(key), "=", 0)).
 			Then(clientv3.OpPut(key, value, clientv3.WithLease(lease))).
+			Else(clientv3.OpGet(key)).
 			Commit()
 
-		if err == nil && resp.Succeeded == false {
-			err = fmt.Errorf("key exists")
-		}
-
 		if err == nil {
-			return &Announcement{
-				Key:      key,
-				Revision: resp.Header.Revision,
-				etcd:     etcd,
+			if resp.Succeeded {
+				// Key was created successfully
+				return &Announcement{
+					Key:      key,
+					Revision: resp.Header.Revision,
+					etcd:     etcd,
+				}
+			} else {
+				// Key exists, check if it's ours
+				var kv = resp.Responses[0].GetResponseRange().Kvs[0]
+				if clientv3.LeaseID(kv.Lease) == lease {
+					// This is our key from a previous attempt that succeeded
+					return &Announcement{
+						Key:      key,
+						Revision: kv.ModRevision,
+						etcd:     etcd,
+					}
+				}
+				// Key exists with different lease, will retry
+				err = fmt.Errorf("key exists with different lease")
 			}
 		}
 
