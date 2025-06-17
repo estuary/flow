@@ -108,6 +108,8 @@ To configure this option:
 
 4. Fill out the "Minimum Backfill XID" or "Maximum Backfill XID" field with the `xmin` value you retrieved.
 
-5. Save and publish your changes.
+5. Click "Backfill"
+
+6. Save and publish your changes.
 
 In rare cases, this method may not work as expected, as in situations where a database has already filled up its entire `xmin` space. In such cases of `xmin` wrapping, using both Minimum and Maximum Backfill XID fields can help narrow down a specific range to backfill.
