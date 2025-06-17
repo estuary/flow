@@ -567,6 +567,13 @@ async fn try_fetch(
 
     *decrypted_hmac_keys = data_planes
         .iter()
+        .filter(|dp| {
+            !dp.encrypted_hmac_keys
+                .to_value()
+                .as_object()
+                .unwrap()
+                .is_empty()
+        })
         .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
         .collect();
 
