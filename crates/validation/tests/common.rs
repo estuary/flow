@@ -308,7 +308,8 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         let bindings: Vec<flow::materialization_spec::Binding> = mock
             .bindings
             .iter()
-            .map(|binding| flow::materialization_spec::Binding {
+            .enumerate()
+            .map(|(index, binding)| flow::materialization_spec::Binding {
                 collection: Some(flow::CollectionSpec {
                     name: binding.source.collection().to_string(),
                     partition_template: Some(proto_gazette::broker::JournalSpec {
@@ -319,6 +320,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 }),
                 resource_path: validation::load_resource_meta_path(binding.resource.get()),
                 backfill: binding.backfill,
+                field_selection: mock.last_fields.get(index).cloned(),
                 ..Default::default()
             })
             .collect();
@@ -486,6 +488,8 @@ struct MockLiveMaterialization {
     last_build_id: Option<models::Id>,
     #[serde(default)]
     bindings: Vec<models::MaterializationBinding>,
+    #[serde(default)]
+    last_fields: Vec<flow::FieldSelection>,
 }
 
 #[derive(serde::Deserialize)]
