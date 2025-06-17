@@ -6,7 +6,17 @@ use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
 /// Select is a rationale for including a field in selection.
-#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    thiserror::Error,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Select {
     #[error("field is within the desired depth")]
     DesiredDepth,
@@ -31,7 +41,17 @@ pub enum Select {
 }
 
 /// Reject is a rationale for rejecting a field from selection.
-#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    thiserror::Error,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Reject {
     #[error("field doesn't meet any selection criteria")]
     NotSelected,
@@ -210,8 +230,12 @@ pub fn extract_constraints<'a>(
             .peek()
             .map(|next| is_parent_of(&p.ptr, &next.ptr))
             .unwrap_or_default()
+            && !matches!(recommended, models::RecommendedDepth::Bool(true))
         {
-            true // Desire objects that have no projected children.
+            // Desire objects that have no projected children.
+            // The `recommended != true` constraint has no intrinsic rationale:
+            // it's a compromise to avoid churning legacy field selection behavior.
+            true
         } else {
             false // Omit below-depth objects with children.
         };
@@ -726,6 +750,25 @@ validated:
 "##,
         );
         insta::assert_debug_snapshot!(snap); // Expect `an_array` is in selection.
+    }
+
+    #[test]
+    fn test_no_objects_when_recommended_true() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+collection:
+    projections: null
+live: null
+model:
+    recommended: true
+"##,
+        );
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("a_map").unwrap(), @r###"
+        Right(
+            NotSelected,
+        )
+        "###);
     }
 
     fn run_test(fixture_yaml: &str, patch_yaml: &str) -> Snap {
