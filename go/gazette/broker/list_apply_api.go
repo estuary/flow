@@ -266,10 +266,10 @@ func (svc *Service) Apply(ctx context.Context, claims pb.Claims, req *pb.ApplyRe
 	} else if len(ops) != 0 {
 		// If we made changes, delay responding until we have read our own Etcd write.
 		s.KS.Mu.RLock()
-		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
+		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.GetRevision())
 		s.KS.Mu.RUnlock()
 	}
-	resp.Header.Etcd.Revision = txnResp.Txn().Header.Revision
+	resp.Header.Etcd.Revision = txnResp.Txn().Header.GetRevision()
 	return resp, err
 }
 
