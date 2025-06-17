@@ -138,7 +138,7 @@ collection:
               strategy: merge
       - $ref: "#MyTable"
 model:
-  recommended: true
+  recommended: 100
   groupBy: [an_int, a_bool]
   require:
     nested: { cfg: 42 }
