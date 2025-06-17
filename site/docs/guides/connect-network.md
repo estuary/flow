@@ -191,11 +191,11 @@ Assuming you have a database running on a host named `db.example.com`, on port 5
 
 
 ```bash
-ssh -o 'ConnectTimeout=5s' \\
-    -o 'ServerAliveInterval=30' \\
-    -i bastion.key \\
-    -N -T \\
-    -R 8080:db.example.com:5678 \\
+ssh -o 'ConnectTimeout=5s' \
+    -o 'ServerAliveInterval=30' \
+    -i bastion.key \
+    -N -T \
+    -R 8080:db.example.com:5678 \
     ssh://tunnel@bastion.your-bastion-host.com:2222
 ```
 
