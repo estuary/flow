@@ -672,6 +672,7 @@ fn walk_materialization_binding<'a>(
         catalog_name,
         &source_spec,
         live_model.map(|l| &l.fields),
+        live_spec.and_then(|s| s.field_selection.as_ref()),
         model_fixes,
         errors,
     );
@@ -741,6 +742,7 @@ fn walk_materialization_fields<'a>(
     catalog_name: &models::Materialization,
     collection: &flow::CollectionSpec,
     live_model: Option<&models::MaterializationFields>,
+    live_selection: Option<&flow::FieldSelection>,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
@@ -761,6 +763,11 @@ fn walk_materialization_fields<'a>(
         projections,
         ..
     } = collection;
+
+    // Temporary migration which adds `groupBy` as needed to materialization
+    // bindings which are using non-canonical projections for their group-by.
+    // TODO(johnny): Remove once all materializations have been migrated.
+    let group_by = temporary_group_by_migration(group_by, live_selection, collection, model_fixes);
 
     let live_exclude = live_model.map(|l| l.exclude.as_slice()).unwrap_or_default();
 
@@ -864,6 +871,53 @@ fn walk_materialization_fields<'a>(
     };
 
     (model, field_config, effective_group_by)
+}
+
+fn temporary_group_by_migration(
+    group_by: Vec<models::Field>,
+    live_selection: Option<&flow::FieldSelection>,
+    collection: &flow::CollectionSpec,
+    model_fixes: &mut Vec<String>,
+) -> Vec<models::Field> {
+    if !group_by.is_empty() {
+        return group_by; // Don't touch.
+    }
+    let Some(live) = live_selection else {
+        return Vec::new(); // Cannot migrate without a live selection.
+    };
+
+    // Determine the canonical collection group-by.
+    let canonical_fields = collection.key.iter().map(|f| &f[1..]);
+
+    // Don't migrate if the live selection is already canonical.
+    if canonical_fields.eq(live.keys.iter()) {
+        return Vec::new();
+    }
+
+    // Map live selection keys into the pointers of their projections.
+    let live_ptrs = live.keys.iter().map(|field| {
+        if let Ok(ind) = collection
+            .projections
+            .binary_search_by_key(&field, |p| &p.field)
+        {
+            collection.projections[ind].ptr.as_str()
+        } else {
+            ""
+        }
+    });
+
+    // Require that the live selection pointers match the collection key,
+    // despite using different fields.
+    if !live_ptrs.eq(collection.key.iter()) {
+        return Vec::new();
+    }
+
+    model_fixes.push("added groupBy for migrated non-canonical key".to_string());
+
+    live.keys
+        .iter()
+        .map(|field| models::Field::new(field))
+        .collect()
 }
 
 fn walk_materialization_response(

@@ -531,3 +531,21 @@ driver:
     );
     insta::assert_debug_snapshot!(errors);
 }
+
+#[test]
+fn test_group_by_migration() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+driver:
+  liveMaterializations:
+    the/materialization:
+      lastFields:
+        - keys: [F1] # Not f_one, which is canonical.
+    "#,
+    );
+    insta::assert_debug_snapshot!((
+        &outcome.built_materializations[0].model,
+        &outcome.built_materializations[0].model_fixes
+    ));
+}
