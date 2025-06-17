@@ -284,24 +284,23 @@ async fn refresh_decrypted_hmac_keys(
     const REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(60);
 
     loop {
-        let mut data_planes: Vec<_> =
-            agent_sql::data_plane::fetch_data_planes(&pg_pool, Vec::new(), "", uuid::Uuid::nil())
-                .await?
-                .into_iter()
-                .filter(|dp| {
-                    !decrypted_hmac_keys
-                        .read()
-                        .unwrap()
-                        .contains_key(&dp.data_plane_name)
-                })
-                .filter(|dp| {
-                    !dp.encrypted_hmac_keys
-                        .to_value()
-                        .as_object()
-                        .unwrap()
-                        .is_empty()
-                })
-                .collect();
+        let mut data_planes: Vec<_> = agent_sql::data_plane::fetch_all_data_planes(&pg_pool)
+            .await?
+            .into_iter()
+            .filter(|dp| {
+                !decrypted_hmac_keys
+                    .read()
+                    .unwrap()
+                    .contains_key(&dp.data_plane_name)
+            })
+            .filter(|dp| {
+                !dp.encrypted_hmac_keys
+                    .to_value()
+                    .as_object()
+                    .unwrap()
+                    .is_empty()
+            })
+            .collect();
 
         futures::future::try_join_all(
             data_planes
