@@ -3,6 +3,7 @@ package fragment
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -13,7 +14,7 @@ import (
 	"github.com/Azure/azure-pipeline-go/pipeline"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 	"github.com/gorilla/schema"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -29,6 +30,7 @@ type backend interface {
 	Persist(ctx context.Context, ep *url.URL, spool Spool) error
 	List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error
 	Remove(ctx context.Context, fragment pb.Fragment) error
+	IsAuthError(error) bool
 }
 
 var sharedStores = struct {
@@ -91,48 +93,62 @@ func Open(ctx context.Context, fragment pb.Fragment) (io.ReadCloser, error) {
 
 // Persist a Spool to the JournalSpec's store. If the Spool Fragment is already
 // present, this is a no-op. If the Spool has not been compressed incrementally,
-// it will be compressed before being persisted.
-func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
-	if len(spec.Fragment.Stores) == 0 {
-		return nil // No-op.
-	}
-	spool.BackingStore = spec.Fragment.Stores[0]
+// it will be compressed before being persisted. If `isExiting` and the preferred
+// store returns an AuthZ error, it will try subsequent stores.
+func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec, isExiting bool) error {
+	var stores = spec.Fragment.Stores
 
-	if postfix, err := evalPathPostfix(spool, spec); err != nil {
-		return err
-	} else {
-		spool.PathPostfix = postfix
-	}
+	for len(stores) != 0 {
+		spool.Fragment.BackingStore, stores = stores[0], stores[1:]
 
-	var ep = spool.Fragment.BackingStore.URL()
-	var b = getBackend(ep.Scheme)
+		if postfix, err := evalPathPostfix(spool, spec); err != nil {
+			return err
+		} else {
+			spool.PathPostfix = postfix
+		}
 
-	var exists, err = b.Exists(ctx, ep, spool.Fragment.Fragment)
-	instrumentStoreOp(b.Provider(), "exist", err)
-	if err != nil {
-		return err
-	} else if exists {
-		return nil // All done.
-	}
+		var ep = spool.Fragment.BackingStore.URL()
+		var b = getBackend(ep.Scheme)
 
-	// Ensure |compressedFile| is ready. This is a no-op if compressed incrementally.
-	if spool.CompressionCodec != pb.CompressionCodec_NONE {
-		spool.finishCompression()
-	}
+		var exists, err = b.Exists(ctx, ep, spool.Fragment.Fragment)
+		instrumentStoreOp(b.Provider(), "exist", err)
 
-	// We expect persisting individual spools to be fast, but have seen bugs
-	// in the past where eg a storage backend behavior change caused occasional
-	// multi-part upload failures such that the client wedged retrying
-	// indefinitely. Use a generous timeout to detect and recover from this
-	// class of error.
-	var timeoutCtx, cancel = context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
+		if err != nil {
+			if b.IsAuthError(err) && isExiting && len(stores) != 0 {
+				continue // Fall back to the next store.
+			}
+			return err
+		} else if exists {
+			return nil // All done.
+		}
 
-	if err = b.Persist(timeoutCtx, ep, spool); err == nil {
+		// Ensure `compressedFile` is ready. This is a no-op if compressed incrementally.
+		if spool.CompressionCodec != pb.CompressionCodec_NONE {
+			spool.finishCompression()
+		}
+
+		// We expect persisting individual spools to be fast, but have seen bugs
+		// in the past where eg a storage backend behavior change caused occasional
+		// multi-part upload failures such that the client wedged retrying
+		// indefinitely. Use a generous timeout to detect and recover from this
+		// class of error.
+		var timeoutCtx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+
+		err = b.Persist(timeoutCtx, ep, spool)
+		instrumentStoreOp(b.Provider(), "persist", err)
+
+		if err != nil {
+			if b.IsAuthError(err) && isExiting && len(stores) != 0 {
+				continue // During shutdown with auth errors, try next store.
+			}
+			return err
+		}
+
 		storePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))
+		return nil // Success
 	}
-	instrumentStoreOp(b.Provider(), "persist", err)
-	return err
+	return nil // No stores.
 }
 
 // List Fragments of the FragmentStore for a given journal. |callback| is
@@ -182,7 +198,7 @@ func instrumentStoreOp(provider, op string, err error) {
 func evalPathPostfix(spool Spool, spec *pb.JournalSpec) (string, error) {
 	var tpl, err = template.New("").Parse(spec.Fragment.PathPostfixTemplate)
 	if err != nil {
-		return "", errors.WithMessage(err, "parsing PathPostfixTemplate")
+		return "", pkgerrors.WithMessage(err, "parsing PathPostfixTemplate")
 	}
 
 	var b bytes.Buffer
@@ -190,7 +206,7 @@ func evalPathPostfix(spool Spool, spec *pb.JournalSpec) (string, error) {
 		Spool
 		*pb.JournalSpec
 	}{spool, spec}); err != nil {
-		return "", errors.WithMessagef(err,
+		return "", pkgerrors.WithMessagef(err,
 			"executing PathPostfixTemplate (%s)", spec.Fragment.PathPostfixTemplate)
 	}
 	return b.String(), nil

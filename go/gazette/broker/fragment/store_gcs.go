@@ -2,8 +2,10 @@ package fragment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
@@ -179,4 +182,30 @@ func (s *gcsBackend) gcsClient(ep *url.URL) (cfg GSStoreConfig, client *storage.
 	}).Info("constructed new GCS client")
 
 	return
+}
+
+func (s *gcsBackend) IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if err == storage.ErrBucketNotExist {
+		return true
+	}
+
+	// Check for Google API errors that indicate AuthZ failures.
+	var gErr *googleapi.Error
+	if errors.As(err, &gErr) {
+		switch gErr.Code {
+		case http.StatusForbidden:
+			return true
+		case http.StatusNotFound:
+			// Only treat bucket-level 404s as AuthZ failures, not object-level.
+			if strings.Contains(gErr.Message, "bucket") {
+				return true
+			}
+		}
+	}
+
+	return false
 }

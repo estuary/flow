@@ -63,8 +63,8 @@ func TestStoreInteractions(t *testing.T) {
 	// Persist twice, to exercise handling where the fragment exists.
 	var ctx = context.Background()
 	for _, spool := range buildSpoolFixtures(t) {
-		require.NoError(t, Persist(ctx, spool, spec))
-		require.NoError(t, Persist(ctx, spool, spec))
+		require.NoError(t, Persist(ctx, spool, spec, false))
+		require.NoError(t, Persist(ctx, spool, spec, false))
 	}
 
 	// List fragments of both journals.

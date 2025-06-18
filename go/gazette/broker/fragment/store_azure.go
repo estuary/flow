@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -488,4 +489,30 @@ func (a *azureBackend) getUserDelegationCredential(endpoint *url.URL) (*service.
 	}
 
 	return udc.udc, nil
+}
+
+func (a *azureBackend) IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for Azure blob storage errors that indicate AuthZ (not AuthN) failures.
+	if storageErr, ok := err.(azblob.StorageError); ok {
+		switch storageErr.ServiceCode() {
+		case azblob.ServiceCodeContainerNotFound,
+			azblob.ServiceCodeContainerDisabled,
+			azblob.ServiceCodeAccountIsDisabled:
+			return true
+		}
+
+		// Check HTTP status codes for auth conditions
+		if storageErr.Response() != nil {
+			switch storageErr.Response().StatusCode {
+			case http.StatusForbidden:
+				return true
+			}
+		}
+	}
+
+	return false
 }

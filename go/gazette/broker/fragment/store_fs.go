@@ -3,7 +3,6 @@ package fragment
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -80,7 +79,7 @@ func (s fsBackend) Persist(_ context.Context, ep *url.URL, spool Spool) error {
 
 	// Open a temp file under the target path directory.
 	var f *os.File
-	f, err = ioutil.TempFile(filepath.Dir(path), ".partial-"+filepath.Base(path))
+	f, err = os.CreateTemp(filepath.Dir(path), ".partial-"+filepath.Base(path))
 	if err != nil {
 		return err
 	}
@@ -168,4 +167,8 @@ func (s fsBackend) Remove(_ context.Context, fragment pb.Fragment) error {
 func (s fsBackend) fsCfg(ep *url.URL) (cfg FileStoreConfig, err error) {
 	err = parseStoreArgs(ep, &cfg)
 	return cfg, err
+}
+
+func (s fsBackend) IsAuthError(err error) bool {
+	return os.IsPermission(err)
 }

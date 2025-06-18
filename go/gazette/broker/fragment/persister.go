@@ -22,7 +22,7 @@ type Persister struct {
 	doneCh     chan struct{}
 	ks         *keyspace.KeySpace
 	ticker     *time.Ticker
-	persistFn  func(context.Context, Spool, *pb.JournalSpec) error
+	persistFn  func(context.Context, Spool, *pb.JournalSpec, bool) error
 }
 
 // NewPersister returns an empty, initialized Persister.
@@ -43,11 +43,10 @@ func (p *Persister) SpoolComplete(spool Spool, primary bool) {
 
 	if primary {
 		// Attempt to immediately persist the Spool.
-		go p.attemptPersist(spool)
+		go p.attemptPersist(spool, false /* not exiting */)
 	} else {
 		p.queue(spool)
 	}
-	return
 }
 
 func (p *Persister) Finish() {
@@ -77,7 +76,7 @@ func (p *Persister) Serve() {
 		}
 
 		for _, spool := range p.qA {
-			p.attemptPersist(spool)
+			p.attemptPersist(spool, exiting)
 		}
 
 		// Rotate queues.
@@ -94,7 +93,7 @@ func (p *Persister) Serve() {
 
 // attemptPersist persist valid spools, dropping spools with no content or no configured
 // backing store. If persistFn fails the spool will be requeued and be attempted again.
-func (p *Persister) attemptPersist(spool Spool) {
+func (p *Persister) attemptPersist(spool Spool, exiting bool) {
 	// TODO(johnny): Remove; it's a contract invariant (except for unit tests).
 
 	if spool.ContentLength() == 0 {
@@ -117,7 +116,7 @@ func (p *Persister) attemptPersist(spool Spool) {
 	}
 
 	var spec = item.ItemValue.(*pb.JournalSpec)
-	if err := p.persistFn(context.Background(), spool, spec); err != nil {
+	if err := p.persistFn(context.Background(), spool, spec, exiting); err != nil {
 		log.WithFields(log.Fields{
 			"journal": spool.Journal,
 			"name":    spool.ContentName(),

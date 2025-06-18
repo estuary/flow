@@ -262,3 +262,25 @@ func (s *s3Backend) s3Client(ep *url.URL) (cfg S3StoreConfig, client *s3.S3, err
 
 	return
 }
+
+func (s *s3Backend) IsAuthError(err error) bool {
+	if awsErr, ok := err.(awserr.Error); ok {
+		switch awsErr.Code() {
+		case s3.ErrCodeNoSuchBucket:
+			return true
+		case s3ErrCodeAccessDenied:
+			return true
+		}
+	}
+	if awsErr, ok := err.(awserr.RequestFailure); ok {
+		if awsErr.StatusCode() == http.StatusForbidden {
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	// AWS S3 error codes not defined as constants in the SDK
+	s3ErrCodeAccessDenied = "AccessDenied"
+)

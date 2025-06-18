@@ -19,7 +19,7 @@ type PersisterSuite struct{}
 
 func (p *PersisterSuite) TestSpoolCompleteNonPrimary(c *gc.C) {
 	var persister = NewPersister(nil)
-	persister.persistFn = func(context.Context, Spool, *pb.JournalSpec) error {
+	persister.persistFn = func(context.Context, Spool, *pb.JournalSpec, bool) error {
 		c.Error("spool should not be persisted")
 		return nil
 	}
@@ -60,7 +60,7 @@ func (p *PersisterSuite) TestSpoolCompletePrimary(c *gc.C) {
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	var persister = NewPersister(ks)
-	persister.persistFn = func(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
+	persister.persistFn = func(ctx context.Context, spool Spool, spec *pb.JournalSpec, isStopping bool) error {
 		c.Check(spool.Fragment.Fragment, gc.DeepEquals, pb.Fragment{
 			Journal:          "journal-1",
 			Begin:            0,
@@ -102,7 +102,7 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	var persister = Persister{
 		doneCh: make(chan struct{}),
 		ks:     ks,
-		persistFn: func(context.Context, Spool, *pb.JournalSpec) error {
+		persistFn: func(context.Context, Spool, *pb.JournalSpec, bool) error {
 			c.Error("spool should not be persisted")
 			return nil
 		},
@@ -111,7 +111,7 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	var obv testSpoolObserver
 	var spool = NewSpool("journal-1", &obv)
 	// Spool with no content should not call persistFn or enqueue spool.
-	persister.attemptPersist(spool)
+	persister.attemptPersist(spool, false)
 	persister.mu.Lock()
 	c.Check(len(persister.qC), gc.Equals, 0)
 	persister.mu.Unlock()
@@ -120,7 +120,7 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 
 	// Journal spec which has been removed should not call persistFn or enqueue spool.
 	spool.Journal = pb.Journal("invalidJournal")
-	persister.attemptPersist(spool)
+	persister.attemptPersist(spool, false)
 	persister.mu.Lock()
 	c.Check(len(persister.qC), gc.Equals, 0)
 	persister.mu.Unlock()
@@ -150,7 +150,7 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 	var persister = Persister{
 		doneCh: make(chan struct{}),
 		ks:     ks,
-		persistFn: func(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
+		persistFn: func(ctx context.Context, spool Spool, spec *pb.JournalSpec, isStopping bool) error {
 			if spec.Fragment.Stores[0] == pb.FragmentStore("file:///root/invalid/") {
 				return errors.New("something has gone wrong")
 			}
