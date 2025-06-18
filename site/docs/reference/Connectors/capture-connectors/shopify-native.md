@@ -44,13 +44,17 @@ You can authenticate your account either via OAuth or with a Shopify [access tok
 ### Access Token Permissions
 
 If authenticating with an access token, ensure the following permissions are granted:
+* `read_assigned_fulfillment_orders`
 * `read_checkouts`
 * `read_customers`
 * `read_fulfillments`
 * `read_inventory`
 * `read_locales`
 * `read_locations`
+* `read_marketplace_fulfillment_orders`
+* `read_merchant_managed_fulfillment_orders`
 * `read_orders`
+* `read_payment_terms`
 * `read_products`
 * `read_publications`
 
@@ -107,3 +111,13 @@ captures:
           name: products
         target: ${PREFIX}/products
 ```
+
+## Limitations with Custom App Access Tokens
+
+If you authenticate using an access token from a custom app on a Shopify plan below the Grow tier, the following streams will not be discovered:
+
+- `customers`
+- `fulfillment_orders`
+- `orders`
+
+This is due to Shopify API [restrictions](https://help.shopify.com/en/manual/apps/app-types/custom-apps) for lower-tier plans.
