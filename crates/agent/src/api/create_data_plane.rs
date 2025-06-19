@@ -27,7 +27,7 @@ pub struct Manual {
     /// HMAC keys of the data-plane.
     hmac_keys: Vec<String>,
     /// HMAC keys of the data-plane in encrypted sops format
-    encrypted_hmac_keys: models::RawValue,
+    encrypted_hmac_keys: serde_json::Value,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
@@ -119,7 +119,7 @@ pub async fn create_data_plane(
             format!("https://gazette.{data_plane_fqdn}"),
             format!("https://reactor.{data_plane_fqdn}"),
             Vec::new(),
-            models::RawValue::from_string("{}".to_string()).unwrap(),
+            serde_json::json!({}),
         ),
         Category::Manual(Manual {
             broker_address,
@@ -179,7 +179,7 @@ pub async fn create_data_plane(
             -- Don't replace non-empty hmac_keys with empty ones.
             hmac_keys = case when array_length($13, 1) > 0 then $13
                         else data_planes.hmac_keys end,
-            encrypted_hmac_keys = case when length($14::text) > 2 then $14
+            encrypted_hmac_keys = case when length($14::text) > 2 then $14::json
                         else data_planes.encrypted_hmac_keys end
         returning logs_token
         ;
@@ -197,7 +197,7 @@ pub async fn create_data_plane(
         broker_address,
         reactor_address,
         &hmac_keys,
-        serde_json::to_value(encrypted_hmac_keys).unwrap(),
+        encrypted_hmac_keys,
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
     )
