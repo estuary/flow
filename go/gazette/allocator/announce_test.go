@@ -84,7 +84,7 @@ func (s *AnnounceSuite) TestAnnounceIdempotency(c *gc.C) {
 	// Second announce with same lease should also succeed (idempotent)
 	var a2 = Announce(client, key, "value", session.Lease())
 	c.Check(a2, gc.NotNil)
-	
+
 	// Both announcements should have the same revision since they're the same key
 	c.Check(a1.Revision, gc.Equals, a2.Revision)
 }

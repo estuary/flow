@@ -7,22 +7,22 @@
 // RPC to the io.Reader interface. Reader will utilize just one Read RPC,
 // while RetryReader will silently restart Read RPCs as needed:
 //
-//      // Copy a journal byte range to os.Stdout.
-//      io.Copy(os.Stdout, NewReader(ctx, client, pb.ReadRequest{
-//          Journal: "a/journal/name",
-//          Offset:  1234,
-//          EndOffset: 5678,
-//      }))
+//	// Copy a journal byte range to os.Stdout.
+//	io.Copy(os.Stdout, NewReader(ctx, client, pb.ReadRequest{
+//	    Journal: "a/journal/name",
+//	    Offset:  1234,
+//	    EndOffset: 5678,
+//	}))
 //
 // It provides Appender, which adapts the Append RPC to a io.WriteCloser:
 //
-//      // Copy os.Stdin to the journal.
-//      var a = NewAppender(ctx, client, pb.AppendRequest{
-//          Journal: "a/journal/name",
-//      })
-//      if err = io.Copy(a, os.Stdin); err == nil {
-//          err = a.Close() // Commit the append.
-//      }
+//	// Copy os.Stdin to the journal.
+//	var a = NewAppender(ctx, client, pb.AppendRequest{
+//	    Journal: "a/journal/name",
+//	})
+//	if err = io.Copy(a, os.Stdin); err == nil {
+//	    err = a.Close() // Commit the append.
+//	}
 //
 // Gazette appends are linearizable (atomic) per journal. Appender streams content to
 // brokers as its written, but no content of an Appender will be visible to any
@@ -38,21 +38,21 @@
 // before this append to journal Bar completes"). It also dynamically batches
 // many co-occurring small writes into larger ones for efficiency.
 //
-//      var as = NewAppendService(ctx, client)
-//      var op = as.StartAppend(pb.AppendRequest{
-//          Journal: "a/journal/name",
-//      }, myOtherOpsWhichMustCompleteFirst)
+//	var as = NewAppendService(ctx, client)
+//	var op = as.StartAppend(pb.AppendRequest{
+//	    Journal: "a/journal/name",
+//	}, myOtherOpsWhichMustCompleteFirst)
 //
-//      // Produce content to append into the AsyncAppend's Writer.
-//      // We hold an exclusive lock over it until Release.
-//      op.Writer().Write("hello, ")
-//      op.Writer().Write("gazette: ")
-//      op.Require(os.Copy(op.Writer(), os.Stdin))
+//	// Produce content to append into the AsyncAppend's Writer.
+//	// We hold an exclusive lock over it until Release.
+//	op.Writer().Write("hello, ")
+//	op.Writer().Write("gazette: ")
+//	op.Require(os.Copy(op.Writer(), os.Stdin))
 //
-//      // If os.Copy error'd, it aborts the append and is returned by Release.
-//      if err = op.Release(); err == nil {
-//          err = op.Err() // Blocks until operation completes.
-//      }
+//	// If os.Copy error'd, it aborts the append and is returned by Release.
+//	if err = op.Release(); err == nil {
+//	    err = op.Err() // Blocks until operation completes.
+//	}
 //
 // The package offers functions for listing Fragments & JournalSpecs and applying
 // JournalSpecs, while accounting for pagination details. Also notable is

@@ -11,9 +11,9 @@ import (
 // MustParseConfig requires that the Parser parse from the combination of an
 // optional INI file, configured environment bindings, and explicit flags.
 // An INI file matching |configName| is searched for in:
-//  * The current working directory.
-//  * ~/.config/gazette (under the users's $HOME or %UserProfile% directory).
-//  * $APPLICATION_CONFIG_ROOT
+//   - The current working directory.
+//   - ~/.config/gazette (under the users's $HOME or %UserProfile% directory).
+//   - $APPLICATION_CONFIG_ROOT
 func MustParseConfig(parser *flags.Parser, configName string) {
 	// Allow unknown options while parsing an INI file.
 	var origOptions = parser.Options

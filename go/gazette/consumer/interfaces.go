@@ -150,10 +150,10 @@ type OpFutures = client.OpFutures
 // transaction many more messages may be passed to ConsumeMessage. When
 // consuming a message the Application is free to:
 //
-//  1) Begin or continue a transaction with its Store.
-//  2) Publish exactly-once Messages to other journals via the provided Publisher.
-//  3) Append raw at-least-once []bytes via the Shard's JournalClient.
-//  4) Keep in-memory-only aggregates such as counts.
+//  1. Begin or continue a transaction with its Store.
+//  2. Publish exactly-once Messages to other journals via the provided Publisher.
+//  3. Append raw at-least-once []bytes via the Shard's JournalClient.
+//  4. Keep in-memory-only aggregates such as counts.
 //
 // Messages published via PublishUncommitted will be visible to read-committed
 // readers once the consumer transaction completes. Read-uncommitted readers will see
@@ -185,12 +185,12 @@ type OpFutures = client.OpFutures
 // single transaction alongside all other Store mutations made within the
 // scope of this consumer transaction:
 //
-//  * Eg for `store-rocksdb`, all store mutations and the Checkpoint are
-//    written together within a single RocksDB WriteBatch.
-//  * For `SQLStore`, verification of the write fence, INSERTS, UPDATES, and the
-//    Checkpoint itself are written within a single BEGIN/COMMIT transaction.
-//  * Similarly, `store-sqlite` persists Checkpoints within the scope of the
-//    current SQL transaction.
+//   - Eg for `store-rocksdb`, all store mutations and the Checkpoint are
+//     written together within a single RocksDB WriteBatch.
+//   - For `SQLStore`, verification of the write fence, INSERTS, UPDATES, and the
+//     Checkpoint itself are written within a single BEGIN/COMMIT transaction.
+//   - Similarly, `store-sqlite` persists Checkpoints within the scope of the
+//     current SQL transaction.
 //
 // Note that other, non-transactional Store mutations are permitted, but will
 // have a weaker at-least-once processing guarantee with respect to Store state.

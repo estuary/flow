@@ -17,8 +17,9 @@ func NewCommandRegistry() CommandRegistry {
 // AddCommand takes a parentName and then an github.com/jessevdk/go-flags.AddCommand specification and stores it in the registry
 // You can specify a tree of commands by separating parentName with dots.
 // Example for adding command level1 and then level1 level2
-//  AddCommand("level1",....)
-//  AddCommand("level1.level2",....)
+//
+//	AddCommand("level1",....)
+//	AddCommand("level1.level2",....)
 func (cr CommandRegistry) AddCommand(parentName string, command string, shortDescription string, longDescription string, data interface{}) {
 	cr[parentName] = append(cr[parentName], func(cmd *flags.Command) error {
 		_, err := cmd.AddCommand(command, shortDescription, longDescription, data)

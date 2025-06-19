@@ -1,7 +1,7 @@
 // Package store_sqlite implements the consumer.Store interface via an embedded
 // SQLite instance.
 //
-// Database Representation
+// # Database Representation
 //
 // SQLite records state across a very long lived database file, and short-lived
 // transactional log files (journals, or write-ahead logs; see
@@ -42,7 +42,7 @@
 // this implementation detects and maps these operations into new recorded
 // logs, to ensure a tighter recovery playback horizon.
 //
-// Batch Atomic Writes
+// # Batch Atomic Writes
 //
 // Where SQLITE_BATCH_ATOMIC_WRITE is enabled, the Store VFS presents itself
 // as a supporting file system, with atomic write semantics implemented
@@ -67,7 +67,7 @@
 // Later, when a WAL checkpoint is executed, only the most-recent version
 // of a page is then written to RocksDB (and its WAL).
 //
-// Buffering and the Synchronous Pragma
+// # Buffering and the Synchronous Pragma
 //
 // The Store VFS employs buffering in its C++ bindings to amortize and minimize
 // the number of calls which must cross the CGO barrier (as these can be quite
@@ -75,7 +75,7 @@
 // engine to understand when buffered data must be delivered over CGO and
 // sequenced into the recovery log. For this reason, the PRAGMA *must be*:
 //
-//     PRAGMA synchronous=FULL;
+//	PRAGMA synchronous=FULL;
 //
 // The default SQLite URI flags used by the Store set this pragma. SQLite
 // behavior for any lower setting, such as synchronous=NORMAL, is to not sync the

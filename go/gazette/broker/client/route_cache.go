@@ -19,10 +19,9 @@ import (
 // availability zone which is replicating a desired journal, and to which a
 // long-lived Read RPC can be dispatched.
 //
-//     // Adapt a JournalClient to a RoutedJournalClient by using a RouteCache.
-//     var jc protocol.JournalClient
-//     var rjc = protocol.NewRoutedJournalClient(jc, NewRouteCache(256, time.Hour))
-//
+//	// Adapt a JournalClient to a RoutedJournalClient by using a RouteCache.
+//	var jc protocol.JournalClient
+//	var rjc = protocol.NewRoutedJournalClient(jc, NewRouteCache(256, time.Hour))
 type RouteCache struct {
 	cache lru.Cache
 	ttl   time.Duration

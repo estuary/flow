@@ -3,7 +3,6 @@
 // identical meanings, but within the `app.gazette.dev` namespace.
 //
 // [1] https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
-//
 package labels
 
 const (

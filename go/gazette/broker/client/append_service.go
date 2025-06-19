@@ -278,7 +278,8 @@ func (p *AsyncAppend) Writer() *bufio.Writer { return p.fb.buf }
 // also roll back any writes queued by the caller, aborting the append
 // transaction. Require is valid for use only until Release is called.
 // Require returns itself, allowing uses like:
-//      Require(maybeErrors()).Release()
+//
+//	Require(maybeErrors()).Release()
 func (p *AsyncAppend) Require(err error) *AsyncAppend {
 	if err != nil && p.op.err == nil {
 		p.op.err = err

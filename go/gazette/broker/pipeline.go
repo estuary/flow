@@ -105,11 +105,12 @@ func (pln *pipeline) sendErr() error {
 }
 
 // barrier installs a new barrier in the pipeline. Clients should:
-//   * Invoke barrier after issuing all sent writes, and release the
+//   - Invoke barrier after issuing all sent writes, and release the
 //     pipeline for other clients.
-//   * Block until |waitFor| is selectable.
-//   * Read expected responses from the pipeline.
-//   * Close |closeAfter|.
+//   - Block until |waitFor| is selectable.
+//   - Read expected responses from the pipeline.
+//   - Close |closeAfter|.
+//
 // By following this convention a pipeline can safely be passed among multiple
 // clients, each performing writes followed by reads, while allowing for those
 // writes and reads to happen concurrently.

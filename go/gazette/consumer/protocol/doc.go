@@ -13,5 +13,4 @@
 // package go.gazette.dev/core/broker/protocol (imported as `pb`). Eg,
 //
 // import pc "go.gazette.dev/core/consumer/protocol"
-//
 package protocol

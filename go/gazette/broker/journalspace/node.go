@@ -226,16 +226,16 @@ func (n *Node) MarkUnpatchedForDeletion() {
 
 // extractTree derives the tree from ordered []Nodes implied by their shared
 // path "directories", or component prefixes. For example, journals:
-//  - root/foo/bar
-//  - root/foo/baz
-//  - root/bing
+//   - root/foo/bar
+//   - root/foo/baz
+//   - root/bing
 //
 // Will result in the tree:
-//  - root/
-//    - root/foo/
-//      - root/foo/bar
-//      - root/foo/baz
-//    - root/bing
+//   - root/
+//   - root/foo/
+//   - root/foo/bar
+//   - root/foo/baz
+//   - root/bing
 func extractTree(nodes []Node) Node {
 	if len(nodes) == 0 {
 		return Node{}

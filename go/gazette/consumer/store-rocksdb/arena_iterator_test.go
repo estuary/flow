@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	rocks "github.com/jgraettinger/gorocksdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestArenaIterator(t *testing.T) {

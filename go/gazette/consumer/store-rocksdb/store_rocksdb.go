@@ -14,9 +14,8 @@
 // order to amortize the number of CGO calls required when iterating through a
 // database, potentially providing a substantial speedup:
 //
-//   BenchmarkIterator/direct-iterator-8                 3000            428699 ns/op
-//   BenchmarkIterator/arena-iterator-8                 20000             73638 ns/op
-//
+//	BenchmarkIterator/direct-iterator-8                 3000            428699 ns/op
+//	BenchmarkIterator/arena-iterator-8                 20000             73638 ns/op
 package store_rocksdb
 
 import (

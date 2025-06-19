@@ -44,9 +44,8 @@ func (m *Fragment) Validate() error {
 // contributed by the Journal must have already been stripped from the path
 // string, leaving only a path postfix, content name, and compression extension.
 //
-//      ParseFragmentFromRelativePath("a/journal",
-//          "a=1/b=2/00000000499602d2-7fffffffffffffff-0102030405060708090a0b0c0d0e0f1011121314.gz")
-//
+//	ParseFragmentFromRelativePath("a/journal",
+//	    "a=1/b=2/00000000499602d2-7fffffffffffffff-0102030405060708090a0b0c0d0e0f1011121314.gz")
 func ParseFragmentFromRelativePath(journal Journal, name string) (Fragment, error) {
 	var f Fragment
 

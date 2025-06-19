@@ -1,5 +1,4 @@
 // Package etcdtest provides test support for obtaining a client to an Etcd server.
-//
 package etcdtest
 
 import (
@@ -44,7 +43,7 @@ var (
 // TestMainWithEtcd is to be called by other packages which require
 // functionality of the etcdtest package, before those tests run, as:
 //
-//   func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
+//	func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
 //
 // This TestMain function is automatically invoked by the `go test`
 // tool, providing an opportunity to start the embedded Etcd server

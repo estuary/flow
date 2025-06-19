@@ -27,13 +27,13 @@ func (s Segment) Validate() error {
 }
 
 // SegmentSet is a collection of Segment with the following invariants:
-//  * Entries have strictly increasing SeqNo, and are non-overlapping
-//    (s[i].LastSeqNo < s[i+1].SeqNo; note this implies a single author
+//   - Entries have strictly increasing SeqNo, and are non-overlapping
+//     (s[i].LastSeqNo < s[i+1].SeqNo; note this implies a single author
 //     for any covered SeqNo).
-//  * Entries of the same Log have monotonically increasing FirstOffset.
-//  * Entries of the same Log have monotonically increasing LastOffset, however a strict
-//    suffix of entries are permitted to have a LastOffset of zero (implied
-//    infinite LastOffset).
+//   - Entries of the same Log have monotonically increasing FirstOffset.
+//   - Entries of the same Log have monotonically increasing LastOffset, however a strict
+//     suffix of entries are permitted to have a LastOffset of zero (implied
+//     infinite LastOffset).
 type SegmentSet []Segment
 
 // Add a Segment to this SegmentSet. An error is returned

@@ -8,9 +8,9 @@
 // MappingKeyFunc extracts a stable mapping identifier from a custom message type.
 // To map messages on a session ID:
 //
-//      var mapOnSessionFn MappingKeyFunc = func(m Mappable, w io.Writer) {
-//          w.Write([]byte(m.(*MyMsgType).SessionID))
-//      }
+//	var mapOnSessionFn MappingKeyFunc = func(m Mappable, w io.Writer) {
+//	    w.Write([]byte(m.(*MyMsgType).SessionID))
+//	}
 //
 // MappingFunc then defines the means of mapping messages to a journal. Several
 // routines, like ModuloMapping, help in the construction of MappingFuncs and
@@ -20,64 +20,64 @@
 // Combine with client.PolledList to build MappingFuncs that publish to a dynamic,
 // automatically updating "topic" of selected journal partitions:
 //
-//      var myClient pb.AsyncJournalClient = ...
+//	var myClient pb.AsyncJournalClient = ...
 //
-//      var partitions, _ = pb.ParseLabelSelector("logs=pageviews, source=mobile")
-//      var pl, _ = client.NewPolledList(ctx, myClient, time.Minute, pb.ListRequest{
-//          Selector: partitions,
-//      })
-//      // Use RendezvousMapping to minimally shuffle the mapping of
-//      // SessionID <=> journal when the topic partitioning is updated.
-//      var mapFn = RendezvousMapping(mapOnSessionFn, pl.List)
+//	var partitions, _ = pb.ParseLabelSelector("logs=pageviews, source=mobile")
+//	var pl, _ = client.NewPolledList(ctx, myClient, time.Minute, pb.ListRequest{
+//	    Selector: partitions,
+//	})
+//	// Use RendezvousMapping to minimally shuffle the mapping of
+//	// SessionID <=> journal when the topic partitioning is updated.
+//	var mapFn = RendezvousMapping(mapOnSessionFn, pl.List)
 //
 // Then, use a Publisher to publish messages:
 //
-//      var pub = NewPublisher(myClient, nil)
-//      for _, msg := range messages {
-//          // Each message is mapped on its SessionID to a current topic
-//          // partition (ie, journal), sequenced with a UUID, marshalled,
-//          // and queued for appended to the mapped journal.
-//          pub.PublishCommitted(mapFn, msg)
-//      }
-//      for op := myClient.PendingExcept("") {
-//          <-op.Done() // Wait for all async appends to complete.
-//      }
+//	var pub = NewPublisher(myClient, nil)
+//	for _, msg := range messages {
+//	    // Each message is mapped on its SessionID to a current topic
+//	    // partition (ie, journal), sequenced with a UUID, marshalled,
+//	    // and queued for appended to the mapped journal.
+//	    pub.PublishCommitted(mapFn, msg)
+//	}
+//	for op := myClient.PendingExcept("") {
+//	    <-op.Done() // Wait for all async appends to complete.
+//	}
 //
 // When reading, NewMessageFunc provides the package with a means of constructing
 // new messages of the users's type.
 //
-//      var newMsgFn NewMessageFunc = func(*pb.JournalSpec) (Message, error) {
-//          return new(MyMsgType), nil
-//      }
+//	var newMsgFn NewMessageFunc = func(*pb.JournalSpec) (Message, error) {
+//	    return new(MyMsgType), nil
+//	}
 //
 // ReadUncommittedIter reads "uncommitted" messages from a journal. Uncommitted
 // messages may include duplicates, or messages which are never acknowledged or
 // are later explicitly rolled back.
 //
-//      var rr = client.NewRetryReader(ctx, rjc, pb.ReadRequest{
-//          Journal:    "my/journal",
-//          Block:      true,
-//      })
-//      var it = NewReadUncommittedIter(rr, newMsgFn)
-//      for {
-//          var env, err = it.Next()
+//	var rr = client.NewRetryReader(ctx, rjc, pb.ReadRequest{
+//	    Journal:    "my/journal",
+//	    Block:      true,
+//	})
+//	var it = NewReadUncommittedIter(rr, newMsgFn)
+//	for {
+//	    var env, err = it.Next()
 //
-//          // Handle |env| and |err|.
-//      }
+//	    // Handle |env| and |err|.
+//	}
 //
 // Use a Sequencer to sequence read-uncommitted messages into read-committed ones,
 // and a ReadCommittedIter to read only committed messages from the journal.
 // ReadCommittedIter is nothing more than the composition of a ReadUncommittedIter
 // with a Sequencer.
 //
-//      var seq = NewSequencer(nil, 4096)
-//      var it = NewReadCommittedIter(rr, newMsgFn, seq)
-//      for {
-//          var env, err = it.Next()
+//	var seq = NewSequencer(nil, 4096)
+//	var it = NewReadCommittedIter(rr, newMsgFn, seq)
+//	for {
+//	    var env, err = it.Next()
 //
-//          // Handle |env| and |err|. We're assured the message has been
-//          // acknowledged and is not a duplicate.
-//      }
+//	    // Handle |env| and |err|. We're assured the message has been
+//	    // acknowledged and is not a duplicate.
+//	}
 //
 // Journals must declare their associated message Framing via the "content-type"
 // label. The journal Framing is used to encode and decode Message instances
@@ -86,11 +86,11 @@
 // in applications. This package registers a Framing for the following
 // content-types on its import:
 //
-//   * test/csv:                     Uses "encoding/csv". See CSVFrameable.
-//   * application/x-ndjson:         Uses "encoing/json".
-//   * application/x-protobuf-fixed: Encodes ProtoFrameable messages with a preamble
-//      of [4]byte{0x66, 0x33, 0x93, 0x36}, followed by a 4-byte little endian unsigned
-//      length, followed by a marshalled protobuf message.
+//   - test/csv:                     Uses "encoding/csv". See CSVFrameable.
+//   - application/x-ndjson:         Uses "encoing/json".
+//   - application/x-protobuf-fixed: Encodes ProtoFrameable messages with a preamble
+//     of [4]byte{0x66, 0x33, 0x93, 0x36}, followed by a 4-byte little endian unsigned
+//     length, followed by a marshalled protobuf message.
 //
 // See the "labels" package for definitions of well-known label names and values
 // such as content-types.
@@ -214,11 +214,11 @@ type Mappable interface{}
 // LabelSelectors). See `labels` package documentation for naming conventions.
 //
 // A Mapper implementation would typically:
-//  1) Apply domain knowledge to introspect the Mappable and determine a "topic",
+//  1. Apply domain knowledge to introspect the Mappable and determine a "topic",
 //     expressed as a LabelSelector.
-//  2) Query the broker List RPC to determine current partitions of the topic,
+//  2. Query the broker List RPC to determine current partitions of the topic,
 //     caching and refreshing List results as needed (see client.PolledList).
-//  3) Use a ModuloMapping or RendezvousMapping to select among partitions.
+//  3. Use a ModuloMapping or RendezvousMapping to select among partitions.
 //
 // The MappingFunc returns the contentType of journal messages,
 // which must have a registered Framing.

@@ -8,8 +8,8 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.gazette.dev/core/task"
 )
 
@@ -98,14 +98,14 @@ type SessionArgs struct {
 }
 
 // StartSession starts an allocator session. It:
-//  * Validates the MemberSpec.
-//  * Establishes an Etcd lease which conveys "liveness" of this member to its peers.
-//  * Announces the MemberSpec under the lease.
-//  * Loads the KeySpace as-of the announcement revision.
-//  * Queues tasks to the *task.Group which:
-//    - Closes the Etcd lease on task.Group cancellation.
-//    - Monitors SignalCh and zeros the MemberSpec ItemLimit on its signal.
-//    - Runs the Allocate loop, cancelling the *task.Group on completion.
+//   - Validates the MemberSpec.
+//   - Establishes an Etcd lease which conveys "liveness" of this member to its peers.
+//   - Announces the MemberSpec under the lease.
+//   - Loads the KeySpace as-of the announcement revision.
+//   - Queues tasks to the *task.Group which:
+//   - Closes the Etcd lease on task.Group cancellation.
+//   - Monitors SignalCh and zeros the MemberSpec ItemLimit on its signal.
+//   - Runs the Allocate loop, cancelling the *task.Group on completion.
 func StartSession(args SessionArgs) error {
 	if err := args.Spec.Validate(); err != nil {
 		return errors.WithMessage(err, "spec.Validate")

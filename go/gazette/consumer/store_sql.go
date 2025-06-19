@@ -17,11 +17,11 @@ import (
 // "gazette_checkpoints" is also required, to which consumer checkpoints are
 // persisted, and having a schema like:
 //
-//   CREATE TABLE gazette_checkpoints (
-//     shard_fqn  TEXT    PRIMARY KEY NOT NULL,
-//     fence      INTEGER NOT NULL,
-//     checkpoint BLOB    NOT NULL
-//   );
+//	CREATE TABLE gazette_checkpoints (
+//	  shard_fqn  TEXT    PRIMARY KEY NOT NULL,
+//	  fence      INTEGER NOT NULL,
+//	  checkpoint BLOB    NOT NULL
+//	);
 //
 // The user is responsible for creating this table. Exact data types may vary
 // with the store dialect, but "shard_fqn" must be its PRIMARY KEY. StartCommit

@@ -13,9 +13,9 @@ import (
 // Currently supported schemes are "gs" for Google Cloud Storage, "s3" for
 // Amazon S3, "azure" for Azure Cloud Storage, and "file" for a local file-system / NFS mount. Eg:
 //
-//  * s3://bucket-name/a/sub-path/?profile=a-shared-credentials-profile
-//  * gs://bucket-name/a/sub-path/?
-//  * file:///a/local/volume/mount
+//   - s3://bucket-name/a/sub-path/?profile=a-shared-credentials-profile
+//   - gs://bucket-name/a/sub-path/?
+//   - file:///a/local/volume/mount
 //
 // FragmentStore implementations may support additional configuration which
 // can be declared via URL query arguments. The meaning of these query
