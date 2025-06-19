@@ -299,7 +299,8 @@ func (s *AppenderSuite) TestContextErrorCases(c *gc.C) {
 	c.Check(err, gc.Equals, context.Canceled)
 
 	// Case 2: context reaches deadline.
-	caseCtx, _ = context.WithTimeout(context.Background(), time.Microsecond)
+	caseCtx, caseCancel = context.WithTimeout(context.Background(), time.Microsecond)
+	defer caseCancel()
 	<-caseCtx.Done() // Block until deadline.
 
 	_, err = Append(caseCtx, rjc, pb.AppendRequest{Journal: "a/journal"}, content)

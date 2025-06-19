@@ -220,7 +220,8 @@ func TestPlayThenCancel(t *testing.T) {
 	defer r.teardown()
 
 	// Create a Context which will cancel itself after a delay.
-	var deadlineCtx, _ = context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*10))
+	var deadlineCtx, cancel = context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*10))
+	defer cancel()
 	// Blocks until |ctx| is cancelled.
 	var err = r.player.Play(deadlineCtx, recoverylog.FSMHints{Log: aRecoveryLog}, r.tmpdir, bk)
 	require.Equal(t, context.DeadlineExceeded, errors.Cause(err))

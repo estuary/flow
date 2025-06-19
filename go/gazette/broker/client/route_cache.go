@@ -23,7 +23,7 @@ import (
 //	var jc protocol.JournalClient
 //	var rjc = protocol.NewRoutedJournalClient(jc, NewRouteCache(256, time.Hour))
 type RouteCache struct {
-	cache lru.Cache
+	cache *lru.Cache
 	ttl   time.Duration
 }
 
@@ -35,7 +35,7 @@ func NewRouteCache(size int, ttl time.Duration) *RouteCache {
 		panic(err.Error()) // Only errors on size <= 0.
 	}
 	return &RouteCache{
-		cache: *cache,
+		cache: cache,
 		ttl:   ttl,
 	}
 }

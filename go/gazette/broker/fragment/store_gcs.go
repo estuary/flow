@@ -75,6 +75,7 @@ func (s *gcsBackend) Persist(ctx context.Context, ep *url.URL, spool Spool) erro
 		return err
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var wc = client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, spool.ContentPath())).NewWriter(ctx)
 
 	if spool.CompressionCodec == pb.CompressionCodec_GZIP_OFFLOAD_DECOMPRESSION {
@@ -86,11 +87,9 @@ func (s *gcsBackend) Persist(ctx context.Context, ep *url.URL, spool Spool) erro
 		_, err = io.Copy(wc, io.NewSectionReader(spool.File, 0, spool.ContentLength()))
 	}
 	if err != nil {
-		cancel() // Abort |wc|.
-	} else {
-		err = wc.Close()
+		return err
 	}
-	return err
+	return wc.Close()
 }
 
 func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, journal pb.Journal, callback func(pb.Fragment)) error {

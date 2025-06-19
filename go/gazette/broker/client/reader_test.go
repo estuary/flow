@@ -342,7 +342,8 @@ func (s *ReaderSuite) TestContextErrorCases(c *gc.C) {
 	c.Check(n, gc.Equals, 0)
 
 	// Case 2: context reaches deadline.
-	caseCtx, _ = context.WithTimeout(context.Background(), time.Microsecond)
+	caseCtx, caseCancel = context.WithTimeout(context.Background(), time.Microsecond)
+	defer caseCancel()
 	<-caseCtx.Done() // Block until deadline.
 
 	r = NewReader(caseCtx, rjc, pb.ReadRequest{Journal: "a/journal"})
