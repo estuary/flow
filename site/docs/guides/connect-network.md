@@ -191,7 +191,7 @@ Assuming you have a database running on a host named `db.example.com`, on port 5
 
 
 ```bash
-ssh -o 'ConnectTimeout=5s' \
+autossh -o 'ConnectTimeout=5s' \
     -o 'ServerAliveInterval=30' \
     -i bastion.key \
     -N -T \
