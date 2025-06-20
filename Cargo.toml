@@ -79,7 +79,7 @@ jemallocator = { version = "0.3", features = ["profiling"] }
 jemalloc-ctl = "0.3"
 json-patch = "0.3"
 jsonschema = "0.30.0"
-jsonwebtoken = { version = "9", default-features = false }
+jsonwebtoken = { version = "9" }
 js-sys = "0.3.60"
 kafka-protocol = "0.13.0"
 lazy_static = "1.4"
@@ -223,6 +223,7 @@ aws-config = "1.5.16"
 aws-types = "1.3.5"
 aws-credential-types = "1.2.0"
 aws-msk-iam-sasl-signer = "1.0.0"
+aws-sdk-sts = "1.16"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
