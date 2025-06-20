@@ -332,4 +332,24 @@ comment on function internal.evaluate_alert_events() is
 firing alerts and resolves alerts that are no longer firing. Adds recipient
 information to both new and resolved alerts based on alert_subscriptions.';
 
+-- Replace the trigger so that alerts get sent to the new cloudrun service.
+-- The URL is the only thing that's changed here.
+create or replace function internal.send_alerts() returns trigger
+    language plpgsql
+    as $$
+declare
+  token text;
+begin
+  select decrypted_secret into token from vault.decrypted_secrets where name = 'alert-email-fn-shared-secret' limit 1;
+    perform
+      net.http_post(
+        'https://alerts-1084703453822.us-central1.run.app/',
+        to_jsonb(new.*),
+        headers:=format('{"Content-Type": "application/json", "Authorization": "Basic %s"}', token)::jsonb,
+        timeout_milliseconds:=90000
+      );
+  return null;
+end;
+$$;
+
 commit;

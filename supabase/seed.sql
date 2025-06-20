@@ -1,5 +1,8 @@
 begin;
 
+-- Disable the trigger that sends alert emails when running locally.
+alter table public.alert_history disable trigger all;
+
 insert into auth.users (id, email) values
   -- Root account which provisions other accounts.
   -- It must exist for the agent to function.
