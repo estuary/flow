@@ -1,11 +1,66 @@
 use crate::{verify, LogHandler, Runtime};
 use anyhow::Context;
-use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
+use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use proto_flow::{
     capture::{Request, Response},
     flow::capture_spec::ConnectorType,
 };
 use unseal;
+
+/// Retrieve the connector's configuration schema by making a spec request
+async fn retrieve_connector_schema<L: LogHandler>(
+    runtime: &Runtime<L>,
+    image: &str,
+    config_json: &str,
+    connector_type: i32,
+) -> anyhow::Result<Option<String>> {
+    // Create a spec request to get the connector schema
+    let spec_request = Request {
+        spec: Some(proto_flow::capture::request::Spec {
+            connector_type,
+            config_json: config_json.to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let (mut spec_tx, spec_rx) = mpsc::channel(1);
+
+    // Start a temporary container just for the spec request
+    let (_container, channel, _guard) = crate::container::start(
+        image,
+        runtime.log_handler.clone(),
+        ops::LogLevel::Debug, // Use debug level for spec requests
+        &runtime.container_network,
+        &format!("{}-spec", runtime.task_name),
+        ops::TaskType::Capture,
+        runtime.allow_local,
+        None, // No connector config JSON
+        None, // No connector schema JSON
+    )
+    .await?;
+
+    // Send the spec request
+    spec_tx
+        .try_send(spec_request)
+        .context("Failed to send spec request")?;
+    drop(spec_tx); // Close the sender
+
+    // Create the connector client and make the spec request
+    let mut client = proto_grpc::capture::connector_client::ConnectorClient::new(channel)
+        .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+        .max_encoding_message_size(usize::MAX);
+
+    let mut response_stream = client.capture(spec_rx).await?.into_inner();
+
+    // Get the first (and only) response which should be the spec
+    if let Some(response) = response_stream.try_next().await? {
+        if let Some(spec) = response.spec {
+            return Ok(Some(spec.config_schema_json));
+        }
+    }
+
+    Ok(None)
+}
 
 // Start a capture connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses.
@@ -17,7 +72,7 @@ pub async fn start<L: LogHandler>(
     BoxStream<'static, anyhow::Result<Response>>,
 )> {
     let log_level = initial.get_internal()?.log_level();
-    let (endpoint, config_json) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type) = extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
@@ -45,7 +100,18 @@ pub async fn start<L: LogHandler>(
             image,
             config: sealed_config,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
+            let decrypted_config = unseal::decrypt_sops(&sealed_config).await?.to_string();
+            *config_json = decrypted_config.clone();
+
+            // Retrieve the connector schema for IAM authentication parsing
+            let connector_schema =
+                retrieve_connector_schema(runtime, &image, &decrypted_config, connector_type)
+                    .await
+                    .unwrap_or_else(|err| {
+                        tracing::warn!(?err, "Failed to retrieve connector schema for IAM parsing");
+                        None
+                    });
+
             connector_tx.try_send(initial).unwrap();
 
             crate::image_connector::serve(
@@ -59,6 +125,8 @@ pub async fn start<L: LogHandler>(
                 &runtime.task_name,
                 ops::TaskType::Capture,
                 runtime.allow_local,
+                connector_schema.as_ref().map(|_| decrypted_config.as_str()),
+                connector_schema.as_ref().map(|s| s.as_str()),
             )
             .await?
             .boxed()
@@ -95,7 +163,7 @@ pub async fn start<L: LogHandler>(
 
 fn extract_endpoint<'r>(
     request: &'r mut Request,
-) -> anyhow::Result<(models::CaptureEndpoint, &'r mut String)> {
+) -> anyhow::Result<(models::CaptureEndpoint, &'r mut String, i32)> {
     let (connector_type, config_json) = match request {
         Request {
             spec: Some(spec), ..
@@ -137,6 +205,7 @@ fn extract_endpoint<'r>(
                 serde_json::from_str(config_json).context("parsing connector config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
@@ -144,6 +213,7 @@ fn extract_endpoint<'r>(
                 serde_json::from_str(config_json).context("parsing local config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");

@@ -59,6 +59,8 @@ pub async fn start<L: LogHandler>(
                 &runtime.task_name,
                 ops::TaskType::Materialization,
                 runtime.allow_local,
+                None, // No connector config for IAM auth yet
+                None, // No connector schema for IAM auth yet
             )
             .await?
             .boxed()
