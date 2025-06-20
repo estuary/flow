@@ -120,6 +120,11 @@ pub async fn start(
         // Thread-through the logging configuration of the connector.
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
+        "--env=AWS_ACCESS_KEY_ID".to_string(),
+        "--env=AWS_SECRET_ACCESS_KEY".to_string(),
+        "--env=AZURE_CLIENT_ID".to_string(),
+        "--env=AZURE_CLIENT_SECRET".to_string(),
+        "--env=GOOGLE_APPLICATION_CREDENTIALS".to_string(),
         // Cgroup memory / CPU resource limits.
         "--memory".to_string(),
         connector_memory_limit(),
