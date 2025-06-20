@@ -102,6 +102,7 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
     let mut x_collection_name: Option<doc::Pointer> = None;
     let mut x_schema_name: Option<doc::Pointer> = None;
     let mut x_delta_updates: Option<doc::Pointer> = None;
+    
     for (ptr, _, prop_shape, _) in shape.locations() {
         if prop_shape.annotations.contains_key("x-collection-name") {
             x_collection_name = Some(ptr)
@@ -128,6 +129,7 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
 fn is_default_schema_name(schema_name: &str) -> bool {
     schema_name == "public" || schema_name == "dbo"
 }
+
 
 #[cfg(test)]
 mod test {

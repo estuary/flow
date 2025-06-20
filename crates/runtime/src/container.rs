@@ -148,7 +148,7 @@ pub async fn start(
             // in the attached runtime::Container description.
             format!("--publish=0.0.0.0:{port}:{CONNECTOR_INIT_PORT}"),
             "--publish-all".to_string(),
-        ])
+        ]);
     }
 
     if let Some(cgroup_parent) = std::env::var("CONNECTOR_CGROUP_PARENT").ok() {
