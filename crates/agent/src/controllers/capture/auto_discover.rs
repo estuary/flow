@@ -3,10 +3,12 @@ use chrono::{DateTime, Utc};
 use models::status::{
     capture::{AutoDiscoverFailure, AutoDiscoverOutcome, AutoDiscoverStatus, DiscoverChange},
     publications::PublicationStatus,
+    AlertType, Alerts,
 };
 
 use crate::{
     controllers::{
+        alerts,
         publication_status::{self, PendingPublication},
         ControllerErrorExt, ControllerState, NextRun,
     },
@@ -40,6 +42,7 @@ async fn try_connector_spec<C: ControlPlane>(
 /// run.
 pub async fn update<C: ControlPlane>(
     status: &mut AutoDiscoverStatus,
+    alerts_status: &mut Alerts,
     state: &ControllerState,
     model: &models::CaptureDef,
     control_plane: &C,
@@ -88,6 +91,21 @@ pub async fn update<C: ControlPlane>(
     let return_result = outcome.get_result();
     record_outcome(status, outcome);
     update_next_run(status, state, model, control_plane).await?;
+    if let Err(error) = return_result.as_ref() {
+        let fail_count = status.failure.as_ref().map(|f| f.count).unwrap_or_default();
+        if fail_count >= 3 {
+            alerts::set_alert_firing(
+                alerts_status,
+                AlertType::AutoDiscoverFailed,
+                now,
+                error.to_string(),
+                fail_count as u32,
+                models::CatalogType::Capture,
+            );
+        }
+    } else {
+        alerts::resolve_alert(alerts_status, AlertType::AutoDiscoverFailed);
+    }
 
     // If either the discover or publication failed, return now with an error,
     // with the retry set to the next attempt time.

@@ -3,7 +3,7 @@ use crate::{
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
     publications, ControlPlane,
 };
-use models::status::capture::DiscoverChange;
+use models::status::{capture::DiscoverChange, AlertType, StatusSummaryType};
 use proto_flow::capture::response::{discovered::Binding, Discovered};
 use serde_json::json;
 
@@ -392,7 +392,7 @@ async fn test_auto_discovers_no_evolution() {
 
     harness.run_pending_controllers(None).await;
 
-    let new_discovered = Discovered {
+    let discovered_diff_key = Discovered {
         bindings: vec![Binding {
             recommended_name: "hey".to_string(),
             resource_config_json: r#"{"id": "hey"}"#.to_string(),
@@ -407,7 +407,7 @@ async fn test_auto_discovers_no_evolution() {
     harness
         .discover_handler
         .connectors
-        .mock_discover("mules/capture", Ok((spec_fixture(), new_discovered)));
+        .mock_discover("mules/capture", Ok((spec_fixture(), discovered_diff_key)));
     harness.run_pending_controller("mules/capture").await;
 
     let capture_state = harness.get_controller_state("mules/capture").await;
@@ -501,6 +501,50 @@ async fn test_auto_discovers_no_evolution() {
     }
     "###);
 
+    let status = harness.status_summary("mules/capture").await;
+    assert_eq!(StatusSummaryType::Error, status.status);
+    assert!(
+        status
+            .message
+            .contains("auto-discover publication failed with: BuildFailed"),
+        "unexpected status summary: {}",
+        status.message
+    );
+    // No alert should yet have fired.
+    harness
+        .assert_alert_clear("mules/capture", AlertType::AutoDiscoverFailed)
+        .await;
+
+    // Attempt the discover twice more, for a total of 3 failures, which should
+    // trigger an alert.
+    for expect_fail_count in 2..4 {
+        harness.set_auto_discover_due("mules/capture").await;
+        let state = harness.run_pending_controller("mules/capture").await;
+        assert!(state.error.is_some());
+        let ad_status = state
+            .current_status
+            .unwrap_capture()
+            .auto_discover
+            .as_ref()
+            .unwrap();
+        let failure = ad_status.failure.as_ref().unwrap();
+        assert_eq!(expect_fail_count, failure.count);
+
+        let status = harness.status_summary("mules/capture").await;
+        assert_eq!(StatusSummaryType::Error, status.status);
+        assert!(
+            status
+                .message
+                .contains("auto-discover publication failed with: BuildFailed"),
+            "unexpected status summary: {}",
+            status.message
+        );
+    }
+
+    harness
+        .assert_alert_firing("mules/capture", AlertType::AutoDiscoverFailed)
+        .await;
+
     // Now simulate the discovered key going back to normal and assert that it succeeds
     harness.set_auto_discover_due("mules/capture").await;
     harness
@@ -510,6 +554,11 @@ async fn test_auto_discovers_no_evolution() {
     harness.run_pending_controller("mules/capture").await;
 
     let capture_state = harness.get_controller_state("mules/capture").await;
+    assert!(
+        capture_state.error.is_none(),
+        "expected no error, got: {:?}",
+        capture_state.error
+    );
     let auto_discover = capture_state
         .current_status
         .unwrap_capture()
@@ -524,6 +573,10 @@ async fn test_auto_discovers_no_evolution() {
         .publish_result
         .is_none());
     assert!(auto_discover.failure.is_none());
+
+    harness
+        .assert_alert_clear("mules/capture", AlertType::AutoDiscoverFailed)
+        .await;
 }
 
 #[tokio::test]
@@ -780,6 +833,17 @@ async fn test_auto_discovers_update_only() {
         "expected next_at to be in the future after discover failed, got: {:?}",
         auto_discover.next_at
     );
+    // Alert should not have been triggered yet
+    harness
+        .assert_alert_clear("pikas/capture", AlertType::AutoDiscoverFailed)
+        .await;
+    // But the status should show the error
+    let status = harness.status_summary("pikas/capture").await;
+    assert_eq!(StatusSummaryType::Error, status.status);
+    assert!(
+        status.message.contains("auto-discover failed"),
+        "unexpected status: {status:?}"
+    );
 
     // A subsequent controller run should result in an error due to backing off the auto-discover
     let capture_state = harness.run_pending_controller("pikas/capture").await;
@@ -804,12 +868,44 @@ async fn test_auto_discovers_update_only() {
         "expect auto-discover was not attempted again"
     );
 
-    // Simulate the passage of time, and expect the controller to attempt another auto-discover
-    push_back_failure_time("pikas/capture", &mut harness).await;
-    harness.set_auto_discover_due("pikas/capture").await;
+    harness
+        .assert_alert_clear("pikas/capture", AlertType::AutoDiscoverFailed)
+        .await;
+    let status = harness.status_summary("pikas/capture").await;
+    assert_eq!(StatusSummaryType::Error, status.status);
+    assert!(
+        status
+            .message
+            .contains("backing off auto-discover after 1 failure"),
+        "unexpected status: {status:?}"
+    );
 
-    // Now simulate a subsequent successful discover, but with a failure to
-    // publish. We'll expect to see the error count go up.
+    // Simulate the passage of time, and expect the controller to attempt another auto-discover
+    harness.set_auto_discover_due("pikas/capture").await;
+    let capture_state = harness.run_pending_controller("pikas/capture").await;
+    let auto_discover = capture_state
+        .current_status
+        .unwrap_capture()
+        .auto_discover
+        .as_ref()
+        .unwrap();
+    assert!(auto_discover.failure.is_some());
+    let failure = auto_discover.failure.as_ref().unwrap();
+    assert_eq!(2, failure.count, "expect auto-discover was re-attempted");
+    let status = harness.status_summary("pikas/capture").await;
+    assert_eq!(StatusSummaryType::Error, status.status);
+    assert!(
+        status.message.contains("auto-discover failed"),
+        "unexpected status: {status:?}"
+    );
+    harness
+        .assert_alert_clear("pikas/capture", AlertType::AutoDiscoverFailed)
+        .await;
+
+    // Now simulate a successful discover, but with a failure to publish. We'll
+    // expect to see the error count go up, and an alert to fire because it's the
+    // third failed attempt.
+    harness.set_auto_discover_due("pikas/capture").await;
     let discovered = Discovered {
         bindings: vec![
             Binding {
@@ -864,7 +960,7 @@ async fn test_auto_discovers_update_only() {
         .unwrap();
     assert!(auto_discover.failure.is_some());
     let failure = auto_discover.failure.as_ref().unwrap();
-    assert_eq!(2, failure.count, "expect auto-discover was attempted again");
+    assert_eq!(3, failure.count, "expect auto-discover was attempted again");
     assert_eq!(
         Some(publications::JobStatus::BuildFailed {
             incompatible_collections: Vec::new(),
@@ -884,6 +980,25 @@ async fn test_auto_discovers_update_only() {
         .detail
         .contains("a simulated build failure"));
     let last_fail_time = failure.last_outcome.ts;
+
+    let alert_state = harness
+        .assert_alert_firing("pikas/capture", AlertType::AutoDiscoverFailed)
+        .await;
+    assert_eq!(3, alert_state.count);
+    assert!(
+        alert_state
+            .error
+            .contains("auto-discover publication failed"),
+        "unexpected alert state: {alert_state:?}"
+    );
+    assert_eq!(models::CatalogType::Capture, alert_state.spec_type);
+
+    let status = harness.status_summary("pikas/capture").await;
+    assert_eq!(StatusSummaryType::Error, status.status);
+    assert!(
+        status.message.contains("auto-discover publication failed"),
+        "unexpected status: {status:?}"
+    );
 
     // Now this time, we'll discover a changed key, and expect that the initial publication fails
     // due to the key change, and that a subsequent publication of a _v2 collection is successful.
@@ -916,7 +1031,6 @@ async fn test_auto_discovers_update_only() {
         .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
-    push_back_failure_time("pikas/capture", &mut harness).await;
     harness.set_auto_discover_due("pikas/capture").await;
     harness.run_pending_controller("pikas/capture").await;
 
@@ -929,6 +1043,10 @@ async fn test_auto_discovers_update_only() {
         .unwrap();
     let last_success = auto_discover.last_success.as_ref().unwrap();
     assert!(last_success.ts > last_fail_time);
+
+    harness
+        .assert_alert_clear("pikas/capture", AlertType::AutoDiscoverFailed)
+        .await;
 
     // Assert that the materialization binding has been backfilled for the re-created collection.
     let materialization_state = harness.get_controller_state("pikas/materialize").await;
@@ -1024,20 +1142,4 @@ fn document_schema(version: usize) -> serde_json::Value {
         },
         "required": ["id", "squeaks"]
     })
-}
-
-async fn push_back_failure_time(capture: &str, harness: &mut TestHarness) {
-    let now = harness.control_plane().current_time();
-    let time = (now - chrono::Duration::hours(1)).to_rfc3339();
-    sqlx::query!(
-        r#"update controller_jobs
-        set status = jsonb_set(status::jsonb, '{auto_discover, failure, last_outcome, ts}', $2)::json
-        where live_spec_id = (select id from live_specs where catalog_name::text = $1)
-        "#,
-        capture,
-        serde_json::Value::String(time),
-    )
-    .execute(&harness.pool)
-    .await
-    .expect("failed to update last auto-discover failure time");
 }
