@@ -2,10 +2,13 @@ package fragment
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/broker/stores"
 	"golang.org/x/net/trace"
 )
 
@@ -218,14 +221,32 @@ func (fi *Index) Inspect(ctx context.Context, callback func(CoverSet) error) err
 
 // WalkAllStores enumerates Fragments from each of |stores| into the returned
 // CoverSet, or returns an encountered error.
-func WalkAllStores(ctx context.Context, name pb.Journal, stores []pb.FragmentStore) (CoverSet, error) {
+func WalkAllStores(ctx context.Context, name pb.Journal, allStores []pb.FragmentStore) (CoverSet, error) {
 	var set CoverSet
 
-	for _, store := range stores {
-		var err = List(ctx, store, name, func(f pb.Fragment) {
-			set, _ = set.Add(Fragment{Fragment: f})
-		})
+	for _, fs := range allStores {
+		var store = stores.Get(fs)
+		store.Mark.Store(true)
 
+		var err = store.List(ctx, string(name)+"/", func(path string, modTime time.Time) error {
+			// The path returned by List is already relative to the prefix
+			if frag, err := pb.ParseFragmentFromRelativePath(name, path); err != nil {
+				// It's not uncommon for extra files to live under a journal.
+				// Don't fail the entire listing when this happens.
+				logrus.WithFields(logrus.Fields{
+					"path":    path,
+					"journal": name,
+					"modTime": modTime,
+				}).Warn("failed to parse fragment")
+			} else if frag.Journal != name {
+				return fmt.Errorf("fragment %s is not of expected journal %s", &frag, name)
+			} else {
+				frag.ModTime = modTime.Unix()
+				frag.BackingStore = fs
+				set, _ = set.Add(Fragment{Fragment: frag})
+			}
+			return nil
+		})
 		if err != nil {
 			return CoverSet{}, err
 		}

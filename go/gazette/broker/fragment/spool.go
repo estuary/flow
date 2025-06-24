@@ -177,11 +177,6 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 		}
 		s.Registers.Assign(r.Registers)
 
-		// DEPRECATED metrics to remove
-		commitsTotal.WithLabelValues(pb.Status_OK.String()).Inc()
-		committedBytesTotal.Add(float64(s.delta))
-		// End DEPRECATED metrics.
-
 		s.delta = 0
 		s.saveSumState()
 		return pb.ReplicateResponse{Status: pb.Status_OK}

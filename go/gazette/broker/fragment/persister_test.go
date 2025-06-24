@@ -7,20 +7,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
-	gc "gopkg.in/check.v1"
 )
 
-type PersisterSuite struct{}
-
-func (p *PersisterSuite) TestSpoolCompleteNonPrimary(c *gc.C) {
+func TestSpoolCompleteNonPrimary(t *testing.T) {
 	var persister = NewPersister(nil)
 	persister.persistFn = func(context.Context, Spool, *pb.JournalSpec, bool) error {
-		c.Error("spool should not be persisted")
+		t.Error("spool should not be persisted")
 		return nil
 	}
 	var obv testSpoolObserver
@@ -29,18 +27,18 @@ func (p *PersisterSuite) TestSpoolCompleteNonPrimary(c *gc.C) {
 	// Spools with no content should not be enqueued.
 	persister.SpoolComplete(spool, false)
 	persister.mu.Lock()
-	c.Check(len(persister.qC), gc.Equals, 0)
+	require.Equal(t, 0, len(persister.qC))
 	persister.mu.Unlock()
 
 	// Enqueue spools with content on a non-primary node.
 	applyAndCommit(&spool)
 	persister.SpoolComplete(spool, false)
 	persister.mu.Lock()
-	c.Check(len(persister.qC), gc.Equals, 1)
+	require.Equal(t, 1, len(persister.qC))
 	persister.mu.Unlock()
 }
 
-func (p *PersisterSuite) TestSpoolCompletePrimary(c *gc.C) {
+func TestSpoolCompletePrimary(t *testing.T) {
 	var wg sync.WaitGroup
 	var specFixture = &pb.JournalSpec{
 		Fragment: pb.JournalSpec_Fragment{
@@ -56,19 +54,19 @@ func (p *PersisterSuite) TestSpoolCompletePrimary(c *gc.C) {
 	var client, ctx = etcdtest.TestClient(), context.Background()
 	defer etcdtest.Cleanup()
 	var _, err = client.Put(ctx, "/journals/items/journal-1", "")
-	c.Assert(err, gc.IsNil)
-	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+	require.NoError(t, err)
+	require.NoError(t, ks.Load(ctx, client, 0))
 
 	var persister = NewPersister(ks)
 	persister.persistFn = func(ctx context.Context, spool Spool, spec *pb.JournalSpec, isStopping bool) error {
-		c.Check(spool.Fragment.Fragment, gc.DeepEquals, pb.Fragment{
+		require.Equal(t, pb.Fragment{
 			Journal:          "journal-1",
 			Begin:            0,
 			End:              12,
 			Sum:              pb.SHA1SumOf("some content"),
 			CompressionCodec: pb.CompressionCodec_NONE,
-		})
-		c.Check(spec, gc.Equals, specFixture)
+		}, spool.Fragment.Fragment)
+		require.Equal(t, specFixture, spec)
 		wg.Done()
 		return nil
 	}
@@ -81,7 +79,7 @@ func (p *PersisterSuite) TestSpoolCompletePrimary(c *gc.C) {
 	wg.Wait()
 }
 
-func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
+func TestAttempPersistFragmentDropped(t *testing.T) {
 	var specFixture = &pb.JournalSpec{
 		Fragment: pb.JournalSpec_Fragment{
 			Stores: nil,
@@ -96,14 +94,14 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	var client, ctx = etcdtest.TestClient(), context.Background()
 	defer etcdtest.Cleanup()
 	var _, err = client.Put(ctx, "/journals/items/journal-1", "")
-	c.Assert(err, gc.IsNil)
-	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+	require.NoError(t, err)
+	require.NoError(t, ks.Load(ctx, client, 0))
 
 	var persister = Persister{
 		doneCh: make(chan struct{}),
 		ks:     ks,
 		persistFn: func(context.Context, Spool, *pb.JournalSpec, bool) error {
-			c.Error("spool should not be persisted")
+			t.Error("spool should not be persisted")
 			return nil
 		},
 	}
@@ -113,7 +111,7 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	// Spool with no content should not call persistFn or enqueue spool.
 	persister.attemptPersist(spool, false)
 	persister.mu.Lock()
-	c.Check(len(persister.qC), gc.Equals, 0)
+	require.Equal(t, 0, len(persister.qC))
 	persister.mu.Unlock()
 
 	applyAndCommit(&spool)
@@ -122,11 +120,11 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	spool.Journal = pb.Journal("invalidJournal")
 	persister.attemptPersist(spool, false)
 	persister.mu.Lock()
-	c.Check(len(persister.qC), gc.Equals, 0)
+	require.Equal(t, 0, len(persister.qC))
 	persister.mu.Unlock()
 }
 
-func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
+func TestServeUpdateBackingStore(t *testing.T) {
 	var specFixture = &pb.JournalSpec{
 		Fragment: pb.JournalSpec_Fragment{
 			Stores: []pb.FragmentStore{"file:///root/invalid/"},
@@ -141,8 +139,8 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 	var client, ctx = etcdtest.TestClient(), context.Background()
 	defer etcdtest.Cleanup()
 	var _, err = client.Put(ctx, "/journals/items/journal-1", "")
-	c.Assert(err, gc.IsNil)
-	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+	require.NoError(t, err)
+	require.NoError(t, ks.Load(ctx, client, 0))
 
 	var timeChan = make(chan time.Time)
 	var ticker = &time.Ticker{C: timeChan}
@@ -154,14 +152,14 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 			if spec.Fragment.Stores[0] == pb.FragmentStore("file:///root/invalid/") {
 				return errors.New("something has gone wrong")
 			}
-			c.Check(spool.Fragment.Fragment, gc.DeepEquals, pb.Fragment{
+			require.Equal(t, pb.Fragment{
 				Journal:          "journal-1",
 				Begin:            0,
 				End:              12,
 				Sum:              pb.SHA1SumOf("some content"),
 				CompressionCodec: pb.CompressionCodec_NONE,
-			})
-			c.Check(spec, gc.Equals, specFixture)
+			}, spool.Fragment.Fragment)
+			require.Equal(t, specFixture, spec)
 			return nil
 		},
 		ticker: ticker,
@@ -179,7 +177,7 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 	// Failure to persist should cause spool to be reenqueued, however it is not guaranteed
 	// which queue the spool will be in.
 	persister.mu.Lock()
-	c.Check(len(persister.qA)+len(persister.qB)+len(persister.qC), gc.Equals, 1)
+	require.Equal(t, 1, len(persister.qA)+len(persister.qB)+len(persister.qC))
 	persister.mu.Unlock()
 
 	// Update Jouranl Spec with valid store and retry persisting fragment.
@@ -187,7 +185,7 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 	timeChan <- time.Time{}
 	persister.Finish()
 	persister.mu.Lock()
-	c.Check(len(persister.qA)+len(persister.qB)+len(persister.qC), gc.Equals, 0)
+	require.Equal(t, 0, len(persister.qA)+len(persister.qB)+len(persister.qC))
 	persister.mu.Unlock()
 }
 
@@ -205,7 +203,5 @@ func applyAndCommit(spool *Spool) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		}}, true)
 }
-
-var _ = gc.Suite(&PersisterSuite{})
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

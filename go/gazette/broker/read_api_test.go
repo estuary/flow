@@ -1,11 +1,11 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
+	"net/url"
 	"testing"
 	"time"
 
@@ -13,6 +13,7 @@ import (
 	"go.gazette.dev/core/broker/codecs"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/broker/stores"
 	"go.gazette.dev/core/etcdtest"
 )
 
@@ -343,15 +344,19 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
+	// Create a remote fragment fixture with journal content.
+	var frag, content = buildRemoteFragmentFixture(t)
+
+	stores.RegisterProviders(map[string]stores.Constructor{
+		"s3": func(u *url.URL) (stores.Store, error) {
+			var ms = stores.NewMemoryStore(u)
+			ms.Content[frag.ContentPath()] = content.Bytes()
+			return ms, nil
+		},
+	})
+
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
-
-	// Create a remote fragment fixture with journal content.
-	var frag, tmpDir = buildRemoteFragmentFixture(t)
-
-	defer func() { require.NoError(t, os.RemoveAll(tmpDir)) }()
-	defer func(s string) { fragment.FileSystemStoreRoot = s }(fragment.FileSystemStoreRoot)
-	fragment.FileSystemStoreRoot = tmpDir
 
 	// Resolve, and update the replica index to reflect the remote fragment fixture.
 	broker.replica("a/journal").index.ReplaceRemote(fragment.CoverSet{fragment.Fragment{Fragment: frag}})
@@ -374,7 +379,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 		Offset:      100,
 		WriteHead:   120,
 		Fragment:    &frag,
-		FragmentUrl: "file:///" + frag.ContentPath(),
+		FragmentUrl: "memory://bucket/" + frag.ContentPath(),
 	})
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:  pb.Status_OK,
@@ -406,7 +411,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 		Offset:      100,
 		WriteHead:   120,
 		Fragment:    &frag,
-		FragmentUrl: "file:///" + frag.ContentPath(),
+		FragmentUrl: "memory://bucket/" + frag.ContentPath(),
 	})
 	_, err = stream.Recv() // Broker closes.
 	require.Equal(t, io.EOF, err)
@@ -431,7 +436,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 		Offset:      95,
 		WriteHead:   120,
 		Fragment:    &frag,
-		FragmentUrl: "file:///" + frag.ContentPath(),
+		FragmentUrl: "memory://bucket/" + frag.ContentPath(),
 	})
 	_, err = stream.Recv()
 	require.Equal(t, io.EOF, err)
@@ -491,12 +496,8 @@ func TestReadRequestErrorCases(t *testing.T) {
 	broker.cleanup()
 }
 
-func buildRemoteFragmentFixture(t require.TestingT) (frag pb.Fragment, dir string) {
+func buildRemoteFragmentFixture(t require.TestingT) (frag pb.Fragment, buf bytes.Buffer) {
 	const data = "XXXXXremote fragment data"
-
-	var err error
-	dir, err = os.MkdirTemp("", "BrokerSuite")
-	require.NoError(t, err)
 
 	frag = pb.Fragment{
 		Journal:          "a/journal",
@@ -504,22 +505,15 @@ func buildRemoteFragmentFixture(t require.TestingT) (frag pb.Fragment, dir strin
 		End:              120,
 		Sum:              pb.SHA1SumOf(data),
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
-		BackingStore:     pb.FragmentStore("file:///"),
+		BackingStore:     pb.FragmentStore("s3://bucket/"),
 		ModTime:          time.Unix(1234567, 0).Unix(),
 	}
 
-	var path = filepath.Join(dir, frag.ContentPath())
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
-
-	file, err := os.Create(path)
-	require.NoError(t, err)
-
-	comp, err := codecs.NewCodecWriter(file, pb.CompressionCodec_SNAPPY)
+	comp, err := codecs.NewCodecWriter(&buf, pb.CompressionCodec_SNAPPY)
 	require.NoError(t, err)
 	_, err = comp.Write([]byte(data))
 	require.NoError(t, err)
 	require.NoError(t, comp.Close())
-	require.NoError(t, file.Close())
 	return
 }
 

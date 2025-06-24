@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,6 +21,11 @@ import (
 	"go.gazette.dev/core/broker/fragment"
 	"go.gazette.dev/core/broker/http_gateway"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/broker/stores"
+	"go.gazette.dev/core/broker/stores/azure"
+	"go.gazette.dev/core/broker/stores/fs"
+	"go.gazette.dev/core/broker/stores/gcs"
+	"go.gazette.dev/core/broker/stores/s3"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
@@ -104,15 +110,38 @@ func (cmdServe) Execute(args []string) error {
 	if Config.Broker.FileRoot != "" {
 		_, err = os.Stat(Config.Broker.FileRoot)
 		mbp.Must(err, "configured local file:// root failed")
-		fragment.FileSystemStoreRoot = Config.Broker.FileRoot
+		fs.FileSystemStoreRoot = Config.Broker.FileRoot
 	} else if Config.Broker.FileOnly {
 		mbp.Must(fmt.Errorf("--file-root is not configured"), "a file root must be defined when using --file-only")
+	}
+
+	if !Config.Broker.FileOnly {
+		// Register all available store providers
+		stores.RegisterProviders(map[string]stores.Constructor{
+			"azure":    azure.NewAccount,
+			"azure-ad": azure.NewAD,
+			"file":     fs.New,
+			"gs":       gcs.New,
+			"s3":       s3.New,
+		})
+	} else {
+		// Use the file store for all fragment stores.
+		var new = func(*url.URL) (stores.Store, error) {
+			var u, _ = url.Parse("file:///")
+			return fs.New(u)
+		}
+		stores.RegisterProviders(map[string]stores.Constructor{
+			"azure":    new,
+			"azure-ad": new,
+			"file":     new,
+			"gs":       new,
+			"s3":       new,
+		})
 	}
 
 	broker.AutoSuspend = Config.Broker.AutoSuspend
 	broker.MaxAppendRate = int64(Config.Broker.MaxAppendRate)
 	broker.MinAppendRate = int64(Config.Broker.MinAppendRate)
-	fragment.ForceFileStore = Config.Broker.FileOnly
 	pb.MaxReplication = int32(Config.Broker.MaxReplication)
 
 	var (
@@ -165,6 +194,24 @@ func (cmdServe) Execute(args []string) error {
 	})
 	srv.QueueTasks(tasks)
 	service.QueueTasks(tasks, srv, persister.Finish)
+
+	// Start periodic sweep of unused stores every hour.
+	tasks.Queue("stores.Sweep", func() error {
+		var ticker = time.NewTicker(time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				var removed = stores.Sweep()
+				if removed > 0 {
+					log.WithField("removed", removed).Info("swept unused fragment stores")
+				}
+			case <-tasks.Context().Done():
+				return nil
+			}
+		}
+	})
 
 	// Install signal handler & start broker tasks.
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)

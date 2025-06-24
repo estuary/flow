@@ -46,24 +46,4 @@ var (
 		Name: "gazette_spool_persisted_total",
 		Help: "Total number of journal fragment spools which were persisted (by this server, or by another and then verified by this server).",
 	})
-
-	// DEPRECATED metrics to be removed:
-	committedBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "gazette_committed_bytes_total",
-		Help: "DEPRECATED Cumulative number of bytes committed to journals fragment spools (across all replicas)",
-	})
-	commitsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "gazette_commits_total",
-		Help: "DEPRECATED Cumulative number of commits to journal spools",
-	}, []string{"status"})
-	// End DEPRECATED.
-
-	storeRequestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "gazette_store_requests_total",
-		Help: "Cumulative number of fragment store operations.",
-	}, []string{"provider", "operation", "status"})
-	storePersistedBytesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "gazette_store_persisted_bytes_total",
-		Help: "Cumulative number of bytes persisted to fragment stores.",
-	}, []string{"provider"})
 )

@@ -3,240 +3,238 @@ package fragment
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/protocol"
-	gc "gopkg.in/check.v1"
 )
 
-type CoverSetSuite struct{}
-
-func (s *CoverSetSuite) TestSetAddInsertAtEnd(c *gc.C) {
+func TestSetAddInsertAtEnd(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 201, 301), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300))
+	require.True(t, setAdd(&set, 201, 301))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 201, End: 301}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddReplaceRangeAtEnd(c *gc.C) {
+func TestSetAddReplaceRangeAtEnd(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 400, 500), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 150, 500), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300)) // Replaced.
+	require.True(t, setAdd(&set, 300, 400)) // Replaced.
+	require.True(t, setAdd(&set, 400, 500)) // Replaced.
+	require.True(t, setAdd(&set, 150, 500))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 150, End: 500}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddReplaceOneAtEnd(c *gc.C) {
+func TestSetAddReplaceOneAtEnd(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 199, 300), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300)) // Replaced.
+	require.True(t, setAdd(&set, 199, 300))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 199, End: 300}},
-	})
+	}, set)
 
 	set = CoverSet{}
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 200, 301), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300)) // Replaced.
+	require.True(t, setAdd(&set, 200, 301))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 301}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddReplaceRangeInMiddle(c *gc.C) {
+func TestSetAddReplaceRangeInMiddle(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 400, 500), gc.Equals, true)
-	c.Check(setAdd(&set, 150, 450), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300)) // Replaced.
+	require.True(t, setAdd(&set, 300, 400)) // Replaced.
+	require.True(t, setAdd(&set, 400, 500))
+	require.True(t, setAdd(&set, 150, 450))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 150, End: 450}},
 		{Fragment: protocol.Fragment{Begin: 400, End: 500}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddReplaceOneInMiddle(c *gc.C) {
+func TestSetAddReplaceOneInMiddle(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 150, 350), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300)) // Replaced.
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 150, 350))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 150, End: 350}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddInsertInMiddleExactBoundaries(c *gc.C) {
+func TestSetAddInsertInMiddleExactBoundaries(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 200, 300))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddInsertInMiddleCloseBoundaries(c *gc.C) {
+func TestSetAddInsertInMiddleCloseBoundaries(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 201, 299), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 201, 299))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 201, End: 299}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddReplaceRangeAtBeginning(c *gc.C) {
+func TestSetAddReplaceRangeAtBeginning(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 100, 300), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200)) // Replaced.
+	require.True(t, setAdd(&set, 200, 300)) // Replaced.
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 100, 300))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddReplaceOneAtBeginning(c *gc.C) {
+func TestSetAddReplaceOneAtBeginning(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true) // Replaced.
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 99, 200), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200)) // Replaced.
+	require.True(t, setAdd(&set, 200, 300))
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 99, 200))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 99, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddInsertAtBeginning(c *gc.C) {
+func TestSetAddInsertAtBeginning(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 199, 200), gc.Equals, true)
+	require.True(t, setAdd(&set, 200, 300))
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 199, 200))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 199, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddOverlappingRanges(c *gc.C) {
+func TestSetAddOverlappingRanges(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 150), gc.Equals, true)
-	c.Check(setAdd(&set, 149, 201), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 250), gc.Equals, true)
-	c.Check(setAdd(&set, 250, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 299, 351), gc.Equals, true)
-	c.Check(setAdd(&set, 350, 400), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 150))
+	require.True(t, setAdd(&set, 149, 201))
+	require.True(t, setAdd(&set, 200, 250))
+	require.True(t, setAdd(&set, 250, 300))
+	require.True(t, setAdd(&set, 299, 351))
+	require.True(t, setAdd(&set, 350, 400))
 
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
+	require.True(t, setAdd(&set, 200, 300))
+	require.True(t, setAdd(&set, 300, 400))
+	require.True(t, setAdd(&set, 100, 200))
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 149, End: 201}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 299, End: 351}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestSetAddNoAction(c *gc.C) {
+func TestSetAddNoAction(t *testing.T) {
 	var set CoverSet
 
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
+	require.True(t, setAdd(&set, 100, 200))
+	require.True(t, setAdd(&set, 200, 300))
+	require.True(t, setAdd(&set, 300, 400))
 
 	// Precondition.
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 
 	// Expect that only Add()s which exactly replace an entry are accepted.
-	c.Check(setAdd(&set, 101, 200), gc.Equals, false)
-	c.Check(setAdd(&set, 100, 199), gc.Equals, false)
-	c.Check(setAdd(&set, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&set, 201, 300), gc.Equals, false)
-	c.Check(setAdd(&set, 200, 299), gc.Equals, false)
-	c.Check(setAdd(&set, 200, 300), gc.Equals, true)
-	c.Check(setAdd(&set, 301, 400), gc.Equals, false)
-	c.Check(setAdd(&set, 300, 400), gc.Equals, true)
+	require.False(t, setAdd(&set, 101, 200))
+	require.False(t, setAdd(&set, 100, 199))
+	require.True(t, setAdd(&set, 100, 200))
+	require.False(t, setAdd(&set, 201, 300))
+	require.False(t, setAdd(&set, 200, 299))
+	require.True(t, setAdd(&set, 200, 300))
+	require.False(t, setAdd(&set, 301, 400))
+	require.True(t, setAdd(&set, 300, 400))
 
 	// Postcondition. No change.
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 100, End: 200}},
 		{Fragment: protocol.Fragment{Begin: 200, End: 300}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 400}},
-	})
+	}, set)
 }
 
-func (s *CoverSetSuite) TestOffset(c *gc.C) {
+func TestOffset(t *testing.T) {
 	var set CoverSet
-	c.Check(set.BeginOffset(), gc.Equals, int64(0))
-	c.Check(set.EndOffset(), gc.Equals, int64(0))
+	require.Equal(t, int64(0), set.BeginOffset())
+	require.Equal(t, int64(0), set.EndOffset())
 
 	setAdd(&set, 100, 150)
-	c.Check(set.BeginOffset(), gc.Equals, int64(100))
-	c.Check(set.EndOffset(), gc.Equals, int64(150))
+	require.Equal(t, int64(100), set.BeginOffset())
+	require.Equal(t, int64(150), set.EndOffset())
 
 	setAdd(&set, 140, 250)
-	c.Check(set.BeginOffset(), gc.Equals, int64(100))
-	c.Check(set.EndOffset(), gc.Equals, int64(250))
+	require.Equal(t, int64(100), set.BeginOffset())
+	require.Equal(t, int64(250), set.EndOffset())
 
 	setAdd(&set, 50, 100)
-	c.Check(set.BeginOffset(), gc.Equals, int64(50))
-	c.Check(set.EndOffset(), gc.Equals, int64(250))
+	require.Equal(t, int64(50), set.BeginOffset())
+	require.Equal(t, int64(250), set.EndOffset())
 }
 
-func (s *CoverSetSuite) TestLongestOverlappingFragment(c *gc.C) {
+func TestLongestOverlappingFragment(t *testing.T) {
 	var set CoverSet
 
 	setAdd(&set, 100, 200)
@@ -272,44 +270,44 @@ func (s *CoverSetSuite) TestLongestOverlappingFragment(c *gc.C) {
 
 	for _, tc := range cases {
 		var ind, found = set.LongestOverlappingFragment(tc.offset)
-		c.Check(ind, gc.Equals, tc.ind)
-		c.Check(found, gc.Equals, tc.found)
+		require.Equal(t, tc.ind, ind)
+		require.Equal(t, tc.found, found)
 	}
 }
 
-func (s *CoverSetSuite) TestSetDifference(c *gc.C) {
+func TestSetDifference(t *testing.T) {
 	var a, b CoverSet
 
-	c.Check(setAdd(&b, 100, 200), gc.Equals, true)
-	c.Check(setAdd(&b, 150, 225), gc.Equals, true)
-	c.Check(setAdd(&b, 225, 250), gc.Equals, true)
-	c.Check(setAdd(&b, 250, 300), gc.Equals, true)
-	c.Check(setAdd(&b, 301, 400), gc.Equals, true)
+	require.True(t, setAdd(&b, 100, 200))
+	require.True(t, setAdd(&b, 150, 225))
+	require.True(t, setAdd(&b, 225, 250))
+	require.True(t, setAdd(&b, 250, 300))
+	require.True(t, setAdd(&b, 301, 400))
 
-	c.Check(setAdd(&a, 99, 105), gc.Equals, true)  // Begins before first Fragment of |b|.
-	c.Check(setAdd(&a, 100, 110), gc.Equals, true) // Small Fragment overlapped by one Fragment of |b|.
-	c.Check(setAdd(&a, 110, 120), gc.Equals, true) // Another, overlapped by |b|.
-	c.Check(setAdd(&a, 130, 210), gc.Equals, true) // Larger Fragment covered by two Fragments in |b|.
-	c.Check(setAdd(&a, 150, 225), gc.Equals, true) // Exactly matched by Fragment in |b|.
-	c.Check(setAdd(&a, 151, 300), gc.Equals, true) // Larger Fragment covered by three Fragments in |b|.
-	c.Check(setAdd(&a, 152, 301), gc.Equals, true) // *Not* covered by |b|, due to 1-byte gap in coverage.
-	c.Check(setAdd(&a, 300, 350), gc.Equals, true) // Another, not covered due to gap in coverage.
-	c.Check(setAdd(&a, 301, 360), gc.Equals, true) // Fully covered Fragment.
-	c.Check(setAdd(&a, 360, 401), gc.Equals, true) // Fragment which spans past |b|'s coverage.
-	c.Check(setAdd(&a, 400, 450), gc.Equals, true) // Fragment fully outside |b|'s coverage.
+	require.True(t, setAdd(&a, 99, 105))  // Begins before first Fragment of |b|.
+	require.True(t, setAdd(&a, 100, 110)) // Small Fragment overlapped by one Fragment of |b|.
+	require.True(t, setAdd(&a, 110, 120)) // Another, overlapped by |b|.
+	require.True(t, setAdd(&a, 130, 210)) // Larger Fragment covered by two Fragments in |b|.
+	require.True(t, setAdd(&a, 150, 225)) // Exactly matched by Fragment in |b|.
+	require.True(t, setAdd(&a, 151, 300)) // Larger Fragment covered by three Fragments in |b|.
+	require.True(t, setAdd(&a, 152, 301)) // *Not* covered by |b|, due to 1-byte gap in coverage.
+	require.True(t, setAdd(&a, 300, 350)) // Another, not covered due to gap in coverage.
+	require.True(t, setAdd(&a, 301, 360)) // Fully covered Fragment.
+	require.True(t, setAdd(&a, 360, 401)) // Fragment which spans past |b|'s coverage.
+	require.True(t, setAdd(&a, 400, 450)) // Fragment fully outside |b|'s coverage.
 
 	var out = CoverSetDifference(a, b)
 
-	c.Check(out, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Begin: 99, End: 105}},
 		{Fragment: protocol.Fragment{Begin: 152, End: 301}},
 		{Fragment: protocol.Fragment{Begin: 300, End: 350}},
 		{Fragment: protocol.Fragment{Begin: 360, End: 401}},
 		{Fragment: protocol.Fragment{Begin: 400, End: 450}},
-	})
+	}, out)
 }
 
-func (s *CoverSetSuite) TestParseWithMultipleOverlaps(c *gc.C) {
+func TestParseWithMultipleOverlaps(t *testing.T) {
 	var set CoverSet
 
 	f, _ := protocol.ParseFragmentFromRelativePath("a/journal",
@@ -336,11 +334,11 @@ func (s *CoverSetSuite) TestParseWithMultipleOverlaps(c *gc.C) {
 
 	const none = protocol.CompressionCodec_NONE
 
-	c.Check(set, gc.DeepEquals, CoverSet{
+	require.Equal(t, CoverSet{
 		{Fragment: protocol.Fragment{Journal: "a/journal", Begin: 0, End: 0x400a8d41, CompressionCodec: none}},
 		{Fragment: protocol.Fragment{Journal: "a/journal", Begin: 0x400a8d41, End: 0x7af92e59, CompressionCodec: none}},
 		{Fragment: protocol.Fragment{Journal: "a/journal", Begin: 0x595722d7, End: 0x7af92fb4, CompressionCodec: none}},
-	})
+	}, set)
 }
 
 func setAdd(s *CoverSet, begin, end int64) bool {
@@ -350,7 +348,3 @@ func setAdd(s *CoverSet, begin, end int64) bool {
 	})
 	return updated
 }
-
-var _ = gc.Suite(&CoverSetSuite{})
-
-func Test(t *testing.T) { gc.TestingT(t) }

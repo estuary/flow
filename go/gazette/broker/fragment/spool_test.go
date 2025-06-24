@@ -3,25 +3,23 @@ package fragment
 import (
 	"errors"
 	"io"
-	"io/ioutil"
+	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/codecs"
 	pb "go.gazette.dev/core/broker/protocol"
-	gc "gopkg.in/check.v1"
 )
 
-type SpoolSuite struct{}
-
-func (s *SpoolSuite) TestNextCases(c *gc.C) {
+func TestNextCases(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
 
 	// Case: Newly-initialized spool.
-	c.Check(spool.Next(), gc.DeepEquals, pb.Fragment{
+	require.Equal(t, pb.Fragment{
 		Journal:          "a/journal",
 		CompressionCodec: pb.CompressionCodec_NONE,
-	})
+	}, spool.Next())
 
 	// Case: Zero-length fragment.
 	spool.MustApply(&pb.ReplicateRequest{
@@ -33,96 +31,96 @@ func (s *SpoolSuite) TestNextCases(c *gc.C) {
 		},
 		Registers: &regEmpty,
 	})
-	c.Check(spool.Next(), gc.DeepEquals, pb.Fragment{
+	require.Equal(t, pb.Fragment{
 		Journal:          "a/journal",
 		Begin:            100,
 		End:              100,
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
-	})
+	}, spool.Next())
 
 	// Case: Fragment with applied content, ready to be committed.
 	var _, err = spool.Apply(&pb.ReplicateRequest{
 		Content:      []byte("some"),
 		ContentDelta: 0,
 	}, false)
-	c.Check(err, gc.IsNil)
+	require.NoError(t, err)
 
 	_, err = spool.Apply(&pb.ReplicateRequest{
 		Content:      []byte(" content"),
 		ContentDelta: 4,
 	}, false)
-	c.Check(err, gc.IsNil)
+	require.NoError(t, err)
 
-	c.Check(spool.Next(), gc.DeepEquals, pb.Fragment{
+	require.Equal(t, pb.Fragment{
 		Journal:          "a/journal",
 		Begin:            100,
 		End:              112,
 		Sum:              pb.SHA1SumOf("some content"),
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
-	})
+	}, spool.Next())
 }
 
-func (s *SpoolSuite) TestNoCompression(c *gc.C) {
+func TestNoCompression(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
-	runReplicateSequence(c, &spool, pb.CompressionCodec_NONE, true)
+	runReplicateSequence(t, &spool, pb.CompressionCodec_NONE, true)
 
-	c.Check(obv.completes, gc.HasLen, 1)
-	c.Check(obv.commits, gc.HasLen, 2)
+	require.Len(t, obv.completes, 1)
+	require.Len(t, obv.commits, 2)
 
-	c.Check(obv.completes[0].compressedFile, gc.IsNil)
-	c.Check(obv.completes[0].compressor, gc.IsNil)
-	c.Check(obv.completes[0].compressedLength, gc.Equals, int64(0))
+	require.Nil(t, obv.completes[0].compressedFile)
+	require.Nil(t, obv.completes[0].compressor)
+	require.Equal(t, int64(0), obv.completes[0].compressedLength)
 
-	c.Check(contentString(c, obv.completes[0], pb.CompressionCodec_NONE),
-		gc.Equals, "an initial write final write")
+	require.Equal(t, "an initial write final write",
+		contentString(t, obv.completes[0], pb.CompressionCodec_NONE))
 }
 
-func (s *SpoolSuite) TestCompressionAndPrimary(c *gc.C) {
+func TestCompressionAndPrimary(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
-	runReplicateSequence(c, &spool, pb.CompressionCodec_GZIP, true)
+	runReplicateSequence(t, &spool, pb.CompressionCodec_GZIP, true)
 
-	c.Check(obv.completes, gc.HasLen, 1)
-	c.Check(obv.commits, gc.HasLen, 2)
+	require.Len(t, obv.completes, 1)
+	require.Len(t, obv.commits, 2)
 
-	c.Check(obv.completes[0].compressedFile, gc.NotNil)
-	c.Check(obv.completes[0].compressor, gc.IsNil) // Closed.
-	c.Check(obv.completes[0].compressedLength, gc.Not(gc.Equals), int64(0))
+	require.NotNil(t, obv.completes[0].compressedFile)
+	require.Nil(t, obv.completes[0].compressor) // Closed.
+	require.NotEqual(t, int64(0), obv.completes[0].compressedLength)
 
-	c.Check(contentString(c, obv.completes[0], pb.CompressionCodec_GZIP),
-		gc.Equals, "an initial write final write")
+	require.Equal(t, "an initial write final write",
+		contentString(t, obv.completes[0], pb.CompressionCodec_GZIP))
 }
 
-func (s *SpoolSuite) TestCompressionNotPrimary(c *gc.C) {
+func TestCompressionNotPrimary(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
-	runReplicateSequence(c, &spool, pb.CompressionCodec_GZIP, false)
+	runReplicateSequence(t, &spool, pb.CompressionCodec_GZIP, false)
 
-	c.Check(obv.completes, gc.HasLen, 1)
-	c.Check(obv.commits, gc.HasLen, 2)
+	require.Len(t, obv.completes, 1)
+	require.Len(t, obv.commits, 2)
 
-	c.Check(obv.completes[0].compressedFile, gc.IsNil)
-	c.Check(obv.completes[0].compressor, gc.IsNil)
+	require.Nil(t, obv.completes[0].compressedFile)
+	require.Nil(t, obv.completes[0].compressor)
 
-	c.Check(contentString(c, obv.completes[0], pb.CompressionCodec_NONE),
-		gc.Equals, "an initial write final write")
+	require.Equal(t, "an initial write final write",
+		contentString(t, obv.completes[0], pb.CompressionCodec_NONE))
 
 	// Though not compressed incrementally, expect it will compress on demand.
 	obv.completes[0].finishCompression()
 
-	c.Check(obv.completes[0].compressedFile, gc.NotNil)
-	c.Check(obv.completes[0].compressor, gc.IsNil) // Closed.
-	c.Check(obv.completes[0].compressedLength, gc.Not(gc.Equals), int64(0))
+	require.NotNil(t, obv.completes[0].compressedFile)
+	require.Nil(t, obv.completes[0].compressor) // Closed.
+	require.NotEqual(t, int64(0), obv.completes[0].compressedLength)
 
-	c.Check(contentString(c, obv.completes[0], pb.CompressionCodec_GZIP),
-		gc.Equals, "an initial write final write")
+	require.Equal(t, "an initial write final write",
+		contentString(t, obv.completes[0], pb.CompressionCodec_GZIP))
 }
 
-func (s *SpoolSuite) TestRejectRollBeforeCurrentEnd(c *gc.C) {
+func TestRejectRollBeforeCurrentEnd(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
-	runReplicateSequence(c, &spool, pb.CompressionCodec_NONE, false)
+	runReplicateSequence(t, &spool, pb.CompressionCodec_NONE, false)
 
 	// Expect offsets prior to the current End (28) fail.
 	var resp, err = spool.Apply(&pb.ReplicateRequest{
@@ -135,12 +133,12 @@ func (s *SpoolSuite) TestRejectRollBeforeCurrentEnd(c *gc.C) {
 		Registers: &regBar,
 	}, false)
 
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{
+	require.Equal(t, pb.ReplicateResponse{
 		Status:    pb.Status_PROPOSAL_MISMATCH,
 		Fragment:  &spool.Fragment.Fragment,
 		Registers: &regBar,
-	})
-	c.Check(err, gc.IsNil)
+	}, resp)
+	require.NoError(t, err)
 
 	// Expect offsets beyond the current End succeed.
 	resp, err = spool.Apply(&pb.ReplicateRequest{
@@ -153,11 +151,11 @@ func (s *SpoolSuite) TestRejectRollBeforeCurrentEnd(c *gc.C) {
 		Registers: &regBaz,
 	}, false)
 
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{Status: pb.Status_OK})
-	c.Check(err, gc.IsNil)
+	require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+	require.NoError(t, err)
 }
 
-func (s *SpoolSuite) TestMoreMismatchCases(c *gc.C) {
+func TestMoreMismatchCases(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
 
@@ -178,15 +176,15 @@ func (s *SpoolSuite) TestMoreMismatchCases(c *gc.C) {
 
 	// Case: However if registers do not match, it's refused.
 	var resp, _ = spool.Apply(newProposal(proposal, regBar), false)
-	c.Check(resp.Status, gc.Equals, pb.Status_PROPOSAL_MISMATCH)
-	c.Check(resp.Registers, gc.DeepEquals, &regFoo)
+	require.Equal(t, pb.Status_PROPOSAL_MISMATCH, resp.Status)
+	require.Equal(t, &regFoo, resp.Registers)
 
 	// Apply 4 uncommitted bytes
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("efgh")})
 
 	// Case: Attempt a roll-back, but with incorrect registers. It's refused.
 	resp, _ = spool.Apply(newProposal(spool.Fragment.Fragment, regBar), false)
-	c.Check(resp.Status, gc.Equals, pb.Status_PROPOSAL_MISMATCH)
+	require.Equal(t, pb.Status_PROPOSAL_MISMATCH, resp.Status)
 
 	// Case: Apply a mismatched proposal which is within current spool bounds.
 	// Expect the spool doesn't roll forward.
@@ -194,10 +192,10 @@ func (s *SpoolSuite) TestMoreMismatchCases(c *gc.C) {
 	proposal.Begin = 1 // Cause proposal to mismatch.
 
 	resp, _ = spool.Apply(newProposal(proposal, regBar), false)
-	c.Check(resp.Status, gc.Equals, pb.Status_PROPOSAL_MISMATCH)
-	c.Check(spool.Begin, gc.Equals, int64(0))
-	c.Check(spool.Registers, gc.DeepEquals, regFoo)
-	c.Check(obv.completes, gc.HasLen, 0)
+	require.Equal(t, pb.Status_PROPOSAL_MISMATCH, resp.Status)
+	require.Equal(t, int64(0), spool.Begin)
+	require.Equal(t, regFoo, spool.Registers)
+	require.Len(t, obv.completes, 0)
 
 	// Case: Again, but this time the proposal is beyond current bounds.
 	// Expect a MISMATCH is still returned, but the spool rolls forward
@@ -205,45 +203,45 @@ func (s *SpoolSuite) TestMoreMismatchCases(c *gc.C) {
 	proposal.End = 9
 
 	resp, _ = spool.Apply(newProposal(proposal, regBar), false)
-	c.Check(resp.Status, gc.Equals, pb.Status_PROPOSAL_MISMATCH)
-	c.Check(spool.Begin, gc.Equals, int64(9))
-	c.Check(spool.End, gc.Equals, int64(9))
-	c.Check(spool.delta, gc.Equals, int64(0))
-	c.Check(spool.Registers, gc.DeepEquals, regBar)
+	require.Equal(t, pb.Status_PROPOSAL_MISMATCH, resp.Status)
+	require.Equal(t, int64(9), spool.Begin)
+	require.Equal(t, int64(9), spool.End)
+	require.Equal(t, int64(0), spool.delta)
+	require.Equal(t, regBar, spool.Registers)
 
-	c.Check(obv.completes, gc.HasLen, 1)
-	c.Check(contentString(c, obv.completes[0], pb.CompressionCodec_GZIP),
-		gc.Equals, "abcd")
+	require.Len(t, obv.completes, 1)
+	require.Equal(t, "abcd",
+		contentString(t, obv.completes[0], pb.CompressionCodec_GZIP))
 
 	// Case 3: Spool is empty, and sees a proposal within current bounds.
 	// Expect it remains unchanged.
 	proposal.End = 8
 
 	resp, _ = spool.Apply(newProposal(proposal, regBaz), false)
-	c.Check(resp.Status, gc.Equals, pb.Status_PROPOSAL_MISMATCH)
-	c.Check(spool.End, gc.Equals, int64(9))
-	c.Check(spool.Registers, gc.DeepEquals, regBar)
+	require.Equal(t, pb.Status_PROPOSAL_MISMATCH, resp.Status)
+	require.Equal(t, int64(9), spool.End)
+	require.Equal(t, regBar, spool.Registers)
 
 	// Case 4: Spool is empty, but rolls due to a proposal beyond current bounds.
 	// It's not treated as a completion, because the spool is empty.
 	proposal.End = 11
 
 	resp, _ = spool.Apply(newProposal(proposal, regBaz), false)
-	c.Check(resp.Status, gc.Equals, pb.Status_PROPOSAL_MISMATCH)
-	c.Check(spool.Begin, gc.Equals, int64(11))
-	c.Check(spool.End, gc.Equals, int64(11))
-	c.Check(spool.Registers, gc.DeepEquals, regBaz)
+	require.Equal(t, pb.Status_PROPOSAL_MISMATCH, resp.Status)
+	require.Equal(t, int64(11), spool.Begin)
+	require.Equal(t, int64(11), spool.End)
+	require.Equal(t, regBaz, spool.Registers)
 
-	c.Check(obv.completes, gc.HasLen, 1) // Unchanged.
+	require.Len(t, obv.completes, 1) // Unchanged.
 }
 
-func (s *SpoolSuite) TestRejectNextMismatch(c *gc.C) {
+func TestRejectNextMismatch(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
 
 	var resp, err = spool.Apply(&pb.ReplicateRequest{Content: []byte("foobar")}, false)
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{})
-	c.Check(err, gc.IsNil)
+	require.Equal(t, pb.ReplicateResponse{}, resp)
+	require.NoError(t, err)
 
 	// Incorrect End offset.
 	resp, err = spool.Apply(&pb.ReplicateRequest{
@@ -257,12 +255,12 @@ func (s *SpoolSuite) TestRejectNextMismatch(c *gc.C) {
 		Registers: &regFoo,
 	}, false)
 
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{
+	require.Equal(t, pb.ReplicateResponse{
 		Status:    pb.Status_PROPOSAL_MISMATCH,
 		Fragment:  &spool.Fragment.Fragment,
 		Registers: &regEmpty,
-	})
-	c.Check(err, gc.IsNil)
+	}, resp)
+	require.NoError(t, err)
 
 	// Incorrect SHA1 Sum.
 	resp, err = spool.Apply(&pb.ReplicateRequest{
@@ -276,12 +274,12 @@ func (s *SpoolSuite) TestRejectNextMismatch(c *gc.C) {
 		Registers: &regFoo,
 	}, false)
 
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{
+	require.Equal(t, pb.ReplicateResponse{
 		Status:    pb.Status_PROPOSAL_MISMATCH,
 		Fragment:  &spool.Fragment.Fragment,
 		Registers: &regEmpty,
-	})
-	c.Check(err, gc.IsNil)
+	}, resp)
+	require.NoError(t, err)
 
 	// Correct Next Fragment.
 	resp, err = spool.Apply(&pb.ReplicateRequest{
@@ -295,11 +293,11 @@ func (s *SpoolSuite) TestRejectNextMismatch(c *gc.C) {
 		Registers: &regFoo,
 	}, false)
 
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{Status: pb.Status_OK})
-	c.Check(err, gc.IsNil)
+	require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+	require.NoError(t, err)
 }
 
-func (s *SpoolSuite) TestContentDeltaMismatch(c *gc.C) {
+func TestContentDeltaMismatch(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
 
@@ -307,17 +305,17 @@ func (s *SpoolSuite) TestContentDeltaMismatch(c *gc.C) {
 		ContentDelta: 0,
 		Content:      []byte("foo"),
 	}, false)
-	c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{})
-	c.Check(err, gc.IsNil)
+	require.Equal(t, pb.ReplicateResponse{}, resp)
+	require.NoError(t, err)
 
 	_, err = spool.Apply(&pb.ReplicateRequest{
 		ContentDelta: 2,
 		Content:      []byte("bar"),
 	}, false)
-	c.Check(err, gc.ErrorMatches, `invalid ContentDelta \(2; expected 3\)`)
+	require.EqualError(t, err, `invalid ContentDelta (2; expected 3)`)
 }
 
-func (s *SpoolSuite) TestFileErrorRetries(c *gc.C) {
+func TestFileErrorRetries(t *testing.T) {
 	var obv testSpoolObserver
 	var spool = NewSpool("a/journal", &obv)
 	spool.CompressionCodec = pb.CompressionCodec_GZIP
@@ -326,29 +324,29 @@ func (s *SpoolSuite) TestFileErrorRetries(c *gc.C) {
 
 	injectNewSpoolFileFailure() // First open of spool.File fails.
 	var _, err = spool.Apply(&pb.ReplicateRequest{Content: []byte("foo")}, true)
-	c.Check(err, gc.IsNil)
+	require.NoError(t, err)
 
 	var proposal = spool.Next()
 
 	injectNewSpoolFileFailure() // First open of spool.compressedFile fails.
 	_, err = spool.Apply(&pb.ReplicateRequest{Proposal: &proposal}, true)
-	c.Check(err, gc.IsNil)
+	require.NoError(t, err)
 
 	injectFileError(&spool.File) // Next spool WriteAt attempt fails.
 	_, err = spool.Apply(&pb.ReplicateRequest{Content: []byte("bar")}, true)
-	c.Check(err, gc.IsNil)
+	require.NoError(t, err)
 
 	injectFileError(&spool.File)           // Next ReadAt attempt fails, forcing rebuild of compressor.
 	injectFileError(&spool.compressedFile) // Next Seek-start attempt fails.
 
 	proposal = spool.Next()
 	_, err = spool.Apply(&pb.ReplicateRequest{Proposal: &proposal}, true)
-	c.Check(err, gc.IsNil)
+	require.NoError(t, err)
 
 	injectFileError(&spool.compressedFile) // Next Write or Seek fails, forcing rebuild of compressor.
 
 	spool.finishCompression()
-	c.Check(contentString(c, spool, pb.CompressionCodec_GZIP), gc.Equals, "foobar")
+	require.Equal(t, "foobar", contentString(t, spool, pb.CompressionCodec_GZIP))
 }
 
 func useShortRetryInterval() func() {
@@ -397,26 +395,26 @@ func (f errFile) Close() error {
 	return errors.New("failed Close")
 }
 
-func contentString(c *gc.C, s Spool, codec pb.CompressionCodec) string {
+func contentString(t *testing.T, s Spool, codec pb.CompressionCodec) string {
 	var rc io.ReadCloser
 	var err error
 
 	if s.compressedFile == nil {
-		rc = ioutil.NopCloser(io.NewSectionReader(s.File, 0, s.ContentLength()))
+		rc = io.NopCloser(io.NewSectionReader(s.File, 0, s.ContentLength()))
 	} else {
 		rc, err = codecs.NewCodecReader(
 			io.NewSectionReader(s.compressedFile, 0, s.compressedLength), codec)
 	}
-	c.Assert(err, gc.IsNil)
+	require.NoError(t, err)
 
-	b, err := ioutil.ReadAll(rc)
-	c.Check(err, gc.IsNil)
-	c.Check(rc.Close(), gc.IsNil)
+	b, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
 
 	return string(b)
 }
 
-func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary bool) {
+func runReplicateSequence(t *testing.T, s *Spool, codec pb.CompressionCodec, primary bool) {
 
 	var fixedTime = time.Time{}.Add(time.Hour * 24)
 	defer func(fn func() time.Time) { timeNow = fn }(timeNow)
@@ -512,15 +510,15 @@ func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary 
 	for _, req := range seq {
 		var resp, err = s.Apply(&req, primary)
 
-		c.Check(err, gc.IsNil)
-		c.Check(resp, gc.DeepEquals, pb.ReplicateResponse{Status: pb.Status_OK})
+		require.NoError(t, err)
+		require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
 
 		if resp.Status != pb.Status_OK {
-			c.Log(resp.String())
+			t.Log(resp.String())
 		} else if s.ContentLength() == 0 {
-			c.Check(s.FirstAppendTime.IsZero(), gc.Equals, true)
+			require.True(t, s.FirstAppendTime.IsZero())
 		} else {
-			c.Check(s.FirstAppendTime.Equal(fixedTime), gc.Equals, true)
+			require.True(t, s.FirstAppendTime.Equal(fixedTime))
 		}
 	}
 }
@@ -548,6 +546,4 @@ var (
 	regFoo   = pb.MustLabelSet("reg", "foo")
 	regBar   = pb.MustLabelSet("reg", "bar")
 	regBaz   = pb.MustLabelSet("reg", "baz")
-
-	_ = gc.Suite(&SpoolSuite{})
 )
