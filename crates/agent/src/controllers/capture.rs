@@ -21,19 +21,19 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::CaptureDef,
 ) -> anyhow::Result<Option<NextRun>> {
+    let CaptureStatus {
+        publications,
+        alerts,
+        auto_discover,
+        activation,
+        config_updates,
+    } = status;
     let auto_discover_result = if model.auto_discover.is_some() && !model.shards.disable {
-        let ad_status = status
-            .auto_discover
-            .get_or_insert_with(AutoDiscoverStatus::default);
-        let result = auto_discover::update(
-            ad_status,
-            state,
-            model,
-            control_plane,
-            &mut status.publications,
-        )
-        .await
-        .context("updating auto-discover");
+        let ad_status = auto_discover.get_or_insert_with(AutoDiscoverStatus::default);
+        let result =
+            auto_discover::update(ad_status, alerts, state, model, control_plane, publications)
+                .await
+                .context("updating auto-discover");
         tracing::debug!(?result, "auto-discover status updated");
         if result.as_ref().ok() == Some(&true) {
             return Ok(Some(NextRun::immediately()));
@@ -55,8 +55,8 @@ pub async fn update<C: ControlPlane>(
 
     let updated_config_published = config_update::updated_config_publish(
         state,
-        &mut status.config_updates,
-        &mut status.publications,
+        config_updates,
+        publications,
         events,
         control_plane,
         |config_update: &ConfigUpdate| -> anyhow::Result<publication_status::PendingPublication> {
@@ -106,7 +106,7 @@ pub async fn update<C: ControlPlane>(
 
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
     let dependencies_published = dependencies
-        .update(state, control_plane, &mut status.publications, |deleted| {
+        .update(state, control_plane, publications, |deleted| {
             let mut draft_capture = model.clone();
             let mut disabled_count = 0;
             for binding in draft_capture.bindings.iter_mut() {
@@ -128,17 +128,16 @@ pub async fn update<C: ControlPlane>(
     }
     let dependencies_result = dependencies_published.map(|_| None);
     let periodic_published =
-        periodic::update_periodic_publish(state, &mut status.publications, control_plane).await;
+        periodic::update_periodic_publish(state, publications, control_plane).await;
     if periodic_published.as_ref().ok() == Some(&true) {
         return Ok(Some(NextRun::immediately()));
     }
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
-    let activate_result =
-        activation::update_activation(&mut status.activation, state, events, control_plane)
-            .await
-            .with_retry(backoff_data_plane_activate(state.failures))
-            .map_err(Into::into);
+    let activate_result = activation::update_activation(activation, state, events, control_plane)
+        .await
+        .with_retry(backoff_data_plane_activate(state.failures))
+        .map_err(Into::into);
 
     let notify_result = publication_status::update_notify_dependents(
         &mut status.publications,
