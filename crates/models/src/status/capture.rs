@@ -10,6 +10,8 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::Alerts;
+
 /// Status of a capture controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
 pub struct CaptureStatus {
@@ -21,6 +23,8 @@ pub struct CaptureStatus {
     pub config_updates: Option<PendingConfigUpdateStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_discover: Option<AutoDiscoverStatus>,
+    #[serde(default, skip_serializing_if = "Alerts::is_empty")]
+    pub alerts: Alerts,
 }
 
 /// A capture binding that has changed as a result of a discover

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::activation::ActivationStatus;
 use super::publications::PublicationStatus;
+use super::Alerts;
 use super::PendingConfigUpdateStatus;
 
 /// Status of a materialization controller
@@ -17,7 +18,9 @@ pub struct MaterializationStatus {
     #[serde(default)]
     pub activation: ActivationStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config_updates: Option<PendingConfigUpdateStatus>
+    pub config_updates: Option<PendingConfigUpdateStatus>,
+    #[serde(default, skip_serializing_if = "Alerts::is_empty")]
+    pub alerts: Alerts,
 }
 
 /// Status information about the `sourceCapture`

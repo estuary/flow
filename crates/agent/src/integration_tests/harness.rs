@@ -19,7 +19,7 @@ use chrono::{DateTime, Utc};
 use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
 use models::status::connector::ConfigUpdate;
-use models::status::ShardRef;
+use models::status::{AlertState, AlertType, ControllerAlert, ShardRef};
 use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
@@ -745,6 +745,46 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .unwrap();
+    }
+
+    /// Asserts that the given alert type is firing for the given
+    /// `catalog_name`, and returns the alert status for further assertions.
+    pub async fn assert_alert_firing(
+        &mut self,
+        catalog_name: &str,
+        alert: AlertType,
+    ) -> ControllerAlert {
+        let state = self.get_controller_state(catalog_name).await;
+        let Some(alert_status) = state
+            .current_status
+            .alerts_status()
+            .and_then(|alerts| alerts.get(&alert))
+        else {
+            panic!("expected alert {alert}, but no alert status was found for: {catalog_name}");
+        };
+        assert_eq!(
+            AlertState::Firing,
+            alert_status.state,
+            "expected alert {alert} to be firing, but was: {alert_status:?}"
+        );
+        alert_status.clone()
+    }
+
+    /// Asserts that the given alert type is not currently firing for the given
+    /// `catalog_name`. The alert could have cleared, or else never fired in the
+    /// first place.
+    pub async fn assert_alert_clear(&mut self, catalog_name: &str, alert: AlertType) {
+        let state = self.get_controller_state(catalog_name).await;
+        let alert_status = state
+            .current_status
+            .alerts_status()
+            .and_then(|alerts| alerts.get(&alert))
+            .filter(|state| state.state == AlertState::Firing);
+
+        assert!(
+            alert_status.is_none(),
+            "expected no {alert} alert to be firing for {catalog_name}, but got: {alert_status:?}"
+        );
     }
 
     /// Returns a `ControllerState` representing the given live spec and

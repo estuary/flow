@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::activation::ActivationStatus;
 use super::publications::PublicationStatus;
+use super::Alerts;
 
 /// The status of a collection controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
@@ -14,6 +15,8 @@ pub struct CollectionStatus {
     pub publications: PublicationStatus,
     #[serde(default)]
     pub activation: ActivationStatus,
+    #[serde(default, skip_serializing_if = "Alerts::is_empty")]
+    pub alerts: Alerts,
 }
 
 /// Status of the inferred schema

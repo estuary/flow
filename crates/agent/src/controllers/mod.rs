@@ -1,4 +1,5 @@
 pub(crate) mod activation;
+pub(crate) mod alerts;
 pub(crate) mod capture;
 pub(crate) mod catalog_test;
 pub(crate) mod collection;
