@@ -2,12 +2,14 @@ package broker
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
+	"go.gazette.dev/core/broker/stores"
 	"go.gazette.dev/core/etcdtest"
 )
 
@@ -291,4 +293,129 @@ func TestResolveProxyHeaderErrorCases(t *testing.T) {
 	require.Regexp(t, `request Etcd ClusterId doesn't match our own \(\d+.*`, err)
 
 	broker.cleanup()
+}
+
+func TestResolverStoresHandling(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	stores.RegisterProviders(map[string]stores.Constructor{
+		"s3": func(ep *url.URL) (stores.Store, error) {
+			return stores.NewMemoryStore(ep), nil
+		},
+	})
+
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+
+	// Case 1: Create journal with fragment stores
+	var spec = pb.JournalSpec{
+		Name:        "stores/journal",
+		Replication: 2,
+		Fragment: pb.JournalSpec_Fragment{
+			Length:          1024,
+			RefreshInterval: time.Second,
+			Stores:          []pb.FragmentStore{"s3://store1/", "s3://store2/"},
+		},
+	}
+	setTestJournal(broker, spec, broker.id, peer.id)
+
+	// Verify replica has stores initialized
+	var replica = broker.svc.resolver.replicas["stores/journal"]
+	require.NotNil(t, replica)
+	require.Len(t, replica.stores, 2)
+	require.Equal(t, pb.FragmentStore("s3://store1/"), replica.stores[0].Key)
+	require.Equal(t, pb.FragmentStore("s3://store2/"), replica.stores[1].Key)
+
+	// Case 2: Resolve journal and verify stores are copied to resolution
+	var r, _ = broker.svc.resolver.resolve(ctx, allClaims, "stores/journal", resolveOpts{})
+	require.Equal(t, pb.Status_OK, r.status)
+	require.Len(t, r.stores, 2)
+	require.Equal(t, pb.FragmentStore("s3://store1/"), r.stores[0].Key)
+	require.Equal(t, pb.FragmentStore("s3://store2/"), r.stores[1].Key)
+
+	// Case 3: Update journal to change fragment stores
+	// First capture the current signalCh to verify it gets closed
+	var origSignalCh = replica.signalCh
+
+	spec.Fragment.Stores = []pb.FragmentStore{"s3://store3/"}
+	setTestJournal(broker, spec, broker.id, peer.id)
+
+	// Verify stores were updated
+	replica = broker.svc.resolver.replicas["stores/journal"]
+	require.NotNil(t, replica)
+	require.Len(t, replica.stores, 1)
+	require.Equal(t, pb.FragmentStore("s3://store3/"), replica.stores[0].Key)
+
+	// Verify signalCh was closed when stores changed
+	select {
+	case <-origSignalCh:
+		// Good - channel was closed
+	case <-time.After(100 * time.Millisecond):
+		require.Fail(t, "signalCh was not closed when stores changed")
+	}
+
+	// Case 4: Update journal to add more stores
+	spec.Fragment.Stores = []pb.FragmentStore{"s3://store3/", "s3://store4/", "s3://store5/"}
+	setTestJournal(broker, spec, broker.id, peer.id)
+
+	replica = broker.svc.resolver.replicas["stores/journal"]
+	require.NotNil(t, replica)
+	require.Len(t, replica.stores, 3)
+	require.Equal(t, pb.FragmentStore("s3://store3/"), replica.stores[0].Key)
+	require.Equal(t, pb.FragmentStore("s3://store4/"), replica.stores[1].Key)
+	require.Equal(t, pb.FragmentStore("s3://store5/"), replica.stores[2].Key)
+
+	// Case 5: Update journal to clear stores
+	spec.Fragment.Stores = nil
+	setTestJournal(broker, spec, broker.id, peer.id)
+
+	replica = broker.svc.resolver.replicas["stores/journal"]
+	require.NotNil(t, replica)
+	require.Len(t, replica.stores, 0)
+
+	// Case 6: Create journal with no stores
+	var spec2 = pb.JournalSpec{
+		Name:        "no-stores/journal",
+		Replication: 2,
+	}
+	setTestJournal(broker, spec2, broker.id, peer.id)
+
+	replica = broker.svc.resolver.replicas["no-stores/journal"]
+	require.NotNil(t, replica)
+	require.Len(t, replica.stores, 0)
+
+	// Case 7: Resolve journal with no stores
+	r, _ = broker.svc.resolver.resolve(ctx, allClaims, "no-stores/journal", resolveOpts{})
+	require.Equal(t, pb.Status_OK, r.status)
+	require.Len(t, r.stores, 0)
+
+	// Case 8: Verify stores are not updated when they haven't changed
+	spec.Fragment.Stores = []pb.FragmentStore{"s3://final/"}
+	setTestJournal(broker, spec, broker.id, peer.id)
+
+	replica = broker.svc.resolver.replicas["stores/journal"]
+	var storesSlice1 = replica.stores
+	var signalCh1 = replica.signalCh
+
+	// Update with same stores - should reuse same slice and NOT close signalCh
+	setTestJournal(broker, spec, broker.id, peer.id)
+
+	replica = broker.svc.resolver.replicas["stores/journal"]
+	var storesSlice2 = replica.stores
+
+	// Verify same slice is reused (pointer equality)
+	require.True(t, &storesSlice1[0] == &storesSlice2[0])
+
+	// Verify signalCh was NOT closed (it's the same channel)
+	require.Equal(t, signalCh1, replica.signalCh)
+	select {
+	case <-signalCh1:
+		require.Fail(t, "signalCh was closed when stores didn't change")
+	default:
+		// Good - channel is still open
+	}
+
+	broker.cleanup()
+	peer.Cleanup()
 }

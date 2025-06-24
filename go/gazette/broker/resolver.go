@@ -11,6 +11,7 @@ import (
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
+	"go.gazette.dev/core/broker/stores"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -29,10 +30,11 @@ type resolver struct {
 // resolverReplica extends a *replica instance with detection and signaling
 // of changes to its assignments.
 type resolverReplica struct {
-	*replica
-	assignments keyspace.KeyValues
-	primary     bool
-	signalCh    chan struct{}
+	*replica                          // Embedded replica managing journal state and operations.
+	assignments keyspace.KeyValues    // Current assignments of this journal from etcd.
+	primary     bool                  // Whether this broker is the primary for this journal.
+	signalCh    chan struct{}         // Closed when assignments change, to wake blocked RPCs.
+	stores      []*stores.ActiveStore // Pre-fetched stores corresponding to the journal's FragmentStores.
 }
 
 func newResolver(state *allocator.State, newReplica func(pb.Journal) *replica) *resolver {
@@ -75,6 +77,8 @@ type resolution struct {
 	assignments keyspace.KeyValues
 	// Local replica of the assigned journal, if one exists.
 	replica *replica
+	// Pre-fetched ActiveStore instances corresponding to journalSpec.Fragment.Stores
+	stores []*stores.ActiveStore
 	// If |replica| is non-nil, |invalidateCh| is also, and is closed when
 	// this resolution has been invalidated due to a subsequent assignment
 	// update of the journal.
@@ -184,6 +188,7 @@ func (r *resolver) resolve(ctx context.Context, claims pb.Claims, journal pb.Jou
 	} else if replica := r.replicas[journal]; replica != nil {
 		res.replica = replica.replica
 		res.invalidateCh = replica.signalCh
+		res.stores = replica.stores
 	}
 
 	// Select a response Status code.
@@ -226,10 +231,13 @@ func (r *resolver) updateResolutions() {
 	var next = make(map[pb.Journal]*resolverReplica, len(r.state.LocalItems))
 
 	for _, li := range r.state.LocalItems {
-		var item = li.Item.Decoded.(allocator.Item)
-		var name = pb.Journal(item.ID)
-		var primary = li.Assignments[li.Index].Decoded.(allocator.Assignment).Slot == 0
-		var replica, ok = r.replicas[name]
+		var (
+			item        = li.Item.Decoded.(allocator.Item)
+			spec        = item.ItemValue.(*pb.JournalSpec)
+			name        = pb.Journal(item.ID)
+			primary     = li.Assignments[li.Index].Decoded.(allocator.Assignment).Slot == 0
+			replica, ok = r.replicas[name]
+		)
 
 		if _, ok := next[name]; ok {
 			// TODO(johnny): This SHOULD not happen, but sometimes does.
@@ -262,7 +270,25 @@ func (r *resolver) updateResolutions() {
 		}
 		next[name] = replica
 
-		if !li.Assignments.EqualKeyRevisions(replica.assignments) {
+		// Update `stores` if the JournalSpec's FragmentStores have changed.
+		var storesChanged = len(replica.stores) != len(spec.Fragment.Stores)
+		if !storesChanged {
+			for i, fs := range spec.Fragment.Stores {
+				if replica.stores[i].Key != fs {
+					storesChanged = true
+					break
+				}
+			}
+		}
+		if storesChanged {
+			var newStores = make([]*stores.ActiveStore, len(spec.Fragment.Stores))
+			for i, fs := range spec.Fragment.Stores {
+				newStores[i] = stores.Get(fs)
+			}
+			replica.stores = newStores
+		}
+
+		if !li.Assignments.EqualKeyRevisions(replica.assignments) || storesChanged {
 			close(replica.signalCh)
 			replica.signalCh = make(chan struct{})
 			replica.assignments = li.Assignments.Copy()
