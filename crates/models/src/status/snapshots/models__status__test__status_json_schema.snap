@@ -86,6 +86,24 @@ expression: schema
       ],
       "type": "object"
     },
+    "AlertState": {
+      "oneOf": [
+        {
+          "description": "The alert is currently firing.",
+          "enum": [
+            "Firing"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The alert has resolved. Resolved alerts may be retained in the status for a short while.",
+          "enum": [
+            "Resolved"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "AutoDiscoverFailure": {
       "properties": {
         "count": {
@@ -229,6 +247,15 @@ expression: schema
       },
       "type": "object"
     },
+    "CatalogType": {
+      "enum": [
+        "capture",
+        "collection",
+        "materialization",
+        "test"
+      ],
+      "type": "string"
+    },
     "Collection": {
       "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
       "examples": [
@@ -236,6 +263,62 @@ expression: schema
       ],
       "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$",
       "type": "string"
+    },
+    "ControllerAlert": {
+      "additionalProperties": true,
+      "properties": {
+        "count": {
+          "description": "The number of failures.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "error": {
+          "description": "The error message associated with the alert.",
+          "type": "string"
+        },
+        "first_ts": {
+          "description": "The time when the alert first triggered.",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        },
+        "last_ts": {
+          "description": "The time that the alert condition was last checked or updated.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolved_at": {
+          "description": "The time at which the alert condition resolved. Unset if the alert is firing.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spec_type": {
+          "$ref": "#/definitions/CatalogType",
+          "description": "The live spec type"
+        },
+        "state": {
+          "$ref": "#/definitions/AlertState",
+          "description": "The current state of the alert."
+        }
+      },
+      "required": [
+        "count",
+        "error",
+        "first_ts",
+        "last_ts",
+        "resolved_at",
+        "spec_type",
+        "state"
+      ],
+      "type": "object"
     },
     "DiscoverChange": {
       "description": "A capture binding that has changed as a result of a discover",
@@ -857,6 +940,12 @@ expression: schema
           "$ref": "#/definitions/ActivationStatus",
           "default": {}
         },
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ControllerAlert"
+          },
+          "type": "object"
+        },
         "auto_discover": {
           "anyOf": [
             {
@@ -902,6 +991,12 @@ expression: schema
           "$ref": "#/definitions/ActivationStatus",
           "default": {}
         },
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ControllerAlert"
+          },
+          "type": "object"
+        },
         "inferred_schema": {
           "anyOf": [
             {
@@ -936,6 +1031,12 @@ expression: schema
         "activation": {
           "$ref": "#/definitions/ActivationStatus",
           "default": {}
+        },
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ControllerAlert"
+          },
+          "type": "object"
         },
         "config_updates": {
           "anyOf": [
@@ -977,6 +1078,12 @@ expression: schema
     },
     {
       "properties": {
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ControllerAlert"
+          },
+          "type": "object"
+        },
         "passing": {
           "type": "boolean"
         },

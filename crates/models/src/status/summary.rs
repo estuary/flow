@@ -327,6 +327,7 @@ mod test {
             Some(&ControllerStatus::Test(TestStatus {
                 passing: true,
                 publications: Default::default(),
+                alerts: Default::default(),
             })),
             None,
         );
@@ -344,6 +345,7 @@ mod test {
             Some(&ControllerStatus::Test(TestStatus {
                 passing: false,
                 publications: Default::default(),
+                alerts: Default::default(),
             })),
             None,
         );
