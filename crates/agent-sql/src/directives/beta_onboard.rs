@@ -59,6 +59,8 @@ pub async fn provision_tenant(
 ) -> sqlx::Result<()> {
     let prefix = format!("{tenant}/");
 
+    // Note that the gcp-us-central1-c1 (combustible-cronut) dataplane is excluded here
+    // because it's being deprecated and replaced.
     sqlx::query!(
         r#"with
         accounts_root_user as (
@@ -82,6 +84,7 @@ pub async fn provision_tenant(
             select json_agg(data_plane_name order by id asc) as arr
             from data_planes
             where starts_with(data_plane_name, 'ops/dp/public/')
+            and data_plane_name <> 'ops/dp/public/gcp-us-central1-c1'
         ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
