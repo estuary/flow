@@ -51,6 +51,7 @@ If authenticating with an access token, ensure the following permissions are gra
 * `read_inventory`
 * `read_locales`
 * `read_locations`
+* `read_marketing_events`
 * `read_marketplace_fulfillment_orders`
 * `read_merchant_managed_fulfillment_orders`
 * `read_orders`
