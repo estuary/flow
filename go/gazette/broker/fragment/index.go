@@ -57,9 +57,9 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 		// If the requested offset isn't covered by the index, but we do have
 		// a persisted fragment with a *greater* offset...
 		if !found && ind != len(fi.set) && fi.set[ind].ModTime != 0 &&
-			// AND the client is reading from the very beginning of the journal,
+			// AND the client is reading from the very beginning of the available journal,
 			// OR the next available fragment was persisted quite a while ago.
-			(req.Offset == 0 || (fi.set[ind].ModTime < timeNow().Add(-offsetJumpAgeThreshold).Unix())) {
+			(ind == 0 || (fi.set[ind].ModTime < timeNow().Add(-offsetJumpAgeThreshold).Unix())) {
 
 			// Then skip the read forward to the first or next available offset.
 			// This case allows us to recover from "holes" or deletions in the
