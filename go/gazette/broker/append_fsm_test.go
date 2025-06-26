@@ -2,14 +2,17 @@ package broker
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/broker/stores"
 	"go.gazette.dev/core/etcdtest"
 )
 
@@ -425,7 +428,7 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.ctx = newCanceledCtx()
 	fsm.onValidatePreconditions()
 	require.Equal(t, stateError, fsm.state)
-	require.EqualError(t, fsm.err, "waiting for index refresh: context canceled")
+	require.EqualError(t, fsm.err, "waiting for the fragment store: context canceled")
 	fsm.returnPipeline()
 
 	// Case: Route is invalidated while awaiting first remote fragment refresh.
@@ -434,6 +437,65 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.resolved.invalidateCh = newClosedCh()
 	fsm.onValidatePreconditions()
 	require.Equal(t, stateResolve, fsm.state)
+	fsm.returnPipeline()
+
+	// Case: Fragment store is healthy (this is the normal path).
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
+	require.True(t, fsm.runTo(stateValidatePreconditions))
+
+	var as = stores.NewActiveStore(pb.FragmentStore("mock:///test/"), nil, nil)
+	as.UpdateHealth(nil) // Mark as healthy
+	fsm.resolved.stores = []*stores.ActiveStore{as}
+	fsm.resolved.replica.index.ReplaceRemote(fragment.CoverSet{})
+
+	fsm.onValidatePreconditions()
+	require.Equal(t, stateStreamContent, fsm.state)
+	fsm.returnPipeline()
+
+	// Case: Fragment store is unhealthy but recovers.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
+	require.True(t, fsm.runTo(stateValidatePreconditions))
+
+	as = stores.NewActiveStore(pb.FragmentStore("mock:///test/"), nil, nil)
+	as.UpdateHealth(errors.New("initial unhealthy state"))
+	fsm.resolved.stores = []*stores.ActiveStore{as}
+
+	// Simulate awaited recovery.
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		as.UpdateHealth(nil) // Recover to healthy
+	}()
+
+	fsm.onValidatePreconditions()
+	require.Equal(t, stateStreamContent, fsm.state)
+	fsm.returnPipeline()
+
+	// Case: Fragment store is unhealthy and exceeds max retries.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
+	require.True(t, fsm.runTo(stateValidatePreconditions))
+
+	as = stores.NewActiveStore(pb.FragmentStore("mock:///test/"), nil,
+		fmt.Errorf("too bad"))
+	fsm.resolved.stores = []*stores.ActiveStore{as}
+
+	fsm.onValidatePreconditions()
+	require.Equal(t, stateError, fsm.state)
+	require.Equal(t, pb.Status_FRAGMENT_STORE_UNHEALTHY, fsm.resolved.status)
+	require.Equal(t, fsm.err.Error(), "fragment store mock:///test/ unhealthy: too bad")
+	fsm.returnPipeline()
+
+	// Case: Context canceled while waiting for unhealthy store.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
+	require.True(t, fsm.runTo(stateValidatePreconditions))
+
+	as = stores.NewActiveStore(pb.FragmentStore("mock:///test/"), nil, nil)
+	as.UpdateHealth(errors.New("initial unhealthy state"))
+	fsm.resolved.stores = []*stores.ActiveStore{as}
+
+	fsm.ctx = newCanceledCtx()
+	fsm.onValidatePreconditions()
+	require.Equal(t, stateError, fsm.state)
+	require.EqualError(t, fsm.err, "waiting for the fragment store: context canceled")
 	fsm.returnPipeline()
 
 	// Case: Spool & fragment index agree on non-zero end offset. Success.

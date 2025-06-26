@@ -70,6 +70,9 @@ func (svc *Service) Append(claims pb.Claims, stream pb.Journal_AppendServer) (er
 			if fsm.resolved.status == pb.Status_REGISTER_MISMATCH {
 				resp.Registers = &fsm.registers
 			}
+			if fsm.resolved.status == pb.Status_FRAGMENT_STORE_UNHEALTHY {
+				resp.StoreHealthError = fsm.err.Error()
+			}
 			return stream.SendAndClose(resp)
 		}
 		// Client-initiated RPC cancellations are expected errors.

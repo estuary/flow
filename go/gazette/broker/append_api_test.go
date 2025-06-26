@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/broker/stores"
 	"go.gazette.dev/core/etcdtest"
 )
 
@@ -287,6 +288,32 @@ func TestAppendRequestErrorCases(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status) // Journal not visible to these claims.
 	require.Len(t, resp.Header.Route.Endpoints, 0)
+
+	// Case: Fragment store is unhealthy.
+	setTestJournal(broker, pb.JournalSpec{
+		Name:        "unhealthy/store",
+		Replication: 1,
+		Fragment: pb.JournalSpec_Fragment{
+			Stores: []pb.FragmentStore{"file:///tmp/unhealthy/"},
+		},
+	}, broker.id)
+	broker.replica("unhealthy/store").index.ReplaceRemote(fragment.CoverSet{})
+
+	// Set up unhealthy store - initialize with error so HealthStatus always returns error
+	var resolverReplica = broker.svc.resolver.replicas[pb.Journal("unhealthy/store")]
+	// Override the resolver's store with our unhealthy one
+	var as = stores.NewActiveStore(pb.FragmentStore("file:///tmp/unhealthy/"), nil, errors.New("persistent store failure"))
+	resolverReplica.stores = []*stores.ActiveStore{as}
+
+	stream, _ = broker.client().Append(ctx)
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "unhealthy/store"}))
+
+	resp, err = stream.CloseAndRecv()
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_FRAGMENT_STORE_UNHEALTHY, resp.Status)
+	require.Equal(t, *broker.header("unhealthy/store"), resp.Header)
+	require.Contains(t, resp.StoreHealthError, "fragment store file:///tmp/unhealthy/ unhealthy")
+	require.Contains(t, resp.StoreHealthError, "persistent store failure")
 
 	broker.cleanup()
 }

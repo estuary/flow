@@ -411,21 +411,40 @@ func (b *appendFSM) onAwaitDesiredReplicas() {
 func (b *appendFSM) onValidatePreconditions() {
 	b.mustState(stateValidatePreconditions)
 
-	// Ensure an initial refresh of the remote store(s) has completed.
-	select {
-	case <-b.resolved.replica.index.FirstRefreshCh():
-	// Pass.
-	default:
-		addTrace(b.ctx, " ... stalled on first fragment index refresh")
+	// Ensure an initial refresh of the remote store(s) has completed,
+	// and that the primary fragment store is healthy.
+	var healthCh <-chan struct{}
+	var refreshCh = b.resolved.replica.index.FirstRefreshCh()
 
+	if len(b.resolved.stores) != 0 {
+		if nextCh, err := b.resolved.stores[0].HealthStatus(); err != nil {
+			healthCh = nextCh // Await next health check.
+		}
+	}
+
+	for i := 0; healthCh != nil || refreshCh != nil; i++ {
 		select {
-		case <-b.resolved.replica.index.FirstRefreshCh():
-			// Pass.
+		case <-refreshCh:
+			refreshCh = nil // OK to proceed.
+		case <-healthCh:
+			var store = b.resolved.stores[0]
+
+			if nextCh, err := store.HealthStatus(); err == nil {
+				healthCh = nil // OK to proceed.
+			} else if i > storeHealthCheckRetries {
+				b.err = fmt.Errorf("fragment store %s unhealthy: %w", store.Key, err)
+				b.resolved.status = pb.Status_FRAGMENT_STORE_UNHEALTHY
+				b.state = stateError
+				return
+			} else {
+				addTrace(b.ctx, " ... fragment store %s unhealthy (%s): %d", store.Key, err, i)
+				healthCh = nextCh // Try again.
+			}
 		case <-b.ctx.Done(): // Request was cancelled.
-			b.err = errors.WithMessage(b.ctx.Err(), "waiting for index refresh")
+			b.err = errors.WithMessage(b.ctx.Err(), "waiting for the fragment store")
 			b.state = stateError
 			return
-		case <-b.resolved.invalidateCh: // Replica assignments changed.
+		case <-b.resolved.invalidateCh:
 			addTrace(b.ctx, " ... resolution was invalidated")
 			b.state = stateResolve
 			return
@@ -442,7 +461,7 @@ func (b *appendFSM) onValidatePreconditions() {
 	// The index is "clean" if all fragments have been remote for the journal's
 	// flush interval, where the flush interval is interpreted as an upper-bound
 	// expectation of the period between appends if the journal remains "in use".
-	// Thus, if a journal doesn't recieve an append for more than its interval,
+	// Thus, if a journal doesn't receive an append for more than its interval,
 	// it's presumed to be idle and is eligible for suspension.
 	//
 	// To see why, consider a group of journals which are appended to at midnight,
@@ -783,4 +802,5 @@ var (
 	errExpectedEOF                   = fmt.Errorf("expected EOF after empty Content chunk")
 	errExpectedContentChunk          = fmt.Errorf("expected Content chunk")
 	errRegisterUpdateWithEmptyAppend = fmt.Errorf("register modification requires non-empty Append")
+	storeHealthCheckRetries          = 5
 )
