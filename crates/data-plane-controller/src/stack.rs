@@ -152,6 +152,7 @@ pub struct AWSPrivateLink {
 pub struct AzurePrivateLink {
     pub service_name: String,
     pub location: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub resource_type: String,
 }
 
