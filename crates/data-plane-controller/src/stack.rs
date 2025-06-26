@@ -152,6 +152,7 @@ pub struct AWSPrivateLink {
 pub struct AzurePrivateLink {
     pub service_name: String,
     pub location: String,
+    pub resource_type: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -523,6 +524,7 @@ mod test {
             PrivateLink::Azure(AzurePrivateLink {
                 location: "eastus".to_string(),
                 service_name: "service".to_string(),
+                resource_type: "managedInstance".to_string(),
             }),
         );
         assert_eq!(
