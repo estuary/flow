@@ -49,9 +49,6 @@ serde-wasm-bindgen = { workspace = true }
 # `console_error_panic_hook` pulls in the Rust panic machinery to cause any panics to get
 # logged using `console.error`. It is enabled by default.
 console_error_panic_hook = { workspace = true, optional = true }
-# This is a smaller (in terms of compiled code size) allocator that we _might_
-# try to use to keep the WASM module small. It is disabled by default.
-wee_alloc = { workspace = true, optional = true }
 
 # this is not a workspace dependency because it's only a transitive dependency, and it's only included here
 # because we need to enable the "js" feature when building for wasm
