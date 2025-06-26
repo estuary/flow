@@ -197,6 +197,8 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 		err = ErrOffsetNotYetAvailable
 	case pb.Status_SUSPENDED:
 		err = ErrSuspended
+	case pb.Status_FRAGMENT_STORE_UNHEALTHY:
+		err = ErrFragmentStoreUnhealthy
 	default:
 		err = errors.New(r.Response.Status.String())
 	}
@@ -437,6 +439,9 @@ var (
 	ErrRegisterMismatch           = errors.New(pb.Status_REGISTER_MISMATCH.String())
 	ErrSuspended                  = errors.New(pb.Status_SUSPENDED.String())
 	ErrWrongAppendOffset          = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
+	ErrIndexHasGreaterOffset      = errors.New(pb.Status_INDEX_HAS_GREATER_OFFSET.String())
+	ErrNotAllowed                 = errors.New(pb.Status_NOT_ALLOWED.String())
+	ErrFragmentStoreUnhealthy     = errors.New(pb.Status_FRAGMENT_STORE_UNHEALTHY.String())
 
 	// ErrOffsetJump is returned by Reader.Read to indicate that the next byte
 	// available to be read is at a larger offset than that requested (eg,

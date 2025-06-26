@@ -250,6 +250,72 @@ func (s *AppendServiceSuite) TestAppendContextCancellation(c *gc.C) {
 	c.Check(aa3.Err(), gc.Equals, context.Canceled)
 }
 
+func (s *AppendServiceSuite) TestAppendNonRetryableErrors(c *gc.C) {
+	var cases = []struct {
+		status           pb.Status
+		errMsg           string
+		storeHealthError string
+		setupRequest     func(*pb.AppendRequest)
+	}{
+		{
+			status:           pb.Status_FRAGMENT_STORE_UNHEALTHY,
+			errMsg:           "s3: connection timeout: FRAGMENT_STORE_UNHEALTHY",
+			storeHealthError: "s3: connection timeout",
+		},
+		{
+			status: pb.Status_REGISTER_MISMATCH,
+			errMsg: "selector .* doesn't match registers .*: REGISTER_MISMATCH",
+			setupRequest: func(req *pb.AppendRequest) {
+				req.CheckRegisters = &pb.LabelSelector{Include: pb.MustLabelSet("foo", "bar")}
+			},
+		},
+		{
+			status: pb.Status_INDEX_HAS_GREATER_OFFSET,
+			errMsg: "INDEX_HAS_GREATER_OFFSET",
+		},
+		{
+			status: pb.Status_NOT_ALLOWED,
+			errMsg: "NOT_ALLOWED",
+		},
+	}
+
+	for _, tc := range cases {
+		var broker = teststub.NewBroker(c)
+		defer broker.Cleanup()
+
+		var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+		var as = NewAppendService(context.Background(), rjc)
+
+		var req = pb.AppendRequest{Journal: "a/journal"}
+		if tc.setupRequest != nil {
+			tc.setupRequest(&req)
+		}
+
+		var aa = as.StartAppend(req, nil)
+		_, _ = aa.Writer().WriteString("hello, world")
+		c.Check(aa.Release(), gc.IsNil)
+
+		go func() {
+			// Read the append request sequence.
+			c.Check(<-broker.AppendReqCh, gc.DeepEquals, req)
+			c.Check(<-broker.AppendReqCh, gc.DeepEquals, pb.AppendRequest{Content: []byte("hello, world")})
+			c.Check(<-broker.AppendReqCh, gc.DeepEquals, pb.AppendRequest{})
+			c.Check(<-broker.ReadLoopErrCh, gc.Equals, io.EOF)
+
+			// Respond with the non-retryable error.
+			var resp = buildAppendResponseFixture(broker)
+			resp.Status = tc.status
+			resp.StoreHealthError = tc.storeHealthError
+			broker.AppendRespCh <- resp
+			broker.WriteLoopErrCh <- nil // Signal the RPC completed
+		}()
+
+		// Expect the append completes with the error (not retried).
+		<-aa.Done()
+		c.Check(aa.Err(), gc.ErrorMatches, tc.errMsg)
+	}
+}
+
 func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	var mf = mockFile{n: 6}
 

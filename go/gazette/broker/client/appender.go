@@ -53,78 +53,42 @@ func NewAppender(ctx context.Context, client pb.RoutedJournalClient, req pb.Appe
 func (a *Appender) Reset() { a.Response, a.stream = pb.AppendResponse{}, nil }
 
 // Write to the Appender, starting an Append RPC if this is the first Write.
-func (a *Appender) Write(p []byte) (n int, err error) {
+func (a *Appender) Write(p []byte) (int, error) {
 	if len(p) == 0 {
-		return // The broker interprets empty chunks as "commit".
+		return 0, nil // The broker interprets empty chunks as "commit".
 	}
 
 	// Lazy initialization: begin the Append RPC.
-	if err = a.lazyInit(); err != nil {
-		// Pass.
-	} else if err = a.sendMsg(&pb.AppendRequest{Content: p}); err != nil {
-		// Pass.
-	} else {
-		n = len(p)
+	if err := a.lazyInit(); err != nil {
+		return 0, err
 	}
 
-	if err != nil {
-		err = mapGRPCCtxErr(a.ctx, err)
+	if err := a.stream.SendMsg(&pb.AppendRequest{Content: p}); err != nil {
+		return 0, a.readResponse()
 	}
-	a.counter.Add(float64(n))
-	return
+
+	a.counter.Add(float64(len(p)))
+	return len(p), nil
 }
 
 // Close the Append to complete the transaction, committing previously
 // written content. If Close returns without an error, Append.Response
 // will hold the broker response.
-func (a *Appender) Close() (err error) {
+func (a *Appender) Close() error {
+	if err := a.lazyInit(); err != nil {
+		return err
+	}
+
 	// Send an empty chunk to signal commit of previously written content
-	if err = a.lazyInit(); err != nil {
-		// Pass.
-	} else if err = a.sendMsg(new(pb.AppendRequest)); err != nil {
-		// Pass.
-	} else if _ = a.stream.CloseSend(); false {
-		// Ignore CloseSend's error. Currently, gRPC will never return one. If the
-		// stream is broken, it *could* return io.EOF but we'd rather read the actual
-		// casual error with RecvMsg.
-	} else if err = a.stream.RecvMsg(&a.Response); err != nil {
-		// Pass.
-	} else if err = a.Response.Validate(); err != nil {
-		err = errors.Wrap(err, "validating broker response")
-	} else {
-		a.client.UpdateRoute(a.Request.Journal.String(), &a.Response.Header.Route)
+	// We don't test for failure because we're about to read the response.
+	_ = a.stream.SendMsg(new(pb.AppendRequest))
 
-		switch a.Response.Status {
-		case pb.Status_OK:
-			// Pass.
-		case pb.Status_INSUFFICIENT_JOURNAL_BROKERS:
-			err = ErrInsufficientJournalBrokers
-		case pb.Status_JOURNAL_NOT_FOUND:
-			err = ErrJournalNotFound
-		case pb.Status_NO_JOURNAL_PRIMARY_BROKER:
-			err = ErrNoJournalPrimaryBroker
-		case pb.Status_NOT_JOURNAL_PRIMARY_BROKER:
-			err = ErrNotJournalPrimaryBroker
-		case pb.Status_REGISTER_MISMATCH:
-			err = errors.Wrapf(ErrRegisterMismatch, "selector %v doesn't match registers %v",
-				a.Request.CheckRegisters, a.Response.Registers)
-		case pb.Status_SUSPENDED:
-			err = ErrSuspended
-		case pb.Status_WRONG_APPEND_OFFSET:
-			err = ErrWrongAppendOffset
-		default:
-			err = errors.New(a.Response.Status.String())
-		}
+	// Similarly ignore CloseSend's error. Currently, gRPC will never return one.
+	// If the stream is broken, it *could* return io.EOF but we'd rather read
+	// the actual causal error with RecvMsg.
+	_ = a.stream.CloseSend()
 
-		// Extra RecvMsg to explicitly read EOF, as a work-around for
-		// https://github.com/grpc-ecosystem/go-grpc-prometheus/issues/92
-		_ = a.stream.RecvMsg(new(pb.AppendResponse))
-	}
-
-	if err != nil {
-		err = mapGRPCCtxErr(a.ctx, err)
-	}
-	return
+	return a.readResponse()
 }
 
 // Abort the append, causing the broker to discard previously written content.
@@ -135,38 +99,84 @@ func (a *Appender) Abort() {
 	}
 }
 
-func (a *Appender) lazyInit() (err error) {
-	if a.stream == nil {
-		if a.Request.Journal == "" {
-			return pb.NewValidationError("expected Request.Journal")
-		} else if err = a.Request.Validate(); err != nil {
-			return pb.ExtendContext(err, "Request")
-		}
-
-		var ctx = pb.WithClaims(a.ctx, pb.Claims{
-			Capability: pb.Capability_APPEND,
-			Selector: pb.LabelSelector{
-				Include: pb.MustLabelSet("name", a.Request.Journal.StripMeta().String()),
-			},
-		})
-		a.stream, err = a.client.Append(
-			pb.WithDispatchItemRoute(ctx, a.client, a.Request.Journal.String(), true))
-
-		if err == nil {
-			// Send request preamble metadata prior to append content chunks.
-			err = a.sendMsg(&a.Request)
-		}
+func (a *Appender) lazyInit() error {
+	if a.stream != nil {
+		return nil
 	}
-	return
+	if a.Request.Journal == "" {
+		return pb.NewValidationError("expected Request.Journal")
+	} else if err := a.Request.Validate(); err != nil {
+		return pb.ExtendContext(err, "Request")
+	}
+
+	var ctx = pb.WithClaims(a.ctx, pb.Claims{
+		Capability: pb.Capability_APPEND,
+		Selector: pb.LabelSelector{
+			Include: pb.MustLabelSet("name", a.Request.Journal.StripMeta().String()),
+		},
+	})
+	var err error
+
+	a.stream, err = a.client.Append(
+		pb.WithDispatchItemRoute(ctx, a.client, a.Request.Journal.String(), true))
+
+	if err != nil {
+		return mapGRPCCtxErr(a.ctx, err)
+	}
+
+	// Send request preamble metadata prior to append content chunks.
+	// We don't test for failure, because lazyInit is called immediately
+	// prior to sending _more_ data and then testing for a failure or
+	// reading the final response.
+	_ = a.stream.SendMsg(&a.Request)
+
+	return nil
 }
 
-func (a *Appender) sendMsg(r *pb.AppendRequest) (err error) {
-	if err = a.stream.SendMsg(r); err == io.EOF {
-		// EOF indicates that a server-side error has occurred, but it must
-		// still be read via RecvMsg. See SendMsg docs.
-		err = a.stream.RecvMsg(&a.Response)
+func (a *Appender) readResponse() error {
+	var err = a.stream.RecvMsg(&a.Response)
+
+	if err != nil {
+		return mapGRPCCtxErr(a.ctx, err)
 	}
-	return
+
+	// Extra RecvMsg to explicitly read EOF, as a work-around for
+	// https://github.com/grpc-ecosystem/go-grpc-prometheus/issues/92
+	_ = a.stream.RecvMsg(new(pb.AppendResponse))
+
+	if err = a.Response.Validate(); err != nil {
+		return errors.Wrap(err, "validating broker response")
+	}
+	a.client.UpdateRoute(a.Request.Journal.String(), &a.Response.Header.Route)
+
+	switch a.Response.Status {
+	case pb.Status_OK:
+		// Pass.
+	case pb.Status_INSUFFICIENT_JOURNAL_BROKERS:
+		err = ErrInsufficientJournalBrokers
+	case pb.Status_JOURNAL_NOT_FOUND:
+		err = ErrJournalNotFound
+	case pb.Status_NO_JOURNAL_PRIMARY_BROKER:
+		err = ErrNoJournalPrimaryBroker
+	case pb.Status_NOT_JOURNAL_PRIMARY_BROKER:
+		err = ErrNotJournalPrimaryBroker
+	case pb.Status_REGISTER_MISMATCH:
+		err = errors.Wrapf(ErrRegisterMismatch, "selector %v doesn't match registers %v",
+			a.Request.CheckRegisters, a.Response.Registers)
+	case pb.Status_SUSPENDED:
+		err = ErrSuspended
+	case pb.Status_WRONG_APPEND_OFFSET:
+		err = ErrWrongAppendOffset
+	case pb.Status_INDEX_HAS_GREATER_OFFSET:
+		err = ErrIndexHasGreaterOffset
+	case pb.Status_NOT_ALLOWED:
+		err = ErrNotAllowed
+	case pb.Status_FRAGMENT_STORE_UNHEALTHY:
+		err = errors.WithMessage(ErrFragmentStoreUnhealthy, a.Response.StoreHealthError)
+	default:
+		err = errors.New(a.Response.Status.String())
+	}
+	return err
 }
 
 // Append zero or more ReaderAts to a journal as a single Append transaction.

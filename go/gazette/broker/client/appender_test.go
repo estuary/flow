@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"time"
 
@@ -158,6 +159,40 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 			errVal:      ErrWrongAppendOffset,
 			cachedRoute: 1,
 		},
+		// Case: fragment store unhealthy.
+		{
+			finish: func() {
+				broker.AppendRespCh <- pb.AppendResponse{
+					Status:           pb.Status_FRAGMENT_STORE_UNHEALTHY,
+					Header:           *buildHeaderFixture(broker),
+					StoreHealthError: "s3: connection timeout",
+				}
+			},
+			errRe:       `s3: connection timeout: FRAGMENT_STORE_UNHEALTHY`,
+			cachedRoute: 1,
+		},
+		// Case: index has greater offset.
+		{
+			finish: func() {
+				broker.AppendRespCh <- pb.AppendResponse{
+					Status: pb.Status_INDEX_HAS_GREATER_OFFSET,
+					Header: *buildHeaderFixture(broker),
+				}
+			},
+			errVal:      ErrIndexHasGreaterOffset,
+			cachedRoute: 1,
+		},
+		// Case: not allowed.
+		{
+			finish: func() {
+				broker.AppendRespCh <- pb.AppendResponse{
+					Status: pb.Status_NOT_ALLOWED,
+					Header: *buildHeaderFixture(broker),
+				}
+			},
+			errVal:      ErrNotAllowed,
+			cachedRoute: 1,
+		},
 		// Case: other error status.
 		{
 			finish: func() {
@@ -282,6 +317,54 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 	// Case 4: A broken reader aborts the txn.
 	_, err = Append(ctx, rjc, pb.AppendRequest{Journal: "a/journal"}, con, errReaderAt{}, tent)
 	c.Check(err, gc.ErrorMatches, "readerAt error")
+}
+
+func (s *AppenderSuite) TestEarlyServerTerminationWithMultipleWrites(c *gc.C) {
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
+
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var a = NewAppender(context.Background(), rjc, pb.AppendRequest{Journal: "a/journal"})
+
+	// Simulate server responding immediately with FRAGMENT_STORE_UNHEALTHY
+	// after receiving the initial request.
+	go func() {
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, pb.AppendRequest{Journal: "a/journal"})
+
+		// Server immediately sends error response and closes
+		broker.AppendRespCh <- pb.AppendResponse{
+			Status:           pb.Status_FRAGMENT_STORE_UNHEALTHY,
+			Header:           *buildHeaderFixture(broker),
+			StoreHealthError: "primary store is unhealthy",
+		}
+	}()
+
+	// Write many times without calling Close.
+	// Eventually we should get the FRAGMENT_STORE_UNHEALTHY error.
+	var err error
+	for {
+		var n int
+		n, err = a.Write([]byte("additional content"))
+		if err != nil {
+			break
+		}
+		c.Check(n, gc.Equals, 18)
+		runtime.Gosched() // Yield to allow other goroutines to process.
+	}
+
+	// Verify we eventually got the expected error
+	c.Check(err, gc.NotNil)
+	c.Check(err, gc.ErrorMatches, "primary store is unhealthy: FRAGMENT_STORE_UNHEALTHY")
+
+	// Ensure we read the AppendReqCh and ReadLoopErrCh to avoid deadlock on teardown.
+	for done := false; !done; {
+		select {
+		case <-broker.AppendReqCh:
+			// Pass.
+		case <-broker.ReadLoopErrCh:
+			done = true
+		}
+	}
 }
 
 func (s *AppenderSuite) TestContextErrorCases(c *gc.C) {
