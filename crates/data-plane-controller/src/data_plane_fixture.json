@@ -29,7 +29,8 @@
     "private_links": [
       {
         "service_name": "service",
-        "location": "eastus"
+        "location": "eastus",
+        "resource_type": "managedInstance"
       }
     ],
     "azure_byoc": {
