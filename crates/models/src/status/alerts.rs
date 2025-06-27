@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum AlertType {
     AutoDiscoverFailed,
+    ShardFailed,
 }
 
 impl std::fmt::Display for AlertType {
@@ -19,11 +20,12 @@ impl AlertType {
     pub fn name(&self) -> &'static str {
         match self {
             AlertType::AutoDiscoverFailed => "auto_discover_failed",
+            AlertType::ShardFailed => "shard_failed",
         }
     }
 
     fn all() -> &'static [AlertType] {
-        &[AlertType::AutoDiscoverFailed]
+        &[AlertType::AutoDiscoverFailed, AlertType::ShardFailed]
     }
 
     pub fn from_str(name: &str) -> Option<AlertType> {

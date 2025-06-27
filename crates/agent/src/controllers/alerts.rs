@@ -22,21 +22,18 @@ pub fn set_alert_firing(
 
     if let Some(existing) = statuses.get_mut(&alert_type) {
         existing.last_ts = Some(now);
-        let prev_error = std::mem::take(&mut existing.error);
-        existing
-            .extra
-            .insert("prev_error".to_owned(), prev_error.into());
         existing.count = count;
         existing.spec_type = spec_type;
+        existing.error = error;
     } else {
-        tracing::info!(%alert_type, "alert started firing");
+        tracing::info!(%alert_type, %spec_type, "alert started firing");
         statuses.insert(
             alert_type,
             ControllerAlert {
                 state: AlertState::Firing,
                 first_ts: now,
                 last_ts: None,
-                error: error.to_string(),
+                error,
                 count,
                 spec_type,
                 resolved_at: None,
