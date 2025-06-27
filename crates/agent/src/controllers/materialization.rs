@@ -109,8 +109,11 @@ pub async fn update<C: ControlPlane>(
     }
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
+    let MaterializationStatus {
+        activation, alerts, ..
+    } = status;
     let activation_result =
-        activation::update_activation(&mut status.activation, state, events, control_plane)
+        activation::update_activation(activation, alerts, state, events, control_plane)
             .await
             .with_retry(backoff_data_plane_activate(state.failures))
             .map_err(Into::into);
