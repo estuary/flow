@@ -2,9 +2,6 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use models::status::{AlertState, AlertType, Alerts, ControllerAlert};
-use serde::{Deserialize, Serialize};
-
-use super::NextRun;
 
 pub fn set_alert_firing(
     statuses: &mut Alerts,
@@ -25,12 +22,9 @@ pub fn set_alert_firing(
 
     if let Some(existing) = statuses.get_mut(&alert_type) {
         existing.last_ts = Some(now);
-        let prev_error = std::mem::take(&mut existing.error);
-        existing
-            .extra
-            .insert("prev_error".to_owned(), prev_error.into());
         existing.count = count;
         existing.next_retry = next_retry;
+        existing.error = error;
     } else {
         tracing::info!(%alert_type, "alert started firing");
         statuses.insert(
