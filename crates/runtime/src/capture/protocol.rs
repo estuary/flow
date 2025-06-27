@@ -1,6 +1,7 @@
 use super::{Task, Transaction};
 use crate::{rocksdb::RocksDB, verify, Accumulator};
 use anyhow::Context;
+use doc::shape::X_INFERRED_SCHEMA_LIMIT;
 use prost::Message;
 use proto_flow::capture::{request, response, Request, Response};
 use proto_flow::flow;
@@ -231,9 +232,17 @@ pub fn send_client_captured_or_checkpoint(
     stats.bytes_total += doc_json.len() as u64;
 
     if shapes[index].widen_owned(&root) {
+        let complexity_limit = binding
+            .read_shape
+            .annotations
+            .get(X_INFERRED_SCHEMA_LIMIT)
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
+
         doc::shape::limits::enforce_shape_complexity_limit(
             &mut shapes[index],
-            doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+            complexity_limit,
             doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
         );
         txn.updated_inferences.insert(index);

@@ -147,9 +147,9 @@ impl Binding {
             partition_fields,
             partition_template,
             projections,
-            read_schema_json: _,
             uuid_ptr,
             write_schema_json,
+            read_schema_json,
         } = collection.as_ref().context("missing collection")?;
 
         let partition_template = partition_template
@@ -164,11 +164,17 @@ impl Binding {
         let partition_extractors =
             extractors::for_fields(&partition_fields, &projections, &ser_policy)?;
 
-        let built_schema = doc::validation::build_bundle(&write_schema_json)
+        let built_write_schema = doc::validation::build_bundle(&write_schema_json)
             .context("collection write_schema_json is not a JSON schema")?;
-        let validator =
-            doc::Validator::new(built_schema).context("could not build a schema validator")?;
+        let validator = doc::Validator::new(built_write_schema)
+            .context("could not build a schema validator")?;
         let write_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
+        let built_read_schema = doc::validation::build_bundle(&read_schema_json)
+            .context("collection read_schema_json is not a JSON schema")?;
+        let validator =
+            doc::Validator::new(built_read_schema).context("could not build a schema validator")?;
+        let read_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
         Ok(Self {
             collection_name: name.clone(),
@@ -181,6 +187,8 @@ impl Binding {
             state_key: state_key.clone(),
             write_schema_json: write_schema_json.clone(),
             write_shape,
+            read_schema_json: read_schema_json.clone(),
+            read_shape,
         })
     }
 

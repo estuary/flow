@@ -1,6 +1,7 @@
 use crate::discovers::Changed;
 
 use anyhow::Context;
+use doc::shape::X_INFER_SCHEMA;
 use itertools::Itertools;
 use models::{discovers::Changes, ResourcePath};
 use proto_flow::capture::{self, response::discovered};
@@ -330,6 +331,18 @@ pub fn merge_collections(
             draft_model.read_schema = Some(models::Schema::default_inferred_read_schema());
             draft_model.write_schema = Some(document_schema);
             draft_model.schema = None;
+        } else if let Some(extension) = extends_read_schema(&document_schema) {
+            tracing::debug!(
+                %collection,
+                "discovered new use of extended inferred schema, initializing readSchema with extended placeholder"
+            );
+            // Same as above, except specifying an extension schema instead of the simple read schema.
+            modified = true;
+            draft_model.write_schema = Some(document_schema);
+            draft_model.schema = None;
+
+            draft_model.read_schema =
+                Some(models::Schema::extended_inferred_read_schema(extension));
         } else if is_schema_changed(&document_schema, draft_model.schema.as_ref()) {
             tracing::debug!(
                 %collection,
@@ -356,9 +369,17 @@ pub fn merge_collections(
 fn uses_inferred_schema(schema: &models::Schema) -> bool {
     matches!(
         // Does the connector use schema inference?
-        schema.to_value().get("x-infer-schema"),
+        schema.to_value().get(X_INFER_SCHEMA),
         Some(serde_json::Value::Bool(true))
     )
+}
+
+fn extends_read_schema(schema: &models::Schema) -> Option<&serde_json::Value> {
+    match schema.to_value().get(X_INFER_SCHEMA) {
+        // Does the connector specify any extensions to the read schema?
+        Some(extension @ serde_json::Value::Object(_)) => Some(extension),
+        _ => None,
+    }
 }
 
 /// Returns whether the discovered schema is different from the current schema.
