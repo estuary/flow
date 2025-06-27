@@ -434,3 +434,22 @@ func (x Status) Validate() error {
 	}
 	return nil
 }
+
+// Validate returns an error if the FragmentStoreHealthRequest is not well-formed.
+func (m *FragmentStoreHealthRequest) Validate() error {
+	if err := m.FragmentStore.Validate(); err != nil {
+		return ExtendContext(err, "FragmentStore")
+	}
+	return nil
+}
+
+// Validate returns an error if the FragmentStoreHealthResponse is not well-formed.
+func (m *FragmentStoreHealthResponse) Validate() error {
+	if err := m.Status.Validate(); err != nil {
+		return ExtendContext(err, "Status")
+	} else if err = m.Header.Validate(); err != nil {
+		return ExtendContext(err, "Header")
+	}
+	// StoreHealthError is optional and requires no validation.
+	return nil
+}

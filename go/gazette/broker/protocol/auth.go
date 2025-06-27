@@ -76,7 +76,8 @@ func (a *AuthJournalClient) List(ctx context.Context, in *ListRequest, opts ...g
 			Selector:   in.Selector,
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(in.Watch)); err != nil {
+	// List blocks if `in.Watch` is set.
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Hour); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.List(ctx, in, opts...)
@@ -88,7 +89,7 @@ func (a *AuthJournalClient) Apply(ctx context.Context, in *ApplyRequest, opts ..
 	if !ok {
 		claims = Claims{Capability: Capability_APPLY}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Minute); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Apply(ctx, in, opts...)
@@ -105,7 +106,8 @@ func (a *AuthJournalClient) Read(ctx context.Context, in *ReadRequest, opts ...g
 			},
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(true)); err != nil {
+	// Read blocks if `in.Block` is set.
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Hour); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Read(ctx, in, opts...)
@@ -117,7 +119,8 @@ func (a *AuthJournalClient) Append(ctx context.Context, opts ...grpc.CallOption)
 	if !ok {
 		panic("Append requires a context having WithClaims")
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	// Append may block awaiting fragment store listing and health retries.
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Hour); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Append(ctx, opts...)
@@ -129,7 +132,8 @@ func (a *AuthJournalClient) Replicate(ctx context.Context, opts ...grpc.CallOpti
 	if !ok {
 		panic("Replicate requires a context having WithClaims")
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(true)); err != nil {
+	// Replicate is a long-lived bidi stream.
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Hour); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Replicate(ctx, opts...)
@@ -146,18 +150,26 @@ func (a *AuthJournalClient) ListFragments(ctx context.Context, in *FragmentsRequ
 			},
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	// ListFragments may block awaiting fragment store listing and health retries.
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Hour); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.ListFragments(ctx, in, opts...)
 	}
 }
 
-func withExp(blocking bool) time.Duration {
-	if blocking {
-		return time.Hour
+func (a *AuthJournalClient) FragmentStoreHealth(ctx context.Context, in *FragmentStoreHealthRequest, opts ...grpc.CallOption) (*FragmentStoreHealthResponse, error) {
+	var claims, ok = GetClaims(ctx)
+	if !ok {
+		claims = Claims{
+			Capability: Capability_READ, // Store health requires read access
+		}
+	}
+	// FragmentStoreHealth may block awaiting fragment store listing.
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Hour); err != nil {
+		return nil, err
 	} else {
-		return time.Minute
+		return a.Inner.FragmentStoreHealth(ctx, in, opts...)
 	}
 }
 
@@ -172,6 +184,7 @@ type AuthJournalServer interface {
 	Append(Claims, Journal_AppendServer) error
 	Replicate(Claims, Journal_ReplicateServer) error
 	ListFragments(context.Context, Claims, *FragmentsRequest) (*FragmentsResponse, error)
+	FragmentStoreHealth(context.Context, Claims, *FragmentStoreHealthRequest) (*FragmentStoreHealthResponse, error)
 }
 
 // NewVerifiedJournalServer adapts an AuthJournalServer into a JournalServer by
@@ -239,6 +252,15 @@ func (s *VerifiedJournalServer) ListFragments(ctx context.Context, req *Fragment
 	} else {
 		defer cancel()
 		return s.Inner.ListFragments(ctx, claims, req)
+	}
+}
+
+func (s *VerifiedJournalServer) FragmentStoreHealth(ctx context.Context, req *FragmentStoreHealthRequest) (*FragmentStoreHealthResponse, error) {
+	if ctx, cancel, claims, err := s.Verifier.Verify(ctx, Capability_READ); err != nil {
+		return nil, err
+	} else {
+		defer cancel()
+		return s.Inner.FragmentStoreHealth(ctx, claims, req)
 	}
 }
 

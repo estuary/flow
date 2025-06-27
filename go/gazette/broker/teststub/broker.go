@@ -29,9 +29,10 @@ type Broker struct {
 	AppendReqCh    chan pb.AppendRequest     // Chan from which tests read AppendRequest.
 	AppendRespCh   chan pb.AppendResponse    // Chan to which tests write AppendResponse.
 
-	ListFunc          func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)           // List implementation.
-	ApplyFunc         func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)         // Apply implementation.
-	ListFragmentsFunc func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error) // ListFragments implementation.
+	ListFunc                func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)                               // List implementation.
+	ApplyFunc               func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)                             // Apply implementation.
+	ListFragmentsFunc       func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error)                     // ListFragments implementation.
+	FragmentStoreHealthFunc func(context.Context, *pb.FragmentStoreHealthRequest) (*pb.FragmentStoreHealthResponse, error) // FragmentStoreHealth implementation.
 }
 
 // NewBroker returns a Broker instance served by a local gRPC server.
@@ -218,6 +219,10 @@ func (b *Broker) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResp
 // ListFragments implements the JournalServer interface by proxying through FragmentsFunc.
 func (b *Broker) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 	return b.ListFragmentsFunc(ctx, req)
+}
+
+func (b *Broker) FragmentStoreHealth(ctx context.Context, req *pb.FragmentStoreHealthRequest) (*pb.FragmentStoreHealthResponse, error) {
+	return b.FragmentStoreHealthFunc(ctx, req)
 }
 
 func init() { pb.RegisterGRPCDispatcher("local") }

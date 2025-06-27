@@ -803,6 +803,22 @@ message Header {
   Etcd etcd = 3 [ (gogoproto.nullable) = false ];
 }
 
+// FragmentStoreHealthRequest is the unary request message of the broker FragmentStoreHealth RPC.
+message FragmentStoreHealthRequest {
+  // Fragment store to check the health of.
+  string fragment_store = 1 [ (gogoproto.casttype) = "FragmentStore" ];
+}
+
+// FragmentStoreHealthResponse is the unary response message of the broker FragmentStoreHealth RPC.
+message FragmentStoreHealthResponse {
+  // Status of the HealthCheck RPC.
+  Status status = 1;
+  // Header of the response.
+  Header header = 2 [ (gogoproto.nullable) = false ];
+  // Error message from unhealthy fragment store (when status is FRAGMENT_STORE_UNHEALTHY).
+  string store_health_error = 3;
+}
+
 // Journal is the Gazette broker service API for interacting with Journals.
 service Journal {
   // List Journals, their JournalSpecs and current Routes.
@@ -819,4 +835,6 @@ service Journal {
   rpc Replicate(stream ReplicateRequest) returns (stream ReplicateResponse);
   // List Fragments of a Journal.
   rpc ListFragments(FragmentsRequest) returns (FragmentsResponse);
+  // Check the health of a fragment store.
+  rpc FragmentStoreHealth(FragmentStoreHealthRequest) returns (FragmentStoreHealthResponse);
 }

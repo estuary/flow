@@ -29,7 +29,7 @@ func (a *AuthShardClient) Stat(ctx context.Context, in *StatRequest, opts ...grp
 			},
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Minute); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Stat(ctx, in, opts...)
@@ -44,7 +44,7 @@ func (a *AuthShardClient) List(ctx context.Context, in *ListRequest, opts ...grp
 			Selector:   in.Selector,
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Minute); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.List(ctx, in, opts...)
@@ -56,7 +56,7 @@ func (a *AuthShardClient) Apply(ctx context.Context, in *ApplyRequest, opts ...g
 	if !ok {
 		claims = pb.Claims{Capability: pb.Capability_APPLY}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Minute); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Apply(ctx, in, opts...)
@@ -73,7 +73,7 @@ func (a *AuthShardClient) GetHints(ctx context.Context, in *GetHintsRequest, opt
 			},
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Minute); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.GetHints(ctx, in, opts...)
@@ -88,18 +88,10 @@ func (a *AuthShardClient) Unassign(ctx context.Context, in *UnassignRequest, opt
 			claims.Selector.Include.AddValue("id", id.String())
 		}
 	}
-	if ctx, err := a.Authorizer.Authorize(ctx, claims, withExp(false)); err != nil {
+	if ctx, err := a.Authorizer.Authorize(ctx, claims, time.Minute); err != nil {
 		return nil, err
 	} else {
 		return a.Inner.Unassign(ctx, in, opts...)
-	}
-}
-
-func withExp(blocking bool) time.Duration {
-	if blocking {
-		return time.Hour
-	} else {
-		return time.Minute
 	}
 }
 
