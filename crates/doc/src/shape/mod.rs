@@ -236,6 +236,15 @@ fn impute_property_shape(
     }
 }
 
+/// X_INFER_SCHEMA is a JSON-Schema annotation optionally added to binding schemas
+/// emitted by connectors during discovery. If present, it will be union'd with the
+/// collection's inferred schema ref to form the discovered collection's read schema.
+pub const X_INFER_SCHEMA: &str = "x-infer-schema";
+
+/// X_INFERRED_SCHEMA_LIMIT is a JSON-Schema annotation added to X_INFER_SCHEMA that
+/// allows for the modification of the default complexity limit applied to inferred schemas.
+pub const X_INFERRED_SCHEMA_LIMIT: &str = "x-inferred-schema-limit";
+
 #[cfg(test)]
 // Map a JSON schema, in YAML form, into a Shape.
 fn shape_from(schema_yaml: &str) -> Shape {

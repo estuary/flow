@@ -202,6 +202,8 @@ pub async fn update_inferred_schema<C: ControlPlane>(
     Ok(false)
 }
 
+// I'm not sure this worked in the first place because the schema is wrapped in an allOf with
+// REF_RELAXED_WRITE_SCHEMA_URL, but it's certainly broken now.
 pub fn uses_inferred_schema(collection: &models::CollectionDef) -> bool {
     collection
         .read_schema

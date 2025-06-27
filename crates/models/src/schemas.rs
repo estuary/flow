@@ -96,6 +96,17 @@ impl Schema {
         Self(crate::RawValue::from_value(&read_schema))
     }
 
+    pub fn extended_inferred_read_schema(extension: &Self) -> Self {
+        let read_schema = serde_json::json!({
+            "allOf": [
+                {"$ref": Self::REF_RELAXED_WRITE_SCHEMA_URL},
+                {"$ref": Self::REF_INFERRED_SCHEMA_URL},
+                extension.to_value(),
+            ],
+        });
+        Self(crate::RawValue::from_value(&read_schema))
+    }
+
     /// Placeholder definition for `flow://inferred-schema`,
     /// used when an actual inferred schema is not yet available.
     pub fn inferred_schema_placeholder() -> &'static Self {
