@@ -8,7 +8,6 @@ mod container;
 mod derive;
 pub mod harness;
 mod iam_auth;
-mod iam_auth_integration;
 mod image_connector;
 mod local_connector;
 mod materialize;

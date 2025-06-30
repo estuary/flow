@@ -1,4 +1,4 @@
-use crate::{RuntimeProtocol, iam_auth_integration};
+use crate::RuntimeProtocol;
 use anyhow::Context;
 use futures::channel::oneshot;
 use proto_flow::{flow, runtime};
@@ -45,8 +45,6 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 /// Start an image connector container, returning its description and a dialed tonic Channel.
 /// The container is attached to the given `network`, and its logs are dispatched to `log_handler`.
 /// `task_name` and `task_type` are used only to label the container.
-/// 
-/// IAM authentication is automatically parsed from connector config + schema when both are provided.
 pub async fn start(
     image: &str,
     log_handler: impl crate::LogHandler,
@@ -55,19 +53,7 @@ pub async fn start(
     task_name: &str,
     task_type: ops::TaskType,
     publish_ports: bool,
-    connector_config_json: Option<&str>,
-    connector_schema_json: Option<&str>,
 ) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)> {
-    // Parse IAM configuration from connector config if both config and schema are provided
-    let final_iam_config = if let (Some(config_json), Some(schema_json)) = (connector_config_json, connector_schema_json) {
-        iam_auth_integration::extract_iam_auth_from_connector_config(config_json, schema_json)
-            .unwrap_or_else(|err| {
-                tracing::warn!(?err, "Failed to extract IAM auth config from connector configuration");
-                None
-            })
-    } else {
-        None
-    };
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
     //  * Docker for Mac restricts file shares to /User, /tmp, and a couple others.
@@ -146,13 +132,6 @@ pub async fn start(
         format!("--label=task-name={}", task_name),
         format!("--label=task-type={}", task_type.as_str_name()),
     ];
-
-    // Pass IAM authentication tokens to connectors if available
-    if let Some(iam_config) = &final_iam_config {
-        let tokens = iam_config.generate_tokens().await?;
-        let env_vars = iam_config.tokens_to_env_vars(&tokens);
-        docker_args.extend(env_vars);
-    }
 
     if publish_ports {
         // Bind a random port, and then check what port was given to us.
@@ -672,8 +651,6 @@ mod test {
             "a-task-name",
             proto_flow::ops::TaskType::Capture,
             true,
-            None, // No connector config JSON
-            None, // No connector schema JSON
         )
         .await
         .unwrap();
@@ -735,8 +712,6 @@ mod test {
             "a-task-name",
             proto_flow::ops::TaskType::Capture,
             true,
-            None, // No connector config JSON
-            None, // No connector schema JSON
         )
         .await
         else {

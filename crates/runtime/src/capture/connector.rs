@@ -2,65 +2,10 @@ use crate::{verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use proto_flow::{
-    capture::{Request, Response},
+    capture::{request, Request, Response},
     flow::capture_spec::ConnectorType,
 };
 use unseal;
-
-/// Retrieve the connector's configuration schema by making a spec request
-async fn retrieve_connector_schema<L: LogHandler>(
-    runtime: &Runtime<L>,
-    image: &str,
-    config_json: &str,
-    connector_type: i32,
-) -> anyhow::Result<Option<String>> {
-    // Create a spec request to get the connector schema
-    let spec_request = Request {
-        spec: Some(proto_flow::capture::request::Spec {
-            connector_type,
-            config_json: config_json.to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let (mut spec_tx, spec_rx) = mpsc::channel(1);
-
-    // Start a temporary container just for the spec request
-    let (_container, channel, _guard) = crate::container::start(
-        image,
-        runtime.log_handler.clone(),
-        ops::LogLevel::Debug, // Use debug level for spec requests
-        &runtime.container_network,
-        &format!("{}-spec", runtime.task_name),
-        ops::TaskType::Capture,
-        runtime.allow_local,
-        None, // No connector config JSON
-        None, // No connector schema JSON
-    )
-    .await?;
-
-    // Send the spec request
-    spec_tx
-        .try_send(spec_request)
-        .context("Failed to send spec request")?;
-    drop(spec_tx); // Close the sender
-
-    // Create the connector client and make the spec request
-    let mut client = proto_grpc::capture::connector_client::ConnectorClient::new(channel)
-        .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
-        .max_encoding_message_size(usize::MAX);
-
-    let mut response_stream = client.capture(spec_rx).await?.into_inner();
-
-    // Get the first (and only) response which should be the spec
-    if let Some(response) = response_stream.try_next().await? {
-        if let Some(spec) = response.spec {
-            return Ok(Some(spec.config_schema_json));
-        }
-    }
-
-    Ok(None)
-}
 
 // Start a capture connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses.
@@ -95,25 +40,12 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
-    let connector_rx = match endpoint {
+    let (sealed_config, mut connector_rx) = match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
-        }) => {
-            let decrypted_config = unseal::decrypt_sops(&sealed_config).await?.to_string();
-            *config_json = decrypted_config.clone();
-
-            // Retrieve the connector schema for IAM authentication parsing
-            let connector_schema =
-                retrieve_connector_schema(runtime, &image, &decrypted_config, connector_type)
-                    .await
-                    .unwrap_or_else(|err| {
-                        tracing::warn!(?err, "Failed to retrieve connector schema for IAM parsing");
-                        None
-                    });
-
-            connector_tx.try_send(initial).unwrap();
-
+        }) => (
+            sealed_config,
             crate::image_connector::serve(
                 attach_container,
                 image,
@@ -125,12 +57,10 @@ pub async fn start<L: LogHandler>(
                 &runtime.task_name,
                 ops::TaskType::Capture,
                 runtime.allow_local,
-                connector_schema.as_ref().map(|_| decrypted_config.as_str()),
-                connector_schema.as_ref().map(|s| s.as_str()),
             )
             .await?
-            .boxed()
-        }
+            .boxed(),
+        ),
         models::CaptureEndpoint::Local(_) if !runtime.allow_local => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
@@ -142,10 +72,8 @@ pub async fn start<L: LogHandler>(
             config: sealed_config,
             env,
             protobuf,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
-            connector_tx.try_send(initial).unwrap();
-
+        }) => (
+            sealed_config,
             crate::local_connector::serve(
                 command,
                 env,
@@ -154,9 +82,42 @@ pub async fn start<L: LogHandler>(
                 protobuf,
                 connector_rx,
             )?
-            .boxed()
-        }
+            .boxed(),
+        ),
     };
+
+    let decrypted_config = unseal::decrypt_sops(&sealed_config).await?.to_string();
+    *config_json = decrypted_config.clone();
+    let spec_request = Request {
+        spec: Some(request::Spec {
+            config_json: config_json.clone(),
+            connector_type: connector_type,
+        }),
+        ..Default::default()
+    };
+    connector_tx.try_send(spec_request.clone()).unwrap();
+
+    let Some(Response {
+        spec: Some(spec_response),
+        ..
+    }) = connector_rx.try_next().await?
+    else {
+        anyhow::bail!("expected first spec response")
+    };
+
+    if let Ok(Some(iam_config)) = crate::iam_auth::extract_iam_auth_from_connector_config(
+        config_json,
+        &spec_response.config_schema_json,
+    ) {
+        let tokens = iam_config
+            .generate_tokens()
+            .await
+            .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
+
+        tokens.inject_into(config_json)?;
+    }
+
+    connector_tx.try_send(initial).unwrap();
 
     Ok((connector_tx, connector_rx))
 }

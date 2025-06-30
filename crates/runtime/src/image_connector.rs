@@ -8,12 +8,8 @@ pub use proto_flow::runtime::Container;
 pub type StartRpcFuture<Response> =
     BoxFuture<'static, tonic::Result<tonic::Response<tonic::Streaming<Response>>>>;
 
-
 /// Serve an image-based connector by starting a container, dialing connector-init,
 /// and then starting a gRPC request.
-///
-/// This function handles IAM authentication when both connector_config_json and 
-/// connector_schema_json are provided. If either is None, no IAM authentication is performed.
 pub async fn serve<Request, Response, StartRpc, Attach>(
     attach_container: Attach, // Attaches a Container description to a response.
     image: String,            // Container image to run.
@@ -25,8 +21,6 @@ pub async fn serve<Request, Response, StartRpc, Attach>(
     task_name: &str,          // Name of this task, used to label container.
     task_type: ops::TaskType, // Type of this task, for labeling container.
     publish_ports: bool,      // Whether to expose container ports. Must be true on mac/windoze.
-    connector_config_json: Option<&str>, // Optional connector config for IAM authentication.
-    connector_schema_json: Option<&str>, // Optional connector schema for IAM authentication.
 ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
 where
     Request: serde::Serialize + Send + 'static,
@@ -36,7 +30,6 @@ where
         + 'static,
     Attach: Fn(&mut Response, Container) + Send + 'static,
 {
-    // Start container with unified function
     let (container, channel, guard) = container::start(
         &image,
         log_handler.clone(),
@@ -45,8 +38,6 @@ where
         &task_name,
         task_type,
         publish_ports,
-        connector_config_json,
-        connector_schema_json,
     )
     .await?;
 
@@ -73,4 +64,3 @@ where
 
     Ok(container_rx)
 }
-
