@@ -1480,3 +1480,96 @@ driver:
     );
     insta::assert_debug_snapshot!(outcome);
 }
+
+#[test]
+fn test_x_infer_schema_validation() {
+    let outcome = common::run(
+        r#"
+test://example/catalog.yaml:
+  collections:
+    # Valid: x-infer-schema: true
+    testing/valid-infer-true:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema: true
+        required: [id]
+      key: [/id]
+
+    # Valid: x-infer-schema as object with valid limit
+    testing/valid-infer-object:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema:
+          type: object
+          x-inferred-schema-limit: 5000
+        required: [id]
+      key: [/id]
+
+    # Invalid: x-infer-schema: false
+    testing/invalid-infer-false:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema: false
+        required: [id]
+      key: [/id]
+
+    # Invalid: x-infer-schema as string
+    testing/invalid-infer-string:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema: "invalid"
+        required: [id]
+      key: [/id]
+
+    # Invalid: x-inferred-schema-limit too high
+    testing/invalid-limit-high:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema:
+          type: object
+          x-inferred-schema-limit: 15000
+        required: [id]
+      key: [/id]
+
+    # Invalid: x-inferred-schema-limit zero
+    testing/invalid-limit-zero:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema:
+          type: object
+          x-inferred-schema-limit: 0
+        required: [id]
+      key: [/id]
+
+    # Invalid: x-infer-schema object is not valid JSON schema
+    testing/invalid-json-schema:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        x-infer-schema:
+          invalid: "this is not a valid JSON schema"
+        required: [id]
+      key: [/id]
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+"#,
+        "{}",
+    );
+    insta::assert_debug_snapshot!(outcome);
+}

@@ -394,6 +394,9 @@ fn walk_collection_schema(
         Error::from(err).push(scope, errors);
     }
 
+    // Validate x-infer-schema annotations
+    validate_x_infer_schema_annotations(scope, &spec, errors);
+
     Some(Schema { model, spec })
 }
 
@@ -759,6 +762,46 @@ pub fn skim_projections(
     );
 
     projection_specs
+}
+
+fn validate_x_infer_schema_annotations(
+    scope: Scope,
+    schema: &schema::Schema,
+    errors: &mut tables::Errors,
+) {
+    use doc::shape::{X_INFERRED_SCHEMA_LIMIT, X_INFER_SCHEMA};
+
+    if let Some(x_infer_value) = schema.shape.annotations.get(X_INFER_SCHEMA) {
+        match x_infer_value {
+            serde_json::Value::Bool(true) => {
+                // Valid: x-infer-schema: true
+            }
+            serde_json::Value::Object(obj) => {
+                // x-infer-schema as object - validate it's a valid JSON schema
+                let schema_json = serde_json::to_string(x_infer_value).unwrap();
+                if let Err(err) = doc::validation::build_bundle(&schema_json) {
+                    Error::XInferSchemaInvalidJsonSchema {
+                        error: err.to_string(),
+                    }
+                    .push(scope, errors);
+                } else {
+                    // Valid JSON schema, now check for limit
+                    if let Some(limit_value) = obj.get(X_INFERRED_SCHEMA_LIMIT) {
+                        if let Some(limit_num) = limit_value.as_u64() {
+                            if limit_num < 1 || limit_num >= 10000 {
+                                Error::XInferredSchemaLimitOutOfRange.push(scope, errors);
+                            }
+                        } else {
+                            Error::XInferredSchemaLimitOutOfRange.push(scope, errors);
+                        }
+                    }
+                }
+            }
+            _ => {
+                Error::XInferSchemaInvalidType.push(scope, errors);
+            }
+        }
+    }
 }
 
 struct Schema {

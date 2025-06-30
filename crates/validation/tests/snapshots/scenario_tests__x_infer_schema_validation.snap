@@ -1,0 +1,1503 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: outcome
+---
+Outcome {
+    built_captures: [],
+    built_collections: [
+        BuiltCollection {
+            collection: testing/invalid-infer-false,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-infer-false,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-infer-false/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":false},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/invalid-infer-false",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1invalid-infer-false/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":false}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/invalid-infer-false/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/invalid-infer-false",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/invalid-infer-string,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-infer-string,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-infer-string/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":"invalid"},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/invalid-infer-string",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1invalid-infer-string/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":\"invalid\"}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/invalid-infer-string/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/invalid-infer-string",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/invalid-json-schema,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-json-schema,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-json-schema/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"invalid":"this is not a valid JSON schema"}},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/invalid-json-schema",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1invalid-json-schema/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":{\"invalid\":\"this is not a valid JSON schema\"}}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/invalid-json-schema/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/invalid-json-schema",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/invalid-limit-high,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-limit-high,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-limit-high/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":15000}},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/invalid-limit-high",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1invalid-limit-high/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":{\"type\":\"object\",\"x-inferred-schema-limit\":15000}}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/invalid-limit-high/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/invalid-limit-high",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/invalid-limit-zero,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-limit-zero,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-limit-zero/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":0}},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/invalid-limit-zero",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1invalid-limit-zero/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":{\"type\":\"object\",\"x-inferred-schema-limit\":0}}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/invalid-limit-zero/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/invalid-limit-zero",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/valid-infer-object,
+            scope: test://example/catalog.yaml#/collections/testing~1valid-infer-object,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1valid-infer-object/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":5000}},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/valid-infer-object",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1valid-infer-object/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":{\"type\":\"object\",\"x-inferred-schema-limit\":5000}}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/valid-infer-object/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/valid-infer-object",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/valid-infer-true,
+            scope: test://example/catalog.yaml#/collections/testing~1valid-infer-true,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1valid-infer-true/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":true},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/valid-infer-true",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1valid-infer-true/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\",\"x-infer-schema\":true}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/valid-infer-true/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/valid-infer-true",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+    ],
+    built_materializations: [],
+    built_tests: [],
+    captures: [],
+    collections: [
+        DraftCollection {
+            collection: testing/invalid-infer-false,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-infer-false,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-infer-false/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":false},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/invalid-infer-string,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-infer-string,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-infer-string/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":"invalid"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/invalid-json-schema,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-json-schema,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-json-schema/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"invalid":"this is not a valid JSON schema"}},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/invalid-limit-high,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-limit-high,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-limit-high/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":15000}},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/invalid-limit-zero,
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-limit-zero,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1invalid-limit-zero/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":0}},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/valid-infer-object,
+            scope: test://example/catalog.yaml#/collections/testing~1valid-infer-object,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1valid-infer-object/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":5000}},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/valid-infer-true,
+            scope: test://example/catalog.yaml#/collections/testing~1valid-infer-true,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1valid-infer-true/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":true},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-infer-false/schema,
+            error: x-infer-schema must be either boolean 'true' or a valid JSON schema object,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-infer-string/schema,
+            error: x-infer-schema must be either boolean 'true' or a valid JSON schema object,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-json-schema/schema,
+            error: x-infer-schema is not a valid JSON schema: at keyword 'invalid' of schema 'schema://bundle': unexpected keyword 'invalid',
+        },
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-limit-high/schema,
+            error: x-inferred-schema-limit must be a number between 1 and 9999,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1invalid-limit-zero/schema,
+            error: x-inferred-schema-limit must be a number between 1 and 9999,
+        },
+    ],
+    errors_draft: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"collections":{"testing/invalid-infer-false":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":false}},"testing/invalid-infer-string":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":"invalid"}},"testing/invalid-json-schema":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"invalid":"this is not a valid JSON schema"}}},"testing/invalid-limit-high":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":15000}}},"testing/invalid-limit-zero":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":0}}},"testing/valid-infer-object":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":{"type":"object","x-inferred-schema-limit":5000}}},"testing/valid-infer-true":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object","x-infer-schema":true}}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            control_id: "0000000000000000",
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [],
+}
