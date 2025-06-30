@@ -3,6 +3,7 @@ import { freeTrialStalledEmail } from "./alert_types/free_trial_stalled.ts";
 import { freeTrialEndingEmail } from "./alert_types/free_trial_ending.ts";
 import { missingPaymentMethodEmail } from "./alert_types/missing_payment_method.ts";
 import { freeTrialEmail } from "./alert_types/free_trial.ts";
+import { shardFailedEmail } from "./alert_types/shard_failed.ts";
 
 export interface AlertRecord<T extends keyof typeof emailTemplates, A> {
   alert_type: T;
@@ -25,6 +26,7 @@ const emailTemplates = {
   free_trial_stalled: freeTrialStalledEmail,
   missing_payment_method: missingPaymentMethodEmail,
   data_movement_stalled: dataMovementStalledEmail,
+  shard_failed: shardFailedEmail,
 };
 
 const corsHeaders = {
@@ -173,6 +175,9 @@ Deno.serve({ port: 8000 }, async (rawRequest: Request): Promise<Response> => {
       pendingEmails = emailTemplates[request.alert_type](request);
       break;
     case "data_movement_stalled":
+      pendingEmails = emailTemplates[request.alert_type](request);
+      break;
+    case "shard_failed":
       pendingEmails = emailTemplates[request.alert_type](request);
       break;
     default: {
