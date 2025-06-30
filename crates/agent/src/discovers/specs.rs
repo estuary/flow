@@ -341,8 +341,9 @@ pub fn merge_collections(
             draft_model.write_schema = Some(document_schema);
             draft_model.schema = None;
 
-            draft_model.read_schema =
-                Some(models::Schema::extended_inferred_read_schema(extension));
+            draft_model.read_schema = Some(models::Schema::extended_inferred_read_schema(
+                &models::Schema::new(models::RawValue::from_value(&extension)),
+            ));
         } else if is_schema_changed(&document_schema, draft_model.schema.as_ref()) {
             tracing::debug!(
                 %collection,
@@ -374,10 +375,10 @@ fn uses_inferred_schema(schema: &models::Schema) -> bool {
     )
 }
 
-fn extends_read_schema(schema: &models::Schema) -> Option<&serde_json::Value> {
+fn extends_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
     match schema.to_value().get(X_INFER_SCHEMA) {
         // Does the connector specify any extensions to the read schema?
-        Some(extension @ serde_json::Value::Object(_)) => Some(extension),
+        Some(extension @ serde_json::Value::Object(_)) => Some(extension.clone()),
         _ => None,
     }
 }
@@ -406,6 +407,7 @@ fn normalize_recommended_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use doc::AsNode;
     use proto_flow::capture::{self, response::discovered};
     use serde_json::json;
     use tables::DraftRow;
@@ -1045,5 +1047,93 @@ mod tests {
                 "test case: {name}"
             );
         }
+    }
+
+    #[test]
+    fn test_extends_read_schema() {
+        // Test with x-infer-schema containing object with limit
+        let schema_infer_object = models::Schema::new(
+            models::RawValue::from_str(
+                r#"{"x-infer-schema": {"type": "object", "x-inferred-schema-limit": 2000}}"#,
+            )
+            .unwrap(),
+        );
+        insta::assert_json_snapshot!(extends_read_schema(&schema_infer_object).unwrap().to_debug_json_value(), @r###"
+        {
+          "type": "object",
+          "x-inferred-schema-limit": 2000
+        }
+        "###);
+
+        // Test with x-infer-schema containing object without limit
+        let schema_infer_no_limit = models::Schema::new(
+            models::RawValue::from_str(r#"{"x-infer-schema": {"type": "object", "properties": {"id": {"type": "string"}}}}"#)
+                .unwrap(),
+        );
+        insta::assert_json_snapshot!(extends_read_schema(&schema_infer_no_limit).unwrap().to_debug_json_value(), @r###"
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+        "###);
+
+        // Test with x-infer-schema: true (should return None)
+        let schema_infer_true =
+            models::Schema::new(models::RawValue::from_str(r#"{"x-infer-schema": true}"#).unwrap());
+        assert!(extends_read_schema(&schema_infer_true).is_none());
+
+        // Test with object without x-infer-schema (should return None)
+        let schema_no_infer = models::Schema::new(
+            models::RawValue::from_str(
+                r#"{"type": "object", "properties": {"id": {"type": "string"}}}"#,
+            )
+            .unwrap(),
+        );
+        assert!(extends_read_schema(&schema_no_infer).is_none());
+    }
+
+    #[test]
+    fn test_extended_inferred_read_schema() {
+        // Test the extended_inferred_read_schema function directly
+        let extension_schema = models::Schema::new(
+            models::RawValue::from_str(
+                r#"{
+                "type": "object",
+                "x-inferred-schema-limit": 5000,
+                "properties": {
+                    "critical_field": {"type": "string"}
+                }
+            }"#,
+            )
+            .unwrap(),
+        );
+
+        let result = models::Schema::extended_inferred_read_schema(&extension_schema);
+
+        insta::assert_json_snapshot!(result.to_value(), @r###"
+        {
+          "allOf": [
+            {
+              "$ref": "flow://relaxed-write-schema"
+            },
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "properties": {
+                "critical_field": {
+                  "type": "string"
+                }
+              },
+              "type": "object",
+              "x-inferred-schema-limit": 5000
+            }
+          ]
+        }
+        "###);
     }
 }
