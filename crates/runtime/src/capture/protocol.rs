@@ -232,13 +232,16 @@ pub fn send_client_captured_or_checkpoint(
     stats.bytes_total += doc_json.len() as u64;
 
     if shapes[index].widen_owned(&root) {
-        let complexity_limit = binding
-            .read_shape
-            .annotations
-            .get(X_INFERRED_SCHEMA_LIMIT)
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
+        let complexity_limit = if let Some(read_shape) = &binding.read_shape {
+            read_shape
+                .annotations
+                .get(X_INFERRED_SCHEMA_LIMIT)
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT)
+        } else {
+            doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT
+        };
 
         doc::shape::limits::enforce_shape_complexity_limit(
             &mut shapes[index],

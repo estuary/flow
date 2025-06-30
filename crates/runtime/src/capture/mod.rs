@@ -50,8 +50,8 @@ struct Binding {
     write_shape: doc::Shape,
     // Read schema of the target collection.
     read_schema_json: String,
-    // Inferred Shape of the read schema.
-    read_shape: doc::Shape,
+    // Inferred Shape of the read schema, if it exists.
+    read_shape: Option<doc::Shape>,
 }
 
 #[derive(Debug)]

@@ -170,11 +170,16 @@ impl Binding {
             .context("could not build a schema validator")?;
         let write_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        let built_read_schema = doc::validation::build_bundle(&read_schema_json)
-            .context("collection read_schema_json is not a JSON schema")?;
-        let validator =
-            doc::Validator::new(built_read_schema).context("could not build a schema validator")?;
-        let read_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let read_shape = doc::validation::build_bundle(&read_schema_json)
+            .ok()
+            .map(|built_read_schema| {
+                doc::Validator::new(built_read_schema)
+                    .context("could not build a schema validator")
+                    .map(|validator| {
+                        doc::Shape::infer(&validator.schemas()[0], validator.schema_index())
+                    })
+            })
+            .transpose()?;
 
         Ok(Self {
             collection_name: name.clone(),
