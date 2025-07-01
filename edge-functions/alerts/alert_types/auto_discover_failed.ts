@@ -23,7 +23,7 @@ const formatAlertEmail = ({
         <mj-text>
           <ul>
             <li><a href="${detailsPageURL}" target="_blank" rel="noopener">Visit the task status and logs</a> for more information about the error</li>
-            <li>If you need help please reach out to our team via Slack (#support and #ask-ai).</li>
+            <li>If you need help please reach out to our team via Slack (#support and #ask-ai) or reply to this email.</li>
           </ul>
         </mj-text>
         <mj-text>
