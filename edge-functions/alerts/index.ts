@@ -87,6 +87,7 @@ const emailNotifications = (
           body: JSON.stringify({
             from: senderAddress,
             to: email,
+            reply_to: "support@estuary.dev",
             subject,
             html: content,
           }),
@@ -99,6 +100,7 @@ const emailNotifications = (
 
 const resendToken = Deno.env.get("RESEND_API_KEY");
 const senderAddress = Deno.env.get("RESEND_EMAIL_ADDRESS");
+const replyToAddress = Deno.env.get("ALERT_REPLY_TO_ADDRESS");
 const sharedSecret = Deno.env.get("ALERT_EMAIL_FUNCTION_SECRET");
 
 // Port 8000 is the default for deno, just made explicit.
