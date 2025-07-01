@@ -8,6 +8,7 @@ It is available for use in the Flow web application. For local development or op
 
 The following data resources are supported through the Pendo API:
 
+* [Account](https://engageapi.pendo.io/#7e780ebc-5880-4af4-8e3b-6a61dd3e5148)
 * [Feature](https://engageapi.pendo.io/#75c6b443-eb07-4a0c-9e27-6c12ad3dbbc4)
 * [Guide](https://engageapi.pendo.io/#4f1e3ca1-fc41-4469-bf4b-da90ee8caf3d)
 * [Page](https://engageapi.pendo.io/#a53463f9-bdd3-443e-b22f-b6ea6c7376fb)
