@@ -150,7 +150,7 @@ const config = {
           {
             type: 'html',
             position: 'left',
-            value: '<a href="https://estuary.dev/blog">Blog</a>',
+            value: '<a href="https://estuary.dev/blog" target="_blank">Blog</a>',
           },
           {
             type: 'html',
@@ -162,6 +162,11 @@ const config = {
           {to: '/blog', label: 'Blog', position: 'left'},
           */
           {
+            href: 'https://status.estuary.dev/',
+            label: 'Status',
+            position: 'right',
+          },
+          {
             href: 'https://github.com/estuary/flow',
             label: 'GitHub',
             position: 'right',
@@ -172,11 +177,15 @@ const config = {
         style: 'dark',
         links: [
           {
-            title: 'Docs',
+            title: 'Resources',
             items: [
               {
                 label: 'Flow Documentation',
                 to: '/',
+              },
+              {
+                label: 'Success Stories',
+                href: 'https://estuary.dev/success-stories/'
               },
             ],
           },
@@ -186,6 +195,10 @@ const config = {
               {
                 label: 'Slack',
                 href: 'https://go.estuary.dev/slack'
+              },
+              {
+                label: 'LinkedIn',
+                href: 'https://www.linkedin.com/company/estuary-tech/'
               },
               {
                 label: 'Twitter',
@@ -219,7 +232,11 @@ const config = {
               {
                 label: 'YouTube',
                 href: 'https://www.youtube.com/@estuarydev'
-              }
+              },
+              {
+                label: 'Contact Us',
+                href: 'https://estuary.dev/contact-us/',
+              },
             ],
           },
         ],
