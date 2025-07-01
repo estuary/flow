@@ -73,6 +73,44 @@ commit;
 
 Be sure to run the entire script with the "Run All" option.
 
+### Key-pair Authentication & Snowpipe
+
+As username and password authentication was deprecated in April 2025, you need to authenticate
+using [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), also known as JWT authentication.
+
+To set up your user for key-pair authentication, first generate a key-pair in your shell:
+```bash
+# generate a private key
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
+# generate a public key
+openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
+# read the public key and copy it to clipboard
+cat rsa_key.pub
+
+-----BEGIN PUBLIC KEY-----
+MIIBIj...
+-----END PUBLIC KEY-----
+```
+
+Then assign the public key with your Snowflake user using these SQL commands:
+```sql
+ALTER USER $estuary_user SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...'
+```
+
+Verify the public key fingerprint in Snowflake matches the one you have locally:
+```sql
+DESC USER $estuary_user;
+SELECT TRIM((SELECT "value" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+  WHERE "property" = 'RSA_PUBLIC_KEY_FP'), 'SHA256:');
+```
+
+Then compare with the local version:
+```bash
+openssl rsa -pubin -in rsa_key.pub -outform DER | openssl dgst -sha256 -binary | openssl enc -base64
+```
+
+Now you can use the generated _private key_ when configuring your Snowflake connector.
+
 ### Snowflake Secure Data Sharing
 
 It is possible to capture tables shared with you via [Snowflake Secure Data Sharing](https://docs.snowflake.com/en/user-guide/data-sharing-intro), though it comes with a couple of additional setup requirements.
@@ -94,10 +132,12 @@ You can configure connectors either in the Flow web app, or by directly editing 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/host`** | Host URL | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol). | string | Required |
-| **`/account`** | Account | The Snowflake account identifier | string | Required |
 | **`/database`** | Database | The name of the Snowflake database to capture from | string | Required |
-| **`/user`** | User | The Snowflake user login name | string | Required |
-| **`/password`** | Password | The password for the specified login user | string | Required |
+| **`/credentials`**           | Credentials         | Credentials for authentication                                                                                                                                  | object | Required         |
+| **`/credentials/auth_type`** | Authentication type | `jwt` is the only supported authentication method currently                                                                                                     | string | Required         |
+| **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
+| `/credentials/password`      | Password            | Deprecated                                                                                                                                                      | string | Deprecated       |
+| `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
 | `/warehouse` | Warehouse | The Snowflake virtual warehouse used to execute queries. The default warehouse for the user will be used if this is blank. | string |  |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
 | `/advanced/flowSchema` | Flow Schema | The schema in which Flow will create and manage its streams and staging tables. | string  | ESTUARY_STAGING |
@@ -135,10 +175,19 @@ captures:
         image: ghcr.io/estuary/source-snowflake:v1
         config:
           host: cf22902.us-central1.gcp.snowflakecomputing.com
-          account: cf22902
           database: SOURCE_DB
-          user: ESTUARY_USER
-          password: secret
+              credentials:
+                auth_type: jwt
+                user: ESTUARY_USER
+                privateKey: |
+                  -----BEGIN PRIVATE KEY-----
+                  MIIEv....
+                  ...
+                  ...
+                  ...
+                  ...
+                  ...
+                  -----END PRIVATE KEY-----
     bindings:
       - resource:
           schema: ${schema_name}
