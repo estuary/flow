@@ -1,7 +1,7 @@
 use crate::discovers::Changed;
 
 use anyhow::Context;
-use doc::shape::X_INFER_SCHEMA;
+use doc::shape::{X_INFER_SCHEMA, X_INITIAL_READ_SCHEMA};
 use itertools::Itertools;
 use models::{discovers::Changes, ResourcePath};
 use proto_flow::capture::{self, response::discovered};
@@ -319,6 +319,14 @@ pub fn merge_collections(
                 modified = true;
                 draft_model.write_schema = Some(document_schema);
             }
+        } else if let Some(initial_read_schema) = initializes_read_schema(&document_schema) {
+            modified = true;
+            draft_model.write_schema = Some(document_schema);
+            draft_model.schema = None;
+
+            draft_model.read_schema = Some(models::Schema::new(models::RawValue::from_value(
+                &initial_read_schema,
+            )));
         } else if uses_inferred_schema(&document_schema) {
             tracing::debug!(
                 %collection,
@@ -331,19 +339,6 @@ pub fn merge_collections(
             draft_model.read_schema = Some(models::Schema::default_inferred_read_schema());
             draft_model.write_schema = Some(document_schema);
             draft_model.schema = None;
-        } else if let Some(extension) = extends_read_schema(&document_schema) {
-            tracing::debug!(
-                %collection,
-                "discovered new use of extended inferred schema, initializing readSchema with extended placeholder"
-            );
-            // Same as above, except specifying an extension schema instead of the simple read schema.
-            modified = true;
-            draft_model.write_schema = Some(document_schema);
-            draft_model.schema = None;
-
-            draft_model.read_schema = Some(models::Schema::extended_inferred_read_schema(
-                &models::Schema::new(models::RawValue::from_value(&extension)),
-            ));
         } else if is_schema_changed(&document_schema, draft_model.schema.as_ref()) {
             tracing::debug!(
                 %collection,
@@ -375,9 +370,9 @@ fn uses_inferred_schema(schema: &models::Schema) -> bool {
     )
 }
 
-fn extends_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
-    match schema.to_value().get(X_INFER_SCHEMA) {
-        // Does the connector specify any extensions to the read schema?
+fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
+    match schema.to_value().get(X_INITIAL_READ_SCHEMA) {
+        // Does the connector specify an initial read schema
         Some(extension @ serde_json::Value::Object(_)) => Some(extension.clone()),
         _ => None,
     }
@@ -548,6 +543,18 @@ mod tests {
                 collection_key: string_vec(&["/fallback", "/key"]),
                 is_fallback_key: true,
                 resource_path: string_vec(&["7"]),
+                disable: false,
+            },
+            // case/8: If there is no fetched collection and x-initial-read-schema is provided, it should be used for readSchema.
+            Binding {
+                target: models::Collection::new("case/8"),
+                document_schema: models::Schema::new(
+                    models::RawValue::from_str(r#"{ "const": "write!", "x-initial-read-schema": {"type": "object", "properties": {"id": {"type": "string"}}} }"#)
+                        .unwrap(),
+                ),
+                collection_key: string_vec(&["/id"]),
+                is_fallback_key: false,
+                resource_path: string_vec(&["8"]),
                 disable: false,
             },
         ];
@@ -722,6 +729,19 @@ mod tests {
                   "key": [
                     "/chosen",
                     "/key"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/8,
+                scope: flow://collection/case/8,
+                expect_pub_id: "0000000000000000",
+                model: {
+                  "writeSchema": { "const": "write!", "x-initial-read-schema": {"type": "object", "properties": {"id": {"type": "string"}}} },
+                  "readSchema": {"properties":{"id":{"type":"string"}},"type":"object"},
+                  "key": [
+                    "/id"
                   ]
                 },
                 is_touch: 0,
@@ -1047,93 +1067,5 @@ mod tests {
                 "test case: {name}"
             );
         }
-    }
-
-    #[test]
-    fn test_extends_read_schema() {
-        // Test with x-infer-schema containing object with limit
-        let schema_infer_object = models::Schema::new(
-            models::RawValue::from_str(
-                r#"{"x-infer-schema": {"type": "object", "x-inferred-schema-limit": 2000}}"#,
-            )
-            .unwrap(),
-        );
-        insta::assert_json_snapshot!(extends_read_schema(&schema_infer_object).unwrap().to_debug_json_value(), @r###"
-        {
-          "type": "object",
-          "x-inferred-schema-limit": 2000
-        }
-        "###);
-
-        // Test with x-infer-schema containing object without limit
-        let schema_infer_no_limit = models::Schema::new(
-            models::RawValue::from_str(r#"{"x-infer-schema": {"type": "object", "properties": {"id": {"type": "string"}}}}"#)
-                .unwrap(),
-        );
-        insta::assert_json_snapshot!(extends_read_schema(&schema_infer_no_limit).unwrap().to_debug_json_value(), @r###"
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-        "###);
-
-        // Test with x-infer-schema: true (should return None)
-        let schema_infer_true =
-            models::Schema::new(models::RawValue::from_str(r#"{"x-infer-schema": true}"#).unwrap());
-        assert!(extends_read_schema(&schema_infer_true).is_none());
-
-        // Test with object without x-infer-schema (should return None)
-        let schema_no_infer = models::Schema::new(
-            models::RawValue::from_str(
-                r#"{"type": "object", "properties": {"id": {"type": "string"}}}"#,
-            )
-            .unwrap(),
-        );
-        assert!(extends_read_schema(&schema_no_infer).is_none());
-    }
-
-    #[test]
-    fn test_extended_inferred_read_schema() {
-        // Test the extended_inferred_read_schema function directly
-        let extension_schema = models::Schema::new(
-            models::RawValue::from_str(
-                r#"{
-                "type": "object",
-                "x-inferred-schema-limit": 5000,
-                "properties": {
-                    "critical_field": {"type": "string"}
-                }
-            }"#,
-            )
-            .unwrap(),
-        );
-
-        let result = models::Schema::extended_inferred_read_schema(&extension_schema);
-
-        insta::assert_json_snapshot!(result.to_value(), @r###"
-        {
-          "allOf": [
-            {
-              "$ref": "flow://relaxed-write-schema"
-            },
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "properties": {
-                "critical_field": {
-                  "type": "string"
-                }
-              },
-              "type": "object",
-              "x-inferred-schema-limit": 5000
-            }
-          ]
-        }
-        "###);
     }
 }

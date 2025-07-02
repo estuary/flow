@@ -8,26 +8,21 @@ use proto_flow::capture::response::{discovered::Binding, Discovered};
 use serde_json::json;
 use std::str::FromStr;
 
-fn document_schema_with_limit(limit: usize, include_meta: bool) -> serde_json::Value {
-    let mut properties = json!({
+fn document_with_initial_read_schema(limit: usize) -> serde_json::Value {
+    let properties = json!({
         "id": {"type": "string"},
         "name": {"type": "string"}
     });
 
-    if include_meta {
-        properties["_meta"] = json!({
-            "type": "object",
-            "properties": {
-                "uuid": {"type": "string"},
-            }
-        });
-    }
-
     json!({
         "type": "object",
         "properties": properties,
-        "x-infer-schema": {
-            "x-inferred-schema-limit": limit
+        "x-initial-read-schema": {
+            "type": "object",
+            "x-inferred-schema-limit": limit,
+            "properties": {
+                "id": {"type": "string"},
+            }
         }
     })
 }
@@ -44,28 +39,16 @@ fn document_schema_boolean() -> serde_json::Value {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn test_x_infer_schema_in_read_schema() {
-    let mut harness = TestHarness::init("test_x_infer_schema_in_read_schema").await;
+async fn test_x_initial_read_schema() {
+    let mut harness = TestHarness::init("test_x_initial_read_schema").await;
     let user_id = harness.setup_tenant("testing").await;
 
     // Create discovered bindings with different complexity limits
     let discovered_response = Discovered {
         bindings: vec![
             Binding {
-                recommended_name: "high_limit_collection".to_string(),
-                document_schema_json: serde_json::to_string(&document_schema_with_limit(
-                    5000, true,
-                ))
-                .unwrap(),
-                resource_config_json: r#"{"id": "high_limit"}"#.to_string(),
-                key: vec!["/id".to_string()],
-                disable: false,
-                resource_path: vec!["high_limit".to_string()],
-                is_fallback_key: false,
-            },
-            Binding {
                 recommended_name: "low_limit_collection".to_string(),
-                document_schema_json: serde_json::to_string(&document_schema_with_limit(50, false))
+                document_schema_json: serde_json::to_string(&document_with_initial_read_schema(50))
                     .unwrap(),
                 resource_config_json: r#"{"id": "low_limit"}"#.to_string(),
                 key: vec!["/id".to_string()],
@@ -112,7 +95,7 @@ async fn test_x_infer_schema_in_read_schema() {
         result.job_status
     );
     assert!(result.errors.is_empty(), "Discovery should have no errors");
-    assert_eq!(3, result.draft.collections.len());
+    assert_eq!(2, result.draft.collections.len());
 
     // Publish the draft to create live specs
     let pub_result = harness
@@ -127,14 +110,6 @@ async fn test_x_infer_schema_in_read_schema() {
 
     // Fetch the read schemas from the control plane for both collections
     let control_plane = harness.control_plane();
-
-    let high_limit_spec = control_plane
-        .get_collection(Collection::new("testing/high_limit_collection"))
-        .await
-        .expect("Should find high limit collection")
-        .expect("High limit collection should exist")
-        .spec
-        .read_schema_json;
 
     let low_limit_spec = control_plane
         .get_collection(Collection::new("testing/low_limit_collection"))
@@ -152,17 +127,64 @@ async fn test_x_infer_schema_in_read_schema() {
         .spec
         .read_schema_json;
 
-    // Snapshot the shapes to verify correct complexity limits are applied
     insta::assert_json_snapshot!(
-        "high_limit_shape",
-        serde_json::Value::from_str(&high_limit_spec).unwrap()
+        serde_json::Value::from_str(&low_limit_spec).unwrap(),
+        @r###"
+    {
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "x-inferred-schema-limit": 50
+    }
+    "###
     );
     insta::assert_json_snapshot!(
-        "low_limit_shape",
-        serde_json::Value::from_str(&low_limit_spec).unwrap()
-    );
-    insta::assert_json_snapshot!(
-        "bool_flag_shape",
-        serde_json::Value::from_str(&bool_flag_spec).unwrap()
+        serde_json::Value::from_str(&bool_flag_spec).unwrap(),
+        @r###"
+    {
+      "$defs": {
+        "flow://inferred-schema": {
+          "$id": "flow://inferred-schema",
+          "properties": {
+            "_meta": {
+              "properties": {
+                "inferredSchemaIsNotAvailable": {
+                  "const": true,
+                  "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
+                }
+              },
+              "required": [
+                "inferredSchemaIsNotAvailable"
+              ]
+            }
+          },
+          "required": [
+            "_meta"
+          ]
+        },
+        "flow://relaxed-write-schema": {
+          "$id": "flow://relaxed-write-schema",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "type": "object",
+          "x-infer-schema": true
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "flow://relaxed-write-schema"
+        },
+        {
+          "$ref": "flow://inferred-schema"
+        }
+      ]
+    }
+    "###
     );
 }
