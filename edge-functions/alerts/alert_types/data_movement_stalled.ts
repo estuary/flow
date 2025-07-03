@@ -1,7 +1,7 @@
 import _ from "npm:lodash";
 
 import { AlertRecord, EmailConfig } from "../index.ts";
-import { commonTemplate } from "../template.ts";
+import { commonTemplate, getTaskDetailsPageURL } from "../template.ts";
 import { Recipient } from "../template.ts";
 
 interface DataMovementStalledArguments {
@@ -11,10 +11,10 @@ interface DataMovementStalledArguments {
     spec_type: string;
 }
 
-type DataMovementStalledRecord = AlertRecord<"data_movement_stalled", DataMovementStalledArguments>;
-
-const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
-    `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
+type DataMovementStalledRecord = AlertRecord<
+  "data_movement_stalled",
+  DataMovementStalledArguments
+>;
 
 const formatAlertEmail = ({
     arguments: { recipients, evaluation_interval, spec_type },

@@ -3,6 +3,8 @@ import { freeTrialStalledEmail } from "./alert_types/free_trial_stalled.ts";
 import { freeTrialEndingEmail } from "./alert_types/free_trial_ending.ts";
 import { missingPaymentMethodEmail } from "./alert_types/missing_payment_method.ts";
 import { freeTrialEmail } from "./alert_types/free_trial.ts";
+import { shardFailedEmail } from "./alert_types/shard_failed.ts";
+import { autoDiscoverFailedEmail } from "./alert_types/auto_discover_failed.ts";
 
 export interface AlertRecord<T extends keyof typeof emailTemplates, A> {
   alert_type: T;
@@ -25,6 +27,8 @@ const emailTemplates = {
   free_trial_stalled: freeTrialStalledEmail,
   missing_payment_method: missingPaymentMethodEmail,
   data_movement_stalled: dataMovementStalledEmail,
+  shard_failed: shardFailedEmail,
+  auto_discover_failed: autoDiscoverFailedEmail,
 };
 
 const corsHeaders = {
@@ -83,6 +87,7 @@ const emailNotifications = (
           body: JSON.stringify({
             from: senderAddress,
             to: email,
+            reply_to: "support@estuary.dev",
             subject,
             html: content,
           }),
@@ -95,6 +100,7 @@ const emailNotifications = (
 
 const resendToken = Deno.env.get("RESEND_API_KEY");
 const senderAddress = Deno.env.get("RESEND_EMAIL_ADDRESS");
+const replyToAddress = Deno.env.get("ALERT_REPLY_TO_ADDRESS");
 const sharedSecret = Deno.env.get("ALERT_EMAIL_FUNCTION_SECRET");
 
 // Port 8000 is the default for deno, just made explicit.
@@ -173,6 +179,12 @@ Deno.serve({ port: 8000 }, async (rawRequest: Request): Promise<Response> => {
       pendingEmails = emailTemplates[request.alert_type](request);
       break;
     case "data_movement_stalled":
+      pendingEmails = emailTemplates[request.alert_type](request);
+      break;
+    case "shard_failed":
+      pendingEmails = emailTemplates[request.alert_type](request);
+      break;
+    case "auto_discover_failed":
       pendingEmails = emailTemplates[request.alert_type](request);
       break;
     default: {

@@ -6,6 +6,9 @@ export interface Recipient {
     full_name: string | null;
 }
 
+export const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
+  `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
+
 export const commonTemplate = (body: string, recipient: Recipient | null) => {
     // We could also fall back to 'Dear dave@estuary.dev', but that might look weirdly spammy
     const dearLine = recipient?.full_name ? `<mj-text font-size="20px" color="#512d0b"><strong>Dear ${recipient.full_name},</strong></mj-text>` : "";

@@ -5,7 +5,7 @@ use crate::{
 };
 use gazette::consumer::replica_status;
 use models::{
-    status::{activation::ShardsStatus, ShardRef, StatusSummaryType},
+    status::{activation::ShardsStatus, AlertType, ShardRef, StatusSummaryType},
     CatalogType,
 };
 use uuid::Uuid;
@@ -260,6 +260,9 @@ async fn test_transition_to_disabled(
         "task shard failed",
     )
     .await;
+    harness
+        .assert_alert_firing(catalog_name, AlertType::ShardFailed)
+        .await;
 
     let start = harness.get_controller_state(catalog_name).await;
 
@@ -312,6 +315,11 @@ async fn test_transition_to_disabled(
         )
         .await;
     }
+
+    // Expect a shard failed alert to have cleared immediately
+    harness
+        .assert_alert_clear(catalog_name, AlertType::ShardFailed)
+        .await;
 }
 
 async fn test_shard_failed_event_after_failed_check(
@@ -386,6 +394,10 @@ async fn test_shard_failed_event_after_failed_check(
         let shard_check = activation.shard_status.as_ref().unwrap();
         assert_eq!(ShardsStatus::Failed, shard_check.status);
         assert_eq!(3, shard_check.count);
+
+        harness
+            .assert_alert_firing(catalog_name, AlertType::ShardFailed)
+            .await;
     }
 }
 
@@ -455,6 +467,13 @@ async fn test_backoff_repeated_shard_failures(
             )
             .await;
         }
+
+        if i >= 2 {
+            let alert_status = harness
+                .assert_alert_firing(catalog_name, AlertType::ShardFailed)
+                .await;
+            assert_eq!(i + 1, alert_status.count, "failure count should match");
+        }
     }
 
     override_next_retry_now(catalog_name, harness).await;
@@ -468,6 +487,8 @@ async fn test_backoff_repeated_shard_failures(
         vec![(catalog_name, Some(task_type))],
     );
     assert_status_shards_pending(harness, catalog_name).await;
+
+    // Simulates passage of sufficient time for the alert to clear
     task_becomes_ok(harness, task_type, catalog_name).await;
 
     // One more failure should result in backing off again
@@ -486,6 +507,12 @@ async fn test_backoff_repeated_shard_failures(
         "task shard failed",
     )
     .await;
+
+    // And the alert will start firing again because the previous shard failures
+    // are still retained and count towards the alert threshold.
+    harness
+        .assert_alert_firing(catalog_name, AlertType::ShardFailed)
+        .await;
 }
 
 async fn publish_and_await_ready(
@@ -664,7 +691,19 @@ async fn task_becomes_ok(
         "we doin aight", summary.message,
         "{catalog_name} unexpected summary message"
     );
-    expect_ok
+
+    // Assert that any alerts get resolved
+    push_back_last_failure_time(harness, catalog_name, chrono::Duration::minutes(121)).await;
+    let final_ok_state = harness.run_pending_controller(catalog_name).await;
+    assert!(
+        final_ok_state.error.is_none(),
+        "expected no error, got: {:?}",
+        final_ok_state.error
+    );
+    harness
+        .assert_alert_clear(catalog_name, AlertType::ShardFailed)
+        .await;
+    final_ok_state
 }
 
 fn shard_ref(build_id: models::Id, name: &str) -> ShardRef {
@@ -770,4 +809,58 @@ async fn assert_status_shards_pending(harness: &mut TestHarness, task: &str) {
         "waiting for task shards to be ready",
     )
     .await;
+}
+
+/// Simulates the passage of time after a series of shard failures. The
+/// `shard_status` must already be `Ok`, or this will panic. The timestamps of
+/// all failure events will have `by_duration` subtracted from them. Also pushes
+/// back the `/activation/shard_status/first_ts` timestamp. This function is
+/// safe to call for shards that have not had any failures.
+async fn push_back_last_failure_time(
+    harness: &mut TestHarness,
+    catalog_name: &str,
+    by_duration: chrono::Duration,
+) {
+    let new_ts = (chrono::Utc::now() - by_duration).to_rfc3339();
+
+    tracing::debug!(%catalog_name, %new_ts, "pushing back last_failure.ts");
+    sqlx::query!(
+        r#"update controller_jobs set
+        status = jsonb_set(status::jsonb, '{activation, last_failure, ts}', to_jsonb($2::text))::json
+        where live_spec_id = (select id from live_specs where catalog_name = $1)
+        and status->'activation'->'last_failure'->>'ts' is not null;"#,
+        catalog_name,
+        new_ts,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to push back last_failure.ts time");
+
+    sqlx::query!(
+        r#"update controller_jobs set
+        status = jsonb_set(status::jsonb, '{activation, shard_status, first_ts}', to_jsonb($2::text))::json
+        where live_spec_id = (select id from live_specs where catalog_name = $1)
+        and status->'activation'->'shard_status'->>'status' = 'Ok'
+        returning 1 as "must_exist: bool";"#,
+        catalog_name,
+        new_ts,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to override activation shard_health ts");
+
+    sqlx::query!(
+        r#"update shard_failures set
+        ts = ts - $2::interval,
+        flow_document = jsonb_set(
+          flow_document::jsonb, '{ts}',
+          to_jsonb((flow_document->>'ts')::timestamptz - $2::interval)
+        )
+        where catalog_name = $1"#,
+        catalog_name,
+        by_duration.to_string() as String,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to push back shard_failures timestamps");
 }
