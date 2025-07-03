@@ -125,6 +125,8 @@ fn squash_location(shape: &mut Shape, location: &[Token]) {
 /// The `limit` limits the total number of properties, and the `depth_limit` removes any
 /// properties after more than `depth_limit` levels of nesting.
 pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize, depth_limit: usize) {
+    let complexity_limit = limit.min(SCHEMA_COMPLEXITY_CAP);
+
     let locations = shape.locations();
     let mut pointers = Vec::with_capacity(locations.len());
     let mut over_depth_limit = false;
@@ -145,7 +147,7 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize, depth_lim
         }
     }
 
-    if pointers.len() < limit && !over_depth_limit {
+    if pointers.len() < complexity_limit && !over_depth_limit {
         return;
     }
 
@@ -158,7 +160,7 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize, depth_lim
         }
     });
 
-    while pointers.len() > limit
+    while pointers.len() > complexity_limit
         || (!pointers.is_empty() && pointers.last().unwrap().0.len() > depth_limit)
     {
         let location_ptr = pointers
@@ -169,6 +171,7 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize, depth_lim
     }
 }
 
+pub const SCHEMA_COMPLEXITY_CAP: usize = 10_000;
 pub const DEFAULT_SCHEMA_COMPLEXITY_LIMIT: usize = 1_000;
 /// The default depth limit is chosen to produce JSON schemas which are highly
 /// descriptive for non-degenerate, non-recursive data structures, without endlessly
