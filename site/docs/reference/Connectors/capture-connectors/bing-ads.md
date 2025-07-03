@@ -79,6 +79,7 @@ so many of these properties aren't required.
 | **`/credentials/client_secret`** | Client Secret | The Client Secret of your Microsoft Advertising developer application. | String | Required |
 | **`/credentials/refresh_token`** | Refresh Token | Refresh Token to renew the expired Access Token. | String | Required |
 | **`/developer_token`** | Developer Token | Developer token associated with user. | String | Required |
+| `/lookback_window` | Lookback Window | The number of days to "lookback" and re-capture data for performance report streams. This setting is typically used to capture late arriving conversions. | Integer | 0 |
 | **`/reports_start_date`** | Credentials | The start date from which to begin replicating report data. Any data generated before this date will not be replicated in reports. This is a UTC date in YYYY-MM-DD format. | String | Required, `2020-01-01` |
 | **`/tenant_id`** | Credentials | The Tenant ID of your Microsoft Advertising developer application. Set this to `common` unless you know you need a different value. | String | Required |
 
@@ -107,6 +108,7 @@ captures:
               client_secret: <secret>
               refresh_token: <token>
             developer_token: <token>
+            lookback_window: 0
             reports_start_date: 2020-01-01
             tenant_id: common
 
