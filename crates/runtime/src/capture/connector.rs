@@ -1,8 +1,8 @@
 use crate::{verify, LogHandler, Runtime};
 use anyhow::Context;
-use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
+use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
 use proto_flow::{
-    capture::{Request, Response},
+    capture::{request, Request, Response},
     flow::capture_spec::ConnectorType,
 };
 use unseal;
@@ -17,7 +17,7 @@ pub async fn start<L: LogHandler>(
     BoxStream<'static, anyhow::Result<Response>>,
 )> {
     let log_level = initial.get_internal()?.log_level();
-    let (endpoint, config_json) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type) = extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
@@ -40,14 +40,12 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
-    let connector_rx = match endpoint {
+    let (sealed_config, mut connector_rx) = match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
-            connector_tx.try_send(initial).unwrap();
-
+        }) => (
+            sealed_config,
             crate::image_connector::serve(
                 attach_container,
                 image,
@@ -61,8 +59,8 @@ pub async fn start<L: LogHandler>(
                 runtime.allow_local,
             )
             .await?
-            .boxed()
-        }
+            .boxed(),
+        ),
         models::CaptureEndpoint::Local(_) if !runtime.allow_local => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
@@ -74,10 +72,8 @@ pub async fn start<L: LogHandler>(
             config: sealed_config,
             env,
             protobuf,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
-            connector_tx.try_send(initial).unwrap();
-
+        }) => (
+            sealed_config,
             crate::local_connector::serve(
                 command,
                 env,
@@ -86,16 +82,49 @@ pub async fn start<L: LogHandler>(
                 protobuf,
                 connector_rx,
             )?
-            .boxed()
-        }
+            .boxed(),
+        ),
     };
+
+    let decrypted_config = unseal::decrypt_sops(&sealed_config).await?.to_string();
+    *config_json = decrypted_config.clone();
+    let spec_request = Request {
+        spec: Some(request::Spec {
+            config_json: config_json.clone(),
+            connector_type: connector_type,
+        }),
+        ..Default::default()
+    };
+    connector_tx.try_send(spec_request.clone()).unwrap();
+
+    let Some(Response {
+        spec: Some(spec_response),
+        ..
+    }) = connector_rx.try_next().await?
+    else {
+        anyhow::bail!("expected first spec response")
+    };
+
+    if let Ok(Some(iam_config)) = crate::iam_auth::extract_iam_auth_from_connector_config(
+        config_json,
+        &spec_response.config_schema_json,
+    ) {
+        let tokens = iam_config
+            .generate_tokens()
+            .await
+            .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
+
+        tokens.inject_into(config_json)?;
+    }
+
+    connector_tx.try_send(initial).unwrap();
 
     Ok((connector_tx, connector_rx))
 }
 
 fn extract_endpoint<'r>(
     request: &'r mut Request,
-) -> anyhow::Result<(models::CaptureEndpoint, &'r mut String)> {
+) -> anyhow::Result<(models::CaptureEndpoint, &'r mut String, i32)> {
     let (connector_type, config_json) = match request {
         Request {
             spec: Some(spec), ..
@@ -137,6 +166,7 @@ fn extract_endpoint<'r>(
                 serde_json::from_str(config_json).context("parsing connector config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
@@ -144,6 +174,7 @@ fn extract_endpoint<'r>(
                 serde_json::from_str(config_json).context("parsing local config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
