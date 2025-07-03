@@ -288,7 +288,7 @@ impl ModelDef for AnySpec {
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
-        "pattern": "^\\d+(s|m|h)$"
+        "pattern": "^\\d+(s|m|h|d)$"
     }))
     .unwrap()
 }

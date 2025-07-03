@@ -262,7 +262,7 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "pattern": "^\\d+(s|m|h|d)$"
         },
         "shards": {
           "title": "Template for shards of this capture task.",
@@ -653,7 +653,7 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "pattern": "^\\d+(s|m|h|d)$"
         },
         "length": {
           "title": "Desired content length of each fragment, in megabytes before compression.",
@@ -670,7 +670,7 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "pattern": "^\\d+(s|m|h|d)$"
         }
       },
       "additionalProperties": false
@@ -1174,7 +1174,7 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "pattern": "^\\d+(s|m|h|d)$"
         },
         "minTxnDuration": {
           "title": "Minimum duration of task transactions.",
@@ -1183,7 +1183,7 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "pattern": "^\\d+(s|m|h|d)$"
         },
         "readChannelSize": {
           "title": "Size of the reader channel used for decoded documents.",
@@ -1616,7 +1616,7 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "pattern": "^\\d+(s|m|h|d)$"
         },
         "shuffle": {
           "title": "Shuffle by which source documents are mapped to processing shards.",
