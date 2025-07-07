@@ -4,7 +4,7 @@
       "endpoint": {
         "connector": {
           "image": "ghcr.io/estuary/materialize-postgres:dev",
-          "config": {"address":"supabase_db_flow.supabase_network_flow:5432","database":"postgres","password":"stats_loader_password","user":"stats_loader"}
+          "config": {"address":"supabase_db_flow.supabase_network_flow:5432","database":"postgres","password":"stats_loader_password","user":"stats_loader","advanced":{"feature_flags":"allow_existing_tables_for_new_bindings"}}
         }
       },
       "bindings": [
