@@ -3,7 +3,7 @@ use crate::{
     shape::limits,
     shape::{
         limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
-        schema::to_schema,
+        schema::to_schema, X_COMPLEXITY_LIMIT,
     },
     AsNode, HeapNode, SerPolicy, Shape,
 };
@@ -32,6 +32,22 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
     let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
 
+    let complexity_limit =
+        if let Some(JsonValue::Number(limit)) = right.annotations.get(X_COMPLEXITY_LIMIT) {
+            limit
+                .as_u64()
+                .and_then(|l| {
+                    if l >= 1 && l <= 100_000 {
+                        Some(l as usize)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(DEFAULT_SCHEMA_COMPLEXITY_LIMIT)
+        } else {
+            DEFAULT_SCHEMA_COMPLEXITY_LIMIT
+        };
+
     const X_GEN_ID: &str = "x-collection-generation-id";
 
     let mut merged_shape = match (
@@ -58,7 +74,7 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
 
     limits::enforce_shape_complexity_limit(
         &mut merged_shape,
-        DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+        complexity_limit,
         DEFAULT_SCHEMA_DEPTH_LIMIT,
     );
 
