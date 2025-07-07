@@ -1,5 +1,6 @@
 use super::{indexed, schema, storage_mapping, walk_transition, Error, Scope};
-use json::schema::types;
+use doc::shape::X_INITIAL_READ_SCHEMA;
+use json::schema::{types, Keyword};
 use proto_flow::flow;
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
@@ -394,6 +395,9 @@ fn walk_collection_schema(
         Error::from(err).push(scope, errors);
     }
 
+    // Validate x-initial-read-schema annotations
+    validate_x_initial_read_schema(scope, &spec, errors);
+
     Some(Schema { model, spec })
 }
 
@@ -759,6 +763,49 @@ pub fn skim_projections(
     );
 
     projection_specs
+}
+
+fn validate_x_initial_read_schema(
+    scope: Scope,
+    schema: &schema::Schema,
+    errors: &mut tables::Errors,
+) {
+    use doc::shape::{X_COMPLEXITY_LIMIT, X_INFER_SCHEMA};
+
+    match (
+        schema.shape.annotations.get(X_INFER_SCHEMA),
+        schema.shape.annotations.get(X_INITIAL_READ_SCHEMA),
+    ) {
+        (Some(_), Some(_)) => {
+            // Invalid: both x-infer-schema and x-initial-read-schema are set.
+            Error::ConflictingSchemaAnnotations.push(scope, errors);
+        }
+        (None, None) => {
+            // Valid: neither x-infer-schema nor x-initial-read-schema are set
+        }
+        (Some(serde_json::Value::Bool(true)), None) => {
+            // Valid: only x-infer-schema: true
+        }
+        (Some(_), None) => {
+            // Invalid: only x-infer-schema, but not true
+            Error::XInferSchemaInvalidType.push(scope, errors);
+        }
+        (None, Some(initial_read_schema)) => {
+            let schema_json = serde_json::to_string(initial_read_schema).unwrap();
+            match doc::validation::build_bundle(&schema_json) {
+                Err(err) => {
+                    // Invalid: x-initial-read-schema is not a valid JSON schema
+                    Error::XInitialReadSchemaInvalid {
+                        error: err.to_string(),
+                    }
+                    .push(scope, errors);
+                }
+                Ok(_) => {
+                    // Valid: x-initial-read-schema is set to a valid JSON schema
+                }
+            }
+        }
+    }
 }
 
 struct Schema {

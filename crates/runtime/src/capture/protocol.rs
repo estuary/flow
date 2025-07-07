@@ -1,6 +1,7 @@
 use super::{Task, Transaction};
 use crate::{rocksdb::RocksDB, verify, Accumulator};
 use anyhow::Context;
+use doc::shape::X_COMPLEXITY_LIMIT;
 use prost::Message;
 use proto_flow::capture::{request, response, Request, Response};
 use proto_flow::flow;
@@ -9,7 +10,23 @@ use proto_flow::runtime::{
     capture_response_ext::{self, PollResult},
     CaptureRequestExt,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+
+// Does the connector have a meaningful write schema drawn from the source system plus SourcedSchema?
+// If so, want to give it as much leeway as possible to infer the schema.
+// Otherwise, use a lower complexity limit to avoid generating overly complex schemas.
+// We may want to tune these limits further in the future, but this is a minimal starting point
+// that leaves the door open for more complex heuristics in the future.
+fn complexity_limit_for_binding(
+    binding_index: usize,
+    bindings_with_sourced_schema: &HashSet<usize>,
+) -> usize {
+    if bindings_with_sourced_schema.contains(&binding_index) {
+        10_000
+    } else {
+        doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT
+    }
+}
 
 pub async fn recv_client_unary(
     db: &RocksDB,
@@ -194,6 +211,7 @@ pub fn send_client_captured_or_checkpoint(
     task: &Task,
     txn: &mut Transaction,
     wb: &mut rocksdb::WriteBatch,
+    bindings_with_sourced_schema: &HashSet<usize>,
 ) -> Response {
     let doc::combine::DrainedDoc { meta, root } = drained;
 
@@ -231,9 +249,11 @@ pub fn send_client_captured_or_checkpoint(
     stats.bytes_total += doc_json.len() as u64;
 
     if shapes[index].widen_owned(&root) {
+        let complexity_limit = complexity_limit_for_binding(index, bindings_with_sourced_schema);
+
         doc::shape::limits::enforce_shape_complexity_limit(
             &mut shapes[index],
-            doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+            complexity_limit,
             doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
         );
         txn.updated_inferences.insert(index);
@@ -304,6 +324,7 @@ pub async fn recv_client_start_commit(
     task: &Task,
     txn: &Transaction,
     mut wb: rocksdb::WriteBatch,
+    bindings_with_sourced_schema: &HashSet<usize>,
 ) -> anyhow::Result<()> {
     let verify = verify("client", "StartCommit with runtime_checkpoint");
     let request = verify.not_eof(request)?;
@@ -332,7 +353,14 @@ pub async fn recv_client_start_commit(
     // produce structured logs of all inferred schemas that have changed
     // in this transaction.
     for binding in txn.updated_inferences.iter() {
-        let serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
+        let mut serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
+
+        let complexity_limit = complexity_limit_for_binding(*binding, bindings_with_sourced_schema);
+
+        serialized.schema.extensions.insert(
+            X_COMPLEXITY_LIMIT.to_string(),
+            serde_json::Value::Number(serde_json::Number::from(complexity_limit)),
+        );
 
         tracing::info!(
             schema = ?ops::DebugJson(serialized),

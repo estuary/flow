@@ -282,6 +282,14 @@ pub enum Error {
         this_entity: String,
         source_collection: String,
     },
+    #[error("x-infer-schema must be 'true' if present")]
+    XInferSchemaInvalidType,
+    #[error("x-complexity-limit must be a number between 1 and 10,000")]
+    XComplexityLimitOutOfRange,
+    #[error("x-initial-read-schema is not a valid JSON schema: {error}")]
+    XInitialReadSchemaInvalid { error: String },
+    #[error("cannot specify both x-infer-schema and x-initial-read-schema")]
+    ConflictingSchemaAnnotations,
 }
 
 impl Error {
