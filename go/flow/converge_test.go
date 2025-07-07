@@ -482,6 +482,9 @@ func (jc *mockJournals) Replicate(ctx context.Context, opts ...grpc.CallOption) 
 func (jc *mockJournals) ListFragments(ctx context.Context, in *pb.FragmentsRequest, opts ...grpc.CallOption) (*pb.FragmentsResponse, error) {
 	panic("not implemented")
 }
+func (jc *mockJournals) FragmentStoreHealth(ctx context.Context, in *pb.FragmentStoreHealthRequest, opts ...grpc.CallOption) (*pb.FragmentStoreHealthResponse, error) {
+	panic("not implemented")
+}
 
 var _ pc.ShardClient = &mockShards{}
 
