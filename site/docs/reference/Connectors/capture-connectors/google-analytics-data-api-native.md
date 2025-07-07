@@ -64,7 +64,7 @@ The following properties reflect the manual authentication method. If you authen
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
-| `/interval` | Interval | Interval between data syncs | string |    PT30M      |
+| `/interval` | Interval | Interval between data syncs | string |    PT12H      |
 
 ### Custom reports
 
