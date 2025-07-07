@@ -6,7 +6,7 @@ use futures::future::FusedFuture;
 use futures::stream::FusedStream;
 use futures::{FutureExt, SinkExt, StreamExt, TryStreamExt};
 use proto_flow::capture::{request, Request, Response};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[tonic::async_trait]
 impl<L: LogHandler> proto_grpc::capture::connector_server::Connector for Runtime<L> {
@@ -110,6 +110,7 @@ async fn serve_session<L: LogHandler>(
         yield_rx,
     ));
 
+    let mut bindings_with_sourced_schema = HashSet::new();
     let mut last_checkpoints: u32 = 0; // Checkpoints in the last transaction.
     let mut buf = bytes::BytesMut::new();
     loop {
@@ -179,6 +180,13 @@ async fn serve_session<L: LogHandler>(
         // Atomic WriteBatch into which we'll stage connector and runtime state updates.
         let mut wb = rocksdb::WriteBatch::default();
 
+        // Must do this before calling `apply_sourced_schemas` as that
+        // function clears out `txn.sourced_schemas`.
+        for (binding_id, _) in txn.sourced_schemas.iter() {
+            tracing::debug!(binding_id, "tracking sourced schema");
+            bindings_with_sourced_schema.insert(*binding_id);
+        }
+
         // Apply sourced schemas to inference before we widen from documents.
         // Assuming documents fit the source shape, this prevents unnecessary
         // widening (consider a schema with tight minItems / maxItems bounds).
@@ -192,6 +200,7 @@ async fn serve_session<L: LogHandler>(
                 &task,
                 &mut txn,
                 &mut wb,
+                &bindings_with_sourced_schema,
             );
             () = co.yield_(response).await;
         }
@@ -200,7 +209,16 @@ async fn serve_session<L: LogHandler>(
         () = co.yield_(checkpoint).await;
 
         let start_commit = request_rx.try_next().await?;
-        recv_client_start_commit(&db, start_commit, &shapes, &task, &txn, wb).await?;
+        recv_client_start_commit(
+            &db,
+            start_commit,
+            &shapes,
+            &task,
+            &txn,
+            wb,
+            &bindings_with_sourced_schema,
+        )
+        .await?;
 
         () = co.yield_(send_client_started_commit()).await;
 

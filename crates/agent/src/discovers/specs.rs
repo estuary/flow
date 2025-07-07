@@ -1,6 +1,7 @@
 use crate::discovers::Changed;
 
 use anyhow::Context;
+use doc::shape::{X_INFER_SCHEMA, X_INITIAL_READ_SCHEMA};
 use itertools::Itertools;
 use models::{discovers::Changes, ResourcePath};
 use proto_flow::capture::{self, response::discovered};
@@ -318,6 +319,14 @@ pub fn merge_collections(
                 modified = true;
                 draft_model.write_schema = Some(document_schema);
             }
+        } else if let Some(initial_read_schema) = initializes_read_schema(&document_schema) {
+            modified = true;
+            draft_model.write_schema = Some(document_schema);
+            draft_model.schema = None;
+
+            draft_model.read_schema = Some(models::Schema::new(models::RawValue::from_value(
+                &initial_read_schema,
+            )));
         } else if uses_inferred_schema(&document_schema) {
             tracing::debug!(
                 %collection,
@@ -356,9 +365,17 @@ pub fn merge_collections(
 fn uses_inferred_schema(schema: &models::Schema) -> bool {
     matches!(
         // Does the connector use schema inference?
-        schema.to_value().get("x-infer-schema"),
+        schema.to_value().get(X_INFER_SCHEMA),
         Some(serde_json::Value::Bool(true))
     )
+}
+
+fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
+    match schema.to_value().get(X_INITIAL_READ_SCHEMA) {
+        // Does the connector specify an initial read schema
+        Some(extension @ serde_json::Value::Object(_)) => Some(extension.clone()),
+        _ => None,
+    }
 }
 
 /// Returns whether the discovered schema is different from the current schema.
@@ -385,6 +402,7 @@ fn normalize_recommended_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use doc::AsNode;
     use proto_flow::capture::{self, response::discovered};
     use serde_json::json;
     use tables::DraftRow;
@@ -525,6 +543,18 @@ mod tests {
                 collection_key: string_vec(&["/fallback", "/key"]),
                 is_fallback_key: true,
                 resource_path: string_vec(&["7"]),
+                disable: false,
+            },
+            // case/8: If there is no fetched collection and x-initial-read-schema is provided, it should be used for readSchema.
+            Binding {
+                target: models::Collection::new("case/8"),
+                document_schema: models::Schema::new(
+                    models::RawValue::from_str(r#"{ "const": "write!", "x-initial-read-schema": {"type": "object", "properties": {"id": {"type": "string"}}} }"#)
+                        .unwrap(),
+                ),
+                collection_key: string_vec(&["/id"]),
+                is_fallback_key: false,
+                resource_path: string_vec(&["8"]),
                 disable: false,
             },
         ];
@@ -703,6 +733,19 @@ mod tests {
                 },
                 is_touch: 0,
             },
+            DraftCollection {
+                collection: case/8,
+                scope: flow://collection/case/8,
+                expect_pub_id: "0000000000000000",
+                model: {
+                  "writeSchema": { "const": "write!", "x-initial-read-schema": {"type": "object", "properties": {"id": {"type": "string"}}} },
+                  "readSchema": {"properties":{"id":{"type":"string"}},"type":"object"},
+                  "key": [
+                    "/id"
+                  ]
+                },
+                is_touch: 0,
+            },
         ]
         "###);
 
@@ -762,6 +805,14 @@ mod tests {
                 ]: Changed {
                     target: Collection(
                         "case/7",
+                    ),
+                    disable: false,
+                },
+                [
+                    "8",
+                ]: Changed {
+                    target: Collection(
+                        "case/8",
                     ),
                     disable: false,
                 },
