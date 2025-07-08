@@ -14,7 +14,6 @@ pub enum IAMAuthConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AWSConfig {
     pub aws_role_arn: String,
-    pub aws_external_id: String,
     pub aws_region: String,
 }
 
@@ -22,6 +21,7 @@ pub struct AWSConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GCPConfig {
     pub gcp_service_account_to_impersonate: String,
+    pub gcp_workload_identity_pool_audience: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gcp_project_id: Option<String>,
 }
@@ -92,14 +92,14 @@ impl IAMTokens {
 
 impl IAMAuthConfig {
     /// Generate short-lived tokens for the configured IAM provider
-    pub async fn generate_tokens(&self) -> anyhow::Result<IAMTokens> {
+    pub async fn generate_tokens(&self, task_name: &str) -> anyhow::Result<IAMTokens> {
         match self {
             IAMAuthConfig::AWS(aws_config) => {
-                let aws_tokens = generate_aws_tokens(aws_config).await?;
+                let aws_tokens = generate_aws_tokens(aws_config, task_name).await?;
                 Ok(IAMTokens::AWS(aws_tokens))
             }
             IAMAuthConfig::GCP(gcp_config) => {
-                let gcp_tokens = generate_gcp_tokens(gcp_config).await?;
+                let gcp_tokens = generate_gcp_tokens(gcp_config, task_name).await?;
                 Ok(IAMTokens::GCP(gcp_tokens))
             }
         }
@@ -107,7 +107,7 @@ impl IAMAuthConfig {
 }
 
 /// Generate AWS temporary credentials using STS AssumeRole
-async fn generate_aws_tokens(config: &AWSConfig) -> anyhow::Result<AWSTokens> {
+async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Result<AWSTokens> {
     use aws_config::Region;
     use aws_credential_types::Credentials;
 
@@ -150,7 +150,7 @@ async fn generate_aws_tokens(config: &AWSConfig) -> anyhow::Result<AWSTokens> {
                 .as_secs()
         ))
         .duration_seconds(12 * 3600) // 12 hour maximum duration for connectors
-        .external_id(&config.aws_external_id);
+        .external_id(task_name);
 
     let response = match assume_role_request.send().await {
         Ok(response) => response,
@@ -172,8 +172,11 @@ async fn generate_aws_tokens(config: &AWSConfig) -> anyhow::Result<AWSTokens> {
     })
 }
 
-/// Generate GCP access token using service account impersonation with signJwt
-async fn generate_gcp_tokens(config: &GCPConfig) -> anyhow::Result<GCPTokens> {
+/// Generate GCP access token using 3-step service account impersonation:
+/// 1. Sign JWT for default runtime service account with task_name
+/// 2. Exchange JWT for access token using OAuth 2.0 token exchange
+/// 3. Use the exchanged token to impersonate the target service account
+async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Result<GCPTokens> {
     // Get GCP credentials from environment variable
     let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
         .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
@@ -196,16 +199,40 @@ async fn generate_gcp_tokens(config: &GCPConfig) -> anyhow::Result<GCPTokens> {
         anyhow::bail!("Google Cloud credentials file is empty");
     }
 
-    // First get a token from the root credentials to authenticate with IAM API
+    // Parse the credentials to get the default service account email
+    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
+        .context("Failed to parse service account key JSON")?;
+    let default_service_account = key_data
+        .get("client_email")
+        .and_then(|v| v.as_str())
+        .context("Missing client_email in service account key")?;
+
+    // Get a token from the root credentials to authenticate with IAM API
     let default_token = get_gcp_token_from_credentials(&credentials_json).await?;
 
-    // Use IAM Service Account Credentials API to sign a JWT for the target service account
-    let signed_jwt =
-        sign_jwt_for_service_account(&config.gcp_service_account_to_impersonate, &default_token)
+    // Step 1: Sign a JWT using the default runtime service account with task_name in payload
+    let signed_jwt = sign_jwt_for_service_account(
+        default_service_account,
+        &default_token,
+        task_name,
+        &config.gcp_workload_identity_pool_audience,
+    )
+    .await?;
+
+    // Step 2: Exchange the signed JWT for an access token via OAuth 2.0 token exchange
+    let exchanged_token = exchange_jwt_for_service_account_token(
+        &signed_jwt,
+        &config.gcp_workload_identity_pool_audience,
+    )
+    .await?;
+
+    // Step 3: Use the exchanged access token to impersonate the target service account
+    let impersonated_token =
+        impersonate_service_account(&exchanged_token, &config.gcp_service_account_to_impersonate)
             .await?;
 
     Ok(GCPTokens {
-        access_token: signed_jwt,
+        access_token: impersonated_token,
     })
 }
 
@@ -232,27 +259,28 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
     Ok(token)
 }
 
-/// Sign a JWT for a service account using the IAM signJwt endpoint
+/// Sign a JWT for the runtime service account using the IAM signJwt endpoint
+/// for the given audience and task_name
 async fn sign_jwt_for_service_account(
     service_account_email: &str,
     access_token: &str,
+    task_name: &str,
+    workload_identity_pool_audience: &str,
 ) -> anyhow::Result<String> {
     use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
     use serde_json::json;
 
-    // Create JWT payload for service account authentication
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs() as u64;
 
     let jwt_payload = json!({
-        "iss": service_account_email,
+        "iss": "https://accounts.google.com",
         "sub": service_account_email,
-        "aud": "https://www.googleapis.com/oauth2/v4/token",
+        "aud": workload_identity_pool_audience.strip_prefix("https:").unwrap_or(workload_identity_pool_audience),
         "iat": now,
-        "exp": now + 12*3600, // 12 hour expiration
-        "estuary_flow_token": "testing",
-        "scope": "https://www.googleapis.com/auth/cloud-platform"
+        "exp": now + 3600, // 1 hour expiration
+        "task_name": task_name
     });
 
     let client = reqwest::Client::new();
@@ -290,6 +318,102 @@ async fn sign_jwt_for_service_account(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .context("Missing signedJwt in GCP signJwt response")
+}
+
+/// Exchange a JWT for a service account token using OAuth 2.0 token exchange
+async fn exchange_jwt_for_service_account_token(
+    jwt: &str,
+    workload_identity_pool_audience: &str,
+) -> anyhow::Result<String> {
+    use reqwest::header::CONTENT_TYPE;
+    use std::collections::HashMap;
+
+    let client = reqwest::Client::new();
+
+    // Prepare the token exchange request
+    let mut params = HashMap::new();
+    params.insert("audience", workload_identity_pool_audience);
+    params.insert(
+        "grant_type",
+        "urn:ietf:params:oauth:grant-type:token-exchange",
+    );
+    params.insert("subject_token_type", "urn:ietf:params:oauth:token-type:jwt");
+    params.insert("subject_token", jwt);
+    params.insert(
+        "requested_token_type",
+        "urn:ietf:params:oauth:token-type:access_token",
+    );
+    params.insert("scope", "https://www.googleapis.com/auth/cloud-platform");
+
+    let response = client
+        .post("https://sts.googleapis.com/v1/token")
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .form(&params)
+        .send()
+        .await
+        .context("Failed to call OAuth token exchange")?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        anyhow::bail!("OAuth token exchange failed: {}", error_text);
+    }
+
+    let response_json: serde_json::Value = response
+        .json()
+        .await
+        .context("Failed to parse OAuth token exchange response")?;
+
+    response_json
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .context("Missing access_token in OAuth token exchange response")
+}
+
+/// Impersonate a service account using the generateAccessToken API
+async fn impersonate_service_account(
+    access_token: &str,
+    target_service_account: &str,
+) -> anyhow::Result<String> {
+    use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+    use serde_json::json;
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{}:generateAccessToken",
+        target_service_account
+    );
+
+    let body = json!({
+        "scope": ["https://www.googleapis.com/auth/cloud-platform"],
+        "delegates": [],
+        "lifetime": "43200s" // 12 hours
+    });
+
+    let response = client
+        .post(&url)
+        .header(AUTHORIZATION, format!("Bearer {}", access_token))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .context("Failed to call GCP generateAccessToken API")?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        anyhow::bail!("GCP service account impersonation failed: {}", error_text);
+    }
+
+    let response_json: serde_json::Value = response
+        .json()
+        .await
+        .context("Failed to parse GCP generateAccessToken response")?;
+
+    response_json
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .context("Missing accessToken in GCP generateAccessToken response")
 }
 
 /// Create JWT token and exchange it for an access token using OAuth 2.0 service account flow
@@ -446,16 +570,12 @@ mod tests {
                                 "type": "string",
                                 "title": "IAM Role ARN"
                             },
-                            "aws_external_id": {
-                                "type": "string",
-                                "title": "External ID"
-                            },
                             "aws_region": {
                                 "type": "string",
                                 "title": "AWS Region"
                             }
                         },
-                        "required": ["aws_role_arn", "aws_external_id", "aws_region"]
+                        "required": ["aws_role_arn", "aws_region"]
                     },
                     {
                         "title": "GCP IAM",
@@ -463,9 +583,13 @@ mod tests {
                             "gcp_service_account_to_impersonate": {
                                 "type": "string",
                                 "title": "Service Account Email"
+                            },
+                            "gcp_workload_identity_pool_audience": {
+                                "type": "string",
+                                "title": "Workload Identity Pool Audience"
                             }
                         },
-                        "required": ["gcp_service_account_to_impersonate"]
+                        "required": ["gcp_service_account_to_impersonate", "gcp_workload_identity_pool_audience"]
                     }
                 ]
             }
@@ -482,9 +606,6 @@ mod tests {
                 "x-iam-auth": true,
                 "properties": {
                     "aws_role_arn": {
-                        "type": "string"
-                    },
-                    "aws_external_id": {
                         "type": "string"
                     },
                     "aws_region": {
@@ -517,16 +638,12 @@ mod tests {
                                 "type": "string",
                                 "title": "IAM Role ARN"
                             },
-                            "aws_external_id": {
-                                "type": "string",
-                                "title": "External ID"
-                            },
                             "aws_region": {
                                 "type": "string",
                                 "title": "AWS Region"
                             }
                         },
-                        "required": ["aws_role_arn", "aws_external_id", "aws_region"]
+                        "required": ["aws_role_arn", "aws_region"]
                     }
                 }
             }
@@ -564,9 +681,13 @@ mod tests {
                                     "gcp_service_account_to_impersonate": {
                                         "type": "string",
                                         "title": "Service Account Email"
+                                    },
+                                    "gcp_workload_identity_pool_audience": {
+                                        "type": "string",
+                                        "title": "Workload Identity Pool Audience"
                                     }
                                 },
-                                "required": ["gcp_service_account_to_impersonate"]
+                                "required": ["gcp_service_account_to_impersonate", "gcp_workload_identity_pool_audience"]
                             }
                         }
                     }
@@ -580,7 +701,6 @@ mod tests {
     fn test_iam_auth_config_creation() {
         let aws_config = IAMAuthConfig::AWS(AWSConfig {
             aws_role_arn: "arn:aws:iam::123456789012:role/FlowConnectorRole".to_string(),
-            aws_external_id: "unique-external-id".to_string(),
             aws_region: "us-west-2".to_string(),
         });
 
@@ -602,7 +722,6 @@ mod tests {
             "bucket": "my-test-bucket",
             "credentials": {
                 "aws_role_arn": "arn:aws:iam::123456789012:role/FlowConnectorRole",
-                "aws_external_id": "unique-external-id",
                 "aws_region": "us-west-2"
             }
         });
@@ -621,7 +740,6 @@ mod tests {
                     aws_config.aws_role_arn,
                     "arn:aws:iam::123456789012:role/FlowConnectorRole"
                 );
-                assert_eq!(aws_config.aws_external_id, "unique-external-id");
                 assert_eq!(aws_config.aws_region, "us-west-2");
             }
             _ => panic!("Expected AWS config"),
@@ -635,6 +753,7 @@ mod tests {
             "bucket": "my-test-bucket",
             "credentials": {
                 "gcp_service_account_to_impersonate": "flow-connector@my-project.iam.gserviceaccount.com",
+                "gcp_workload_identity_pool_audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider"
             }
         });
 
@@ -739,10 +858,6 @@ mod tests {
                             "type": "string",
                             "title": "IAM Role ARN"
                         },
-                        "aws_external_id": {
-                            "type": "string",
-                            "title": "External ID"
-                        },
                         "aws_region": {
                             "type": "string",
                             "title": "AWS Region"
@@ -757,7 +872,6 @@ mod tests {
             "bucket": "my-test-bucket",
             "credentials": {
                 "aws_role_arn": "arn:aws:iam::123456789012:role/FlowConnectorRole",
-                "aws_external_id": "unique-external-id",
                 "aws_region": "us-west-2"
             }
         });
@@ -774,7 +888,6 @@ mod tests {
                     aws_config.aws_role_arn,
                     "arn:aws:iam::123456789012:role/FlowConnectorRole"
                 );
-                assert_eq!(aws_config.aws_external_id, "unique-external-id");
                 assert_eq!(aws_config.aws_region, "us-west-2");
             }
             _ => panic!("Expected AWS config"),
@@ -788,7 +901,6 @@ mod tests {
             "bucket": "my-s3-bucket",
             "credentials": {
                 "aws_role_arn": "arn:aws:iam::123456789012:role/FlowS3Role",
-                "aws_external_id": "flow-external-id-123",
                 "aws_region": "us-east-1"
             }
         });
@@ -806,7 +918,6 @@ mod tests {
                     aws_config.aws_role_arn,
                     "arn:aws:iam::123456789012:role/FlowS3Role"
                 );
-                assert_eq!(aws_config.aws_external_id, "flow-external-id-123");
                 assert_eq!(aws_config.aws_region, "us-east-1");
             }
             _ => panic!("Expected AWS config"),
@@ -845,7 +956,6 @@ mod tests {
     fn test_serde_deserialize_aws_config() {
         let credentials = json!({
             "aws_role_arn": "arn:aws:iam::123456789012:role/FlowConnectorRole",
-            "aws_external_id": "unique-external-id",
             "aws_region": "us-west-2"
         });
 
@@ -856,7 +966,6 @@ mod tests {
                     aws_config.aws_role_arn,
                     "arn:aws:iam::123456789012:role/FlowConnectorRole"
                 );
-                assert_eq!(aws_config.aws_external_id, "unique-external-id");
                 assert_eq!(aws_config.aws_region, "us-west-2");
             }
             _ => panic!("Expected AWS config"),
@@ -867,6 +976,7 @@ mod tests {
     fn test_serde_deserialize_gcp_config() {
         let credentials = json!({
             "gcp_service_account_to_impersonate": "test@project.iam.gserviceaccount.com",
+            "gcp_workload_identity_pool_audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider"
         });
 
         let iam_config: IAMAuthConfig = serde_json::from_value(credentials).unwrap();
@@ -958,7 +1068,7 @@ mod tests {
     fn test_serde_missing_required_aws_properties() {
         let credentials = json!({
             "aws_role_arn": "arn:aws:iam::123456789012:role/TestRole"
-            // Missing aws_external_id, aws_region
+            // Missing aws_region
         });
 
         let result = serde_json::from_value::<IAMAuthConfig>(credentials);
@@ -1003,7 +1113,6 @@ mod tests {
         let config = json!({
             "credentials": {
                 "aws_role_arn": "arn:aws:iam::123456789012:role/FlowConnectorRole",
-                "aws_external_id": "unique-external-id",
                 "aws_region": "us-west-2"
             }
         });
@@ -1024,7 +1133,6 @@ mod tests {
                     aws_config.aws_role_arn,
                     "arn:aws:iam::123456789012:role/FlowConnectorRole"
                 );
-                assert_eq!(aws_config.aws_external_id, "unique-external-id");
                 assert_eq!(aws_config.aws_region, "us-west-2");
             }
             _ => panic!("Expected AWS config"),
@@ -1066,7 +1174,6 @@ mod tests {
             "bucket": "my-test-bucket",
             "credentials": {
                 "aws_role_arn": "arn:aws:iam::123456789012:role/FlowConnectorRole",
-                "aws_external_id": "unique-external-id",
                 "aws_region": "us-west-2"
             }
         });
@@ -1086,7 +1193,6 @@ mod tests {
                     aws_config.aws_role_arn,
                     "arn:aws:iam::123456789012:role/FlowConnectorRole"
                 );
-                assert_eq!(aws_config.aws_external_id, "unique-external-id");
                 assert_eq!(aws_config.aws_region, "us-west-2");
             }
             _ => panic!("Expected AWS config"),
@@ -1100,7 +1206,8 @@ mod tests {
             "bucket": "my-test-bucket",
             "region": "us-east-1",
             "credentials": {
-                "gcp_service_account_to_impersonate": "flow-connector@my-project.iam.gserviceaccount.com"
+                "gcp_service_account_to_impersonate": "flow-connector@my-project.iam.gserviceaccount.com",
+                "gcp_workload_identity_pool_audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider"
             }
         });
 
