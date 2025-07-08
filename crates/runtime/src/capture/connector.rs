@@ -17,7 +17,7 @@ pub async fn start<L: LogHandler>(
     BoxStream<'static, anyhow::Result<Response>>,
 )> {
     let log_level = initial.get_internal()?.log_level();
-    let (endpoint, config_json, connector_type) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
@@ -109,12 +109,15 @@ pub async fn start<L: LogHandler>(
         config_json,
         &spec_response.config_schema_json,
     ) {
-        let tokens = iam_config
-            .generate_tokens()
-            .await
-            .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
+        // Only proceed with IAM auth if we have an actual catalog name
+        if let Some(task_name) = catalog_name.as_deref() {
+            let tokens = iam_config
+                .generate_tokens(task_name)
+                .await
+                .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
 
-        tokens.inject_into(config_json)?;
+            tokens.inject_into(config_json)?;
+        }
     }
 
     connector_tx.try_send(initial).unwrap();
@@ -124,38 +127,48 @@ pub async fn start<L: LogHandler>(
 
 fn extract_endpoint<'r>(
     request: &'r mut Request,
-) -> anyhow::Result<(models::CaptureEndpoint, &'r mut String, i32)> {
-    let (connector_type, config_json) = match request {
+) -> anyhow::Result<(models::CaptureEndpoint, &'r mut String, i32, Option<String>)> {
+    let (connector_type, config_json, catalog_name) = match request {
         Request {
             spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json),
+        } => (spec.connector_type, &mut spec.config_json, None),
         Request {
             discover: Some(discover),
             ..
-        } => (discover.connector_type, &mut discover.config_json),
+        } => (
+            discover.connector_type,
+            &mut discover.config_json,
+            Some(discover.name.clone()),
+        ),
         Request {
             validate: Some(validate),
             ..
-        } => (validate.connector_type, &mut validate.config_json),
+        } => (
+            validate.connector_type,
+            &mut validate.config_json,
+            Some(validate.name.clone()),
+        ),
         Request {
             apply: Some(apply), ..
         } => {
+            let catalog_name = apply.capture.as_ref().map(|c| c.name.clone());
             let inner = apply
                 .capture
                 .as_mut()
                 .context("`apply` missing required `capture`")?;
 
-            (inner.connector_type, &mut inner.config_json)
+            (inner.connector_type, &mut inner.config_json, catalog_name)
         }
         Request {
             open: Some(open), ..
         } => {
+            let catalog_name = open.capture.as_ref().map(|c| c.name.clone());
             let inner = open
                 .capture
                 .as_mut()
                 .context("`open` missing required `capture`")?;
 
-            (inner.connector_type, &mut inner.config_json)
+            (inner.connector_type, &mut inner.config_json, catalog_name)
         }
         request => return verify("client", "valid first request").fail(request),
     };
@@ -167,6 +180,7 @@ fn extract_endpoint<'r>(
             ),
             config_json,
             connector_type,
+            catalog_name,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
@@ -175,6 +189,7 @@ fn extract_endpoint<'r>(
             ),
             config_json,
             connector_type,
+            catalog_name,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");

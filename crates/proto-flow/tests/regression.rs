@@ -395,6 +395,7 @@ fn ex_capture_request() -> capture::Request {
             config_json: json!({"spec":"config"}).to_string(),
         }),
         discover: Some(capture::request::Discover {
+            name: "discover/capture".to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"discover":"config"}).to_string(),
         }),
