@@ -69,10 +69,12 @@ pub async fn do_discover(
 
     let discover = match &model_clone.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Discover {
+            name: capture.capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::to_string(&config).unwrap(),
         },
         models::CaptureEndpoint::Local(config) => capture::request::Discover {
+            name: capture.capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Local as i32,
             config_json: serde_json::to_string(config).unwrap(),
         },
