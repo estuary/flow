@@ -63,6 +63,14 @@ To perform a materialization backfill:
 
 1. Navigate to the Destinations tab in the Flow web UI
 2. Find your materialization and start editing it
+3. Under the **Source Collections** section, expand **Advanced options**
+4. Select the **Backfill** button
+5. Save and publish your changes
+
+Or you can select individual collections to backfill:
+
+1. Navigate to the Destinations tab in the Flow web UI
+2. Find your materialization and start editing it
 3. Select a collection you would like to backfill
 4. In the collection's **Resource configuration**, expand the **Advanced options** section
 5. Select the **Backfill** button
