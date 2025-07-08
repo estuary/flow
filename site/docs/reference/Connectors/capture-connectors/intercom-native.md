@@ -47,6 +47,7 @@ you'll sign in directly and won't need the access token.
 | **`/credentials/access_token`** | Access Token | Intercom Access token. | string | Required |
 | **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
 | `/start_date` | Start date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | 30 days before the present date |
+| `/advanced/search_page_size` | Search Streams' Page Size | Page size for streams that use Intercom's search endpoints. Typically, left as the default unless streams using search endpoints encounter constant Intercom server timeouts. | integer | 150 |
 | `/advanced/use_companies_list_endpoint` | Use `/companies/list` endpoint | If TRUE, the [`/companies/list`](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/companies/listallcompanies) endpoint is used instead of the [`/companies/scroll`](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/companies/scrolloverallcompanies) endpoint for the Companies and Company Segments bindings. Typically left as the default unless the connector indicates a different setting is needed. | boolean | False |
 | `/advanced/window_size` | Window size | Window size in days for incrementals streams. Typically left as the default unless more frequent checkpoints are desired. | integer | 5 |
 
@@ -68,6 +69,7 @@ captures:
         image: ghcr.io/estuary/source-intercom-native:dev
         config:
             advanced:
+                search_page_size: 150
                 use_companies_list_endpoint: false
                 window_size: 5
             credentials:
