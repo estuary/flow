@@ -393,6 +393,9 @@ func (p *Frontend) serveConnHTTP(user *frontendConn) {
 	var handle = func(w http.ResponseWriter, req *http.Request) {
 		httpStartedCounter.WithLabelValues(task, port, req.Method).Inc()
 
+		// Add HSTS header for all HTTPS responses
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
 		if user.resolved.portIsPublic {
 			reverse.ServeHTTP(w, req)
 		} else if req.URL.Path == "/auth-redirect" {
