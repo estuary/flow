@@ -64,7 +64,7 @@ exclude the `flow_document` metadata field.
 | **`/openAiApiKey`**   | OpenAI API Key       | OpenAI API key used for authentication.                                                                                                                  | string | Required                   |
 | `/embeddingModel`     | Embedding Model ID   | Embedding model ID for generating OpenAI bindings. The default text-embedding-ada-002 is recommended.                                                    | string | `"text-embedding-ada-002"` |
 | `/advanced`           |                      | Options for advanced users. You should not typically need to modify these.                                                                               | object |                            |
-| `/advaned/openAiOrg`  | OpenAI Organization  | Optional organization name for OpenAI requests. Use this if you belong to multiple organizations to specify which organization is used for API requests. | string |                            |
+| `/advanced/openAiOrg`  | OpenAI Organization  | Optional organization name for OpenAI requests. Use this if you belong to multiple organizations to specify which organization is used for API requests. | string |                            |
 
 #### Bindings
 

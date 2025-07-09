@@ -1,7 +1,11 @@
+import ReactPlayer from "react-player";
+
 # OracleDB
 This connector captures data from OracleDB into Flow collections using [Oracle Logminer](https://docs.oracle.com/en/database/oracle/oracle-database/19/sutil/oracle-logminer-utility.html#GUID-2555A155-01E3-483E-9FC6-2BDC2D8A4093).
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-oracle:dev`](https://ghcr.io/estuary/source-oracle:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=mE7LFSqfwY8" />
 
 ## Prerequisites
 * Oracle 11g or above

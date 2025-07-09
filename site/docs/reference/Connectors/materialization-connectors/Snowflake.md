@@ -31,7 +31,7 @@ If you haven't yet captured your data from its external source, start at the beg
 To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first five lines.
 
 If you'd like to use an existing database, warehouse, and/or schema, be sure to set
-`database_name`, `warehouse_name`, and `estuary_schema` accordingly. If you specify a new name, the script will create the item for you. You can set `estuary_role` 
+`database_name`, `warehouse_name`, and `estuary_schema` accordingly. If you specify a new name, the script will create the item for you. You can set `estuary_role`
 and `estuary_user` to whatever you'd like.
 
 Check the **All Queries** check box, and click **Run**.
@@ -135,6 +135,7 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
 | `/credentials/password`      | Password            | Deprecated                                                                                                                                                      | string | Deprecated       |
 | `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
+| `/advanced/disableFieldTruncation` | Disable Field Truncation | Disables truncation of large materialized fields | boolean | |
 
 #### Bindings
 

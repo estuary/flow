@@ -211,7 +211,7 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - Package - ghcr.io/estuary/source-shopify:dev
 - Shopify (GraphQL)
   - [Configuration](./shopify-native.md)
-  - Package - ghcr.io/estuary/source-shopify-native.dev
+  - Package - ghcr.io/estuary/source-shopify-native:dev
 - Snowflake
   - [Configuration](./snowflake.md)
   - Package - ghcr.io/estuary/source-snowflake:dev
