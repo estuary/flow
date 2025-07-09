@@ -7,6 +7,10 @@ For help using both connectors in parallel, [contact your Estuary account manage
 
 This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce-next:dev`](https://ghcr.io/estuary/source-salesforce-next:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
+:::warning
+This connector is deprecated. Consider using the new [native Salesforce connector](./salesforce-native.md) instead.
+:::
+
 ## Supported data resources
 
 This connector can capture the following Salesforce [standard objects](https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_list.htm), if present in your account:
