@@ -779,7 +779,7 @@ impl Controller {
             &checkout
                 .path()
                 .join(format!("Pulumi.{}.yaml", state.stack_name)),
-            serde_yaml::to_string(&state.stack).context("failed to encode stack as YAML")?.as_bytes(),
+            serde_yaml::to_vec(&state.stack).context("failed to encode stack as YAML")?,
         )
         .context("failed to write stack YAML")?;
 

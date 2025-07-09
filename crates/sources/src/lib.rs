@@ -46,15 +46,7 @@ impl Format {
             .unwrap(),
             Self::Yaml => {
                 serde_transcode::transcode(&mut de, &mut serde_yaml::Serializer::new(&mut buf))
-                    .unwrap();
-                // serde_yaml 0.9 no longer produces leading '---\n' separator
-                // Add it manually if the serialized output doesn't start with it
-                if !buf.starts_with(b"---") {
-                    let mut prefixed = Vec::with_capacity(buf.len() + 4);
-                    prefixed.extend_from_slice(b"---\n");
-                    prefixed.extend_from_slice(&buf);
-                    buf = prefixed;
-                }
+                    .unwrap()
             }
         }
         buf

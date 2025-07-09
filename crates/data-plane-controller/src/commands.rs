@@ -166,7 +166,7 @@ pub fn write_stack_init_fixture(
 
     stack.encrypted_key = encrypted_key.to_string();
 
-    std::fs::write(&stack_path, serde_yaml::to_string(&stack).unwrap().as_bytes())
+    std::fs::write(&stack_path, serde_yaml::to_vec(&stack).unwrap())
         .context("failed to write stack YAML")?;
 
     Ok(())
