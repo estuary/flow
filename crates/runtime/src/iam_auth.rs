@@ -11,23 +11,19 @@ pub enum IAMAuthConfig {
     GCP(GCPConfig),
 }
 
-/// AWS-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AWSConfig {
     pub aws_role_arn: String,
     pub aws_region: String,
 }
 
-/// GCP-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GCPConfig {
     pub gcp_service_account_to_impersonate: String,
     pub gcp_workload_identity_pool_audience: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gcp_project_id: Option<String>,
 }
 
-/// Generated short-lived tokens
+/// Generated short-lived tokens which will be injected into connector config
 #[derive(Debug, Clone, Zeroize)]
 pub enum IAMTokens {
     AWS(AWSTokens),
@@ -141,11 +137,22 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
 
     let sts_client = aws_sdk_sts::Client::new(&aws_config);
 
+    // Sanitize and truncate task_name to fit within AWS role session name limit of 64 chars
+    // AWS role session names must match pattern [\w+=,.@-]*
+    // Format: "flow.{task_name}@{timestamp}" - keeping task_name <= 48 chars
+    let sanitized_task_name = task_name.replace('/', ".");
+    let truncated_task_name = if sanitized_task_name.len() > 48 {
+        &sanitized_task_name[sanitized_task_name.len() - 48..]
+    } else {
+        &sanitized_task_name
+    };
+
     let assume_role_request = sts_client
         .assume_role()
         .role_arn(&config.aws_role_arn)
         .role_session_name(&format!(
-            "flow-connector-{}",
+            "flow.{}@{}",
+            truncated_task_name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs()
@@ -165,7 +172,7 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
 
     let credentials = response
         .credentials()
-        .context("No credentials returned from STS AssumeRole")?;
+        .context("no credentials returned from STS AssumeRole")?;
 
     Ok(AWSTokens {
         access_key_id: credentials.access_key_id().to_string(),
@@ -201,14 +208,14 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
 
     // Parse the credentials to get the runtime service account email
     let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
-        .context("Failed to parse service account key JSON")?;
-    let default_service_account = key_data
+        .context("failed to parse service account key JSON")?;
+    let runtime_service_account = key_data
         .get("client_email")
         .and_then(|v| v.as_str())
-        .context("Missing client_email in service account key")?;
+        .context("missing client_email in service account key")?;
 
     // Get a token from the root credentials to authenticate with IAM API
-    let mut default_token = get_gcp_token_from_credentials(&credentials_json).await?;
+    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
 
     credentials_json.zeroize();
 
@@ -220,10 +227,10 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
 
     // Step 1: Sign a JWT using the default runtime service account with task_name in payload
     let mut signed_jwt =
-        sign_jwt_for_service_account(default_service_account, &default_token, task_name, aud)
+        sign_jwt_for_service_account(runtime_service_account, &runtime_token, task_name, aud)
             .await?;
 
-    default_token.zeroize();
+    runtime_token.zeroize();
 
     // Step 2: Exchange the signed JWT for an access token via OAuth 2.0 token exchange
     let mut exchanged_token = exchange_jwt_for_service_account_token(&signed_jwt, aud).await?;
@@ -247,22 +254,19 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
     use serde_json::Value;
 
     let key_data: Value = serde_json::from_str(credentials_json)
-        .context("Failed to parse service account key JSON")?;
+        .context("failed to parse service account key JSON")?;
 
     let client_email = key_data
         .get("client_email")
         .and_then(|v| v.as_str())
-        .context("Missing client_email in service account key")?;
+        .context("missing client_email in service account key")?;
 
     let private_key = key_data
         .get("private_key")
         .and_then(|v| v.as_str())
-        .context("Missing private_key in service account key")?;
+        .context("missing private_key in service account key")?;
 
-    // Create JWT for OAuth 2.0 service account flow
-    let token = create_service_account_jwt_token(client_email, private_key).await?;
-
-    Ok(token)
+    create_service_account_jwt_token(client_email, private_key).await
 }
 
 /// Sign a JWT for the runtime service account using the IAM signJwt endpoint
@@ -285,7 +289,7 @@ async fn sign_jwt_for_service_account(
         "sub": service_account_email,
         "aud": workload_identity_pool_audience,
         "iat": now,
-        "exp": now + 3600, // 1 hour expiration
+        "exp": now + 3600,
         "task_name": task_name
     });
 
@@ -307,7 +311,7 @@ async fn sign_jwt_for_service_account(
         .json(&body)
         .send()
         .await
-        .context("Failed to call GCP signJwt API")?;
+        .context("failed to call GCP signJwt API")?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
@@ -317,13 +321,13 @@ async fn sign_jwt_for_service_account(
     let response_json: serde_json::Value = response
         .json()
         .await
-        .context("Failed to parse GCP signJwt response")?;
+        .context("failed to parse GCP signJwt response")?;
 
     response_json
         .get("signedJwt")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .context("Missing signedJwt in GCP signJwt response")
+        .context("missing signedJwt in GCP signJwt response")
 }
 
 /// Exchange a JWT for a service account token using OAuth 2.0 token exchange
@@ -336,7 +340,6 @@ async fn exchange_jwt_for_service_account_token(
 
     let client = reqwest::Client::new();
 
-    // Prepare the token exchange request
     let mut params = HashMap::new();
     params.insert("audience", workload_identity_pool_audience);
     params.insert(
@@ -357,7 +360,7 @@ async fn exchange_jwt_for_service_account_token(
         .form(&params)
         .send()
         .await
-        .context("Failed to call OAuth token exchange")?;
+        .context("failed to call OAuth token exchange")?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
@@ -367,13 +370,13 @@ async fn exchange_jwt_for_service_account_token(
     let response_json: serde_json::Value = response
         .json()
         .await
-        .context("Failed to parse OAuth token exchange response")?;
+        .context("failed to parse OAuth token exchange response")?;
 
     response_json
         .get("access_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .context("Missing access_token in OAuth token exchange response")
+        .context("missing access_token in OAuth token exchange response")
 }
 
 /// Impersonate a service account using the generateAccessToken API
@@ -403,7 +406,7 @@ async fn impersonate_service_account(
         .json(&body)
         .send()
         .await
-        .context("Failed to call GCP generateAccessToken API")?;
+        .context("failed to call GCP generateAccessToken API")?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
@@ -413,13 +416,13 @@ async fn impersonate_service_account(
     let response_json: serde_json::Value = response
         .json()
         .await
-        .context("Failed to parse GCP generateAccessToken response")?;
+        .context("failed to parse GCP generateAccessToken response")?;
 
     response_json
         .get("accessToken")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .context("Missing accessToken in GCP generateAccessToken response")
+        .context("missing accessToken in GCP generateAccessToken response")
 }
 
 /// Create JWT token and exchange it for an access token using OAuth 2.0 service account flow
@@ -453,9 +456,9 @@ async fn create_service_account_jwt_token(
 
     let header = Header::new(Algorithm::RS256);
     let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
-        .context("Failed to parse RSA private key")?;
+        .context("failed to parse RSA private key")?;
 
-    let mut jwt = encode(&header, &claims, &encoding_key).context("Failed to create JWT")?;
+    let mut jwt = encode(&header, &claims, &encoding_key).context("failed to create JWT")?;
 
     // Exchange JWT for access token
     let client = reqwest::Client::new();
@@ -469,9 +472,8 @@ async fn create_service_account_jwt_token(
         .form(&params)
         .send()
         .await
-        .context("Failed to exchange JWT for access token")?;
+        .context("failed to exchange JWT for access token")?;
 
-    // Zeroize the JWT after use
     jwt.zeroize();
 
     if !response.status().is_success() {
@@ -482,13 +484,13 @@ async fn create_service_account_jwt_token(
     let response_json: serde_json::Value = response
         .json()
         .await
-        .context("Failed to parse OAuth response")?;
+        .context("failed to parse OAuth response")?;
 
     response_json
         .get("access_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .context("Missing access_token in OAuth response")
+        .context("missing access_token in OAuth response")
 }
 
 /// Wrapper struct for parsing connector config with credentials
@@ -497,9 +499,7 @@ struct ConnectorConfigWithCredentials {
     credentials: IAMAuthConfig,
 }
 
-/// Extract IAM authentication configuration from connector config JSON using schema annotations
-/// This function parses both the connector config and schema to find x-iam-auth: true under "credentials"
-/// and uses serde to directly deserialize the IAM configuration
+/// Extract IAM authentication configuration from connector config JSON if x-iam-auth is set under credentials
 pub fn extract_iam_auth_from_connector_config(
     config_json: &str,
     config_schema_json: &str,
@@ -508,25 +508,23 @@ pub fn extract_iam_auth_from_connector_config(
         return Ok(None);
     }
 
-    return Ok(
+    Ok(
         serde_json::from_str::<ConnectorConfigWithCredentials>(config_json)
             .ok()
             .map(|c| c.credentials),
-    );
+    )
 }
 
 /// Check if schema has x-iam-auth: true under the credentials object
 fn has_credentials_iam_auth_annotation(schema_json: &str) -> anyhow::Result<bool> {
-    // Build the schema using doc validation
     let built_schema =
-        doc::validation::build_bundle(schema_json).context("Failed to build schema bundle")?;
+        doc::validation::build_bundle(schema_json).context("failed to build schema bundle")?;
     let mut index = doc::SchemaIndexBuilder::new();
     index.add(&built_schema)?;
     let index = index.into_index();
 
     let shape = doc::Shape::infer(&built_schema, &index);
 
-    // Use locate to find the credentials object, which works with allOf, oneOf, etc.
     let credentials_ptr = doc::Pointer::from("/credentials");
     let (credentials_shape, exists) = shape.locate(&credentials_ptr);
 
@@ -1087,7 +1085,6 @@ mod tests {
     #[test]
     fn test_serde_missing_required_gcp_properties() {
         let credentials = json!({
-            "gcp_project_id": "my-project"
             // Missing gcp_service_account_to_impersonate
         });
 
