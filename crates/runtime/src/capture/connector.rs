@@ -6,6 +6,7 @@ use proto_flow::{
     flow::capture_spec::ConnectorType,
 };
 use unseal;
+use zeroize::Zeroize;
 
 // Start a capture connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses.
@@ -111,12 +112,14 @@ pub async fn start<L: LogHandler>(
     ) {
         // Only proceed with IAM auth if we have an actual catalog name
         if let Some(task_name) = catalog_name.as_deref() {
-            let tokens = iam_config
+            let mut tokens = iam_config
                 .generate_tokens(task_name)
                 .await
                 .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
 
             tokens.inject_into(config_json)?;
+
+            tokens.zeroize();
         }
     }
 
