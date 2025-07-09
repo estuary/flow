@@ -42,7 +42,13 @@ pub trait CliOutput: Serialize {
 pub fn print_yaml(items: impl IntoIterator<Item = impl CliOutput>) -> anyhow::Result<()> {
     let mut stdout = io::stdout().lock();
     for item in items {
-        serde_yaml::to_writer(&mut stdout, &item)?;
+        let yaml_string = serde_yaml::to_string(&item)?;
+        // serde_yaml 0.9 no longer produces leading '---\n' separator
+        // Add it manually if the serialized output doesn't start with it
+        if !yaml_string.starts_with("---") {
+            stdout.write_all(b"---\n")?;
+        }
+        stdout.write_all(yaml_string.as_bytes())?;
         stdout.write_all(b"\n")?;
     }
     Ok(())
