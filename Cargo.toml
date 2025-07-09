@@ -177,7 +177,7 @@ time = { version = "0.3", features = [
 tinyvec = { version = "1.6", features = ["alloc"] }
 # We CANNOT enable the tokio "process" feature: https://github.com/tokio-rs/tokio/issues/3520
 # Instead, use the async-process crate which encapsulates a work-around.
-tokio = { version = "1", features = [
+tokio = { version = "1.40.0", features = [
     "fs",
     "io-util",
     "macros",
