@@ -33,7 +33,7 @@ You may also generate custom resources using [GAQL queries](#custom-queries).
 
 ## Prerequisites
 
-There are two ways to authenticate with Google when capturing data into Flow: using OAuth2, and manually, using tokens and secret credentials.
+There are two ways to authenticate with Google when capturing data into Flow: using OAuth2, and manually with the `flowctl` CLI, using tokens and secret credentials.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
@@ -83,7 +83,11 @@ customer_id = 1234567890,9876543210
   * This account may be a [**manager account**](https://ads.google.com/home/tools/manager-accounts/).
   If so, ensure that it is [linked to each Google Ads account](https://support.google.com/google-ads/answer/7459601) and make note of its [customer ID](https://support.google.com/google-ads/answer/29198?hl=en).
 
-### Configuring the connector specification manually
+### Configuring the connector specification manually via the CLI
+
+:::tip
+See our guide on [protecting secrets](../../../concepts/flowctl.md#protecting-secrets) to encrypt sensitive information when working with `flowctl`.
+:::
 
 * One or more Google Ads accounts.
 

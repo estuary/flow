@@ -66,6 +66,7 @@ For a complete introduction to resource organization in Bigquery, see the [BigQu
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
 | `/bucket_path` | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | |
 | `/billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery. Typically, you want this to be the same as `project_id` (the default). | String | Same as `project_id` |
+| `/advanced/disableFieldTruncation` | Disable Field Truncation | Disables truncation of large materialized fields | boolean | |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
 

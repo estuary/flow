@@ -434,9 +434,17 @@ The command's default behavior is to summarize the resource configurations to pu
 The `catalog publish` command defaults to publishing resources to the `ops/dp/public/gcp-us-central1-c1` data plane.
 You can also specify a different public data plane or your own [private or BYOC](../../private-byoc/README.md) data plane.
 
-Public data planes will begin with the `ops/dp/public/` prefix. If you are using a private data plane, you can ask your Estuary representative if you are unsure of the full name for your data plane.
+You can retrieve the full name of your desired data plane from the dashboard:
 
-When publishing resources to a data plane besides the default, make sure to specify the data plane in an option:
+1. Log into the Estuary dashboard and navigate to the [Admin](https://dashboard.estuary.dev/admin/) page.
+
+2. Under the **Settings** tab, scroll to the **Data Planes** section.
+
+3. Choose between the **Public** or **Private** data plane tabs.
+
+4. Next to your desired data plane, click the **Copy** button. The full name of the data plane will be copied to your clipboard.
+
+When publishing resources to a data plane besides the default, make sure to specify this data plane name in an option:
 
 ```
 flowctl catalog publish --default-data-plane ops/dp/public/aws-eu-west-1-c1 --source ./flow.yaml
