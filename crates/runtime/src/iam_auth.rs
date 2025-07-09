@@ -1,6 +1,7 @@
 use anyhow::Context;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 /// IAM authentication configuration extracted from connector config
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,20 +28,20 @@ pub struct GCPConfig {
 }
 
 /// Generated short-lived tokens
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize)]
 pub enum IAMTokens {
     AWS(AWSTokens),
     GCP(GCPTokens),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize)]
 pub struct AWSTokens {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub session_token: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize)]
 pub struct GCPTokens {
     pub access_token: String,
 }
@@ -155,7 +156,8 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
     let response = match assume_role_request.send().await {
         Ok(response) => response,
         Err(e) => anyhow::bail!(
-            "failed to assume AWS role {}: {}",
+            "failed to assume AWS role {} ({}): {}",
+            config.aws_role_arn,
             e.code().unwrap_or_default(),
             e.message().unwrap_or_default()
         ),
@@ -173,11 +175,10 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
 }
 
 /// Generate GCP access token using 3-step service account impersonation:
-/// 1. Sign JWT for default runtime service account with task_name
+/// 1. Sign JWT for runtime service account with task_name
 /// 2. Exchange JWT for access token using OAuth 2.0 token exchange
 /// 3. Use the exchanged token to impersonate the target service account
 async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Result<GCPTokens> {
-    // Get GCP credentials from environment variable
     let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
         .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
 
@@ -185,8 +186,7 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
         anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
     }
 
-    // Read the credentials JSON file
-    let credentials_json = tokio::fs::read_to_string(&credentials_path)
+    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
         .await
         .with_context(|| {
             format!(
@@ -199,7 +199,7 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
         anyhow::bail!("Google Cloud credentials file is empty");
     }
 
-    // Parse the credentials to get the default service account email
+    // Parse the credentials to get the runtime service account email
     let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
         .context("Failed to parse service account key JSON")?;
     let default_service_account = key_data
@@ -208,28 +208,34 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
         .context("Missing client_email in service account key")?;
 
     // Get a token from the root credentials to authenticate with IAM API
-    let default_token = get_gcp_token_from_credentials(&credentials_json).await?;
+    let mut default_token = get_gcp_token_from_credentials(&credentials_json).await?;
+
+    credentials_json.zeroize();
+
+    // Google presents the audience with https:, so we strip that if it exists
+    let aud = config
+        .gcp_workload_identity_pool_audience
+        .strip_prefix("https:")
+        .unwrap_or(&config.gcp_workload_identity_pool_audience);
 
     // Step 1: Sign a JWT using the default runtime service account with task_name in payload
-    let signed_jwt = sign_jwt_for_service_account(
-        default_service_account,
-        &default_token,
-        task_name,
-        &config.gcp_workload_identity_pool_audience,
-    )
-    .await?;
+    let mut signed_jwt =
+        sign_jwt_for_service_account(default_service_account, &default_token, task_name, aud)
+            .await?;
+
+    default_token.zeroize();
 
     // Step 2: Exchange the signed JWT for an access token via OAuth 2.0 token exchange
-    let exchanged_token = exchange_jwt_for_service_account_token(
-        &signed_jwt,
-        &config.gcp_workload_identity_pool_audience,
-    )
-    .await?;
+    let mut exchanged_token = exchange_jwt_for_service_account_token(&signed_jwt, aud).await?;
+
+    signed_jwt.zeroize();
 
     // Step 3: Use the exchanged access token to impersonate the target service account
     let impersonated_token =
         impersonate_service_account(&exchanged_token, &config.gcp_service_account_to_impersonate)
             .await?;
+
+    exchanged_token.zeroize();
 
     Ok(GCPTokens {
         access_token: impersonated_token,
@@ -277,7 +283,7 @@ async fn sign_jwt_for_service_account(
     let jwt_payload = json!({
         "iss": "https://accounts.google.com",
         "sub": service_account_email,
-        "aud": workload_identity_pool_audience.strip_prefix("https:").unwrap_or(workload_identity_pool_audience),
+        "aud": workload_identity_pool_audience,
         "iat": now,
         "exp": now + 3600, // 1 hour expiration
         "task_name": task_name
@@ -387,7 +393,7 @@ async fn impersonate_service_account(
     let body = json!({
         "scope": ["https://www.googleapis.com/auth/cloud-platform"],
         "delegates": [],
-        "lifetime": "43200s" // 12 hours
+        "lifetime": "3600s" // 12 hours
     });
 
     let response = client
@@ -449,7 +455,7 @@ async fn create_service_account_jwt_token(
     let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
         .context("Failed to parse RSA private key")?;
 
-    let jwt = encode(&header, &claims, &encoding_key).context("Failed to create JWT")?;
+    let mut jwt = encode(&header, &claims, &encoding_key).context("Failed to create JWT")?;
 
     // Exchange JWT for access token
     let client = reqwest::Client::new();
@@ -464,6 +470,9 @@ async fn create_service_account_jwt_token(
         .send()
         .await
         .context("Failed to exchange JWT for access token")?;
+
+    // Zeroize the JWT after use
+    jwt.zeroize();
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
