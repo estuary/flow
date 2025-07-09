@@ -112,9 +112,9 @@ pin-project-lite = "0.2"
 postgrest = "1.6"
 page-turner = "0.8.2"
 prost = "0.13"
-protobuf = "3.1"
-protobuf-json-mapping = "3.1"
-protobuf-parse = "3.1"
+protobuf = "3.7"
+protobuf-json-mapping = "3.7"
+protobuf-parse = "3.7"
 regex = "1.5"
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
@@ -139,7 +139,7 @@ rustyline = "11.0"
 schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
-serde_yaml = "0.8"
+serde_yaml = "0.9"
 serde-transcode = "1.1"
 serde-wasm-bindgen = "0.6.5"
 size = "0.4"
