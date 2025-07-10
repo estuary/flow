@@ -112,9 +112,9 @@ pin-project-lite = "0.2"
 postgrest = "1.6"
 page-turner = "0.8.2"
 prost = "0.13"
-protobuf = "3.7"
-protobuf-json-mapping = "3.7"
-protobuf-parse = "3.7"
+protobuf = "3.1"
+protobuf-json-mapping = "3.1"
+protobuf-parse = "3.1"
 regex = "1.5"
 reqwest = { version = "0.11", default-features = false, features = [
     "json",
@@ -177,7 +177,7 @@ time = { version = "0.3", features = [
 tinyvec = { version = "1.6", features = ["alloc"] }
 # We CANNOT enable the tokio "process" feature: https://github.com/tokio-rs/tokio/issues/3520
 # Instead, use the async-process crate which encapsulates a work-around.
-tokio = { version = "1.40.0", features = [
+tokio = { version = "1", features = [
     "fs",
     "io-util",
     "macros",
