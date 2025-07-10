@@ -90,6 +90,7 @@ impl Client {
             router::Mode::Default,
             &self.default,
         )?);
+        let only_failed = req.only_failed;
 
         let resp = client
             .unassign(req)
@@ -97,7 +98,13 @@ impl Client {
             .map_err(crate::Error::Grpc)?
             .into_inner();
 
-        check_ok(resp.status(), resp)
+        match resp.status() {
+            consumer::Status::Ok => Ok(resp),
+            // EtcdTransactionFailed is a kind of "success":
+            // there was a raced removal of the failed assignment, and we lost.
+            consumer::Status::EtcdTransactionFailed if only_failed => Ok(resp),
+            status => Err(crate::Error::ConsumerStatus(status)),
+        }
     }
 
     /// Invoke the Gazette shard GetHints RPC.
