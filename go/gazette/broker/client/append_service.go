@@ -395,9 +395,11 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 
 					if err2 == context.Canceled || err2 == context.DeadlineExceeded ||
 						errors.Is(err2, ErrFragmentStoreUnhealthy) ||
+						errors.Is(err2, ErrIndexHasGreaterOffset) ||
+						errors.Is(err2, ErrJournalNotFound) ||
+						errors.Is(err2, ErrNotAllowed) ||
 						errors.Is(err2, ErrRegisterMismatch) ||
-						err2 == ErrIndexHasGreaterOffset ||
-						err2 == ErrNotAllowed {
+						errors.Is(err2, ErrWrongAppendOffset) {
 						err = err2
 						return nil // Break retry loop.
 					} else if err2 != nil {

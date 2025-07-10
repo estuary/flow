@@ -277,6 +277,14 @@ func (s *AppendServiceSuite) TestAppendNonRetryableErrors(c *gc.C) {
 			status: pb.Status_NOT_ALLOWED,
 			errMsg: "NOT_ALLOWED",
 		},
+		{
+			status: pb.Status_JOURNAL_NOT_FOUND,
+			errMsg: "JOURNAL_NOT_FOUND",
+		},
+		{
+			status: pb.Status_WRONG_APPEND_OFFSET,
+			errMsg: "WRONG_APPEND_OFFSET",
+		},
 	}
 
 	for _, tc := range cases {
