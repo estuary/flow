@@ -18,7 +18,7 @@ use std::{
     mem,
     pin::Pin,
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 use tokio::sync::mpsc::error::TrySendError;
 use tokio_stream::wrappers::ReceiverStream;
@@ -147,14 +147,27 @@ impl GazetteWriter {
 
         let initial_state = task_listener.get().await?;
 
+        let (ops_logs_journal, ops_stats_journal) = match initial_state {
+            crate::task_manager::TaskState::Authorized {
+                ops_logs_journal,
+                ops_stats_journal,
+                ..
+            } => (ops_logs_journal, ops_stats_journal),
+            crate::task_manager::TaskState::Redirect {
+                target_dataplane_fqdn,
+            } => {
+                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+            }
+        };
+
         Ok((
             GazetteAppender::OpsLogs(GazetteAppenderState {
                 task_listener: task_listener.clone(),
-                journal_name: initial_state.ops_logs_journal.clone(),
+                journal_name: ops_logs_journal.clone(),
             }),
             GazetteAppender::OpsStats(GazetteAppenderState {
                 task_listener: task_listener.clone(),
-                journal_name: initial_state.ops_stats_journal.clone(),
+                journal_name: ops_stats_journal.clone(),
             }),
         ))
     }
@@ -208,20 +221,30 @@ impl GazetteAppender {
 
     async fn get_client(&self) -> anyhow::Result<journal::Client> {
         match self {
-            GazetteAppender::OpsStats(state) => state
-                .task_listener
-                .get()
-                .await?
-                .ops_stats_client
-                .map(|(client, _claims)| client)
-                .map_err(|err| err.into()),
-            GazetteAppender::OpsLogs(state) => state
-                .task_listener
-                .get()
-                .await?
-                .ops_logs_client
-                .map(|(client, _claims)| client)
-                .map_err(|err| err.into()),
+            GazetteAppender::OpsStats(state) => match state.task_listener.get().await? {
+                crate::task_manager::TaskState::Authorized {
+                    ops_stats_client, ..
+                } => ops_stats_client
+                    .map(|(client, _claims)| client)
+                    .map_err(|err| err.into()),
+                crate::task_manager::TaskState::Redirect {
+                    target_dataplane_fqdn,
+                } => {
+                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+                }
+            },
+            GazetteAppender::OpsLogs(state) => match state.task_listener.get().await? {
+                crate::task_manager::TaskState::Authorized {
+                    ops_logs_client, ..
+                } => ops_logs_client
+                    .map(|(client, _claims)| client)
+                    .map_err(|err| err.into()),
+                crate::task_manager::TaskState::Redirect {
+                    target_dataplane_fqdn,
+                } => {
+                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+                }
+            },
         }
     }
 

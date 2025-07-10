@@ -232,6 +232,14 @@ pub struct DekafAuthResponse {
     pub retry_millis: u64,
 }
 
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DekafRedirectResponse {
+    /// # Target dataplane FQDN for redirect when task has been migrated
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_dataplane_fqdn: Option<String>,
+}
+
 const fn capability_read() -> crate::Capability {
     crate::Capability::Read
 }

@@ -85,6 +85,30 @@ impl Session {
         }
     }
 
+    /// Returns the broker host and port to advertise to clients.
+    /// For redirected tasks, this returns the target dataplane's broker address.
+    fn get_broker_address(&self) -> (String, i32) {
+        match &self.auth {
+            Some(SessionAuthentication::Redirect {
+                target_dataplane_fqdn,
+                ..
+            }) => {
+                // Redirect to the target dataplane's Dekaf instance
+                (
+                    format!("dekaf.{}", target_dataplane_fqdn),
+                    self.app.advertise_kafka_port as i32,
+                )
+            }
+            _ => {
+                // Normal case: advertise this instance's address
+                (
+                    self.app.advertise_host.clone(),
+                    self.app.advertise_kafka_port as i32,
+                )
+            }
+        }
+    }
+
     async fn get_kafka_client(&mut self) -> anyhow::Result<&mut KafkaApiClient> {
         if let Some(ref mut client) = self.client {
             Ok(client)
@@ -103,6 +127,9 @@ impl Session {
                     },
                     self.broker_urls.as_slice(),
                 ),
+                Some(SessionAuthentication::Redirect { .. }) => {
+                    anyhow::bail!("Redirected sessions cannot create kafka clients");
+                }
                 Some(SessionAuthentication::User(_)) => {
                     if let (Some(username), Some(password), Some(urls)) = (
                         &self.legacy_mode_broker_username,
@@ -227,10 +254,11 @@ impl Session {
         }?;
 
         // We only ever advertise a single logical broker.
+        let (broker_host, broker_port) = self.get_broker_address();
         let brokers = vec![MetadataResponseBroker::default()
             .with_node_id(messages::BrokerId(1))
-            .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-            .with_port(self.app.advertise_kafka_port as i32)];
+            .with_host(StrBytes::from_string(broker_host))
+            .with_port(broker_port)];
 
         Ok(messages::MetadataResponse::default()
             .with_brokers(brokers)
@@ -334,21 +362,23 @@ impl Session {
         &mut self,
         request: messages::FindCoordinatorRequest,
     ) -> anyhow::Result<messages::FindCoordinatorResponse> {
+        let (broker_host, broker_port) = self.get_broker_address();
+
         let coordinators = request
             .coordinator_keys
             .iter()
             .map(|_key| {
                 messages::find_coordinator_response::Coordinator::default()
                     .with_node_id(messages::BrokerId(1))
-                    .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-                    .with_port(self.app.advertise_kafka_port as i32)
+                    .with_host(StrBytes::from_string(broker_host.clone()))
+                    .with_port(broker_port)
             })
             .collect();
 
         Ok(messages::FindCoordinatorResponse::default()
             .with_node_id(messages::BrokerId(1))
-            .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-            .with_port(self.app.advertise_kafka_port as i32)
+            .with_host(StrBytes::from_string(broker_host))
+            .with_port(broker_port)
             .with_coordinators(coordinators))
     }
 
@@ -466,6 +496,9 @@ impl Session {
             Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
             Some(SessionAuthentication::User(auth)) => {
                 format!("user-auth: {:?}", auth.claims.email)
+            }
+            Some(SessionAuthentication::Redirect { .. }) => {
+                bail!("Redirected sessions cannot fetch data")
             }
             None => bail!("Not authenticated"),
         };
@@ -1357,6 +1390,9 @@ impl Session {
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+                SessionAuthentication::Redirect { .. } => {
+                    bail!("Redirected sessions cannot encrypt topic names")
+                }
             },
         ))
     }
@@ -1367,6 +1403,9 @@ impl Session {
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+                SessionAuthentication::Redirect { .. } => {
+                    bail!("Redirected sessions cannot encrypt topic names")
+                }
             },
         ))
     }
@@ -1375,6 +1414,7 @@ impl Session {
         if match self.auth.as_ref().context("Must be authenticated")? {
             SessionAuthentication::User(auth) => auth.config.strict_topic_names,
             SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Redirect { .. } => false,
         } {
             Ok(to_downstream_topic_name(TopicName(StrBytes::from_string(
                 name,

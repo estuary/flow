@@ -1,6 +1,5 @@
 use crate::{
-    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, TaskState,
-    UserAuth,
+    connector, utils, SessionAuthentication, TaskAuth, TaskState, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
 use futures::{StreamExt, TryStreamExt};
@@ -37,11 +36,18 @@ impl UserAuth {
 
 impl TaskAuth {
     pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
-        let TaskState { spec, .. } = self
+        let task_state = self
             .task_state_listener
             .get()
             .await
             .context("failed to fetch task spec")?;
+
+        let spec = match task_state {
+            TaskState::Authorized { spec, .. } => spec,
+            TaskState::Redirect { target_dataplane_fqdn } => {
+                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+            }
+        };
 
         spec.bindings
             .iter()
@@ -58,11 +64,18 @@ impl TaskAuth {
         &self,
         topic_name: &str,
     ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
-        let TaskState { spec, .. } = self
+        let task_state = self
             .task_state_listener
             .get()
             .await
             .context("failed to fetch task spec")?;
+
+        let spec = match task_state {
+            TaskState::Authorized { spec, .. } => spec,
+            TaskState::Redirect { target_dataplane_fqdn } => {
+                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+            }
+        };
 
         Ok(spec
             .bindings
@@ -82,12 +95,18 @@ impl SessionAuthentication {
         match self {
             SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
             SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
+            SessionAuthentication::Redirect { .. } => {
+                anyhow::bail!("Redirected sessions cannot fetch collection names");
+            }
         }
     }
 
     pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
         match self {
             SessionAuthentication::User(_) => Ok(topic_name.to_string()),
+            SessionAuthentication::Redirect { .. } => {
+                anyhow::bail!("Redirected sessions cannot get collection for topic");
+            }
             SessionAuthentication::Task(auth) => {
                 let binding = auth
                     .get_binding_for_topic(topic_name)
@@ -155,14 +174,18 @@ impl Collection {
         pg_client: &postgrest::Postgrest,
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
-        let binding = if let SessionAuthentication::Task(task_auth) = auth {
-            if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                Some(binding)
-            } else {
-                bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+        let binding = match auth {
+            SessionAuthentication::Task(task_auth) => {
+                if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
+                    Some(binding)
+                } else {
+                    bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+                }
             }
-        } else {
-            None
+            SessionAuthentication::Redirect { .. } => {
+                bail!("Redirected sessions cannot access collection bindings");
+            }
+            SessionAuthentication::User(_) => None,
         };
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;
@@ -198,10 +221,20 @@ impl Collection {
 
                 (journal_client, parts)
             }
+            SessionAuthentication::Redirect { .. } => {
+                bail!("Redirected sessions cannot build collections");
+            }
             SessionAuthentication::Task(task_auth) => {
                 let state = task_auth.task_state_listener.get().await?;
-                let (_, parts) = state
-                    .partitions
+                
+                let partitions = match state {
+                    TaskState::Authorized { partitions, .. } => partitions,
+                    TaskState::Redirect { target_dataplane_fqdn } => {
+                        bail!("Task has been redirected to {}", target_dataplane_fqdn);
+                    }
+                };
+                
+                let (_, parts) = partitions
                     .into_iter()
                     .find(|(name, _)| name == &partition_template_name)
                     .context("missing partition template")?;
