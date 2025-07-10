@@ -6,10 +6,9 @@ use proto_gazette::broker::{self, AppendResponse};
 impl Client {
     /// Append the contents of a byte stream to the specified journal.
     /// Returns a Stream of results which will yield either:
-    /// - An AppendResponse after all data is successfully appended
     /// - Errors for any failures encountered.
-    /// If polled after an error, regenerates the input stream and
-    /// retries the request from the beginning.
+    /// - An AppendResponse after all data is successfully appended, followed by EOF.
+    /// If polled after an error, it retries the request from the beginning.
     pub fn append<'a, S>(
         &'a self,
         mut req: broker::AppendRequest,
@@ -110,9 +109,10 @@ impl Client {
             });
         let result = client.append(source).await;
 
-        // An error reading `source` has precedence,
-        // as it's likely causal if the broker *also* errored.
-        if let Ok(err) = source_err_rx.now_or_never().expect("tx has been dropped") {
+        // An error reading `source` has precedence as it's likely causal if the
+        // broker *also* errored. It's possible that the broker response arrives
+        // before we've sent off the complete request.
+        if let Some(Ok(err)) = source_err_rx.now_or_never() {
             return Err(Error::AppendRead(err));
         }
         let mut resp = result?.into_inner();
