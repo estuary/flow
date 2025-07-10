@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use gazette::broker::journal_spec;
 use itertools::Itertools;
 use proto_gazette::{broker, consumer};
@@ -25,20 +25,10 @@ pub async fn migrate_data_planes(
             .try_collect()
             .await?;
 
-    for spec in &spec_migrations {
-        tracing::info!(
-            catalog_name = spec.catalog_name,
-            spec_type = ?unpack_templates(&spec.built_spec)?.0,
-            live_spec_id = ?spec.live_spec_id,
-            "spec to migrate"
-        );
-    }
-
-    let _: Vec<_> = spec_migrations
-        .iter()
-        .map(|spec_migration| phase_one(spec_migration, &src_data_plane, &tgt_data_plane))
-        .collect::<futures::stream::FuturesUnordered<_>>()
-        .try_collect()
+    () = futures::stream::iter(spec_migrations.iter().map(Ok))
+        .try_for_each_concurrent(CONCURRENCY, |spec_migration| {
+            phase_one(spec_migration, &src_data_plane, &tgt_data_plane)
+        })
         .await?;
 
     // Phase two: update the data-plane ID of migrated specs to the target.
@@ -63,20 +53,11 @@ pub async fn migrate_data_planes(
             .try_collect()
             .await?;
 
-    for spec in &spec_migrations {
-        tracing::info!(
-            catalog_name = spec.catalog_name,
-            spec_type = ?unpack_templates(&spec.built_spec)?.0,
-            live_spec_id = ?spec.live_spec_id,
-            "spec to remove cordon"
-        );
-    }
-
-    let _: Vec<_> = spec_migrations
-        .iter()
-        .map(|spec_migration| phase_three(spec_migration, &tgt_data_plane))
-        .collect::<futures::stream::FuturesUnordered<_>>()
-        .try_collect()
+    // Reverse ordering to un-cordon collections, then tasks.
+    () = futures::stream::iter(spec_migrations.iter().rev().map(Ok))
+        .try_for_each_concurrent(CONCURRENCY, |spec_migration| {
+            phase_three(spec_migration, &tgt_data_plane)
+        })
         .await?;
 
     // TODO(johnny): Temporary support of the cronut migration.
@@ -184,23 +165,28 @@ async fn phase_one(
             munge_fqdn(&tgt_data_plane.reactor_address).as_str(),
         )), // Cordon.
     )
-    .await?;
+    .await
+    .with_context(|| format!("failed to cordon {catalog_name}"))?;
 
-    () = attach_shard_primary_hints(src_shard_client, &mut src_shards).await?;
+    () = attach_shard_primary_hints(src_shard_client, &mut src_shards)
+        .await
+        .with_context(|| format!("failed to fetch shard hints of {catalog_name}"))?;
 
     // Fetch shards and journals from the target data-plane.
     // They may exist in a cordoned state if we're migrating back.
-    let ((tgt_shards, tgt_recovery, tgt_ops_logs, tgt_ops_stats), tgt_partitions) = futures::try_join!(
-        activate::fetch_task_splits(
-            tgt_journal_client,
-            tgt_shard_client,
-            task_type,
-            catalog_name,
-            Some(tgt_ops_logs_template),
-            Some(tgt_ops_stats_template),
-        ),
-        activate::fetch_partition_splits(tgt_journal_client, catalog_name),
-    )?;
+    let ((tgt_shards, tgt_recovery, tgt_ops_logs, tgt_ops_stats), tgt_partitions) =
+        futures::try_join!(
+            activate::fetch_task_splits(
+                tgt_journal_client,
+                tgt_shard_client,
+                task_type,
+                catalog_name,
+                Some(tgt_ops_logs_template),
+                Some(tgt_ops_stats_template),
+            ),
+            activate::fetch_partition_splits(tgt_journal_client, catalog_name),
+        )
+        .with_context(|| format!("failed to fetch target-plane splits of {catalog_name}"))?;
 
     let shards: Vec<activate::ShardSplit> = merge_splits(
         src_shards,
@@ -229,7 +215,9 @@ async fn phase_one(
     changes.extend(activate::partition_changes(partition_template, partitions)?);
 
     print_changes(&changes, &tgt_data_plane.data_plane_name);
-    () = activate::apply_changes(tgt_journal_client, tgt_shard_client, changes).await?;
+    () = activate::apply_changes(tgt_journal_client, tgt_shard_client, changes)
+        .await
+        .with_context(|| format!("failed to apply target-plane splits of {catalog_name}"))?;
 
     Ok(())
 }
@@ -298,7 +286,7 @@ async fn phase_three(
 
     let (task_type, task_template, partition_template) = unpack_templates(built_spec)?;
 
-    // Fetch and cordon shards and journals from the source data-plane.
+    // Fetch and un-cordon shards and journals of the target data-plane.
     let (_shards, _recovery, _partitions) = update_cordon(
         &tgt_data_plane.data_plane_name,
         tgt_journal_client,
@@ -311,7 +299,8 @@ async fn phase_three(
         Some(tgt_ops_stats_template),
         None, // Remove cordon.
     )
-    .await?;
+    .await
+    .with_context(|| format!("failed to un-cordon {catalog_name}"))?;
 
     Ok(())
 }
@@ -343,7 +332,8 @@ async fn update_cordon<'a>(
                 ops_stats_template,
             ),
             activate::fetch_partition_splits(journal_client, &catalog_name)
-        )?;
+        )
+        .context("fetching splits")?;
 
         if apply_cordon_label(
             cordon.map(|(cordon_journals, _)| cordon_journals),
@@ -357,13 +347,16 @@ async fn update_cordon<'a>(
             changes.extend(activate::partition_changes(partition_template, partitions)?);
 
             print_changes(&changes, data_plane_name);
-            () = activate::apply_changes(journal_client, shard_client, changes).await?;
+            () = activate::apply_changes(journal_client, shard_client, changes)
+                .await
+                .context("applying cordon label")?;
 
             continue; // Loop to try again.
         }
         if cordon.is_some() {
             if apply_journal_suspension(journal_client, recovery.iter().chain(partitions.iter()))
-                .await?
+                .await
+                .context("suspending journal")?
             {
                 continue; // Loop to try again.
             }
@@ -403,7 +396,7 @@ async fn apply_journal_suspension<'a>(
 ) -> anyhow::Result<bool> {
     use futures::TryStreamExt;
 
-    let to_suspend = futures::stream::FuturesUnordered::<_>::new();
+    let mut to_suspend = Vec::new();
 
     for journal in it {
         if matches!(&journal.suspend, Some(journal_spec::Suspend { level, .. }) if *level != 0) {
@@ -447,10 +440,10 @@ async fn apply_journal_suspension<'a>(
         });
     }
 
-    let suspended: Vec<()> = to_suspend
+    let suspended: Vec<()> = futures::stream::iter(to_suspend)
+        .buffer_unordered(CONCURRENCY)
         .try_collect()
-        .await
-        .context("failed to suspend journals")?;
+        .await?;
 
     Ok(!suspended.is_empty())
 }
@@ -461,9 +454,8 @@ async fn attach_shard_primary_hints(
 ) -> anyhow::Result<()> {
     use futures::TryStreamExt;
 
-    let _: Vec<()> = shards
-        .iter_mut()
-        .map(|shard| async {
+    () = futures::stream::iter(shards.iter_mut().map(Ok))
+        .try_for_each_concurrent(CONCURRENCY, |shard| async {
             let hints = shard_client
                 .get_hints(consumer::GetHintsRequest {
                     shard: shard.id.clone(),
@@ -477,8 +469,6 @@ async fn attach_shard_primary_hints(
 
             Ok::<_, gazette::Error>(())
         })
-        .collect::<futures::stream::FuturesUnordered<_>>()
-        .try_collect()
         .await?;
 
     Ok(())
@@ -575,7 +565,7 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
                 | proto_gazette::capability::LIST
                 | proto_gazette::capability::READ,
             &row.data_plane_fqdn,
-            std::time::Duration::from_secs(300),
+            std::time::Duration::from_secs(900),
             &row.hmac_keys,
             broker::LabelSelector::default(),
             "migrate-tool",
@@ -619,6 +609,9 @@ fn fetch_spec_migrations<'a>(
         WHERE starts_with(catalog_name, $1)
         AND   built_spec IS NOT NULL
         AND   data_plane_id = $2
+        -- Migrate tasks first, then collections.
+        -- This minimizes shard failures due to cordoned journals.
+        ORDER BY spec_type = 'collection', catalog_name
         "#,
         catalog_prefix,
         data_plane_id as models::Id,
@@ -672,3 +665,5 @@ fn unpack_templates<'a>(
         proto_flow::AnyBuiltSpec::Test(_spec) => (ops::TaskType::InvalidType, None, None),
     })
 }
+
+const CONCURRENCY: usize = 25;

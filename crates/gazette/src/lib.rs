@@ -57,7 +57,7 @@ pub struct RetryError {
 impl Error {
     pub fn with_attempt(self, attempt: usize) -> RetryError {
         RetryError {
-            attempt: attempt,
+            attempt,
             inner: self,
         }
     }
@@ -75,6 +75,18 @@ impl Error {
                 tonic::Code::Unavailable => true,
                 tonic::Code::Cancelled => true,
                 tonic::Code::Aborted => true,
+
+                // Broken transports are Unknown with specific messages.
+                tonic::Code::Unknown
+                    if matches!(
+                        status.message(),
+                        "h2 protocol error: error reading a body from connection"
+                            | "transport error"
+                    ) =>
+                {
+                    true
+                }
+
                 _ => false, // Others are not.
             },
 
