@@ -5,7 +5,7 @@ When new captures are created, you often have the option of backfilling data. Th
 
 This is desirable in most cases, as it ensures that a complete view of your data is captured into Flow.
 
-You also have options to backfill data in either the source, destination, or entire data flow after initial connector setup. This can be useful to refresh data or recover in the event of data corruption.
+You also have options to backfill data in either the source, destination, or entire dataflow after initial connector setup. This can be useful to refresh data or recover in the event of data corruption.
 
 Also see how [schema evolution](https://docs.estuary.dev/concepts/advanced/evolutions/#what-do-schema-evolutions-do) can help with backfills when a source's schema becomes incompatible with the existing schema.
 
@@ -13,30 +13,30 @@ Also see how [schema evolution](https://docs.estuary.dev/concepts/advanced/evolu
 
 ![Backfill options](./reference-images/backfill-options.png)
 
-### Capture backfill
+### Incremental backfill
 
-A capture backfill refreshes data from your source system into Estuary collections without dropping your destination tables.
+An incremental backfill on a capture refreshes data from your source system into Estuary collections without dropping your destination tables.
 This is useful when you need to update your collections with the latest source data or recover from data loss in your collections.
 
-When you perform a capture backfill:
+When you perform an incremental backfill:
 
 * Data is reread from the source system
 * The data is stored in Estuary collections
 * Existing destination tables remain intact
 * New or updated data will be materialized to destinations as part of the normal process
 
-To perform a capture backfill:
+To perform an incremental backfill:
 
 1. Navigate to the Sources tab in the Flow web UI
-2. Find your capture and click the Backfill option
-3. Disable the **Backfill data flow** toggle
-4. (Optional) Choose a specific [**Backfill mode**](#backfill-modes) in the collection resource configuration for advanced use cases
+2. Start editing your capture and click the **Backfill** button
+3. In the **Backfill mode** dropdown, select the **Incremental backfill (advanced)** option
+4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
 5. Save and publish your changes
 
 This option is ideal when you want to ensure your collections have the most up-to-date data without
 disrupting your destination systems.
 
-When you perform a capture backfill, all data is pulled into collections again, and
+When you perform an incremental backfill, all data is pulled into collections again, and
 materializations that use those collections will read and process this data. How the data is handled
 at the destination depends on your materialization settings:
 
@@ -63,8 +63,19 @@ To perform a materialization backfill:
 
 1. Navigate to the Destinations tab in the Flow web UI
 2. Find your materialization and start editing it
-3. Select the **Backfill** button to backfill the entire materialization or individually backfill collections in their **Resource configuration**
-4. Save and publish your changes
+3. Under the **Source Collections** section, expand **Advanced options**
+4. Select the **Backfill** button
+5. Save and publish your changes
+
+Or you can select individual collections to backfill:
+
+1. Navigate to the Destinations tab in the Flow web UI
+2. Find your materialization and start editing it
+3. Select a collection you would like to backfill
+4. In the collection's **Resource configuration**, expand the **Advanced options** section
+5. Select the **Backfill** button
+6. Repeat steps 3-5 for all collections you'd like to backfill
+7. Save and publish your changes
 
 :::tip
 Dropping destination tables may create downtime for your destination table consumers while data is backfilled.
@@ -73,27 +84,27 @@ Dropping destination tables may create downtime for your destination table consu
 This option is best when you need to refresh destination tables but are confident your collections
 contain all the necessary historical data.
 
-### Data flow backfill
+### Dataflow reset
 
-A data flow backfill is the most comprehensive option, refreshing the entire pipeline from source to
+A dataflow reset is the most comprehensive option, refreshing the entire pipeline from source to
 destination. This option drops destination tables, rereads data from the source into collections, and
 then materializes that data to the destination.
 
-When you perform a data flow backfill:
+When you perform a dataflow reset:
 
 * Destination tables are dropped and recreated
 * Data is reread from the source system
+* Inferred schemas are reset
 * Collections are updated with fresh source data
-* Materialization bindings are configured to only read from now onwards (they don’t
-re-send previously captured data along with the new backfill)
 * Destination tables are repopulated with the refreshed data
 
-To perform a data flow backfill:
+To perform a dataflow reset:
 
 1. Navigate to the Sources tab in the Flow web UI
-2. Find your capture and click the Backfill option
-3. Make sure the **Backfill data flow** toggle is enabled
-4. Save and publish your changes
+2. Start editing your capture and click the **Backfill** button
+3. In the **Backfill mode** dropdown, select the **Dataflow reset** option
+4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
+5. Save and publish your changes
 
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
 you suspect data inconsistencies between source, collections, and destinations.
@@ -108,10 +119,10 @@ When deciding which backfill type to use, consider:
 days. For full historical data, [configure your own storage bucket](../getting-started/installation.mdx).
 * **Table size:** For very large tables (TBs of data), consider the impact (time, data, cost) of
 dropping and recreating tables.
-* **Downtime tolerance:** Materialization and data flow backfills involve dropping destination
+* **Downtime tolerance:** Materialization and dataflow resets involve dropping destination
 tables, which creates downtime.
 * **Update strategy:** Consider whether your materializations use standard (merge) or delta
-updates, as this affects how backfilled data is handled at the destination. Using capture
+updates, as this affects how backfilled data is handled at the destination. Using incremental
 backfills (not dropping the destination tables) when you have materializations that use
 delta updates may result in duplicate rows.
 
@@ -120,16 +131,16 @@ consistency across your Estuary Flow pipelines while minimizing disruption to yo
 
 | **If I want to...** | **Then I should...** |
 | --- | --- |
-| Refresh my collections with source data, without dropping destination tables | Use a **Capture Backfill** to pull all source data into Estuary collections |
+| Refresh my collections with source data, without dropping destination tables | Use an **Incremental Backfill** to pull all source data into Estuary collections |
 | Rebuild destination tables using existing collection data | Use a **Materialization Backfill** to drop and recreate destination tables from collections |
-| Completely refresh my entire data pipeline from source to destination | Use a **Data Flow Backfill** to drop destination tables and backfill from source |
-| Recover from a replication slot failure in PostgreSQL | Use a **Capture Backfill** to re-establish consistency |
-| Add a new table to my existing data flow | Use a **Capture Backfill** for just the new binding |
-| Ensure my own storage bucket contains complete historical data | Use a **Capture Backfill** after setting up the new storage mapping |
-| Recreate a destination table from scratch when using trial buckets with limited retention | Use a **Data Flow Backfill** to ensure all historical source data is included |
-| Update my destination with schema changes from the source | Use a **Data Flow Backfill** to ensure schema changes are properly propagated |
-| Recover from data corruption in both collections and destinations | Use a **Data Flow Backfill** for a complete refresh of the entire pipeline |
-| Recover from data corruption in both collections and destinations for very large (TBs of data) datasets | Use a **Data Flow Backfill** for a refresh of the pipeline with capture configurations to start the backfill from a particular timestamp or transaction id |
+| Completely refresh my entire data pipeline from source to destination | Use a **Dataflow Reset** to drop destination tables and backfill from source |
+| Recover from a replication slot failure in PostgreSQL | Use an **Incremental Backfill** to re-establish consistency |
+| Add a new table to my existing data flow | Use an **Incremental Backfill** for just the new binding |
+| Ensure my own storage bucket contains complete historical data | Use an **Incremental Backfill** after setting up the new storage mapping |
+| Recreate a destination table from scratch when using trial buckets with limited retention | Use a **Dataflow Reset** to ensure all historical source data is included |
+| Update my destination with schema changes from the source | Use a **Dataflow Reset** to ensure schema changes are properly propagated |
+| Recover from data corruption in both collections and destinations | Use a **Dataflow Reset** for a complete refresh of the entire pipeline |
+| Recover from data corruption in both collections and destinations for very large (TBs of data) datasets | Use a **Dataflow Reset** for a refresh of the pipeline with capture configurations to start the backfill from a particular timestamp or transaction id |
 
 ## Preventing backfills
 
@@ -157,12 +168,12 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 3. Perform the database upgrade.
 
-4. Backfill each binding of the capture using the ["Only Changes" backfill mode](#backfill-modes).
+4. Backfill each binding of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes).
    - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.
 
 5. Resume database writes.
 
-## Backfill modes
+## Resource configuration backfill modes
 
 The connectors that use CDC (Change Data Capture) allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
 
