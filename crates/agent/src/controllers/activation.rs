@@ -259,8 +259,6 @@ pub async fn update_activation<C: ControlPlane>(
 
     if should_resolve_alert(state, &*status, now) {
         alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
-    } else {
-        tracing::warn!("NOT RESOLVING ALERT");
     }
     Ok(next_status_check)
 }
