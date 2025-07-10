@@ -139,6 +139,7 @@ You can configure connectors either in the Flow web app, or by directly editing 
 | `/credentials/password`      | Password            | Deprecated                                                                                                                                                      | string | Deprecated       |
 | `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
 | `/warehouse` | Warehouse | The Snowflake virtual warehouse used to execute queries. The default warehouse for the user will be used if this is blank. | string |  |
+| `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
 | `/advanced/flowSchema` | Flow Schema | The schema in which Flow will create and manage its streams and staging tables. | string  | ESTUARY_STAGING |
 
