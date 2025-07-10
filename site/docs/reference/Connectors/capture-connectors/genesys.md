@@ -8,7 +8,12 @@ It is available for use in the Flow web application. For local development or op
 
 The following data resources are supported through the Genesys API:
 
+* [Campaigns](https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-outbound-campaigns-all)
 * [Conversations](https://developer.genesys.cloud/routing/conversations/conversations-apis#post-api-v2-analytics-conversations-details-jobs)
+* [Messaging Campaigns][https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-outbound-messagingcampaigns]
+* [Queues](https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-routing-queues)
+* [Queue Members](https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-routing-queues--queueId--members)
+* [Teams](https://developer.genesys.cloud/devapps/api-explorer#post-api-v2-teams-search)
 * [Users](https://developer.genesys.cloud/useragentman/users/#get-api-v2-users)
 
 By default, each resource is mapped to a Flow collection through a separate binding.
