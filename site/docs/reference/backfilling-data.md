@@ -157,8 +157,8 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 3. Perform the database upgrade.
 
-4. Backfill each binding of the capture using the ["Only Changes" backfill mode](#backfill-modes).
-   - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.
+4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#backfill-modes) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
+   - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.  Incremental backfill will append new data to your current collection.
 
 5. Resume database writes.
 
