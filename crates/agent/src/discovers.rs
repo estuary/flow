@@ -195,6 +195,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         let config_json = serde_json::to_string(connector_cfg).unwrap();
         let request = capture::Request {
             discover: Some(capture::request::Discover {
+                name: capture_name.to_string(),
                 connector_type: capture_spec::ConnectorType::Image as i32,
                 config_json,
             }),
