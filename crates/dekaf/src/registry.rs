@@ -39,6 +39,7 @@ async fn all_subjects(
         let strict_topic_names = match auth {
             SessionAuthentication::User(ref auth) => auth.config.strict_topic_names,
             SessionAuthentication::Task(ref auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Redirect { .. } => false,
         };
 
         auth.fetch_all_collection_names()
