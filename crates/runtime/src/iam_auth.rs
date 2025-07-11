@@ -9,6 +9,7 @@ use zeroize::Zeroize;
 pub enum IAMAuthConfig {
     AWS(AWSConfig),
     GCP(GCPConfig),
+    Azure(AzureConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,11 +24,18 @@ pub struct GCPConfig {
     pub gcp_workload_identity_pool_audience: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AzureConfig {
+    pub azure_client_id: String,
+    pub azure_tenant_id: String,
+}
+
 /// Generated short-lived tokens which will be injected into connector config
 #[derive(Debug, Clone, Zeroize)]
 pub enum IAMTokens {
     AWS(AWSTokens),
     GCP(GCPTokens),
+    Azure(AzureTokens),
 }
 
 #[derive(Debug, Clone, Zeroize)]
@@ -39,6 +47,11 @@ pub struct AWSTokens {
 
 #[derive(Debug, Clone, Zeroize)]
 pub struct GCPTokens {
+    pub access_token: String,
+}
+
+#[derive(Debug, Clone, Zeroize)]
+pub struct AzureTokens {
     pub access_token: String,
 }
 
@@ -79,6 +92,12 @@ impl IAMTokens {
                     serde_json::Value::String(access_token.clone()),
                 );
             }
+            IAMTokens::Azure(AzureTokens { access_token }) => {
+                credentials.insert(
+                    "azure_access_token".to_string(),
+                    serde_json::Value::String(access_token.clone()),
+                );
+            }
         }
 
         *config = serde_json::to_string(&parsed)?;
@@ -98,6 +117,10 @@ impl IAMAuthConfig {
             IAMAuthConfig::GCP(gcp_config) => {
                 let gcp_tokens = generate_gcp_tokens(gcp_config, task_name).await?;
                 Ok(IAMTokens::GCP(gcp_tokens))
+            }
+            IAMAuthConfig::Azure(azure_config) => {
+                let azure_tokens = generate_azure_tokens(azure_config, task_name).await?;
+                Ok(IAMTokens::Azure(azure_tokens))
             }
         }
     }
@@ -179,6 +202,63 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
         secret_access_key: credentials.secret_access_key().to_string(),
         session_token: credentials.session_token().to_string(),
     })
+}
+
+/// Generate Azure access token using 2-step workload identity federation:
+/// 1. Sign JWT using runtime client certificate with task_name claim
+/// 2. Exchange signed JWT for target App Registration access token
+async fn generate_azure_tokens(
+    config: &AzureConfig,
+    task_name: &str,
+) -> anyhow::Result<AzureTokens> {
+    let client_id =
+        std::env::var("AZURE_CLIENT_ID").context("AZURE_CLIENT_ID environment variable not set")?;
+    let certificate_path = std::env::var("AZURE_CLIENT_CERTIFICATE")
+        .context("AZURE_CLIENT_CERTIFICATE environment variable not set")?;
+    let tenant_id =
+        std::env::var("AZURE_TENANT_ID").context("AZURE_TENANT_ID environment variable not set")?;
+
+    if client_id.is_empty() || certificate_path.is_empty() || tenant_id.is_empty() {
+        anyhow::bail!("Azure credentials from environment variables are empty");
+    }
+
+    // Read the certificate from file
+    let mut certificate_pem = tokio::fs::read_to_string(&certificate_path)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to read Azure client certificate from {}",
+                certificate_path
+            )
+        })?;
+
+    if certificate_pem.trim().is_empty() {
+        anyhow::bail!("Azure client certificate file is empty");
+    }
+
+    // Step 1: Sign JWT using runtime client certificate with task_name claim
+    let mut signed_jwt = create_azure_signed_jwt(
+        &client_id,
+        &certificate_pem,
+        &tenant_id,
+        &config.azure_client_id,
+        task_name,
+    )
+    .await?;
+
+    certificate_pem.zeroize();
+
+    // Step 2: Exchange signed JWT for target App Registration access token
+    let access_token = exchange_azure_jwt_for_app_registration_token(
+        &signed_jwt,
+        &config.azure_tenant_id,
+        &config.azure_client_id,
+    )
+    .await?;
+
+    signed_jwt.zeroize();
+
+    Ok(AzureTokens { access_token })
 }
 
 /// Generate GCP access token using 3-step service account impersonation:
@@ -491,6 +571,136 @@ async fn create_service_account_jwt_token(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .context("missing access_token in OAuth response")
+}
+
+/// Create signed JWT using runtime client certificate with task_name claim
+async fn create_azure_signed_jwt(
+    client_id: &str,
+    certificate_pem: &str,
+    tenant_id: &str,
+    target_client_id: &str,
+    task_name: &str,
+) -> anyhow::Result<String> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use serde::{Deserialize, Serialize};
+    use sha1::{Digest, Sha1};
+    use x509_parser::prelude::*;
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct Claims {
+        iss: String,
+        sub: String,
+        aud: String,
+        exp: usize,
+        iat: usize,
+        nbf: usize,
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs() as usize;
+
+    let claims = Claims {
+        //iss: format!("https://login.microsoftonline.com/{}/", tenant_id),
+        iss: format!("https://login.microsoftonline.com/{}/", tenant_id),
+        sub: target_client_id.to_string(),
+        aud: "api://AzureADTokenExchange".to_string(),
+        exp: now + 3600, // Expire in 1 hour
+        iat: now,
+        nbf: now,
+    };
+
+    // Parse the certificate to extract the certificate (not private key) for thumbprint calculation
+    let cert_der = if certificate_pem.contains("-----BEGIN CERTIFICATE-----") {
+        // Extract certificate from PEM if it contains both certificate and private key
+        let cert_start = certificate_pem
+            .find("-----BEGIN CERTIFICATE-----")
+            .context("Certificate not found in PEM")?;
+        let cert_end = certificate_pem
+            .find("-----END CERTIFICATE-----")
+            .context("Certificate end not found in PEM")?;
+        let cert_pem = &certificate_pem[cert_start..cert_end + "-----END CERTIFICATE-----".len()];
+
+        ::pem::parse(cert_pem)
+            .map_err(|e| anyhow::anyhow!("failed to parse certificate PEM: {}", e))?
+            .into_contents()
+    } else {
+        anyhow::bail!("Certificate not found in PEM - only private key detected. Please provide a PEM file containing both certificate and private key.");
+    };
+
+    // Parse the X.509 certificate (to validate it's a valid certificate)
+    let (_, _cert) = X509Certificate::from_der(&cert_der)
+        .map_err(|e| anyhow::anyhow!("failed to parse X.509 certificate: {}", e))?;
+
+    // Calculate SHA-1 thumbprint
+    let mut hasher = Sha1::new();
+    hasher.update(&cert_der);
+    let thumbprint = hasher.finalize();
+
+    // Create header with certificate thumbprint
+    let mut header = Header::new(Algorithm::RS256);
+    header.x5t = Some(base64::encode(&thumbprint));
+
+    let encoding_key = EncodingKey::from_rsa_pem(certificate_pem.as_bytes())
+        .context("failed to parse RSA private key from certificate")?;
+
+    let jwt = encode(&header, &claims, &encoding_key).context("failed to create Azure JWT")?;
+
+    eprintln!("{}", jwt);
+
+    Ok(jwt)
+}
+
+/// Exchange signed JWT for target App Registration access token
+async fn exchange_azure_jwt_for_app_registration_token(
+    jwt_token: &str,
+    tenant_id: &str,
+    target_client_id: &str,
+) -> anyhow::Result<String> {
+    use reqwest::header::CONTENT_TYPE;
+    use std::collections::HashMap;
+
+    let client = reqwest::Client::new();
+
+    let mut params = HashMap::new();
+    params.insert("grant_type", "client_credentials");
+    params.insert(
+        "client_assertion_type",
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    );
+    params.insert("client_assertion", jwt_token);
+    params.insert("client_id", target_client_id);
+    params.insert("scope", "https://graph.microsoft.com/.default");
+
+    let response = client
+        .post(&format!(
+            "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
+            tenant_id
+        ))
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .form(&params)
+        .send()
+        .await
+        .context("failed to call Azure App Registration token exchange")?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Azure App Registration token exchange failed: {}",
+            error_text
+        );
+    }
+
+    let response_json: serde_json::Value = response
+        .json()
+        .await
+        .context("failed to parse Azure App Registration token response")?;
+
+    response_json
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .context("missing access_token in Azure App Registration token response")
 }
 
 /// Wrapper struct for parsing connector config with credentials
@@ -1072,6 +1282,35 @@ mod tests {
     }
 
     #[test]
+    fn test_tokens_inject_into_azure() {
+        let mut config = serde_json::to_string(&json!({
+            "address": "1.1.1.1",
+            "credentials": {
+                "auth_type": "azure"
+            }
+        }))
+        .unwrap();
+
+        let tokens = IAMTokens::Azure(AzureTokens {
+            access_token: "test_azure_access_token".to_string(),
+        });
+
+        let result = tokens.inject_into(&mut config);
+        assert!(result.is_ok());
+        assert_eq!(
+            config,
+            serde_json::to_string(&json!({
+                "address": "1.1.1.1",
+                "credentials": {
+                    "auth_type": "azure",
+                    "azure_access_token": "test_azure_access_token",
+                }
+            }))
+            .unwrap()
+        )
+    }
+
+    #[test]
     fn test_serde_missing_required_aws_properties() {
         let credentials = json!({
             "aws_role_arn": "arn:aws:iam::123456789012:role/TestRole"
@@ -1086,6 +1325,40 @@ mod tests {
     fn test_serde_missing_required_gcp_properties() {
         let credentials = json!({
             // Missing gcp_service_account_to_impersonate
+        });
+
+        let result = serde_json::from_value::<IAMAuthConfig>(credentials);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_serde_deserialize_azure_config() {
+        let credentials = json!({
+            "azure_client_id": "12345678-1234-1234-1234-123456789012",
+            "azure_tenant_id": "87654321-4321-4321-4321-210987654321"
+        });
+
+        let iam_config: IAMAuthConfig = serde_json::from_value(credentials).unwrap();
+        match iam_config {
+            IAMAuthConfig::Azure(azure_config) => {
+                assert_eq!(
+                    azure_config.azure_client_id,
+                    "12345678-1234-1234-1234-123456789012"
+                );
+                assert_eq!(
+                    azure_config.azure_tenant_id,
+                    "87654321-4321-4321-4321-210987654321"
+                );
+            }
+            _ => panic!("Expected Azure config"),
+        }
+    }
+
+    #[test]
+    fn test_serde_missing_required_azure_properties() {
+        let credentials = json!({
+            "azure_client_id": "12345678-1234-1234-1234-123456789012"
+            // Missing azure_tenant_id
         });
 
         let result = serde_json::from_value::<IAMAuthConfig>(credentials);

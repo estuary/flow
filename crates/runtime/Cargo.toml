@@ -43,18 +43,22 @@ anyhow = { workspace = true }
 aws-config = { workspace = true}
 aws-sdk-sts = { workspace = true }
 aws-credential-types = { workspace = true }
+base64 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
 json-patch = { workspace = true }
 jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }
 pbjson-types = { workspace = true }
+pem = "3.0"
 prost = { workspace = true }
 reqwest = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha1 = "0.10"
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -62,6 +66,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+x509-parser = "0.16"
 xxhash-rust = { workspace = true }
 zeroize = { workspace = true }
 
