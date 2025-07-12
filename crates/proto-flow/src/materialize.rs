@@ -497,6 +497,12 @@ pub mod response {
         pub runtime_checkpoint: ::core::option::Option<
             ::proto_gazette::consumer::Checkpoint,
         >,
+        /// Disable the runtime's load optimization which suppresses Load requests
+        /// for keys that are known to not exist in the endpoint. When set to true,
+        /// all Load requests will be sent to the connector regardless of the
+        /// maximum key tracking.
+        #[prost(bool, tag = "2")]
+        pub disable_load_optimization: bool,
     }
     /// Loaded responds to Request.Load.
     /// It returns documents of requested keys which have previously been stored.

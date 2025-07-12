@@ -670,6 +670,7 @@ fn ex_materialize_response() -> materialize::Response {
         }),
         opened: Some(materialize::response::Opened {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
+            disable_load_optimization: true,
         }),
         acknowledged: Some(materialize::response::Acknowledged {
             state: Some(ex_connector_state()),

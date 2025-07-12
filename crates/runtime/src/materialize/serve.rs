@@ -90,8 +90,14 @@ async fn serve_session<L: LogHandler>(
     let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
-    let (task, mut accumulator, mut last_checkpoint, opened, mut max_keys) =
-        recv_connector_opened(&db, open, opened).await?;
+    let (
+        task,
+        mut accumulator,
+        mut last_checkpoint,
+        opened,
+        mut max_keys,
+        disable_load_optimization,
+    ) = recv_connector_opened(&db, open, opened).await?;
 
     () = co.yield_(opened).await;
 
@@ -157,6 +163,7 @@ async fn serve_session<L: LogHandler>(
                         &mut saw_flush,
                         &task,
                         &mut txn,
+                        disable_load_optimization,
                     )? {
                         send_fut = Some(connector_tx.feed(send));
                     }

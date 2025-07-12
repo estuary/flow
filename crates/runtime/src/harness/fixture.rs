@@ -31,15 +31,18 @@ impl super::Reader for Reader {
                     (index, doc::Pointer::from_str(&collection.uuid_ptr)),
                 )
             })
-            .fold(HashMap::<String, Vec<(usize, doc::Pointer)>>::new(), |mut acc, item| {
-                if let Some(existing) = acc.get_mut(&item.0) {
-                    existing.push(item.1);
-                } else {
-                    acc.insert(item.0, vec![item.1]);
-                }
+            .fold(
+                HashMap::<String, Vec<(usize, doc::Pointer)>>::new(),
+                |mut acc, item| {
+                    if let Some(existing) = acc.get_mut(&item.0) {
+                        existing.push(item.1);
+                    } else {
+                        acc.insert(item.0, vec![item.1]);
+                    }
 
-                acc
-            });
+                    acc
+                },
+            );
 
         self.start(index, resume)
     }
@@ -60,15 +63,18 @@ impl super::Reader for Reader {
                     (index, doc::Pointer::from_str(&collection.uuid_ptr)),
                 )
             })
-            .fold(HashMap::<String, Vec<(usize, doc::Pointer)>>::new(), |mut acc, item| {
-                if let Some(existing) = acc.get_mut(&item.0) {
-                    existing.push(item.1);
-                } else {
-                    acc.insert(item.0, vec![item.1]);
-                }
+            .fold(
+                HashMap::<String, Vec<(usize, doc::Pointer)>>::new(),
+                |mut acc, item| {
+                    if let Some(existing) = acc.get_mut(&item.0) {
+                        existing.push(item.1);
+                    } else {
+                        acc.insert(item.0, vec![item.1]);
+                    }
 
-                acc
-            });
+                    acc
+                },
+            );
 
         self.start(index, resume)
     }
