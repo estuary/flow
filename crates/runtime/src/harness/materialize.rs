@@ -149,7 +149,9 @@ async fn run_session(
     let verify_opened = verify("runtime", "Opened");
     let opened = verify_opened.not_eof(response_rx.try_next().await?)?;
     let Response {
-        opened: Some(response::Opened { runtime_checkpoint }),
+        opened: Some(response::Opened {
+            runtime_checkpoint, ..
+        }),
         ..
     } = &opened
     else {

@@ -120,14 +120,19 @@ pub async fn recv_connector_opened(
     consumer::Checkpoint,
     Response,
     Vec<(bytes::Bytes, bytes::Bytes)>,
+    bool,
 )> {
     let verify = verify("connector", "Opened");
     let mut opened = verify.not_eof(opened)?;
-    let response::Opened { runtime_checkpoint } = match &mut opened {
+    let (runtime_checkpoint, disable_load_optimization) = match &mut opened {
         Response {
-            opened: Some(opened),
+            opened:
+                Some(response::Opened {
+                    runtime_checkpoint,
+                    disable_load_optimization,
+                }),
             ..
-        } => opened,
+        } => (runtime_checkpoint, *disable_load_optimization),
         _ => return verify.fail(opened),
     };
 
@@ -185,7 +190,14 @@ pub async fn recv_connector_opened(
         })
         .collect::<anyhow::Result<_>>()?;
 
-    Ok((task, accumulator, checkpoint, opened, max_keys))
+    Ok((
+        task,
+        accumulator,
+        checkpoint,
+        opened,
+        max_keys,
+        disable_load_optimization,
+    ))
 }
 
 pub fn recv_client_load_or_flush(
@@ -198,6 +210,7 @@ pub fn recv_client_load_or_flush(
     saw_flush: &mut bool,
     task: &Task,
     txn: &mut Transaction,
+    disable_load_optimization: bool,
 ) -> anyhow::Result<Option<Request>> {
     if !txn.started {
         txn.started = true;
@@ -249,13 +262,19 @@ pub fn recv_client_load_or_flush(
 
             // Is `key_packed` larger than the largest key previously stored
             // to the connector? If so, then it cannot possibly exist.
+            // Note: we still track the max key even when optimization is disabled.
             if key_packed > *prev_max {
                 if key_packed > *next_max {
                     // This is a new high water mark for the largest-stored key.
                     *next_max = key_packed.clone();
                 }
-                Ok(None)
-            } else if binding.delta_updates {
+                // Skip the load request unless optimization is disabled.
+                if !disable_load_optimization {
+                    return Ok(None);
+                }
+            }
+
+            if binding.delta_updates {
                 Ok(None) // Delta-update bindings don't load.
             } else if load_keys.contains(&key_hash) {
                 Ok(None) // We already sent a Load request for this key.
@@ -577,10 +596,5 @@ pub async fn recv_connector_started_commit(
 }
 
 fn max_key_key(binding: &Binding) -> String {
-    // Key name changed in order to effectively disable the load optimization
-    // for all existing materializations, while preserving it for any new ones.
-    // The optimization was temporarily disabled as part of the 0325 incident
-    // recovery, and this effectively makes that permanent, while allowing it to
-    // be used on new tasks.
     format!("MK-v2:{}", &binding.state_key)
 }
