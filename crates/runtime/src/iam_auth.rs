@@ -384,12 +384,21 @@ async fn google_sign_jwt(
     use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
     use serde_json::json;
 
+    let data_plane_fqdn = std::env::var("FLOW_DATA_PLANE_FQDN")
+        .context("FLOW_DATA_PLANE_FQDN environment variable not set")?;
+    
+    if data_plane_fqdn.is_empty() {
+        anyhow::bail!("FLOW_DATA_PLANE_FQDN environment variable is empty");
+    }
+
+    let issuer = format!("https://estuary.dev/{}/", data_plane_fqdn);
+
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs() as u64;
 
     let jwt_payload = json!({
-        "iss": "https://estuary.dev",
+        "iss": issuer,
         "sub": subject,
         "aud": audience,
         "iat": now,
