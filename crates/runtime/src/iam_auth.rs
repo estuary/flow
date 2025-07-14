@@ -126,37 +126,55 @@ impl IAMAuthConfig {
     }
 }
 
-/// Generate AWS temporary credentials using STS AssumeRole
+/// Generate AWS temporary credentials using STS AssumeRoleWithWebIdentity
 async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Result<AWSTokens> {
     use aws_config::Region;
-    use aws_credential_types::Credentials;
 
-    // Get AWS credentials from environment variables
-    let access_key_id = std::env::var("AWS_ACCESS_KEY_ID")
-        .context("AWS_ACCESS_KEY_ID environment variable not set")?;
-    let secret_access_key = std::env::var("AWS_SECRET_ACCESS_KEY")
-        .context("AWS_SECRET_ACCESS_KEY environment variable not set")?;
+    let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
+        .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
 
-    if access_key_id.is_empty() || secret_access_key.is_empty() {
-        anyhow::bail!("AWS credentials from environment variables are empty");
+    if credentials_path.is_empty() {
+        anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
     }
 
-    // Create credentials provider from the environment credentials
-    let credentials = Credentials::new(
-        &access_key_id,
-        &secret_access_key,
-        None, // session token
-        None, // expiration
-        "flow-root-credentials",
-    );
+    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to read Google Cloud credentials from {}",
+                credentials_path
+            )
+        })?;
 
-    let mut aws_config_builder = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .credentials_provider(credentials);
+    if credentials_json.trim().is_empty() {
+        anyhow::bail!("Google Cloud credentials file is empty");
+    }
 
-    let region = Region::new(config.aws_region.clone());
-    aws_config_builder = aws_config_builder.region(region);
+    // Parse the credentials to get the runtime service account email
+    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
+        .context("failed to parse service account key JSON")?;
+    let runtime_service_account = key_data
+        .get("client_email")
+        .and_then(|v| v.as_str())
+        .context("missing client_email in service account key")?;
 
-    let aws_config = aws_config_builder.load().await;
+    // Get a token from the root credentials to authenticate with IAM API
+    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
+
+    credentials_json.zeroize();
+
+    // Step 1: Sign JWT using Google's signJWT API with task_name as subject
+    let mut signed_jwt =
+        google_sign_jwt(runtime_service_account, &runtime_token, task_name, task_name, &config.aws_role_arn)
+            .await?;
+
+    runtime_token.zeroize();
+
+    // Step 2: Use the signed JWT with AssumeRoleWithWebIdentity
+    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(Region::new(config.aws_region.clone()))
+        .load()
+        .await;
 
     let sts_client = aws_sdk_sts::Client::new(&aws_config);
 
@@ -171,7 +189,7 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
     };
 
     let assume_role_request = sts_client
-        .assume_role()
+        .assume_role_with_web_identity()
         .role_arn(&config.aws_role_arn)
         .role_session_name(&format!(
             "flow.{}@{}",
@@ -181,21 +199,23 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
                 .as_secs()
         ))
         .duration_seconds(12 * 3600) // 12 hour maximum duration for connectors
-        .external_id(task_name);
+        .web_identity_token(&signed_jwt);
 
     let response = match assume_role_request.send().await {
         Ok(response) => response,
         Err(e) => anyhow::bail!(
-            "failed to assume AWS role {} ({}): {}",
+            "failed to assume AWS role with web identity {} ({}): {}",
             config.aws_role_arn,
             e.code().unwrap_or_default(),
             e.message().unwrap_or_default()
         ),
     };
 
+    signed_jwt.zeroize();
+
     let credentials = response
         .credentials()
-        .context("no credentials returned from STS AssumeRole")?;
+        .context("no credentials returned from STS AssumeRoleWithWebIdentity")?;
 
     Ok(AWSTokens {
         access_key_id: credentials.access_key_id().to_string(),
@@ -204,50 +224,54 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
     })
 }
 
-/// Generate Azure access token using 2-step workload identity federation:
-/// 1. Sign JWT using runtime client certificate with task_name claim
+/// Generate Azure access token using 2-step workload identity federation with Google as external provider:
+/// 1. Sign JWT using Google's signJWT API with task_name as subject
 /// 2. Exchange signed JWT for target App Registration access token
 async fn generate_azure_tokens(
     config: &AzureConfig,
     task_name: &str,
 ) -> anyhow::Result<AzureTokens> {
-    let client_id =
-        std::env::var("AZURE_CLIENT_ID").context("AZURE_CLIENT_ID environment variable not set")?;
-    let certificate_path = std::env::var("AZURE_CLIENT_CERTIFICATE")
-        .context("AZURE_CLIENT_CERTIFICATE environment variable not set")?;
-    let tenant_id =
-        std::env::var("AZURE_TENANT_ID").context("AZURE_TENANT_ID environment variable not set")?;
+    let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
+        .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
 
-    if client_id.is_empty() || certificate_path.is_empty() || tenant_id.is_empty() {
-        anyhow::bail!("Azure credentials from environment variables are empty");
+    if credentials_path.is_empty() {
+        anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
     }
 
-    // Read the certificate from file
-    let mut certificate_pem = tokio::fs::read_to_string(&certificate_path)
+    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
         .await
         .with_context(|| {
             format!(
-                "Failed to read Azure client certificate from {}",
-                certificate_path
+                "Failed to read Google Cloud credentials from {}",
+                credentials_path
             )
         })?;
 
-    if certificate_pem.trim().is_empty() {
-        anyhow::bail!("Azure client certificate file is empty");
+    if credentials_json.trim().is_empty() {
+        anyhow::bail!("Google Cloud credentials file is empty");
     }
 
-    // Step 1: Sign JWT using runtime client certificate with task_name claim
-    let mut signed_jwt = create_azure_signed_jwt(
-        &client_id,
-        &certificate_pem,
-        &tenant_id,
-        &config.azure_client_id,
-        task_name,
-    )
-    .await?;
+    // Parse the credentials to get the runtime service account email
+    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
+        .context("failed to parse service account key JSON")?;
+    let runtime_service_account = key_data
+        .get("client_email")
+        .and_then(|v| v.as_str())
+        .context("missing client_email in service account key")?;
 
-    certificate_pem.zeroize();
+    // Get a token from the root credentials to authenticate with IAM API
+    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
 
+    credentials_json.zeroize();
+
+    // Step 1: Sign JWT using Google's signJWT API with task_name as subject
+    let mut signed_jwt =
+        google_sign_jwt(runtime_service_account, &runtime_token, task_name, task_name, "api://AzureADTokenExchange")
+            .await?;
+
+    runtime_token.zeroize();
+
+    eprintln!("{}", signed_jwt);
     // Step 2: Exchange signed JWT for target App Registration access token
     let access_token = exchange_azure_jwt_for_app_registration_token(
         &signed_jwt,
@@ -307,7 +331,7 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
 
     // Step 1: Sign a JWT using the default runtime service account with task_name in payload
     let mut signed_jwt =
-        sign_jwt_for_service_account(runtime_service_account, &runtime_token, task_name, aud)
+        google_sign_jwt(runtime_service_account, &runtime_token, task_name, runtime_service_account, aud)
             .await?;
 
     runtime_token.zeroize();
@@ -349,13 +373,13 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
     create_service_account_jwt_token(client_email, private_key).await
 }
 
-/// Sign a JWT for the runtime service account using the IAM signJwt endpoint
-/// for the given audience and task_name
-async fn sign_jwt_for_service_account(
+/// Sign a JWT using Google's signJWT API with configurable subject and audience
+async fn google_sign_jwt(
     service_account_email: &str,
     access_token: &str,
     task_name: &str,
-    workload_identity_pool_audience: &str,
+    subject: &str,
+    audience: &str,
 ) -> anyhow::Result<String> {
     use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
     use serde_json::json;
@@ -365,9 +389,9 @@ async fn sign_jwt_for_service_account(
         .as_secs() as u64;
 
     let jwt_payload = json!({
-        "iss": "https://accounts.google.com",
-        "sub": service_account_email,
-        "aud": workload_identity_pool_audience,
+        "iss": "https://estuary.dev",
+        "sub": subject,
+        "aud": audience,
         "iat": now,
         "exp": now + 3600,
         "task_name": task_name
@@ -573,83 +597,6 @@ async fn create_service_account_jwt_token(
         .context("missing access_token in OAuth response")
 }
 
-/// Create signed JWT using runtime client certificate with task_name claim
-async fn create_azure_signed_jwt(
-    client_id: &str,
-    certificate_pem: &str,
-    tenant_id: &str,
-    target_client_id: &str,
-    task_name: &str,
-) -> anyhow::Result<String> {
-    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-    use serde::{Deserialize, Serialize};
-    use sha1::{Digest, Sha1};
-    use x509_parser::prelude::*;
-
-    #[derive(Debug, Serialize, Deserialize)]
-    struct Claims {
-        iss: String,
-        sub: String,
-        aud: String,
-        exp: usize,
-        iat: usize,
-        nbf: usize,
-    }
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs() as usize;
-
-    let claims = Claims {
-        //iss: format!("https://login.microsoftonline.com/{}/", tenant_id),
-        iss: format!("https://login.microsoftonline.com/{}/", tenant_id),
-        sub: target_client_id.to_string(),
-        aud: "api://AzureADTokenExchange".to_string(),
-        exp: now + 3600, // Expire in 1 hour
-        iat: now,
-        nbf: now,
-    };
-
-    // Parse the certificate to extract the certificate (not private key) for thumbprint calculation
-    let cert_der = if certificate_pem.contains("-----BEGIN CERTIFICATE-----") {
-        // Extract certificate from PEM if it contains both certificate and private key
-        let cert_start = certificate_pem
-            .find("-----BEGIN CERTIFICATE-----")
-            .context("Certificate not found in PEM")?;
-        let cert_end = certificate_pem
-            .find("-----END CERTIFICATE-----")
-            .context("Certificate end not found in PEM")?;
-        let cert_pem = &certificate_pem[cert_start..cert_end + "-----END CERTIFICATE-----".len()];
-
-        ::pem::parse(cert_pem)
-            .map_err(|e| anyhow::anyhow!("failed to parse certificate PEM: {}", e))?
-            .into_contents()
-    } else {
-        anyhow::bail!("Certificate not found in PEM - only private key detected. Please provide a PEM file containing both certificate and private key.");
-    };
-
-    // Parse the X.509 certificate (to validate it's a valid certificate)
-    let (_, _cert) = X509Certificate::from_der(&cert_der)
-        .map_err(|e| anyhow::anyhow!("failed to parse X.509 certificate: {}", e))?;
-
-    // Calculate SHA-1 thumbprint
-    let mut hasher = Sha1::new();
-    hasher.update(&cert_der);
-    let thumbprint = hasher.finalize();
-
-    // Create header with certificate thumbprint
-    let mut header = Header::new(Algorithm::RS256);
-    header.x5t = Some(base64::encode(&thumbprint));
-
-    let encoding_key = EncodingKey::from_rsa_pem(certificate_pem.as_bytes())
-        .context("failed to parse RSA private key from certificate")?;
-
-    let jwt = encode(&header, &claims, &encoding_key).context("failed to create Azure JWT")?;
-
-    eprintln!("{}", jwt);
-
-    Ok(jwt)
-}
 
 /// Exchange signed JWT for target App Registration access token
 async fn exchange_azure_jwt_for_app_registration_token(
