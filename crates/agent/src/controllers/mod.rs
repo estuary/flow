@@ -476,6 +476,7 @@ async fn controller_update<C: ControlPlane>(
                 .notify_dependents(state.live_spec_id)
                 .await
                 .expect("failed to update dependents");
+            tracing::info!("deleted data-plane resources for deleted live spec");
         } else {
             tracing::info!("skipping data-plane deletion because there is no spec_type");
         }

@@ -109,7 +109,7 @@ impl automations::Outcome for Outcome {
             agent_sql::live_specs::hard_delete_live_spec(live_spec_id, txn)
                 .await
                 .context("deleting live_specs row")?;
-            tracing::info!(%live_spec_id, "completed controller task for deleted live spec");
+            tracing::debug!(%live_spec_id, "completed controller task for deleted live spec");
             return Ok(Action::Done);
         }
 
