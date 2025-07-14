@@ -373,6 +373,11 @@ message Response {
     // rebuilding the materialization from scratch. This sentinel is a trivial
     // encoding of the max-value 2^29-1 protobuf tag with boolean true.
     consumer.Checkpoint runtime_checkpoint = 1;
+    // Disable the runtime's load optimization which suppresses Load requests
+    // for keys that are known to not exist in the endpoint. When set to true,
+    // all Load requests will be sent to the connector regardless of the
+    // maximum key tracking.
+    bool disable_load_optimization = 2;
   }
   Opened opened = 4;
 

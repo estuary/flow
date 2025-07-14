@@ -12,42 +12,63 @@ use models::{
     status::{
         self,
         activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
+        AlertType, Alerts,
     },
     AnySpec,
 };
 
-use super::{backoff_data_plane_activate, executor::Event, ControllerState, NextRun};
+use super::{alerts, backoff_data_plane_activate, executor::Event, ControllerState, NextRun};
 
-/// We retain rows in the `shard_failures` table for at most this long. Failures
-/// are deleted every time the `build_id` changes, or if they're older than this
-/// threshold. The controller keeps a count of recent failures in the status,
-/// and it periodically cleans up old failures as long as that count is
-/// positive.
-const FAILURE_RETENTION: chrono::Duration = chrono::Duration::hours(24);
+/// Helper for getting a `chrono::Duration` from an environment variable, using humantime so it
+/// supports parsing durations like `3h`.
+macro_rules! env_config_interval {
+    ($var_ident:ident, $default_val:expr) => {
+        static $var_ident: std::sync::LazyLock<chrono::Duration> = std::sync::LazyLock::new(|| {
+            let var_name = stringify!($var_ident);
+            if let Ok(val) = std::env::var(var_name) {
+                let parsed: humantime::Duration = FromStr::from_str(&val)
+                    .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"));
+                chrono::Duration::from_std(parsed.into())
+                    .unwrap_or_else(|err| panic!("invalid {var_name} value: out of range"))
+            } else {
+                $default_val
+            }
+        });
+    };
+}
 
-static MAX_SHARD_HEALTH_CHECK_INTERVAL: std::sync::LazyLock<chrono::Duration> =
-    std::sync::LazyLock::new(|| {
-        if let Ok(val) = std::env::var("FLOW_MAX_SHARD_STATUS_INTERVAL") {
-            let parsed: humantime::Duration =
-                FromStr::from_str(&val).expect("invalid FLOW_MAX_SHARD_STATUS_INTERVAL");
-            chrono::Duration::from_std(parsed.into())
-                .expect("FLOW_MAX_SHARD_STATUS_INTERVAL out of range")
-        } else {
-            chrono::Duration::hours(2)
-        }
-    });
+// We retain rows in the `shard_failures` table for at most this long. Failures
+// are deleted every time the `build_id` changes, or if they're older than this
+// threshold. The controller keeps a count of recent failures in the status,
+// and it periodically cleans up old failures as long as that count is
+// positive.
+env_config_interval! {SHARD_FAILURE_RETENTION, chrono::Duration::hours(8)}
+
+// We resolve shard failed alerts after this duration has passed since the shards
+// last became healthy.
+env_config_interval! {RESOLVE_SHARD_FAILED_ALERT_AFTER, chrono::Duration::hours(2)}
+env_config_interval! {FLOW_MAX_SHARD_STATUS_INTERVAL, chrono::Duration::hours(2)}
+
+const ALERT_AFTER_SHARD_FAILURES: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
+    if let Ok(val) = std::env::var("ALERT_AFTER_SHARD_FAILURES") {
+        FromStr::from_str(&val).expect("invalid ALERT_AFTER_SHARD_FAILURES")
+    } else {
+        3
+    }
+});
 
 /// Activates the spec in the data plane if necessary.
 pub async fn update_activation<C: ControlPlane>(
     status: &mut ActivationStatus,
+    alerts_status: &mut Alerts,
     state: &ControllerState,
     events: &Inbox,
     control_plane: &C,
 ) -> anyhow::Result<Option<NextRun>> {
     let now = control_plane.current_time();
-    let failure_retention_threshold = now - FAILURE_RETENTION;
+    let failure_retention_threshold = now - *SHARD_FAILURE_RETENTION;
     // Did we receive at least one shard failure message?
-    let shard_failures = events
+    let observed_shard_failures = events
         .iter()
         .filter(|(_, e)| matches!(e, Some(Event::ShardFailed)))
         .count();
@@ -55,9 +76,9 @@ pub async fn update_activation<C: ControlPlane>(
     // Activating a new build always takes precedence over failure handling.
     // We'll ignore any shard failures from previous builds.
     if state.last_build_id > status.last_activated {
-        if shard_failures > 0 {
+        if observed_shard_failures > 0 {
             tracing::info!(
-                count = shard_failures,
+                count = observed_shard_failures,
                 "ignoring shard failures, activating a new build"
             );
         };
@@ -75,6 +96,8 @@ pub async fn update_activation<C: ControlPlane>(
             // Clear an existing shard status in case the spec has transitioned
             // to no longer having shards.
             status.shard_status.take();
+            // Resolve any open shard failed alerts that may be firing.
+            alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
         }
         // Delete any shard failure records from previous builds. This effectively resets
         // the retry backoff for any failures that happen after this activation.
@@ -98,7 +121,7 @@ pub async fn update_activation<C: ControlPlane>(
 
     // Update our shard failure information. We can skip this if we know that there's
     // been no recent failures.
-    if shard_failures > 0 || status.recent_failure_count > 0 {
+    if observed_shard_failures > 0 || status.recent_failure_count > 0 {
         // Delete any shard failure records that are from previous builds, or that are too old.
         control_plane
             .delete_shard_failures(
@@ -125,7 +148,7 @@ pub async fn update_activation<C: ControlPlane>(
         // response to additional failures. This ensures that we won't backoff
         // indefinitely. Note that this could return `now` in order to restart
         // failed shards immediately.
-        if shard_failures > 0 && status.next_retry.is_none() {
+        if observed_shard_failures > 0 && status.next_retry.is_none() {
             let next = if is_ops_catalog_task(state) {
                 tracing::info!("restarting failed ops catalog task shards");
                 now // always retry ops catalog shards immediately
@@ -135,25 +158,7 @@ pub async fn update_activation<C: ControlPlane>(
             status.next_retry = Some(next);
         }
 
-        if shard_failures > 0 {
-            // If we've just observed a shard failure, then update the shard status to reflect that
-            if let Some(shards_status) = status.shard_status.as_mut() {
-                if shards_status.status == ShardsStatus::Failed {
-                    shards_status.count += 1;
-                    shards_status.last_ts = now;
-                } else {
-                    tracing::debug!(prev_status = ?shards_status, "updating shard_status to Failed due to ShardFailed event");
-                    *shards_status = ShardStatusCheck {
-                        first_ts: now,
-                        last_ts: now,
-                        status: ShardsStatus::Failed,
-                        count: 0,
-                    }
-                }
-            }
-        }
-
-        // Update the `lastFailure` status field
+        // Update the `last_failure` status field
         if let Some(latest) = failures.iter().max_by_key(|f| f.ts) {
             let last_failure_ts = status
                 .last_failure
@@ -169,6 +174,47 @@ pub async fn update_activation<C: ControlPlane>(
                     latest_event = ?latest,
                     event_count = failures.len(),
                     "shard failure event received out of order (this is ok)");
+            }
+        }
+
+        if observed_shard_failures > 0 {
+            // If we've just observed a shard failure, then update the shard status to reflect that
+            if let Some(shards_status) = status.shard_status.as_mut() {
+                if shards_status.status == ShardsStatus::Failed {
+                    shards_status.count += 1;
+                    shards_status.last_ts = now;
+                } else {
+                    tracing::debug!(prev_status = ?shards_status, "updating shard_status to Failed due to ShardFailed event");
+                    *shards_status = ShardStatusCheck {
+                        first_ts: now,
+                        last_ts: now,
+                        status: ShardsStatus::Failed,
+                        count: 0,
+                    }
+                }
+            }
+
+            // And possibly trigger an alert
+            if let Some(spec_type) = state
+                .live_spec
+                .as_ref()
+                .map(|s| s.catalog_type())
+                .filter(|_| status.recent_failure_count >= *ALERT_AFTER_SHARD_FAILURES)
+            {
+                let last_error = status.last_failure.as_ref().map(|f| f.ts).unwrap_or(now);
+                let error = format!(
+                    "Observed {} recent task shard failures, the latest at {}",
+                    status.recent_failure_count, last_error
+                );
+
+                alerts::set_alert_firing(
+                    alerts_status,
+                    AlertType::ShardFailed,
+                    now,
+                    error,
+                    status.recent_failure_count,
+                    spec_type,
+                );
             }
         }
     }
@@ -209,8 +255,29 @@ pub async fn update_activation<C: ControlPlane>(
 
     // At this point we're finished with any activations that are needed, and
     // it's time to ensure that task shards have actually started successfully.
-    let next_run = update_shard_health(status, control_plane, state).await?;
-    Ok(next_run)
+    let next_status_check = update_shard_health(status, control_plane, state).await?;
+
+    if should_resolve_alert(state, &*status, now) {
+        alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
+    }
+    Ok(next_status_check)
+}
+
+fn should_resolve_alert(
+    state: &ControllerState,
+    status: &ActivationStatus,
+    now: DateTime<Utc>,
+) -> bool {
+    if !has_task_shards(state) {
+        return true;
+    }
+
+    status.shard_status.as_ref().is_some_and(|s| {
+        s.status == ShardsStatus::Ok && (now - s.first_ts) >= *RESOLVE_SHARD_FAILED_ALERT_AFTER
+    }) && status
+        .last_failure
+        .as_ref()
+        .is_none_or(|fail| fail.ts < now && (now - fail.ts) > *RESOLVE_SHARD_FAILED_ALERT_AFTER)
 }
 
 async fn update_shard_health<C: ControlPlane>(
@@ -442,7 +509,7 @@ fn shard_health_check_interval(
     let max_duration = if is_ops_catalog_task(state) {
         Duration::minutes(5)
     } else {
-        *MAX_SHARD_HEALTH_CHECK_INTERVAL
+        *FLOW_MAX_SHARD_STATUS_INTERVAL
     };
 
     // If the status is OK, then backoff much more quickly

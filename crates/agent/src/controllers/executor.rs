@@ -109,7 +109,7 @@ impl automations::Outcome for Outcome {
             agent_sql::live_specs::hard_delete_live_spec(live_spec_id, txn)
                 .await
                 .context("deleting live_specs row")?;
-            tracing::debug!(%live_spec_id, "completed controller task for deleted live spec");
+            tracing::info!(%live_spec_id, "completed controller task for deleted live spec");
             return Ok(Action::Done);
         }
 
@@ -151,8 +151,14 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
             .unwrap_or_else(|| panic!("failed to fetch controller state for task_id: {task_id}"));
         // Note that `failures` here only counts the number of _consecutive_
         // failures, and resets to 0 on any sucessful update.
-        let (status, failures, error, next_run) =
-            run_controller(state, inbox, &controller_state, &*self.control_plane).await;
+        let (status, failures, error, next_run) = run_controller(
+            state,
+            inbox,
+            task_id,
+            &controller_state,
+            &*self.control_plane,
+        )
+        .await;
 
         Ok(Outcome {
             live_spec_id: controller_state.live_spec_id,
@@ -166,12 +172,14 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
 }
 
 #[tracing::instrument(skip_all, fields(
+    task_id = %_task_id,
     live_spec_id = %controller_state.live_spec_id,
     catalog_name = %controller_state.catalog_name
 ))]
 async fn run_controller<C: ControlPlane>(
     task_state: &mut State,
     inbox: &mut VecDeque<(Id, Option<Event>)>,
+    _task_id: Id,
     controller_state: &ControllerState,
     control_plane: &C,
 ) -> (ControllerStatus, i32, Option<String>, Option<NextRun>) {

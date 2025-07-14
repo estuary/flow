@@ -27,19 +27,24 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
+    // TODO(phil): remove `inferred_schema` status
+    let CollectionStatus {
+        inferred_schema: _,
+        publications,
+        activation,
+        alerts,
+    } = status;
+
     let activation_result =
-        activation::update_activation(&mut status.activation, state, events, control_plane)
+        activation::update_activation(activation, alerts, state, events, control_plane)
             .await
             .with_retry(backoff_data_plane_activate(state.failures))
             .map_err(Into::into);
 
-    let notify_result = publication_status::update_notify_dependents(
-        &mut status.publications,
-        state,
-        control_plane,
-    )
-    .await
-    .map(|_| None);
+    let notify_result =
+        publication_status::update_notify_dependents(publications, state, control_plane)
+            .await
+            .map(|_| None);
 
     // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
     // bypassed for some reason.

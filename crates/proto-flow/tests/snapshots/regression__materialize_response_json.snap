@@ -93,7 +93,8 @@ expression: json_test(msg)
       "ackIntents": {
         "an/ack/journal": "AwQCBQ=="
       }
-    }
+    },
+    "disableLoadOptimization": true
   },
   "loaded": {
     "binding": 4,

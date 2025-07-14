@@ -481,6 +481,7 @@ fn true_value() -> bool {
 mod test {
     use super::super::test::*;
     use super::*;
+    use crate::shape::X_COMPLEXITY_LIMIT;
 
     #[test]
     fn test_append_array() {
@@ -1190,6 +1191,97 @@ mod test {
                 },
             ],
         )
+    }
+
+    #[test]
+    fn test_json_schema_merge_with_complexity_limits() {
+        let complex_schema = json!({
+            "type": "object",
+            "properties": {
+                "field1": { "type": "string" },
+                "field2": { "type": "string" },
+                "field3": { "type": "string" },
+                "field4": { "type": "string" },
+                "field5": { "type": "string" },
+                "field6": { "type": "string" },
+                "field7": { "type": "string" },
+                "field8": { "type": "string" },
+                "field9": { "type": "string" },
+                "field10": { "type": "string" },
+                "nested": {
+                    "type": "object",
+                    "properties": {
+                        "deep1": { "type": "string" },
+                        "deep2": { "type": "string" },
+                        "deep3": { "type": "string" },
+                        "deep4": { "type": "string" },
+                        "deep5": { "type": "string" },
+                    }
+                }
+            }
+        });
+
+        let mut high_limit_schema = complex_schema.clone();
+        high_limit_schema
+            .as_object_mut()
+            .unwrap()
+            .insert(X_COMPLEXITY_LIMIT.to_string(), json!(1000));
+
+        // Test with high complexity limit (should preserve structure)
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "jsonSchemaMerge" } }),
+            vec![
+                // Need two cases to exercise merge behavior.
+                Partial {
+                    rhs: high_limit_schema.clone(),
+                    expect: Ok(high_limit_schema.clone()),
+                },
+                Partial {
+                    rhs: high_limit_schema.clone(),
+                    expect: Ok({
+                        let mut expected = high_limit_schema.clone();
+                        expected.as_object_mut().unwrap().insert(
+                            "$schema".to_string(),
+                            json!("https://json-schema.org/draft/2019-09/schema"),
+                        );
+                        expected
+                    }),
+                },
+            ],
+        );
+
+        let mut low_limit_schema = complex_schema.clone();
+        low_limit_schema
+            .as_object_mut()
+            .unwrap()
+            .insert(X_COMPLEXITY_LIMIT.to_string(), json!(5));
+
+        // Test with LOW complexity limit (should simplify structure)
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "jsonSchemaMerge" } }),
+            vec![
+                Partial {
+                    rhs: low_limit_schema.clone(),
+                    expect: Ok(low_limit_schema.clone()),
+                },
+                Partial {
+                    rhs: low_limit_schema,
+                    expect: Ok(json!({
+                      "$schema": "https://json-schema.org/draft/2019-09/schema",
+                      "additionalProperties": { "type": ["object", "string"] },
+                      "properties": {
+                        "field1": { "type": "string" },
+                        "field10": { "type": "string" },
+                        "field2": { "type": "string" },
+                        "field3": { "type": "string" },
+                        "field4": { "type": "string" }
+                      },
+                      "type": "object",
+                      "x-complexity-limit": 5
+                    })),
+                },
+            ],
+        );
     }
 
     #[test]

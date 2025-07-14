@@ -1,4 +1,5 @@
 pub mod activation;
+pub mod alerts;
 pub mod capture;
 pub mod catalog_test;
 pub mod collection;
@@ -12,6 +13,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub use self::alerts::{AlertState, AlertType, Alerts, ControllerAlert};
 pub use self::connector::ConnectorStatus;
 pub use self::summary::{StatusSummaryType, Summary};
 
@@ -105,6 +107,16 @@ impl ControllerStatus {
             ControllerStatus::Collection(c) => Some(&c.activation),
             ControllerStatus::Materialization(c) => Some(&c.activation),
             _ => None,
+        }
+    }
+
+    pub fn alerts_status(&self) -> Option<&Alerts> {
+        match self {
+            ControllerStatus::Capture(c) => Some(&c.alerts),
+            ControllerStatus::Collection(c) => Some(&c.alerts),
+            ControllerStatus::Materialization(c) => Some(&c.alerts),
+            ControllerStatus::Test(c) => Some(&c.alerts),
+            ControllerStatus::Uninitialized => None,
         }
     }
 
@@ -302,6 +314,7 @@ mod test {
                 history,
                 dependency_hash: Some("abc12345".to_string()),
             },
+            alerts: Default::default(),
         });
 
         let as_json = serde_json::to_string_pretty(&status).expect("failed to serialize status");
