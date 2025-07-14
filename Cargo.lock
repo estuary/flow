@@ -4922,6 +4922,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oidc-discovery-server"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap 4.5.21",
+ "models",
+ "ops",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
