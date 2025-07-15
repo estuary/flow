@@ -230,6 +230,9 @@ pub struct DekafAuthResponse {
     /// # Number of milliseconds to wait before retrying the request.
     /// Non-zero if and only if token is not set.
     pub retry_millis: u64,
+    /// # Target dataplane FQDN for redirect when task has been migrated
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_dataplane_fqdn: Option<String>,
 }
 
 const fn capability_read() -> crate::Capability {

@@ -94,7 +94,7 @@ pub async fn do_authorize_dekaf<'a>(
             evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
         },
     ) {
-        Ok((exp, (ops_logs_journal, ops_stats_journal))) => {
+        Ok((exp, (ops_logs_journal, ops_stats_journal, redirect_fqdn))) => {
             let (spec_type, built_spec) = fetch_spec(task_name.to_string())
                 .await
                 .context("failed to fetch task spec")?;
@@ -111,9 +111,14 @@ pub async fn do_authorize_dekaf<'a>(
                 role: DEKAF_ROLE.to_string(),
                 email: None,
             };
-            let token =
+
+            // Only return a token if we are not redirecting
+            let token = if redirect_fqdn.is_none() {
                 jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, control_key)
-                    .context("failed to encode authorized JWT")?;
+                    .context("failed to encode authorized JWT")?
+            } else {
+                "".to_string()
+            };
 
             Ok(axum::Json(Response {
                 token,
@@ -121,6 +126,7 @@ pub async fn do_authorize_dekaf<'a>(
                 ops_stats_journal,
                 task_spec: Some(built_spec),
                 retry_millis: 0,
+                redirect_dataplane_fqdn: redirect_fqdn,
             }))
         }
         Err(Ok(backoff)) => Ok(axum::Json(Response {
@@ -136,7 +142,13 @@ fn evaluate_authorization(
     task_name: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
-) -> Result<(Option<chrono::DateTime<chrono::Utc>>, (String, String)), crate::api::ApiError> {
+) -> Result<
+    (
+        Option<chrono::DateTime<chrono::Utc>>,
+        (String, String, Option<String>),
+    ),
+    crate::api::ApiError,
+> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot
         .verify_data_plane_token(shard_data_plane_fqdn, token)
@@ -148,44 +160,75 @@ fn evaluate_authorization(
         );
     };
 
-    // Map `claims.sub`, a task name, into a task running in `task_data_plane`.
-    let Some(task) = snapshot
+    // First, try to find task in the requesting dataplane by mapping
+    // `claims.sub`, a task name, into a task running in `task_data_plane`.
+    if let Some(task) = snapshot
         .task_by_catalog_name(&task_name)
         .filter(|task| task.data_plane_id == task_data_plane.control_id)
-    else {
-        return Err(anyhow::anyhow!(
-            "task {task_name} within data-plane {shard_data_plane_fqdn} is not known"
-        )
-        .with_status(StatusCode::PRECONDITION_FAILED));
-    };
+    {
+        if task.spec_type != CatalogType::Materialization {
+            return Err(anyhow::anyhow!(
+                "task {task_name} must be a materialization, but is {:?} instead",
+                task.spec_type
+            )
+            .with_status(StatusCode::PRECONDITION_FAILED));
+        }
 
-    if task.spec_type != CatalogType::Materialization {
-        return Err(anyhow::anyhow!(
-            "task {task_name} must be a materialization, but is {:?} instead",
-            task.spec_type
-        )
-        .with_status(StatusCode::PRECONDITION_FAILED));
+        let (Some(ops_logs), Some(ops_stats)) = (
+            snapshot.collection_by_catalog_name(&task_data_plane.ops_logs_name),
+            snapshot.collection_by_catalog_name(&task_data_plane.ops_stats_name),
+        ) else {
+            return Err(anyhow::anyhow!(
+                "couldn't resolve data-plane {} ops collections",
+                task.data_plane_id
+            )
+            .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+
+        let ops_suffix = super::ops_suffix(task);
+        let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
+        let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
+
+        return Ok((
+            snapshot.cordon_at(&task.task_name, task_data_plane),
+            (ops_logs_journal, ops_stats_journal, None), // No redirect needed
+        ));
     }
 
-    let (Some(ops_logs), Some(ops_stats)) = (
-        snapshot.collection_by_catalog_name(&task_data_plane.ops_logs_name),
-        snapshot.collection_by_catalog_name(&task_data_plane.ops_stats_name),
-    ) else {
-        return Err(anyhow::anyhow!(
-            "couldn't resolve data-plane {} ops collections",
-            task.data_plane_id
-        )
-        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
-    };
+    // Task not found in requesting dataplane, check if it exists elsewhere to redirect
+    if let Some(task) = snapshot.task_by_catalog_name(&task_name) {
+        if task.spec_type != CatalogType::Materialization {
+            return Err(anyhow::anyhow!(
+                "task {task_name} must be a materialization, but is {:?} instead",
+                task.spec_type
+            )
+            .with_status(StatusCode::PRECONDITION_FAILED));
+        }
 
-    let ops_suffix = super::ops_suffix(task);
-    let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
-    let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
+        let target_dataplane = snapshot
+            .data_planes
+            .iter()
+            .find(|dp| dp.control_id == task.data_plane_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!("target dataplane for task {task_name} not found")
+                    .with_status(StatusCode::INTERNAL_SERVER_ERROR)
+            })?;
 
-    Ok((
-        snapshot.cordon_at(&task.task_name, task_data_plane),
-        (ops_logs_journal, ops_stats_journal),
-    ))
+        return Ok((
+            snapshot.cordon_at(&task.task_name, task_data_plane),
+            (
+                String::new(),
+                String::new(),
+                Some(target_dataplane.data_plane_fqdn.clone()),
+            ),
+        ));
+    }
+
+    // Task not found anywhere
+    Err(
+        anyhow::anyhow!("task {task_name} not found in any dataplane")
+            .with_status(StatusCode::PRECONDITION_FAILED),
+    )
 }
 
 const DEKAF_ROLE: &str = "dekaf";
@@ -263,7 +306,7 @@ mod tests {
         {
           "Err": {
             "status": 412,
-            "error": "task bobCo/bananas within data-plane fqdn2 is not known"
+            "error": "task bobCo/bananas not found in any dataplane"
           }
         }
         "###);
@@ -286,6 +329,28 @@ mod tests {
           "Err": {
             "status": 500,
             "error": "retry"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_redirect() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE,
+            iss: "fqdn2".to_string(), // Request from dataplane 2
+            sel: proto_gazette::LabelSelector::default(),
+            sub: "acmeCo/materialize-pear".to_string(), // Task is in dataplane 1
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "redirect to: fqdn1"
           }
         }
         "###);
@@ -322,6 +387,7 @@ mod tests {
             ops_stats_journal,
             task_spec,
             retry_millis,
+            redirect_dataplane_fqdn,
         } = do_authorize_dekaf(
             &snapshot,
             request_token,
@@ -341,6 +407,10 @@ mod tests {
 
         if retry_millis != 0 {
             return Err(anyhow::anyhow!("retry").into());
+        }
+
+        if let Some(redirect) = redirect_dataplane_fqdn {
+            return Err(anyhow::anyhow!(format!("redirect to: {}", redirect)).into());
         }
 
         // Decode and verify the response token.
