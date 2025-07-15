@@ -48,20 +48,28 @@ pub type Result<T> = core::result::Result<T, SharedError>;
 const TASK_TIMEOUT: Duration = Duration::from_secs(60 * 3);
 
 #[derive(Clone)]
-pub struct TaskState {
-    // Control-plane access token
-    pub access_token: String,
-    pub access_token_claims: AccessTokenClaims,
-    pub ops_logs_journal: String,
-    pub ops_stats_journal: String,
-    pub spec: proto_flow::flow::MaterializationSpec,
-    /// Sorted by collection's partition template name
-    pub partitions: Vec<(
-        String,
-        Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
-    )>,
-    pub ops_logs_client: Result<(journal::Client, proto_gazette::Claims)>,
-    pub ops_stats_client: Result<(journal::Client, proto_gazette::Claims)>,
+pub enum TaskState {
+    /// Task is authorized and running in this dataplane
+    Authorized {
+        // Control-plane access token
+        access_token: String,
+        access_token_claims: AccessTokenClaims,
+        ops_logs_journal: String,
+        ops_stats_journal: String,
+        spec: proto_flow::flow::MaterializationSpec,
+        /// Sorted by collection's partition template name
+        partitions: Vec<(
+            String,
+            Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
+        )>,
+        ops_logs_client: Result<(journal::Client, proto_gazette::Claims)>,
+        ops_stats_client: Result<(journal::Client, proto_gazette::Claims)>,
+    },
+    /// Task has been migrated to a different dataplane
+    Redirect {
+        target_dataplane_fqdn: String,
+        spec: proto_flow::flow::MaterializationSpec,
+    },
 }
 
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
@@ -244,95 +252,134 @@ impl TaskManager {
                 }
             }
 
+            let mut has_been_migrated = false;
+
             let loop_result: Result<()> = async {
                 // For the moment, let's just refresh this every tick in order to have relatively
                 // fresh MaterializationSpecs, even if the access token may live for a while.
-                let (access_token, access_token_claims, ops_logs_journal, ops_stats_journal, spec) =
-                    fetch_dekaf_task_auth(
-                        &self.client,
-                        &task_name,
-                        &self.data_plane_fqdn,
-                        &self.data_plane_signer,
-                    )
-                    .await
-                    .context("error fetching dekaf task auth")?;
-
-                partitions_and_clients = update_partition_info(
+                let dekaf_auth = fetch_dekaf_task_auth(
                     &self.client,
+                    &task_name,
                     &self.data_plane_fqdn,
                     &self.data_plane_signer,
-                    &task_name,
-                    &spec,
-                    std::mem::take(&mut partitions_and_clients),
-                )
-                .await?;
-
-                let logs_client_result = get_or_refresh_journal_client(
-                    &self.client,
-                    &self.data_plane_fqdn,
-                    &self.data_plane_signer,
-                    &task_name,
-                    proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-                    broker::LabelSelector {
-                        include: Some(labels::build_set([("name", ops_logs_journal.as_str())])),
-                        exclude: None,
-                    },
-                    cached_ops_logs_client
-                        .as_ref()
-                        .and_then(|r| r.as_ref().ok()),
                 )
                 .await
-                .map_err(SharedError::from);
-                cached_ops_logs_client = Some(logs_client_result);
+                .context("error fetching dekaf task auth")?;
 
-                let stats_client_result = get_or_refresh_journal_client(
-                    &self.client,
-                    &self.data_plane_fqdn,
-                    &self.data_plane_signer,
-                    &task_name,
-                    proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-                    broker::LabelSelector {
-                        include: Some(labels::build_set([("name", ops_stats_journal.as_str())])),
-                        exclude: None,
-                    },
-                    cached_ops_stats_client
-                        .as_ref()
-                        .and_then(|r| r.as_ref().ok()),
-                )
-                .await
-                .map_err(SharedError::from);
-                cached_ops_stats_client = Some(stats_client_result);
+                match dekaf_auth {
+                    DekafTaskAuth::Redirect {
+                        target_dataplane_fqdn,
+                        spec,
+                    } => {
+                        if !has_been_migrated {
+                            has_been_migrated = true;
 
-                let _ = sender.send(Some(Ok(TaskState {
-                    access_token,
-                    access_token_claims,
-                    ops_logs_journal,
-                    ops_stats_journal,
-                    spec,
-                    partitions: partitions_and_clients
-                        .iter()
-                        .sorted_by_key(|(k, _)| k.as_str())
-                        .map(|(k, v)| {
-                            let mapped_val = match v {
-                                Ok(p) => Ok(p.clone()),
-                                Err(e) => Err(e.clone()),
-                            };
-                            let res = (k.clone(), mapped_val);
+                            tracing::info!(
+                                task_name = %task_name,
+                                target_dataplane = %target_dataplane_fqdn,
+                                "Task has been migrated to different dataplane"
+                            );
+                        }
 
-                            res
-                        })
-                        .collect_vec(),
-                    ops_logs_client: cached_ops_logs_client
-                        .as_ref()
-                        .expect("this is guarinteed to be present")
-                        .clone(),
-                    ops_stats_client: cached_ops_stats_client
-                        .as_ref()
-                        .expect("this is guarinteed to be present")
-                        .clone(),
-                })));
+                        let _ = sender.send(Some(Ok(TaskState::Redirect {
+                            target_dataplane_fqdn: target_dataplane_fqdn,
+                            spec,
+                        })));
 
-                Ok(())
+                        return Ok(());
+                    }
+                    DekafTaskAuth::Auth {
+                        token: access_token,
+                        claims: access_token_claims,
+                        ops_logs_journal,
+                        ops_stats_journal,
+                        spec,
+                    } => {
+                        // Continue with normal processing
+                        partitions_and_clients = update_partition_info(
+                            &self.client,
+                            &self.data_plane_fqdn,
+                            &self.data_plane_signer,
+                            &task_name,
+                            &spec,
+                            std::mem::take(&mut partitions_and_clients),
+                        )
+                        .await?;
+
+                        let logs_client_result = get_or_refresh_journal_client(
+                            &self.client,
+                            &self.data_plane_fqdn,
+                            &self.data_plane_signer,
+                            &task_name,
+                            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+                            broker::LabelSelector {
+                                include: Some(labels::build_set([(
+                                    "name",
+                                    ops_logs_journal.as_str(),
+                                )])),
+                                exclude: None,
+                            },
+                            cached_ops_logs_client
+                                .as_ref()
+                                .and_then(|r| r.as_ref().ok()),
+                        )
+                        .await
+                        .map_err(SharedError::from);
+                        cached_ops_logs_client = Some(logs_client_result);
+
+                        let stats_client_result = get_or_refresh_journal_client(
+                            &self.client,
+                            &self.data_plane_fqdn,
+                            &self.data_plane_signer,
+                            &task_name,
+                            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+                            broker::LabelSelector {
+                                include: Some(labels::build_set([(
+                                    "name",
+                                    ops_stats_journal.as_str(),
+                                )])),
+                                exclude: None,
+                            },
+                            cached_ops_stats_client
+                                .as_ref()
+                                .and_then(|r| r.as_ref().ok()),
+                        )
+                        .await
+                        .map_err(SharedError::from);
+                        cached_ops_stats_client = Some(stats_client_result);
+
+                        let _ = sender.send(Some(Ok(TaskState::Authorized {
+                            access_token,
+                            access_token_claims,
+                            ops_logs_journal,
+                            ops_stats_journal,
+                            spec,
+                            partitions: partitions_and_clients
+                                .iter()
+                                .sorted_by_key(|(k, _)| k.as_str())
+                                .map(|(k, v)| {
+                                    let mapped_val = match v {
+                                        Ok(p) => Ok(p.clone()),
+                                        Err(e) => Err(e.clone()),
+                                    };
+                                    let res = (k.clone(), mapped_val);
+
+                                    res
+                                })
+                                .collect_vec(),
+                            ops_logs_client: cached_ops_logs_client
+                                .as_ref()
+                                .expect("this is guarinteed to be present")
+                                .clone(),
+                            ops_stats_client: cached_ops_stats_client
+                                .as_ref()
+                                .expect("this is guarinteed to be present")
+                                .clone(),
+                        })));
+
+                        Ok(())
+                    }
+                } // End of match
             }
             .await;
 
@@ -512,19 +559,30 @@ pub async fn fetch_partitions(
 pub struct AccessTokenClaims {
     pub exp: u64,
 }
+
+pub enum DekafTaskAuth {
+    /// Task has been migrated to a different dataplane, and the session should redirect to it.
+    Redirect {
+        target_dataplane_fqdn: String,
+        spec: MaterializationSpec,
+    },
+    /// Task authorization data.
+    Auth {
+        token: String,
+        claims: AccessTokenClaims,
+        ops_logs_journal: String,
+        ops_stats_journal: String,
+        spec: MaterializationSpec,
+    },
+}
+
 #[tracing::instrument(skip(client, data_plane_signer), err)]
 async fn fetch_dekaf_task_auth(
     client: &flow_client::Client,
     shard_template_id: &str,
     data_plane_fqdn: &str,
     data_plane_signer: &jsonwebtoken::EncodingKey,
-) -> anyhow::Result<(
-    String,
-    AccessTokenClaims,
-    String,
-    String,
-    proto_flow::flow::MaterializationSpec,
-)> {
+) -> anyhow::Result<DekafTaskAuth> {
     let start = std::time::Instant::now();
 
     let request_token = flow_client::client::build_task_authorization_request_token(
@@ -539,6 +597,7 @@ async fn fetch_dekaf_task_auth(
         ops_logs_journal,
         ops_stats_journal,
         task_spec,
+        redirect_dataplane_fqdn,
         ..
     } = loop {
         let response: models::authorizations::DekafAuthResponse = client
@@ -559,6 +618,35 @@ async fn fetch_dekaf_task_auth(
         }
         break response;
     };
+
+    let parsed_spec = serde_json::from_str(
+        task_spec
+            .ok_or(anyhow::anyhow!(
+                "task_spec is only None when we need to retry the auth request"
+            ))?
+            .get(),
+    )?;
+
+    // Check if we got a redirect response
+    if let Some(redirect_fqdn) = redirect_dataplane_fqdn {
+        tracing::debug!(
+            redirect_target = redirect_fqdn,
+            "task has been migrated to different dataplane, returning redirect"
+        );
+        metrics::counter!(
+            "dekaf_fetch_auth",
+            "endpoint" => "/authorize/dekaf",
+            "redirect" => "true",
+            "task_name" => shard_template_id.to_owned()
+        )
+        .increment(1);
+
+        return Ok(DekafTaskAuth::Redirect {
+            target_dataplane_fqdn: redirect_fqdn,
+            spec: parsed_spec,
+        });
+    }
+
     let claims = flow_client::parse_jwt_claims(token.as_str())?;
 
     tracing::debug!(
@@ -566,18 +654,19 @@ async fn fetch_dekaf_task_auth(
         "fetched dekaf task auth",
     );
 
-    metrics::counter!("dekaf_fetch_auth", "endpoint" => "/authorize/dekaf", "task_name" => shard_template_id.to_owned()).increment(1);
-    Ok((
+    metrics::counter!(
+        "dekaf_fetch_auth",
+        "endpoint" => "/authorize/dekaf",
+        "redirect" => "false",
+        "task_name" => shard_template_id.to_owned()
+    )
+    .increment(1);
+
+    Ok(DekafTaskAuth::Auth {
         token,
         claims,
         ops_logs_journal,
         ops_stats_journal,
-        serde_json::from_str(
-            task_spec
-                .ok_or(anyhow::anyhow!(
-                    "task_spec is only None when we need to retry the auth request"
-                ))?
-                .get(),
-        )?,
-    ))
+        spec: parsed_spec,
+    })
 }

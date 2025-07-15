@@ -1,6 +1,10 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, SessionAuthentication};
+use crate::{
+    from_downstream_topic_name, to_downstream_topic_name, DekafError, SessionAuthentication,
+};
 use anyhow::Context;
+use axum::extract::Request;
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
 use itertools::Itertools;
@@ -19,6 +23,10 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
             get(get_subject_latest),
         )
         .route("/schemas/ids/:id", get(get_schema_by_id))
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            authenticate_and_redirect,
+        ))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(app);
 
@@ -28,17 +36,15 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
 // List all collections as "subjects", which are generally Kafka topics in the ecosystem.
 #[tracing::instrument(skip_all)]
 async fn all_subjects(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
-        headers::Authorization<headers::authorization::Basic>,
-    >,
+    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
 ) -> Response {
     wrap(async move {
-        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
-
         let strict_topic_names = match auth {
             SessionAuthentication::User(ref auth) => auth.config.strict_topic_names,
             SessionAuthentication::Task(ref auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Redirect { .. } => {
+                unreachable!("redirects handled by middleware")
+            }
         };
 
         auth.fetch_all_collection_names()
@@ -65,17 +71,12 @@ async fn all_subjects(
 }
 
 // Fetch the "latest" schema for a subject (collection).
-#[tracing::instrument(skip(app, auth))]
+#[tracing::instrument(skip(auth))]
 async fn get_subject_latest(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
-        headers::Authorization<headers::authorization::Basic>,
-    >,
+    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
-
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
         } else if subject.ends_with("-key") {
@@ -121,16 +122,12 @@ async fn get_subject_latest(
 
 // Fetch the schema with the given ID.
 // Schemas are content-addressed and immutable, so an ID uniquely identifies a Avro schema.
-#[tracing::instrument(skip(app, auth))]
+#[tracing::instrument(skip(auth))]
 async fn get_schema_by_id(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
-        headers::Authorization<headers::authorization::Basic>,
-    >,
+    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
         let client = &auth.flow_client().await?.pg_client();
 
         #[derive(serde::Deserialize)]
@@ -177,6 +174,49 @@ where
             let err = format!("{err:#?}");
             tracing::warn!(err, "request failed");
             (axum::http::StatusCode::BAD_REQUEST, err).into_response()
+        }
+    }
+}
+
+async fn authenticate_and_redirect(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
+        headers::Authorization<headers::authorization::Basic>,
+    >,
+    uri: axum::http::Uri,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    match app.authenticate(auth.username(), auth.password()).await {
+        Ok(SessionAuthentication::Redirect {
+            target_dataplane_fqdn,
+            ..
+        }) => {
+            let redirect_url = format!(
+                "https://{}{}",
+                target_dataplane_fqdn,
+                uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
+            );
+            (
+                axum::http::StatusCode::TEMPORARY_REDIRECT,
+                [("Location", redirect_url)],
+            )
+                .into_response()
+        }
+        Ok(auth) => {
+            // Insert the authentication into request extensions so handlers can access it
+            req.extensions_mut().insert(auth);
+            next.run(req).await
+        }
+        Err(DekafError::Authentication(auth_err)) => {
+            let err = format!("{auth_err:#?}");
+            tracing::warn!(err, "authentication failed");
+            (axum::http::StatusCode::UNAUTHORIZED, err).into_response()
+        }
+        Err(err) => {
+            let err = format!("{err:#?}");
+            tracing::error!(err, "unexpected error during authentication");
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response()
         }
     }
 }
