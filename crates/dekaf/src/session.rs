@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
+use itertools::Itertools;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -25,6 +26,9 @@ use std::{
     time::SystemTime,
 };
 use tracing::instrument;
+
+const LOCAL_NODE_ID: i32 = 1;
+const REDIRECTED_NODE_ID: i32 = 2;
 
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
@@ -85,6 +89,24 @@ impl Session {
         }
     }
 
+    /// Returns the broker host and port to advertise to clients.
+    /// For redirected tasks, this returns the target dataplane's broker address.
+    fn get_redirect_address(&self) -> Option<(String, i32)> {
+        match &self.auth {
+            Some(SessionAuthentication::Redirect {
+                target_dataplane_fqdn,
+                ..
+            }) => {
+                // Redirect to the target dataplane's Dekaf instance
+                Some((
+                    format!("dekaf.{}", target_dataplane_fqdn),
+                    (self.app.advertise_kafka_port) as i32,
+                ))
+            }
+            _ => None,
+        }
+    }
+
     async fn get_kafka_client(&mut self) -> anyhow::Result<&mut KafkaApiClient> {
         if let Some(ref mut client) = self.client {
             Ok(client)
@@ -103,6 +125,9 @@ impl Session {
                     },
                     self.broker_urls.as_slice(),
                 ),
+                Some(SessionAuthentication::Redirect { .. }) => {
+                    anyhow::bail!("Redirected sessions cannot create kafka clients");
+                }
                 Some(SessionAuthentication::User(_)) => {
                     if let (Some(username), Some(password), Some(urls)) = (
                         &self.legacy_mode_broker_username,
@@ -226,16 +251,30 @@ impl Session {
             _ => self.metadata_all_topics().await,
         }?;
 
-        // We only ever advertise a single logical broker.
-        let brokers = vec![MetadataResponseBroker::default()
-            .with_node_id(messages::BrokerId(1))
+        let mut brokers = vec![MetadataResponseBroker::default()
+            .with_node_id(messages::BrokerId(LOCAL_NODE_ID))
             .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
             .with_port(self.app.advertise_kafka_port as i32)];
+
+        if let Some((broker_host, broker_port)) = self.get_redirect_address() {
+            brokers.push(
+                MetadataResponseBroker::default()
+                    .with_node_id(messages::BrokerId(REDIRECTED_NODE_ID))
+                    .with_host(StrBytes::from_string(broker_host))
+                    .with_port(broker_port),
+            );
+        }
 
         Ok(messages::MetadataResponse::default()
             .with_brokers(brokers)
             .with_cluster_id(Some(StrBytes::from_static_str("estuary-dekaf")))
-            .with_controller_id(messages::BrokerId(1))
+            .with_controller_id(messages::BrokerId(match self.auth {
+                Some(SessionAuthentication::Task(_)) | Some(SessionAuthentication::User(_)) => {
+                    LOCAL_NODE_ID
+                }
+                Some(SessionAuthentication::Redirect { .. }) => REDIRECTED_NODE_ID,
+                None => bail!("Session not authenticated"),
+            }))
             .with_topics(topics))
     }
 
@@ -250,6 +289,12 @@ impl Session {
 
         tracing::debug!(collections=?ops::DebugJson(&collections), "fetched all collections");
 
+        let node_id = if let Some(SessionAuthentication::Redirect { .. }) = self.auth {
+            REDIRECTED_NODE_ID
+        } else {
+            LOCAL_NODE_ID
+        };
+
         let topics = collections
             .into_iter()
             .map(|name| {
@@ -258,7 +303,9 @@ impl Session {
                     .with_is_internal(false)
                     .with_partitions(vec![MetadataResponsePartition::default()
                         .with_partition_index(0)
-                        .with_leader_id(0.into())]))
+                        .with_leader_id(messages::BrokerId(node_id))
+                        .with_replica_nodes(vec![messages::BrokerId(node_id)])
+                        .with_isr_nodes(vec![messages::BrokerId(node_id)])]))
             })
             .collect::<anyhow::Result<_>>()?;
 
@@ -270,63 +317,82 @@ impl Session {
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+        match self.auth.as_ref().unwrap() {
+            SessionAuthentication::Redirect { .. } => {
+                return Ok(requests
+                    .into_iter()
+                    .map(|req| {
+                        MetadataResponseTopic::default()
+                            .with_name(req.name)
+                            .with_is_internal(false)
+                            .with_partitions(vec![MetadataResponsePartition::default()
+                                .with_partition_index(0)
+                                .with_leader_id(messages::BrokerId(REDIRECTED_NODE_ID))
+                                .with_replica_nodes(vec![messages::BrokerId(REDIRECTED_NODE_ID)])
+                                .with_isr_nodes(vec![messages::BrokerId(REDIRECTED_NODE_ID)])])
+                    })
+                    .collect_vec())
+            }
+            _ => {
+                let auth = self
+                    .auth
+                    .as_mut()
+                    .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+                let pg_client = &auth.flow_client().await?.pg_client();
 
-        let pg_client = &auth.flow_client().await?.pg_client();
+                // Re-declare here to drop mutable reference
+                let auth = self.auth.as_ref().unwrap();
 
-        // Re-declare here to drop mutable reference
-        let auth = self.auth.as_ref().unwrap();
+                // Concurrently fetch Collection instances for all requested topics.
+                let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
+                    futures::future::try_join_all(requests.into_iter().map(|topic| async move {
+                        let maybe_collection = Collection::new(
+                            auth,
+                            pg_client,
+                            from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
+                                .as_str(),
+                        )
+                        .await?;
+                        Ok((topic.name.unwrap_or_default(), maybe_collection))
+                    }))
+                    .await;
 
-        // Concurrently fetch Collection instances for all requested topics.
-        let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
-            futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(
-                    auth,
-                    pg_client,
-                    from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
-                )
-                .await?;
-                Ok((topic.name.unwrap_or_default(), maybe_collection))
-            }))
-            .await;
+                let mut topics = vec![];
 
-        let mut topics = vec![];
+                for (name, maybe_collection) in collections? {
+                    let Some(collection) = maybe_collection else {
+                        topics.push(
+                            MetadataResponseTopic::default()
+                                .with_name(Some(self.encode_topic_name(name.to_string())?))
+                                .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
+                        );
+                        continue;
+                    };
 
-        for (name, maybe_collection) in collections? {
-            let Some(collection) = maybe_collection else {
-                topics.push(
-                    MetadataResponseTopic::default()
-                        .with_name(Some(self.encode_topic_name(name.to_string())?))
-                        .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
-                );
-                continue;
-            };
+                    let partitions = collection
+                        .partitions
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| {
+                            messages::metadata_response::MetadataResponsePartition::default()
+                                .with_partition_index(index as i32)
+                                .with_leader_id(messages::BrokerId(LOCAL_NODE_ID))
+                                .with_replica_nodes(vec![messages::BrokerId(LOCAL_NODE_ID)])
+                                .with_isr_nodes(vec![messages::BrokerId(LOCAL_NODE_ID)])
+                        })
+                        .collect();
 
-            let partitions = collection
-                .partitions
-                .iter()
-                .enumerate()
-                .map(|(index, _)| {
-                    messages::metadata_response::MetadataResponsePartition::default()
-                        .with_partition_index(index as i32)
-                        .with_leader_id(messages::BrokerId(1))
-                        .with_replica_nodes(vec![messages::BrokerId(1)])
-                        .with_isr_nodes(vec![messages::BrokerId(1)])
-                })
-                .collect();
+                    topics.push(
+                        MetadataResponseTopic::default()
+                            .with_name(Some(name))
+                            .with_is_internal(false)
+                            .with_partitions(partitions),
+                    );
+                }
 
-            topics.push(
-                MetadataResponseTopic::default()
-                    .with_name(Some(name))
-                    .with_is_internal(false)
-                    .with_partitions(partitions),
-            );
+                return Ok(topics);
+            }
         }
-
-        Ok(topics)
     }
 
     /// FindCoordinator always responds with our single logical broker.
@@ -334,21 +400,30 @@ impl Session {
         &mut self,
         request: messages::FindCoordinatorRequest,
     ) -> anyhow::Result<messages::FindCoordinatorResponse> {
+        let (broker_host, broker_port, node_id) = match self.get_redirect_address() {
+            Some((host, port)) => (host, port, REDIRECTED_NODE_ID),
+            None => (
+                self.app.advertise_host.clone(),
+                self.app.advertise_kafka_port as i32,
+                LOCAL_NODE_ID,
+            ),
+        };
+
         let coordinators = request
             .coordinator_keys
             .iter()
             .map(|_key| {
                 messages::find_coordinator_response::Coordinator::default()
-                    .with_node_id(messages::BrokerId(1))
-                    .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-                    .with_port(self.app.advertise_kafka_port as i32)
+                    .with_node_id(messages::BrokerId(node_id))
+                    .with_host(StrBytes::from_string(broker_host.clone()))
+                    .with_port(broker_port)
             })
             .collect();
 
         Ok(messages::FindCoordinatorResponse::default()
-            .with_node_id(messages::BrokerId(1))
-            .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-            .with_port(self.app.advertise_kafka_port as i32)
+            .with_node_id(messages::BrokerId(node_id))
+            .with_host(StrBytes::from_string(broker_host))
+            .with_port(broker_port)
             .with_coordinators(coordinators))
     }
 
@@ -466,6 +541,9 @@ impl Session {
             Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
             Some(SessionAuthentication::User(auth)) => {
                 format!("user-auth: {:?}", auth.claims.email)
+            }
+            Some(SessionAuthentication::Redirect { .. }) => {
+                bail!("Redirected sessions cannot fetch data")
             }
             None => bail!("Not authenticated"),
         };
@@ -1357,6 +1435,9 @@ impl Session {
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+                SessionAuthentication::Redirect { .. } => {
+                    bail!("Redirected sessions cannot encrypt topic names")
+                }
             },
         ))
     }
@@ -1367,6 +1448,9 @@ impl Session {
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+                SessionAuthentication::Redirect { .. } => {
+                    bail!("Redirected sessions cannot encrypt topic names")
+                }
             },
         ))
     }
@@ -1375,6 +1459,7 @@ impl Session {
         if match self.auth.as_ref().context("Must be authenticated")? {
             SessionAuthentication::User(auth) => auth.config.strict_topic_names,
             SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Redirect { .. } => false,
         } {
             Ok(to_downstream_topic_name(TopicName(StrBytes::from_string(
                 name,
