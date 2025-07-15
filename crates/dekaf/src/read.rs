@@ -8,10 +8,10 @@ use crate::{
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
-use futures::{stream, StreamExt};
+use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::uuid::Clock;
-use gazette::{broker, journal, uuid};
+use gazette::{broker, uuid};
 use kafka_protocol::records::{Compression, TimestampType};
 use lz4_flex::frame::BlockMode;
 
@@ -126,6 +126,9 @@ impl Read {
                 SessionAuthentication::User(user_auth) => {
                     format!("user-auth: {:?}", user_auth.claims.email)
                 }
+                SessionAuthentication::Redirect { .. } => {
+                    bail!("Redirected sessions cannot read data")
+                }
             },
             rewrite_offsets_from,
             deletes: auth.deletions(),
@@ -145,10 +148,19 @@ impl Read {
             .map(|c: Clock| Clock::to_unix(&c))
             .unwrap_or((0, 0));
 
-        let (client, claims, _) = listener
-            .get()
-            .await?
-            .partitions
+        let task_state = listener.get().await?;
+
+        let partitions = match task_state {
+            crate::task_manager::TaskState::Authorized { partitions, .. } => partitions,
+            crate::task_manager::TaskState::Redirect {
+                target_dataplane_fqdn,
+                ..
+            } => {
+                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+            }
+        };
+
+        let (client, claims, _) = partitions
             .into_iter()
             .find_map(|(k, v)| {
                 if k == partition_template_name {
