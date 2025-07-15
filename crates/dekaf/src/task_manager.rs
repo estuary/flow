@@ -539,7 +539,7 @@ async fn fetch_dekaf_task_auth(
         ops_logs_journal,
         ops_stats_journal,
         task_spec,
-        retry_millis: _,
+        ..
     } = loop {
         let response: models::authorizations::DekafAuthResponse = client
             .agent_unary(
