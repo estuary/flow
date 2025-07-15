@@ -92,10 +92,11 @@ then materializes that data to the destination.
 
 When you perform a dataflow reset:
 
-* Destination tables are dropped and recreated
 * Data is reread from the source system
 * Inferred schemas are reset
-* Collections are updated with fresh source data
+* Destination tables are dropped and recreated
+* Collections are replaced with fresh source data
+* Derivations are dropped and recreated
 * Destination tables are repopulated with the refreshed data
 
 To perform a dataflow reset:
