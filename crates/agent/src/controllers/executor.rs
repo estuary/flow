@@ -174,7 +174,8 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
 #[tracing::instrument(skip_all, fields(
     task_id = %_task_id,
     live_spec_id = %controller_state.live_spec_id,
-    catalog_name = %controller_state.catalog_name
+    catalog_name = %controller_state.catalog_name,
+    data_plane_id = %controller_state.data_plane_id
 ))]
 async fn run_controller<C: ControlPlane>(
     task_state: &mut State,
