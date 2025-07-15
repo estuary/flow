@@ -36,8 +36,10 @@ use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};
 use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
+use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
 use std::{
+    any,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -69,6 +71,7 @@ pub struct DeprecatedConfigOptions {
     pub deletions: connector::DeletionMode,
 }
 
+#[derive(Clone)]
 pub struct UserAuth {
     client: flow_client::Client,
     refresh_token: RefreshToken,
@@ -77,6 +80,7 @@ pub struct UserAuth {
     config: DeprecatedConfigOptions,
 }
 
+#[derive(Clone)]
 pub struct TaskAuth {
     client: flow_client::Client,
     task_name: String,
@@ -87,9 +91,15 @@ pub struct TaskAuth {
     exp: time::OffsetDateTime,
 }
 
+#[derive(Clone)]
 pub enum SessionAuthentication {
     User(UserAuth),
     Task(TaskAuth),
+    Redirect {
+        target_dataplane_fqdn: String,
+        spec: MaterializationSpec,
+        task_state_listener: task_manager::TaskStateListener,
+    },
 }
 
 impl SessionAuthentication {
@@ -99,6 +109,10 @@ impl SessionAuthentication {
                 std::time::UNIX_EPOCH + std::time::Duration::new(user.claims.exp, 0)
             }
             SessionAuthentication::Task(task) => task.exp.into(),
+            SessionAuthentication::Redirect { .. } => {
+                // Redirects are valid for a short duration
+                SystemTime::now() + std::time::Duration::from_secs(60 * 5)
+            }
         }
     }
 
@@ -106,6 +120,9 @@ impl SessionAuthentication {
         match self {
             SessionAuthentication::User(auth) => auth.authenticated_client().await,
             SessionAuthentication::Task(auth) => auth.authenticated_client().await,
+            SessionAuthentication::Redirect { .. } => {
+                anyhow::bail!("Cannot get flow client for redirected task")
+            }
         }
     }
 
@@ -117,6 +134,9 @@ impl SessionAuthentication {
             SessionAuthentication::Task(auth) => {
                 auth.client = auth.client.clone().with_fresh_gazette_client();
             }
+            SessionAuthentication::Redirect { .. } => {
+                unreachable!("This session is a redirect and cannot communicate with Gazette");
+            }
         }
     }
 
@@ -124,6 +144,7 @@ impl SessionAuthentication {
         match self {
             SessionAuthentication::User(user_auth) => user_auth.config.deletions,
             SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
+            SessionAuthentication::Redirect { .. } => unreachable!("This session is a redirect"),
         }
     }
 }
@@ -170,22 +191,60 @@ impl TaskAuth {
     }
     pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
-            let TaskState {
-                access_token: token,
-                access_token_claims: claims,
-                ..
-            } = self.task_state_listener.get().await?;
-
-            self.client = self
-                .client
-                .clone()
-                .with_user_access_token(Some(token))
-                .with_fresh_gazette_client();
-            self.exp =
-                time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64);
+            match self.task_state_listener.get().await? {
+                TaskState::Authorized {
+                    access_token: token,
+                    access_token_claims: claims,
+                    ..
+                } => {
+                    self.client = self
+                        .client
+                        .clone()
+                        .with_user_access_token(Some(token))
+                        .with_fresh_gazette_client();
+                    self.exp = time::OffsetDateTime::UNIX_EPOCH
+                        + time::Duration::seconds(claims.exp as i64);
+                }
+                TaskState::Redirect { .. } => {
+                    anyhow::bail!("Task was just moved to a different dataplane, consumer must reconnect to get redirected");
+                }
+            }
         }
 
         Ok(&self.client)
+    }
+
+    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
+        let task_state = self
+            .task_state_listener
+            .get()
+            .await
+            .context("failed to fetch task spec")?;
+
+        let spec = match task_state {
+            TaskState::Authorized { spec, .. } => spec,
+            TaskState::Redirect { spec, .. } => spec,
+        };
+
+        utils::fetch_all_collection_names(&spec)
+    }
+
+    pub async fn get_binding_for_topic(
+        &self,
+        topic_name: &str,
+    ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
+        let task_state = self
+            .task_state_listener
+            .get()
+            .await
+            .context("failed to fetch task spec")?;
+
+        let spec = match task_state {
+            TaskState::Authorized { spec, .. } => spec,
+            TaskState::Redirect { spec, .. } => spec,
+        };
+
+        utils::get_binding_for_topic(&spec, topic_name)
     }
 }
 
@@ -220,52 +279,69 @@ impl App {
             let listener = self.task_manager.get_listener(&username);
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
-            let TaskState {
-                access_token: token,
-                access_token_claims: claims,
-                spec,
-                ..
-            } = listener.get().await?;
+            match listener.get().await? {
+                TaskState::Authorized {
+                    access_token: token,
+                    access_token_claims: claims,
+                    spec,
+                    ..
+                } => {
+                    // Decrypt this materialization's endpoint config
+                    let config = topology::extract_dekaf_config(&spec).await?;
 
-            // Decrypt this materialization's endpoint config
-            let config = topology::extract_dekaf_config(&spec).await?;
+                    let labels = spec
+                        .shard_template
+                        .as_ref()
+                        .context("missing shard template")?
+                        .labels
+                        .as_ref()
+                        .context("missing shard labels")?;
+                    let labels =
+                        labels::shard::decode_labeling(labels).context("parsing shard labeling")?;
 
-            let labels = spec
-                .shard_template
-                .as_ref()
-                .context("missing shard template")?
-                .labels
-                .as_ref()
-                .context("missing shard labels")?;
-            let labels =
-                labels::shard::decode_labeling(labels).context("parsing shard labeling")?;
+                    // This marks this Session as being associated with the task name contained in `username`.
+                    // We only set this after successfully validating that this task exists and is a Dekaf
+                    // materialization. Otherwise we will either log auth errors attempting to append to
+                    // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
+                    logging::get_log_forwarder()
+                        .map(|f| f.set_task_name(username.clone(), labels.build.clone()));
 
-            // This marks this Session as being associated with the task name contained in `username`.
-            // We only set this after successfully validating that this task exists and is a Dekaf
-            // materialization. Otherwise we will either log auth errors attempting to append to
-            // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
-            logging::get_log_forwarder()
-                .map(|f| f.set_task_name(username.clone(), labels.build.clone()));
+                    // 3. Validate that the provided password matches the task's bearer token
+                    if password != config.token {
+                        return Err(DekafError::Authentication(
+                            "Invalid username or password".into(),
+                        ));
+                    }
 
-            // 3. Validate that the provided password matches the task's bearer token
-            if password != config.token {
-                return Err(DekafError::Authentication(
-                    "Invalid username or password".into(),
-                ));
+                    logging::set_log_level(labels.log_level());
+
+                    Ok(SessionAuthentication::Task(TaskAuth::new(
+                        self.client_base
+                            .clone()
+                            .with_user_access_token(Some(token))
+                            .with_fresh_gazette_client(),
+                        username,
+                        config,
+                        listener,
+                        time::OffsetDateTime::UNIX_EPOCH
+                            + time::Duration::seconds(claims.exp as i64),
+                    )))
+                }
+                TaskState::Redirect {
+                    target_dataplane_fqdn,
+                    spec,
+                    ..
+                } => {
+                    // Task has been migrated to a different dataplane.
+                    // Return a redirect authentication that will taint
+                    // the session to cause it to redirected its consumer.
+                    Ok(SessionAuthentication::Redirect {
+                        target_dataplane_fqdn,
+                        spec,
+                        task_state_listener: listener,
+                    })
+                }
             }
-
-            logging::set_log_level(labels.log_level());
-
-            Ok(SessionAuthentication::Task(TaskAuth::new(
-                self.client_base
-                    .clone()
-                    .with_user_access_token(Some(token))
-                    .with_fresh_gazette_client(),
-                username,
-                config,
-                listener,
-                time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
-            )))
         } else if username.contains("{") {
             // Since we don't have a task, we also don't have a logs journal to write to,
             // so we should disable log forwarding for this session.
