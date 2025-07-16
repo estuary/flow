@@ -82,6 +82,14 @@ impl Task {
                 crate::X_GENERATION_ID.to_string(),
                 serde_json::Value::String(binding.collection_generation_id.to_string()),
             );
+            
+            // Initialize complexity limit with default value
+            by_index[index].annotations.insert(
+                doc::shape::X_COMPLEXITY_LIMIT.to_string(),
+                serde_json::Value::Number(serde_json::Number::from(
+                    doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT
+                )),
+            );
         }
         by_index
     }
