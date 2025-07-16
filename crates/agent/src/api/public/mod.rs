@@ -1,3 +1,4 @@
+pub mod graphql;
 mod open_metrics;
 pub mod status;
 
