@@ -350,7 +350,7 @@ for all bindings in the materialization.
 While schema names are automatically assigned based on the capture, you can still
 manually set the schema name for individual bindings if needed.
 
-You can also set a default schema name at the materialization level.
+You can also set a default schema name at the materialization level in the Endpoint Config.
 This applies to all bindings within that materialization, ensuring a consistent schema naming convention throughout the
 data pipeline.
 
@@ -371,7 +371,7 @@ field implemented. Consult the individual connector documentation for details.
 
 3. **Materialization-Level Configuration:**
 
-   The default schema name can be set at the materialization level, ensuring that all new captures within that materialization automatically inherit the default schema name.
+   The default schema name can be set at the materialization level, ensuring that all new bindings within that materialization automatically inherit the default schema name.
 
 ### Configuration Steps
 
@@ -385,4 +385,44 @@ field implemented. Consult the individual connector documentation for details.
 
 3. **Set Default Schema at Materialization Level:**
 
-   During the materialization configuration, set a default schema name for all captures within the materialization.
+   During the materialization configuration, set a default schema name for all bindings within the materialization.
+
+## Target Resource Naming Convention Options
+
+Materializations with a concept of schema additionally include a choice between several schema naming conventions.
+These options, under **Collection Settings**, provide different default naming behaviors for tables and schemas.
+Selecting or changing the naming convention will only apply to new (not existing) bindings on the materialization.
+
+Target resource naming conventions include:
+
+* **Prefix Schema**
+
+   Always prefixes the table name with the second-to-last part of the collection name, regardless of what the schema is. If the schema field remains empty, the default is used.
+
+* **Prefix Non-Default Schema**
+
+   Prefixes the table name with the second-to-last part of the collection name **only if it's not the default schema** (such as `public` or `dbo`). The schema itself is left unspecified.
+
+* **Mirror Schemas**
+
+   Sets the schema name to the second-to-last part of the collection name, and uses the last part as the table name.
+
+* **Use Table Name Only**
+
+   Only uses the last part of the collection name as the table name. If the schema is left empty, the default schema is used.
+
+For example, consider how the different naming conventions affect the final table and schema names for these collections:
+
+|   | Collection: `acmeCo/anvils/orders` | Collection: `acmeCo/public/orders` |
+| - | --- | --- |
+| Prefix schema | Table: `anvils_orders` | Table: `public_orders` |
+|               | Schema: default        | Schema: default        |
+| Prefix non-default schema | Table: `anvils_orders` | Table: `orders` |
+|                           | Schema: default        | Schema: default |
+| Mirror schemas | Table: `orders`  | Table: `orders`  |
+|                | Schema: `anvils` | Schema: `public` |
+| Use table name only | Table: `orders` | Table: `orders` |
+|                     | Schema: default | Schema: default |
+
+These naming conventions can still be overridden on the binding level for individual collections.
+To do so, add or change the **Alternative Schema** name in the binding's Resource Configuration.
