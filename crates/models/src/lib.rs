@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+pub mod alerts;
 pub mod authorizations;
 mod captures;
 mod catalogs;
@@ -28,6 +29,7 @@ pub mod status;
 mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
+pub use alerts::{Alert, AlertType};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};

@@ -53,6 +53,7 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     // Routes are defined in groups, with the first group all being
     // authenticated routes that require a valid authentication token, and the
     // second group being unauthenticated routes that can be accessed by anyone.
+    let graphql_schema = graphql::create_schema();
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",
@@ -62,6 +63,14 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
         .api_route(
             "/api/v1/metrics/*prefix",
             aide::axum::routing::get(open_metrics::handle_get_metrics),
+        )
+        .route(
+            "/api/v1/graphql",
+            axum::routing::post(graphql::graphql_handler),
+        )
+        .route(
+            "/api/v1/graphql/playground",
+            axum::routing::get(graphql::graphql_playground),
         )
         // All routes below this are publicly accessible to anyone, without an authentication token
         .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
@@ -76,6 +85,7 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
                     .axum_handler(),
             ),
         )
+        .layer(axum::Extension(graphql_schema))
         .with_state(app.clone());
 
     // There's kind of a weird twist here, where we take the `OpenApi` that

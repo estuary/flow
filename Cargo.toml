@@ -230,14 +230,14 @@ warp = "0.3.3" # TODO(johnny) remove me in favor of axum
 axum = { version = "0.7", features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 axum-extra = { version = "0.9", features = ["typed-header", "query"] }
-async_graphql = { version = "7.0", features = [
+async-graphql = { version = "7.0", features = [
     "chrono",
-    "rawvalue",
+    "raw_value",
     "tracing",
     "uuid",
     "url",
 ] }
-async_graphql_axum = "7.0"
+async-graphql-axum = "7.0"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
