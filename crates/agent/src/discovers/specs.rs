@@ -319,7 +319,7 @@ pub fn merge_collections(
                 modified = true;
                 draft_model.write_schema = Some(document_schema);
             }
-        } else if let Some(initial_read_schema) = initializes_read_schema(&document_schema) {
+        } else if let Some(initial_read_schema) = initial_read_schema(&document_schema) {
             modified = true;
             draft_model.write_schema = Some(document_schema);
             draft_model.schema = None;
@@ -327,18 +327,6 @@ pub fn merge_collections(
             draft_model.read_schema = Some(models::Schema::new(models::RawValue::from_value(
                 &initial_read_schema,
             )));
-        } else if uses_inferred_schema(&document_schema) {
-            tracing::debug!(
-                %collection,
-                "discovered new use of inferred schema, initializing readSchema with placeholder"
-            );
-            // This is either a new collection, or else discovery has just started asking for
-            // the inferred schema. In either case, we must initialize the read schema with the
-            // inferred schema placeholder.
-            modified = true;
-            draft_model.read_schema = Some(models::Schema::default_inferred_read_schema());
-            draft_model.write_schema = Some(document_schema);
-            draft_model.schema = None;
         } else if is_schema_changed(&document_schema, draft_model.schema.as_ref()) {
             tracing::debug!(
                 %collection,
@@ -362,21 +350,23 @@ pub fn merge_collections(
     Ok(modified_collections)
 }
 
-fn uses_inferred_schema(schema: &models::Schema) -> bool {
-    matches!(
-        // Does the connector use schema inference?
-        schema.to_value().get(X_INFER_SCHEMA),
-        Some(serde_json::Value::Bool(true))
-    )
-}
-
-fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
+fn initial_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
     let mut schema_value = schema.to_value();
     if let serde_json::Value::Object(ref mut map) = schema_value {
+        // Check for explicit initial read schema first
         if let Some(extension @ serde_json::Value::Object(_)) = map.remove(X_INITIAL_READ_SCHEMA) {
             return Some(extension);
         }
     }
+    
+    // Check for inferred schema
+    if matches!(
+        schema.to_value().get(X_INFER_SCHEMA),
+        Some(serde_json::Value::Bool(true))
+    ) {
+        return Some(models::Schema::default_inferred_read_schema().to_value());
+    }
+    
     None
 }
 
