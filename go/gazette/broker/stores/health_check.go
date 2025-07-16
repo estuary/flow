@@ -35,7 +35,7 @@ func checkLoop(stores map[pb.FragmentStore]*ActiveStore, fs pb.FragmentStore, at
 	var checkInterval time.Duration
 
 	if err == nil {
-		checkInterval = 5 * time.Minute
+		checkInterval = 30 * time.Minute
 
 		log.WithFields(log.Fields{
 			"store":    fs,
@@ -66,8 +66,8 @@ func checkLoop(stores map[pb.FragmentStore]*ActiveStore, fs pb.FragmentStore, at
 		attempt += 1
 	}
 
-	// Schedule next check with +/- 5% jitter to prevent thundering herd
-	checkInterval += time.Duration((rand.Float64() - 0.5) * 0.1 * float64(checkInterval))
+	// Schedule next check with +/- 20% jitter to prevent thundering herd
+	checkInterval += time.Duration((rand.Float64() - 0.5) * 0.4 * float64(checkInterval))
 
 	storesMu.RLock()
 	if a, ok := stores[fs]; ok && a == active {
