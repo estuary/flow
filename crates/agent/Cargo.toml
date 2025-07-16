@@ -36,6 +36,7 @@ validation = { path = "../validation" }
 
 aide = { workspace = true }
 anyhow = { workspace = true }
+async_graphql = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
