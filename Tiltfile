@@ -160,6 +160,7 @@ local_resource(
     --allow-origin http://localhost:3000 \
     --api-port 8675 \
     --serve-handlers \
+    --log-format text \
     ' % (REPO_BASE),
     serve_env={
         "BIN_DIR": '%s/flow/.build/package/bin' % REPO_BASE,
