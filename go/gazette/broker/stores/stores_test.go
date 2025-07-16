@@ -358,19 +358,15 @@ func TestHealthStatusAfterSweep(t *testing.T) {
 		},
 	})
 
-	// Create a store
-	store := Get(pb.FragmentStore("s3://test/"))
+	var store = Get(pb.FragmentStore("s3://test/"))
 	require.NoError(t, store.initErr)
 
 	// Wait for initial health check to complete
-	done, _ := store.HealthStatus()
-	<-done
-
-	// Update health to success
-	store.UpdateHealth(nil)
-
-	// Verify health is good
-	var _, err = store.HealthStatus()
+	done, err := store.HealthStatus()
+	if err == ErrFirstHealthCheck {
+		<-done
+	}
+	_, err = store.HealthStatus()
 	require.NoError(t, err)
 
 	// First sweep clears the mark (store was marked on creation)
