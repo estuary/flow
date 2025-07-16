@@ -6,7 +6,7 @@ use futures::SinkExt;
 use itertools::Itertools;
 use json::schema::types;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
 pub async fn walk_all_materializations<C: Connectors>(
@@ -364,7 +364,7 @@ async fn walk_materialization<C: Connectors>(
             resource_config_json,
             collection,
             field_config_json_map: _,
-            backfill,
+            mut backfill,
             group_by,
         } = validate;
         let collection = collection.unwrap();
@@ -416,43 +416,69 @@ async fn walk_materialization<C: Connectors>(
             }
         }
 
-        let field_selection = walk_materialization_response(
-            scope,
-            materialization,
-            &model.fields,
-            &collection,
-            constraints.clone(),
-            errors,
+        let ((field_selection, conflicts), _outcomes) = field_selection::evaluate(
+            &collection.projections,
+            group_by,
+            live_spec,
+            &model,
+            constraints,
         );
 
-        // TODO(johnny): Run new field selection logic as a "shadow" selection,
-        // which is compared and logged but not used while we validate its correctness.
-        {
-            let ((shadow_selection, conflicts), outcomes) = field_selection::evaluate(
-                &collection.projections,
-                group_by,
-                live_spec,
-                &model,
-                constraints,
-            );
+        // Handle onIncompatibleSchemaChange action if all conflicts are connector unsatisfiable
+        if !conflicts.is_empty() {
+            let all_unsatisfiable = conflicts.iter().all(|conflict| {
+                matches!(
+                    conflict.reject,
+                    field_selection::Reject::ConnectorUnsatisfiable { .. }
+                )
+            });
 
-            if !errors.is_empty() {
-                // Don't log.
-            } else if field_selection != shadow_selection || !conflicts.is_empty() {
-                log_shadow_value_differences(
-                    &collection.name,
-                    &path,
-                    &field_selection,
-                    &shadow_selection,
-                    &conflicts,
-                    &outcomes,
-                );
+            if all_unsatisfiable {
+                match model.on_incompatible_schema_change {
+                    Some(models::OnIncompatibleSchemaChange::Abort) => {
+                        Error::AbortOnIncompatibleSchemaChange {
+                            this_entity: materialization.to_string(),
+                            source_collection: collection.name.clone(),
+                        }
+                        .push(scope, errors);
+                    }
+                    Some(models::OnIncompatibleSchemaChange::DisableTask) => {
+                        // Note: We can't disable the task here directly since we're processing
+                        // validated responses. Instead, we'll mark the shard as disabled and
+                        // let the task be disabled at a higher level.
+                        shards.disable = true;
+                        model_fixes.push(format!(
+                            "disabling materialization due to incompatible field selection for collection {} and `onIncompatibleSchemaChange: disableTask`",
+                            collection.name
+                        ));
+                    }
+                    Some(models::OnIncompatibleSchemaChange::DisableBinding) => {
+                        model.disable = true;
+                        model_fixes.push(format!(
+                            "disabling binding due to incompatible field selection for collection {} and `onIncompatibleSchemaChange: disableBinding`",
+                            collection.name
+                        ));
+                    }
+                    Some(models::OnIncompatibleSchemaChange::Backfill) | None => {
+                        // The selection is valid with a backfill. Need to increment backfill counter.
+                        model.backfill += 1;
+                        backfill += 1;
+                        model_fixes.push(format!(
+                            "backfilled binding due to incompatible field selection for collection {}",
+                            collection.name
+                        ));
+                    }
+                }
+            } else {
+                for conflict in conflicts {
+                    Error::FieldSelectionConflict {
+                        field: conflict.field.clone(),
+                        select_reason: format!("{:?}", conflict.select),
+                        reject_reason: format!("{:?}", conflict.reject),
+                    }
+                    .push(scope, errors);
+                }
             }
-
-            // TODO(johnny): if field selection returns non-empty conflicts
-            // which are all Reject::Unsatisfiable, then we must apply the
-            // `onIncompatibleSchemaChange` action. The selection is valid
-            // for use if the "backfill" action is taken.
         }
 
         // Build a partition LabelSelector for this source.
@@ -533,10 +559,15 @@ async fn walk_materialization<C: Connectors>(
     };
 
     // Remove built bindings from `live_bindings_spec`. The remainder must be inactive.
-    for binding in &bindings_spec {
-        live_bindings_spec.remove(binding.resource_path.as_slice());
-    }
-    let inactive_bindings = live_bindings_spec.values().map(|v| (*v).clone()).collect();
+    // However, if shards.disable is true, then all live bindings are inactive.
+    let inactive_bindings = if shards.disable {
+        live_bindings_spec.values().map(|v| (*v).clone()).collect()
+    } else {
+        for binding in &bindings_spec {
+            live_bindings_spec.remove(binding.resource_path.as_slice());
+        }
+        live_bindings_spec.values().map(|v| (*v).clone()).collect()
+    };
 
     let recovery_log_template = assemble::recovery_log_template(
         build_id,
@@ -807,7 +838,10 @@ fn walk_materialization_fields<'a>(
 
     if effective_group_by.is_empty() {
         // Fall back to the canonical projections of collection key fields.
-        effective_group_by.extend(key.iter().map(|f| f[1..].to_string()));
+        effective_group_by.extend(
+            key.iter()
+                .map(|f| f.strip_prefix("/").unwrap_or(f).to_string()),
+        );
     }
 
     for (field, config) in &require {
@@ -918,230 +952,4 @@ fn temporary_group_by_migration(
         .iter()
         .map(|field| models::Field::new(field))
         .collect()
-}
-
-fn walk_materialization_response(
-    scope: Scope,
-    materialization: &models::Materialization,
-    fields: &models::MaterializationFields,
-    collection: &flow::CollectionSpec,
-    mut constraints: BTreeMap<String, materialize::response::validated::Constraint>,
-    errors: &mut tables::Errors,
-) -> flow::FieldSelection {
-    let models::MaterializationFields {
-        group_by: _,
-        require,
-        exclude,
-        recommended,
-    } = fields;
-
-    let flow::CollectionSpec {
-        projections,
-        key: key_ptrs,
-        ..
-    } = collection;
-
-    let recommended = matches!(recommended, models::RecommendedDepth::Bool(true));
-
-    // |keys| and |document| are initialized with placeholder None,
-    // that we'll revisit as we walk projections & constraints.
-    let mut keys = key_ptrs
-        .iter()
-        .map(|_| Option::<String>::None)
-        .collect::<Vec<_>>();
-    let mut document = String::new();
-    // Projections *not* key parts or the root document spill to |values|.
-    let mut values = Vec::new();
-    // Required locations (as JSON pointers), and an indication of whether each has been found.
-    let mut locations: HashMap<String, bool> = HashMap::new();
-    // Encoded field configuration, passed through from |include| to the driver.
-    let mut field_config_json_map = BTreeMap::new();
-
-    use materialize::response::validated::constraint::Type;
-
-    // Sort projections so that we walk, in order:
-    // * Fields which *must* be included.
-    // * Fields which are explicitly-defined, and should be selected preferentially
-    //   for locations where we need only one field.
-    // * Everything else.
-    let projections = projections
-        .iter()
-        .sorted_by_key(|p| {
-            let must_include = require.get(&models::Field::new(&p.field)).is_some()
-                || constraints
-                    .get(&p.field)
-                    .map(|c| c.r#type == Type::FieldRequired as i32)
-                    .unwrap_or_default();
-
-            (!must_include, !p.explicit) // Negate to order before.
-        })
-        .collect::<Vec<_>>();
-
-    for projection in projections {
-        let flow::Projection { ptr, field, .. } = projection;
-
-        let constraint =
-            constraints
-                .remove(field)
-                .unwrap_or(materialize::response::validated::Constraint {
-                    r#type: Type::FieldForbidden as i32,
-                    reason: String::new(),
-                    folded_field: String::new(),
-                });
-
-        let type_ = match Type::try_from(constraint.r#type) {
-            Err(_) | Ok(Type::Invalid) => Type::FieldForbidden,
-            Ok(t) => t,
-        };
-        let reason = constraint.reason.as_str();
-
-        if matches!(type_, Type::LocationRequired) {
-            // Mark that this location must be selected.
-            locations.entry(ptr.clone()).or_insert(false);
-        }
-
-        // Has this pointer been selected already, via another projection?
-        let is_selected_ptr = locations.get(ptr).cloned().unwrap_or_default();
-        // What's the index of this pointer in the composite key (if any)?
-        let key_index = key_ptrs.iter().enumerate().find(|(_, k)| *k == ptr);
-
-        let resolution = match (
-            require.get(&models::Field::new(field)).is_some(),
-            exclude.iter().any(|f| f.as_str() == field),
-            type_,
-        ) {
-            // Selector / connector constraints conflict internally:
-            (true, true, _) => panic!("included and excluded (should have been filtered)"),
-            // Unsatisfiable is OK only if the field is explicitly excluded
-            (_, false, Type::Unsatisfiable) => Err(format!(
-                "connector reports as unsatisfiable with reason: {}",
-                reason
-            )),
-            // Selector / connector constraints conflict with each other:
-            (true, false, Type::FieldForbidden) => Err(format!(
-                "selector includes field, but connector forbids it with reason: {}",
-                reason
-            )),
-            (false, true, Type::FieldRequired) => Err(format!(
-                "selector excludes field, but connector requires it with reason: {}",
-                reason
-            )),
-
-            // Field is required by selector or driver.
-            (true, false, _) | (false, false, Type::FieldRequired) => Ok(true),
-            // Field is forbidden by selector or driver.
-            (false, true, _) | (false, false, Type::FieldForbidden) => Ok(false),
-            // Location is required and is not yet selected.
-            (false, false, Type::LocationRequired) if !is_selected_ptr => Ok(true),
-            // We desire recommended fields, and this location is unseen & recommended.
-            // (Note we'll visit a user-provided projection of the location before an inferred one).
-            (false, false, Type::LocationRecommended) if !is_selected_ptr && recommended => {
-                Ok(true)
-            }
-
-            // Cases where we don't include the field.
-            (false, false, Type::FieldOptional) => Ok(false),
-            (false, false, Type::LocationRequired) => {
-                assert!(is_selected_ptr);
-                Ok(false)
-            }
-            (false, false, Type::LocationRecommended) => {
-                assert!(is_selected_ptr || !recommended);
-                Ok(false)
-            }
-            (_, _, Type::Invalid) => unreachable!("invalid is filtered prior to this point"),
-        };
-
-        match resolution {
-            Err(reason) => {
-                Error::FieldUnsatisfiable {
-                    name: materialization.to_string(),
-                    field: field.to_string(),
-                    reason,
-                }
-                .push(scope, errors);
-            }
-            Ok(false) => { /* No action. */ }
-            Ok(true) => {
-                let key_slot = key_index.and_then(|(i, _)| keys.get_mut(i));
-
-                // Add to one of |keys|, |document| or |values|.
-                if let Some(slot @ None) = key_slot {
-                    *slot = Some(field.clone());
-                } else if ptr == "" && document == "" {
-                    document = field.clone();
-                } else {
-                    values.push(field.clone());
-                }
-
-                // Pass-through JSON-encoded field configuration.
-                if let Some(cfg) = require.get(&models::Field::new(field)) {
-                    field_config_json_map.insert(field.clone(), cfg.to_string());
-                }
-                // Mark location as having been selected.
-                locations.insert(ptr.clone(), true);
-            }
-        }
-    }
-
-    // Any left-over constraints were unexpectedly not in |projections|.
-    for (field, _) in constraints {
-        Error::Connector {
-            detail: anyhow::anyhow!("connector sent constraint for unknown field {}", field),
-        }
-        .push(scope, errors);
-    }
-    // Any required but unmatched locations are an error.
-    for (location, found) in locations {
-        if !found {
-            Error::LocationUnsatisfiable {
-                name: materialization.to_string(),
-                location,
-            }
-            .push(scope, errors);
-        }
-    }
-
-    values.sort(); // Must be sorted within FieldSelection.
-
-    flow::FieldSelection {
-        keys: keys.into_iter().filter_map(|k| k).collect(),
-        values,
-        document,
-        field_config_json_map,
-    }
-}
-
-fn log_shadow_value_differences(
-    collection_name: &str,
-    path: &[String],
-    current: &flow::FieldSelection,
-    shadow: &flow::FieldSelection,
-    conflicts: &[field_selection::Conflict],
-    outcomes: &BTreeMap<String, EOB<field_selection::Select, field_selection::Reject>>,
-) {
-    assert!(current.values.is_sorted());
-    assert!(shadow.values.is_sorted());
-
-    let (mut added, mut removed) = (Vec::new(), Vec::new());
-    for eob in itertools::merge_join_by(&current.values, &shadow.values, |a, b| a.cmp(b)) {
-        match eob {
-            EOB::Left(current) => removed.push((current, outcomes.get(current))),
-            EOB::Right(shadow) => added.push((shadow, outcomes.get(shadow))),
-            EOB::Both(_, _) => {} // No difference.
-        }
-    }
-
-    tracing::warn!(
-        collection = collection_name,
-        conflicts = ?conflicts,
-        doc.cur = ?current.document,
-        doc.new = ?shadow.document,
-        keys.cur = ?current.keys,
-        keys.new = ?shadow.keys,
-        path = ?path,
-        vals.added = ?added,
-        vals.removed = ?removed,
-        "shadow field selection mismatch"
-    );
 }

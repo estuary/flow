@@ -1085,9 +1085,12 @@ driver:
     testing/db-views:
       bindings:
         - constraints:
+            # Note 6 (field unsatisfiable) has no effect in this test
+            # because there isn't a live specification mock.
+            # We have separate coverage of this within (newer) field selection tests.
             flow_document: { type: 2, reason: "location required" }
             Int: { type: 2, reason: "location required" }
-            int: { type: 6, reason: "field unsatisfiable" }
+            int: { type: 5, reason: "field forbidden" }
             str: { type: 5, reason: "field forbidden" }
             bit: { type: 1, reason: "field required" }
             Unknown: { type: 1, reason: "whoops" }

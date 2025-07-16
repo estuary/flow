@@ -282,6 +282,12 @@ pub enum Error {
         this_entity: String,
         source_collection: String,
     },
+    #[error("field selection conflict for field '{field}': selected ({select_reason}) but rejected ({reject_reason})")]
+    FieldSelectionConflict {
+        field: String,
+        select_reason: String,
+        reject_reason: String,
+    },
 }
 
 impl Error {
