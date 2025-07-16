@@ -371,11 +371,13 @@ fn uses_inferred_schema(schema: &models::Schema) -> bool {
 }
 
 fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
-    match schema.to_value().get(X_INITIAL_READ_SCHEMA) {
-        // Does the connector specify an initial read schema
-        Some(extension @ serde_json::Value::Object(_)) => Some(extension.clone()),
-        _ => None,
+    let mut schema_value = schema.to_value();
+    if let serde_json::Value::Object(ref mut map) = schema_value {
+        if let Some(extension @ serde_json::Value::Object(_)) = map.remove(X_INITIAL_READ_SCHEMA) {
+            return Some(extension);
+        }
     }
+    None
 }
 
 /// Returns whether the discovered schema is different from the current schema.
