@@ -40,7 +40,6 @@ select cron.schedule('reindex-catalog-stats-hourly', '6 6 * * 2', 'reindex index
 
 commit;
 
-create index concurrently catalog_stats_hourly_ts_idx on public.catalog_stats_hourly
-  using brin(ts) with (pages_per_range = 32, autosummarize = on);
+create index concurrently catalog_stats_hourly_ts_idx on public.catalog_stats_hourly(ts);
 comment on index public.catalog_stats_hourly_ts_idx is
   'Used by the delete_old_hourly_stats function to enable faster deletions';
