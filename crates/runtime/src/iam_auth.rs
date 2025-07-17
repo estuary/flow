@@ -164,9 +164,13 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
     credentials_json.zeroize();
 
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
-    let mut signed_jwt =
-        google_sign_jwt(runtime_service_account, &runtime_token, task_name, task_name, &config.aws_role_arn)
-            .await?;
+    let mut signed_jwt = google_sign_jwt(
+        runtime_service_account,
+        &runtime_token,
+        task_name,
+        &config.aws_role_arn,
+    )
+    .await?;
 
     runtime_token.zeroize();
 
@@ -265,9 +269,13 @@ async fn generate_azure_tokens(
     credentials_json.zeroize();
 
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
-    let mut signed_jwt =
-        google_sign_jwt(runtime_service_account, &runtime_token, task_name, task_name, "api://AzureADTokenExchange")
-            .await?;
+    let mut signed_jwt = google_sign_jwt(
+        runtime_service_account,
+        &runtime_token,
+        task_name,
+        "api://AzureADTokenExchange",
+    )
+    .await?;
 
     runtime_token.zeroize();
 
@@ -331,8 +339,7 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
 
     // Step 1: Sign a JWT using the default runtime service account with task_name in payload
     let mut signed_jwt =
-        google_sign_jwt(runtime_service_account, &runtime_token, task_name, runtime_service_account, aud)
-            .await?;
+        google_sign_jwt(runtime_service_account, &runtime_token, task_name, aud).await?;
 
     runtime_token.zeroize();
 
@@ -377,7 +384,6 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
 async fn google_sign_jwt(
     service_account_email: &str,
     access_token: &str,
-    task_name: &str,
     subject: &str,
     audience: &str,
 ) -> anyhow::Result<String> {
@@ -386,7 +392,7 @@ async fn google_sign_jwt(
 
     let data_plane_fqdn = std::env::var("FLOW_DATA_PLANE_FQDN")
         .context("FLOW_DATA_PLANE_FQDN environment variable not set")?;
-    
+
     if data_plane_fqdn.is_empty() {
         anyhow::bail!("FLOW_DATA_PLANE_FQDN environment variable is empty");
     }
@@ -403,7 +409,6 @@ async fn google_sign_jwt(
         "aud": audience,
         "iat": now,
         "exp": now + 3600,
-        "task_name": task_name
     });
 
     let client = reqwest::Client::new();
@@ -605,7 +610,6 @@ async fn create_service_account_jwt_token(
         .map(|s| s.to_string())
         .context("missing access_token in OAuth response")
 }
-
 
 /// Exchange signed JWT for target App Registration access token
 async fn exchange_azure_jwt_for_app_registration_token(
