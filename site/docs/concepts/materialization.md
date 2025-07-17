@@ -359,33 +359,26 @@ This functionality is only supported for Materialization connectors that have th
 field implemented. Consult the individual connector documentation for details.
 :::
 
-### How It Works
+### Schema Naming Hierarchy
 
-1. **Source Capture Level:**
+There are several chances to set or update schema names for your materialization bindings.
+From lowest priority in the hierarchy to highest priority (overwriting lower-priority settings),
+these are:
 
-   If the source capture provides a schema or namespace, it will be used as the default schema for all bindings in the materialization.
+1. **Materialization Default**
 
-2. **Manual Overrides:**
+   The default schema name can be set at the materialization level in the Endpoint Config, ensuring that all new bindings within that materialization automatically inherit the default schema name.
 
-   You can still manually configure schema names for each binding, overriding the default schema if needed.
+2. **Naming Convention**
 
-3. **Materialization-Level Configuration:**
+   The [target resource naming convention](#target-resource-naming-convention-options) can be set in a materialization's Source Collections section.
+   This option provides general rules for schema and table names for all newly-added bindings.
+   If the **Mirror Schemas** option is chosen, it will override the materialization's default schema.
 
-   The default schema name can be set at the materialization level, ensuring that all new bindings within that materialization automatically inherit the default schema name.
+3. **Manual Overrides**
 
-### Configuration Steps
-
-1. **Set Default Schema at Source Capture Level:**
-
-   When defining your source capture, specify the schema or namespace. If no schema is provided, Estuary Flow will automatically assign a default schema.
-
-2. **Override Schema at Binding Level:**
-
-   For any binding, you can manually override the default schema by specifying a different schema name.
-
-3. **Set Default Schema at Materialization Level:**
-
-   During the materialization configuration, set a default schema name for all bindings within the materialization.
+   You can manually configure schema names for each binding, overriding the default schema if needed.
+   To do so, set the **Alternative Schema** field in the binding's Resource Configuration.
 
 ## Target Resource Naming Convention Options
 
@@ -413,16 +406,46 @@ Target resource naming conventions include:
 
 For example, consider how the different naming conventions affect the final table and schema names for these collections:
 
-|   | Collection: `acmeCo/anvils/orders` | Collection: `acmeCo/public/orders` |
-| - | --- | --- |
-| Prefix schema | Table: `anvils_orders` | Table: `public_orders` |
-|               | Schema: default        | Schema: default        |
-| Prefix non-default schema | Table: `anvils_orders` | Table: `orders` |
-|                           | Schema: default        | Schema: default |
-| Mirror schemas | Table: `orders`  | Table: `orders`  |
-|                | Schema: `anvils` | Schema: `public` |
-| Use table name only | Table: `orders` | Table: `orders` |
-|                     | Schema: default | Schema: default |
-
-These naming conventions can still be overridden on the binding level for individual collections.
-To do so, add or change the **Alternative Schema** name in the binding's Resource Configuration.
+<table>
+  <tr>
+    <th></th>
+    <th>Collection: <code>acmeCo/anvils/orders</code></th>
+    <th>Collection: <code>acmeCo/public/orders</code></th>
+  </tr>
+  <tr>
+    <td rowspan="2"><b>Prefix schema</b></td>
+    <td>Table: <code>anvils_orders</code></td>
+    <td>Table: <code>public_orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: default</td>
+    <td>Schema: default</td>
+  </tr>
+  <tr>
+    <td rowspan ="2"><b>Prefix non-default schema</b></td>
+    <td>Table: <code>anvils_orders</code></td>
+    <td>Table: <code>orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: default</td>
+    <td>Schema: default</td>
+  </tr>
+  <tr>
+    <td rowspan="2"><b>Mirror schemas</b></td>
+    <td>Table: <code>orders</code></td>
+    <td>Table: <code>orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: <code>anvils</code></td>
+    <td>Schema: <code>public</code></td>
+  </tr>
+  <tr>
+    <td rowspan="2"><b>Use table name only</b></td>
+    <td>Table: <code>orders</code></td>
+    <td>Table: <code>orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: default</td>
+    <td>Schema: default</td>
+  </tr>
+</table>
