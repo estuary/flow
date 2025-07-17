@@ -16,10 +16,10 @@ use std::collections::BTreeMap;
 /// through the use of annotated reduction strategies of the collection schema.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "CollectionDef::example")]
+#[schemars(example = CollectionDef::example())]
 pub struct CollectionDef {
     /// # Schema against which collection documents are validated and reduced on write and read.
-    #[schemars(example = "Schema::example_relative")]
+    #[schemars(example = Schema::example_relative())]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Schema>,
     /// # Schema against which collection documents are validated and reduced on write.
@@ -113,20 +113,11 @@ impl Projection {
     }
 }
 
-fn projections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Field::json_schema(gen);
-    gen.definitions_mut().insert(Field::schema_name(), schema);
-
-    let schema = Projection::json_schema(gen);
-    gen.definitions_mut()
-        .insert(Projection::schema_name(), schema);
-
+fn projections_schema(gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            Field::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", Projection::schema_name()),
-            },
+            Field::schema_pattern(): gen.subschema_for::<Projection>(),
         },
         "additionalProperties": false,
         "examples": [{

@@ -58,7 +58,7 @@ pub enum MaterializationEndpoint {
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "MaterializationBinding::example")]
+#[schemars(example = MaterializationBinding::example())]
 pub struct MaterializationBinding {
     /// # Endpoint resource to materialize into.
     pub resource: RawValue,
@@ -106,7 +106,7 @@ pub struct MaterializationBinding {
 /// as well as optional per-projection, driver-specific configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "MaterializationFields::example")]
+#[schemars(example = MaterializationFields::example())]
 pub struct MaterializationFields {
     /// # Fields to use as the grouping key of this materialization.
     /// If not specified, the key of the source collection is used.

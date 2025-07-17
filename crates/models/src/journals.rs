@@ -8,14 +8,14 @@ use std::time::Duration;
 use validator::Validate;
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
-#[schemars(example = "GcsBucketAndPrefix::example")]
+#[schemars(example = GcsBucketAndPrefix::example())]
 pub struct GcsBucketAndPrefix {
     /// Bucket into which Flow will store data.
-    #[validate(regex = "GCS_BUCKET_RE")]
+    #[validate(regex(path = *GCS_BUCKET_RE))]
     pub bucket: String,
 
     /// Optional prefix of keys written to the bucket.
-    #[validate]
+    #[validate(nested)]
     #[serde(default)]
     pub prefix: Option<Prefix>,
 }
@@ -41,14 +41,14 @@ impl GcsBucketAndPrefix {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
-#[schemars(example = "S3StorageConfig::example")]
+#[schemars(example = S3StorageConfig::example())]
 pub struct S3StorageConfig {
     /// Bucket into which Flow will store data.
-    #[validate(regex = "S3_BUCKET_RE")]
+    #[validate(regex(path = *S3_BUCKET_RE))]
     pub bucket: String,
 
     /// Optional prefix of keys written to the bucket.
-    #[validate]
+    #[validate(nested)]
     #[serde(default)]
     pub prefix: Option<Prefix>,
 
@@ -84,7 +84,7 @@ impl S3StorageConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
-#[schemars(example = "AzureStorageConfig::example")]
+#[schemars(example = AzureStorageConfig::example())]
 pub struct AzureStorageConfig {
     /// The tenant ID that owns the storage account that we're writing into
     /// NOTE: This is not the tenant ID that owns the service principal
@@ -97,7 +97,7 @@ pub struct AzureStorageConfig {
     pub container_name: String,
 
     /// Optional prefix of keys written to the bucket.
-    #[validate]
+    #[validate(nested)]
     #[serde(default)]
     pub prefix: Option<Prefix>,
 }
@@ -128,16 +128,16 @@ impl AzureStorageConfig {
 
 /// Details of an s3-compatible storage endpoint, such as Minio or R2.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
-#[schemars(example = "CustomStore::example")]
+#[schemars(example = CustomStore::example())]
 pub struct CustomStore {
     /// Bucket into which Flow will store data.
-    #[validate(regex = "GCS_BUCKET_RE")]
+    #[validate(regex(path = *GCS_BUCKET_RE))]
     pub bucket: String,
     /// endpoint is required when provider is "custom", and specifies the
     /// address of an s3-compatible storage provider.
     pub endpoint: StorageEndpoint,
     /// Optional prefix of keys written to the bucket.
-    #[validate]
+    #[validate(nested)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<Prefix>,
 }
@@ -180,7 +180,7 @@ impl CustomStore {
 ///   s3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
-#[schemars(example = "Store::example")]
+#[schemars(example = Store::example())]
 #[serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Store {
     ///# Amazon Simple Storage Service.
@@ -265,7 +265,7 @@ pub struct StorageDef {
     /// This can be helpful in performing bucket migrations: adding a new store
     /// to the front of the list causes ongoing data to be written to that location,
     /// while historical data continues to be read and served from the prior stores.
-    #[validate]
+    #[validate(nested)]
     pub stores: Vec<Store>,
     /// # Data planes which may be used by tasks or collections under this mapping.
     ///
@@ -290,7 +290,7 @@ impl StorageDef {
 /// newly-written journal fragments.
 #[derive(Deserialize, Debug, Serialize, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-#[schemars(example = "CompressionCodec::example")]
+#[schemars(example = CompressionCodec::example())]
 pub enum CompressionCodec {
     None,
     Gzip,
@@ -311,7 +311,7 @@ impl CompressionCodec {
 // exposed here. We're fixing these values in place for now.
 #[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Validate, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "FragmentTemplate::example")]
+#[schemars(example = FragmentTemplate::example())]
 pub struct FragmentTemplate {
     /// # Desired content length of each fragment, in megabytes before compression.
     /// When a collection journal fragment reaches this threshold, it will be
@@ -370,7 +370,7 @@ impl FragmentTemplate {
 /// physical partitions of a collection.
 #[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "JournalTemplate::example")]
+#[schemars(example = JournalTemplate::example())]
 pub struct JournalTemplate {
     /// # Fragment configuration of collection journals.
     pub fragments: FragmentTemplate,
@@ -411,7 +411,6 @@ lazy_static! {
 
 #[cfg(test)]
 mod test {
-    use schemars::gen::SchemaGenerator;
 
     use super::*;
 
@@ -510,10 +509,8 @@ mod test {
     // storage schemas are available in the snapshot and up-to-date, since we need them for the UI.
     #[test]
     fn storage_schemas() {
-        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
-        settings.option_add_null_type = false;
-        let schema_gen = SchemaGenerator::new(settings);
-        let schema = schema_gen.into_root_schema_for::<StorageDef>();
+        let settings = schemars::generate::SchemaSettings::draft2019_09();
+        let schema = schemars::SchemaGenerator::new(settings).root_schema_for::<StorageDef>();
         insta::assert_json_snapshot!("storage-json-schema", schema);
     }
 }

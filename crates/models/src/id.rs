@@ -79,11 +79,11 @@ impl std::fmt::Debug for Id {
 }
 
 impl schemars::JsonSchema for Id {
-    fn schema_name() -> String {
-        String::from("Id")
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Id")
     }
 
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
         String::json_schema(gen)
     }
 }

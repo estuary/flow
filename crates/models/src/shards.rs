@@ -5,7 +5,7 @@ use std::time::Duration;
 /// A ShardTemplate configures how shards process a catalog task.
 #[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "ShardTemplate::example")]
+#[schemars(example = ShardTemplate::example())]
 pub struct ShardTemplate {
     /// # Disable processing of the task's shards.
     #[serde(default, skip_serializing_if = "super::is_false")]

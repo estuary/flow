@@ -44,7 +44,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 json-patch = { workspace = true }
-librocksdb-sys = { workspace = true }
+#librocksdb-sys = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
 rocksdb = { workspace = true }

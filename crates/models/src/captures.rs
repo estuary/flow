@@ -75,7 +75,7 @@ pub enum CaptureEndpoint {
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "CaptureBinding::example")]
+#[schemars(example = CaptureBinding::example())]
 pub struct CaptureBinding {
     /// # Endpoint resource to capture from.
     pub resource: RawValue,

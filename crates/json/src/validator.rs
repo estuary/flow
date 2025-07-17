@@ -210,7 +210,7 @@ pub fn build_basic_output<'sm, C: Context, A: Annotation>(
     })
 }
 
-type BitVec = bitvec::prelude::BitVec<bitvec::prelude::LocalBits>;
+type BitVec = bitvec::prelude::BitVec<usize, bitvec::prelude::LocalBits>;
 
 pub struct Scope<'sm, A, C>
 where
@@ -789,8 +789,7 @@ where
         }
 
         // "oneOf": assert exactly one application was valid (or there were none).
-        let c = scope.valid_one_of.is_empty() as usize
-            + scope.valid_one_of.iter().filter(|&b| *b).count();
+        let c = scope.valid_one_of.is_empty() as usize + scope.valid_one_of.count_ones();
         if c == 0 {
             scope.invalid = true;
             scope.add_outcome(OneOfNotMatched, C::with_details(loc, span, scope, parents));
@@ -815,7 +814,7 @@ where
         }
 
         // Now fold successful speculative applications into |evaluated|.
-        scope.evaluated |= scope.valid_unevaluated.iter().copied();
+        scope.evaluated |= &scope.valid_unevaluated;
 
         // If we speculatively examined *any* children, and there exists a
         // child that was not evaluated, then fail this scope.
@@ -930,7 +929,7 @@ where
                 parent.outcomes.extend(scope.outcomes.drain(..));
 
                 if !scope.invalid {
-                    parent.evaluated |= scope.evaluated.iter().copied();
+                    parent.evaluated |= &scope.evaluated;
                 }
             }
             // Conditional scopes update parent.outcomes only if valid,
@@ -938,7 +937,7 @@ where
             OptionalInPlace => {
                 if !scope.invalid {
                     parent.outcomes.extend(scope.outcomes.drain(..));
-                    parent.evaluated |= scope.evaluated.iter().copied();
+                    parent.evaluated |= &scope.evaluated;
                 } else {
                     //parent.outcomes_debug.extend(scope.outcomes.drain(..));
                 }

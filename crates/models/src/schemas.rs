@@ -17,9 +17,9 @@ use std::collections::BTreeMap;
 ///
 // Schema wraps RawValue: see its notes on deserialization, which must use serde_json.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
-#[schemars(example = "Schema::example_absolute")]
-#[schemars(example = "Schema::example_relative")]
-#[schemars(example = "Schema::example_inline_basic")]
+#[schemars(example = Schema::example_absolute())]
+#[schemars(example = Schema::example_relative())]
+#[schemars(example = Schema::example_inline_basic())]
 pub struct Schema(RawValue);
 
 impl std::ops::Deref for Schema {

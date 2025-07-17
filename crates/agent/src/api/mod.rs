@@ -236,7 +236,6 @@ async fn preflight_handler() -> impl IntoResponse {
     (StatusCode::NO_CONTENT, "")
 }
 
-#[axum::async_trait]
 impl<T, S> axum::extract::FromRequest<S> for Request<T>
 where
     T: serde::de::DeserializeOwned + validator::Validate,
