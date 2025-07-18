@@ -340,24 +340,14 @@ to the materialization. This works regardless of whether the bindings were added
 to the capture manually or automatically. Bindings that are removed from the
 capture are _not_ removed from the materialization.
 
-## Default Schema Names in Destinations
+## Schema and Table Names in Destinations
 
-Estuary Flow supports configuring the default destination schema on the materialization level.
+If your destination doesn't have a concept of schemas (a grouping of tables), by default
+we will prefix the table name with the source schema name, for example schema `anvils` table
+`orders` will be configured as `anvils_orders`. You may modify the destination table name in the
+binding configuration when editing your materialization.
 
-When a capture provides a schema or namespace, it will automatically be used as the default schema value
-for all bindings in the materialization.
-
-While schema names are automatically assigned based on the capture, you can still
-manually set the schema name for individual bindings if needed.
-
-You can also set a default schema name at the materialization level in the Endpoint Config.
-This applies to all bindings within that materialization, ensuring a consistent schema naming convention throughout the
-data pipeline.
-
-:::note
-This functionality is only supported for Materialization connectors that have the `x-schema-name`
-field implemented. Consult the individual connector documentation for details.
-:::
+If your destination does support schemas, the below applies:
 
 ### Schema Naming Hierarchy
 
@@ -380,7 +370,7 @@ these are:
    You can manually configure schema names for each binding, overriding the default schema if needed.
    To do so, set the **Alternative Schema** field in the binding's Resource Configuration.
 
-## Target Resource Naming Convention Options
+### Target Resource Naming Convention Options
 
 Materializations with a concept of schema additionally include a choice between several schema naming conventions.
 These options, under **Collection Settings**, provide different default naming behaviors for tables and schemas.
