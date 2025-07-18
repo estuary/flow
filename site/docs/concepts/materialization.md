@@ -340,49 +340,102 @@ to the materialization. This works regardless of whether the bindings were added
 to the capture manually or automatically. Bindings that are removed from the
 capture are _not_ removed from the materialization.
 
-## Default Schema Names in Destinations
+## Schema and Table Names in Destinations
 
-Estuary Flow supports configuring the default destination schema on the materialization level.
+If your destination doesn't have a concept of schemas (a grouping of tables), by default
+we will prefix the table name with the source schema name, for example schema `anvils` table
+`orders` will be configured as `anvils_orders`. You may modify the destination table name in the
+binding configuration when editing your materialization.
 
-When a capture provides a schema or namespace, it will automatically be used as the default schema value
-for all bindings in the materialization.
+If your destination does support schemas, the below applies:
 
-While schema names are automatically assigned based on the capture, you can still
-manually set the schema name for individual bindings if needed.
+### Schema Naming Hierarchy
 
-You can also set a default schema name at the materialization level.
-This applies to all bindings within that materialization, ensuring a consistent schema naming convention throughout the
-data pipeline.
+There are several chances to set or update schema names for your materialization bindings.
+From lowest priority in the hierarchy to highest priority (overwriting lower-priority settings),
+these are:
 
-:::note
-This functionality is only supported for Materialization connectors that have the `x-schema-name`
-field implemented. Consult the individual connector documentation for details.
-:::
+1. **Materialization Default**
 
-### How It Works
+   The default schema name can be set at the materialization level in the Endpoint Config, ensuring that all new bindings within that materialization automatically inherit the default schema name.
 
-1. **Source Capture Level:**
+2. **Naming Convention**
 
-   If the source capture provides a schema or namespace, it will be used as the default schema for all bindings in the materialization.
+   The [target resource naming convention](#target-resource-naming-convention-options) can be set in a materialization's Source Collections section.
+   This option provides general rules for schema and table names for all newly-added bindings.
+   If the **Mirror Schemas** option is chosen, it will override the materialization's default schema.
 
-2. **Manual Overrides:**
+3. **Manual Overrides**
 
-   You can still manually configure schema names for each binding, overriding the default schema if needed.
+   You can manually configure schema names for each binding, overriding the default schema if needed.
+   To do so, set the **Alternative Schema** field in the binding's Resource Configuration.
 
-3. **Materialization-Level Configuration:**
+### Target Resource Naming Convention Options
 
-   The default schema name can be set at the materialization level, ensuring that all new captures within that materialization automatically inherit the default schema name.
+Materializations with a concept of schema additionally include a choice between several schema naming conventions.
+These options, under **Collection Settings**, provide different default naming behaviors for tables and schemas.
+Selecting or changing the naming convention will only apply to new (not existing) bindings on the materialization.
 
-### Configuration Steps
+Target resource naming conventions include:
 
-1. **Set Default Schema at Source Capture Level:**
+* **Prefix Schema**
 
-   When defining your source capture, specify the schema or namespace. If no schema is provided, Estuary Flow will automatically assign a default schema.
+   Always prefixes the table name with the second-to-last part of the collection name, regardless of what the schema is. If the schema field remains empty, the default is used.
 
-2. **Override Schema at Binding Level:**
+* **Prefix Non-Default Schema**
 
-   For any binding, you can manually override the default schema by specifying a different schema name.
+   Prefixes the table name with the second-to-last part of the collection name **only if it's not the default schema** (such as `public` or `dbo`). The schema itself is left unspecified.
 
-3. **Set Default Schema at Materialization Level:**
+* **Mirror Schemas**
 
-   During the materialization configuration, set a default schema name for all captures within the materialization.
+   Sets the schema name to the second-to-last part of the collection name, and uses the last part as the table name.
+
+* **Use Table Name Only**
+
+   Only uses the last part of the collection name as the table name. If the schema is left empty, the default schema is used.
+
+For example, consider how the different naming conventions affect the final table and schema names for these collections:
+
+<table>
+  <tr>
+    <th></th>
+    <th>Collection: <code>acmeCo/anvils/orders</code></th>
+    <th>Collection: <code>acmeCo/public/orders</code></th>
+  </tr>
+  <tr>
+    <td rowspan="2"><b>Prefix schema</b></td>
+    <td>Table: <code>anvils_orders</code></td>
+    <td>Table: <code>public_orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: default</td>
+    <td>Schema: default</td>
+  </tr>
+  <tr>
+    <td rowspan ="2"><b>Prefix non-default schema</b></td>
+    <td>Table: <code>anvils_orders</code></td>
+    <td>Table: <code>orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: default</td>
+    <td>Schema: default</td>
+  </tr>
+  <tr>
+    <td rowspan="2"><b>Mirror schemas</b></td>
+    <td>Table: <code>orders</code></td>
+    <td>Table: <code>orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: <code>anvils</code></td>
+    <td>Schema: <code>public</code></td>
+  </tr>
+  <tr>
+    <td rowspan="2"><b>Use table name only</b></td>
+    <td>Table: <code>orders</code></td>
+    <td>Table: <code>orders</code></td>
+  </tr>
+  <tr>
+    <td>Schema: default</td>
+    <td>Schema: default</td>
+  </tr>
+</table>
