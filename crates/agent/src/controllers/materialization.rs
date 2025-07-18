@@ -444,16 +444,17 @@ pub async fn update_source_capture<C: ControlPlane>(
     // We need to update the materialization model to add the bindings. This
     // requires the `resource_spec_schema` of the connector so that we can
     // generate valid `resource`s for the new bindings.
-    let models::MaterializationEndpoint::Connector(config) = &model.endpoint else {
-        anyhow::bail!(
-            "unexpected materialization endpoint type, only image connectors are supported"
-        );
+    let image = match &model.endpoint {
+        models::MaterializationEndpoint::Connector(config) => config.image.clone(),
+        models::MaterializationEndpoint::Dekaf(dekaf) => dekaf.image_name(),
+        _ => anyhow::bail!("unexpected materialization endpoint type, only image and dekaf connectors are supported"),
     };
     let connector_spec = control_plane
-        .get_connector_spec(config.image.clone())
+        .get_connector_spec(image.clone())
         .await
         .context("failed to fetch connector spec")?;
-    let resource_spec_pointers = pointer_for_schema(connector_spec.resource_config_schema.get())?;
+    let resource_spec_pointers = pointer_for_schema(connector_spec.resource_config_schema.get())
+        .with_context(|| format!("fetching resource spec pointers for {}", image))?;
 
     let mut new_model = model.clone();
     update_linked_materialization(
