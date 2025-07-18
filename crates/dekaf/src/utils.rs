@@ -3,7 +3,7 @@ use avro::{located_shape_to_avro, shape_to_avro};
 use doc::shape::location;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use proto_flow::flow;
+use proto_flow::flow::{self, MaterializationSpec};
 use std::{borrow::Cow, iter};
 
 lazy_static! {
@@ -218,4 +218,32 @@ pub fn build_LEGACY_field_extractors(
             )],
         ))
     }
+}
+
+pub fn fetch_all_collection_names(spec: &MaterializationSpec) -> anyhow::Result<Vec<String>> {
+    spec.bindings
+        .iter()
+        .map(|b| {
+            b.resource_path
+                .first()
+                .cloned()
+                .ok_or(anyhow::anyhow!("missing resource path"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
+
+pub fn get_binding_for_topic(
+    spec: &MaterializationSpec,
+    topic_name: &str,
+) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
+    Ok(spec
+        .bindings
+        .iter()
+        .find(|binding| {
+            binding
+                .resource_path
+                .first()
+                .is_some_and(|path| path == topic_name)
+        })
+        .map(|b| b.clone()))
 }

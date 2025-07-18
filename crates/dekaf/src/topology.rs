@@ -1,7 +1,4 @@
-use crate::{
-    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, TaskState,
-    UserAuth,
-};
+use crate::{connector, utils, SessionAuthentication, TaskAuth, TaskState, UserAuth};
 use anyhow::{anyhow, bail, Context};
 use futures::{StreamExt, TryStreamExt};
 use gazette::{
@@ -35,53 +32,12 @@ impl UserAuth {
     }
 }
 
-impl TaskAuth {
-    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
-        let TaskState { spec, .. } = self
-            .task_state_listener
-            .get()
-            .await
-            .context("failed to fetch task spec")?;
-
-        spec.bindings
-            .iter()
-            .map(|b| {
-                b.resource_path
-                    .first()
-                    .cloned()
-                    .ok_or(anyhow::anyhow!("missing resource path"))
-            })
-            .collect::<Result<Vec<_>, _>>()
-    }
-
-    pub async fn get_binding_for_topic(
-        &self,
-        topic_name: &str,
-    ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
-        let TaskState { spec, .. } = self
-            .task_state_listener
-            .get()
-            .await
-            .context("failed to fetch task spec")?;
-
-        Ok(spec
-            .bindings
-            .iter()
-            .find(|binding| {
-                binding
-                    .resource_path
-                    .first()
-                    .is_some_and(|path| path == topic_name)
-            })
-            .map(|b| b.clone()))
-    }
-}
-
 impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
             SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
             SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
+            SessionAuthentication::Redirect { spec, .. } => utils::fetch_all_collection_names(spec),
         }
     }
 
@@ -92,6 +48,17 @@ impl SessionAuthentication {
                 let binding = auth
                     .get_binding_for_topic(topic_name)
                     .await?
+                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
+
+                Ok(binding
+                    .collection
+                    .as_ref()
+                    .context("missing collection in materialization binding")?
+                    .name
+                    .clone())
+            }
+            SessionAuthentication::Redirect { spec, .. } => {
+                let binding = utils::get_binding_for_topic(spec, topic_name)?
                     .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
 
                 Ok(binding
@@ -155,14 +122,19 @@ impl Collection {
         pg_client: &postgrest::Postgrest,
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
-        let binding = if let SessionAuthentication::Task(task_auth) = auth {
-            if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                Some(binding)
-            } else {
-                bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+        let binding = match auth {
+            SessionAuthentication::Task(task_auth) => {
+                if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
+                    Some(binding)
+                } else {
+                    bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+                }
             }
-        } else {
-            None
+            SessionAuthentication::User(_) => None,
+            SessionAuthentication::Redirect { spec, .. } => {
+                utils::get_binding_for_topic(spec, topic_name)
+                    .context("failed to get binding for topic in redirected session")?
+            }
         };
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;
@@ -200,8 +172,15 @@ impl Collection {
             }
             SessionAuthentication::Task(task_auth) => {
                 let state = task_auth.task_state_listener.get().await?;
-                let (_, parts) = state
-                    .partitions
+
+                let partitions = match state {
+                    TaskState::Authorized { partitions, .. } => partitions,
+                    TaskState::Redirect { .. } => {
+                        bail!("cannot fetch partitions in redirected task session");
+                    }
+                };
+
+                let (_, parts) = partitions
                     .into_iter()
                     .find(|(name, _)| name == &partition_template_name)
                     .context("missing partition template")?;
@@ -209,6 +188,9 @@ impl Collection {
                 parts
                     .map(|(client, _, parts)| (client, parts))
                     .map_err(|e| anyhow::Error::from(e))?
+            }
+            SessionAuthentication::Redirect { .. } => {
+                bail!("cannot fetch partitions in redirected session");
             }
         };
 
