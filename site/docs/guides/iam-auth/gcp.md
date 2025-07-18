@@ -17,8 +17,8 @@ Give your workload identity pool your desired name, and select OpenID Connect (O
 | Field | Value |
 |---|---|
 | Provider Name | estuary-flow-google |
-| Issuer (US GCP central-1 data plane) | https://estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
-| Issuer (EU AWS west-1 data plane) | https://estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
+| Issuer (US GCP central-1 data plane) | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
+| Issuer (EU AWS west-1 data plane) | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
 
 ![Workload Identity Provider Configuration](../guide-images/gcp-iam-1-provider.png)
 

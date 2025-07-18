@@ -406,7 +406,7 @@ async fn google_sign_jwt(
         anyhow::bail!("FLOW_DATA_PLANE_FQDN environment variable is empty");
     }
 
-    let issuer = format!("https://estuary.dev/{}/", data_plane_fqdn);
+    let issuer = format!("https://openid.estuary.dev/{}/", data_plane_fqdn);
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
