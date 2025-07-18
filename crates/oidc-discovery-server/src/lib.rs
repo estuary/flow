@@ -132,10 +132,8 @@ async fn openid_configuration(
         "https://www.googleapis.com/service_accounts/v1/metadata/jwk/{}",
         gcp_service_account_email
     ));
-    modified_config["issuer"] = Value::String(format!(
-        "https://estuary.dev/{}/",
-        data_plane_fqdn
-    ));
+    modified_config["issuer"] =
+        Value::String(format!("https://openid.estuary.dev/{}/", data_plane_fqdn));
 
     tracing::info!(
         data_plane_fqdn,
@@ -192,7 +190,10 @@ async fn get_cached_google_config(state: &AppState) -> Result<Value, StatusCode>
             config: google_config.clone(),
             expires_at: Instant::now() + CACHE_TTL,
         });
-        tracing::debug!("cached Google OpenID configuration for {} seconds", CACHE_TTL.as_secs());
+        tracing::debug!(
+            "cached Google OpenID configuration for {} seconds",
+            CACHE_TTL.as_secs()
+        );
     }
 
     Ok(google_config)
