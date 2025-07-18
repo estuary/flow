@@ -112,13 +112,9 @@ pub async fn do_authorize_dekaf<'a>(
                 email: None,
             };
 
-            // Only return a token if we are not redirecting
-            let token = if redirect_fqdn.is_none() {
+            let token =
                 jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, control_key)
-                    .context("failed to encode authorized JWT")?
-            } else {
-                "".to_string()
-            };
+                    .context("failed to encode authorized JWT")?;
 
             Ok(axum::Json(Response {
                 token,
