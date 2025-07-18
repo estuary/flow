@@ -441,6 +441,9 @@ impl serde::Serialize for request::Discover {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if !self.name.is_empty() {
+            len += 1;
+        }
         if self.connector_type != 0 {
             len += 1;
         }
@@ -448,6 +451,9 @@ impl serde::Serialize for request::Discover {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Discover", len)?;
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
         if self.connector_type != 0 {
             let v = super::flow::capture_spec::ConnectorType::try_from(self.connector_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
@@ -466,6 +472,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "name",
             "connector_type",
             "connectorType",
             "config_json",
@@ -474,6 +481,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Name,
             ConnectorType,
             ConfigJson,
         }
@@ -497,6 +505,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                         E: serde::de::Error,
                     {
                         match value {
+                            "name" => Ok(GeneratedField::Name),
                             "connectorType" | "connector_type" => Ok(GeneratedField::ConnectorType),
                             "config" | "config_json" => Ok(GeneratedField::ConfigJson),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -518,10 +527,17 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut name__ = None;
                 let mut connector_type__ = None;
                 let mut config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::ConnectorType => {
                             if connector_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("connectorType"));
@@ -537,6 +553,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                     }
                 }
                 Ok(request::Discover {
+                    name: name__.unwrap_or_default(),
                     connector_type: connector_type__.unwrap_or_default(),
                     config_json: config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                 })
