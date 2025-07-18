@@ -1,7 +1,7 @@
 use anyhow::Context;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Json,
     routing::get,
     Router,
@@ -101,7 +101,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 async fn openid_configuration(
     Path(data_plane_fqdn): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<(HeaderMap, Json<Value>), StatusCode> {
     tracing::info!(data_plane_fqdn, "handling OpenID configuration request");
 
     // Try to get the Google config from cache first
@@ -143,7 +143,11 @@ async fn openid_configuration(
         "returning modified OpenID configuration"
     );
 
-    Ok(Json(modified_config))
+    // Add CORS headers
+    let mut headers = HeaderMap::new();
+    headers.insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+
+    Ok((headers, Json(modified_config)))
 }
 
 async fn get_cached_google_config(state: &AppState) -> Result<Value, StatusCode> {
