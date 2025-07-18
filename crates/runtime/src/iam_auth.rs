@@ -168,6 +168,7 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
         runtime_service_account,
         &runtime_token,
         task_name,
+        task_name,
         &config.aws_role_arn,
     )
     .await?;
@@ -273,6 +274,7 @@ async fn generate_azure_tokens(
         runtime_service_account,
         &runtime_token,
         task_name,
+        task_name,
         "api://AzureADTokenExchange",
     )
     .await?;
@@ -338,8 +340,14 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
         .unwrap_or(&config.gcp_workload_identity_pool_audience);
 
     // Step 1: Sign a JWT using the default runtime service account with task_name in payload
-    let mut signed_jwt =
-        google_sign_jwt(runtime_service_account, &runtime_token, task_name, aud).await?;
+    let mut signed_jwt = google_sign_jwt(
+        runtime_service_account,
+        &runtime_token,
+        task_name,
+        runtime_service_account,
+        aud,
+    )
+    .await?;
 
     runtime_token.zeroize();
 
@@ -384,6 +392,7 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
 async fn google_sign_jwt(
     service_account_email: &str,
     access_token: &str,
+    task_name: &str,
     subject: &str,
     audience: &str,
 ) -> anyhow::Result<String> {
@@ -409,6 +418,7 @@ async fn google_sign_jwt(
         "aud": audience,
         "iat": now,
         "exp": now + 3600,
+        "task_name": task_name
     });
 
     let client = reqwest::Client::new();
