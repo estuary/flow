@@ -12,14 +12,13 @@ We use [Workload Identity Federation](https://cloud.google.com/iam/docs/workload
 
 ![Workload Identity Create Pool Button](../guide-images/gcp-iam-0-create-pool.png)
 
-Give your workload identity pool your desired name, and select OpenID Connect (OIDC) as the provider, with the details below. Note that depending on your data plane you need to choose the correct JWK file. If you are using a private deployment or BYOC, your JWK file will be provided to you by our team. At this step, take note of the audience value as you will need this when configuring connectors with GCP IAM:
+Give your workload identity pool your desired name, and select OpenID Connect (OIDC) as the provider, with the details below. If you are using a private deployment or BYOC, your issuer address will be provided to you by our team. At this step, take note of the audience value as you will need this when configuring connectors with GCP IAM:
 
 | Field | Value |
 |---|---|
 | Provider Name | estuary-flow-google |
-| Issuer | https://accounts.google.com |
-| JWK file (US GCP central-1 data plane) | https://www.googleapis.com/service_accounts/v1/jwk/flow-258@helpful-kingdom-273219.iam.gserviceaccount.com |
-| JWK file (EU AWS west-1 data plane) | https://www.googleapis.com/service_accounts/v1/jwk/data-plane-48vsfi8i91j6c1ns@helpful-kingdom-273219.iam.gserviceaccount.com |
+| Issuer (US GCP central-1 data plane) | https://estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
+| Issuer (EU AWS west-1 data plane) | https://estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
 
 ![Workload Identity Provider Configuration](../guide-images/gcp-iam-1-provider.png)
 
