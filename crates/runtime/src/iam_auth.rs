@@ -130,50 +130,8 @@ impl IAMAuthConfig {
 async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Result<AWSTokens> {
     use aws_config::Region;
 
-    let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
-        .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
-
-    if credentials_path.is_empty() {
-        anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
-    }
-
-    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to read Google Cloud credentials from {}",
-                credentials_path
-            )
-        })?;
-
-    if credentials_json.trim().is_empty() {
-        anyhow::bail!("Google Cloud credentials file is empty");
-    }
-
-    // Parse the credentials to get the runtime service account email
-    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
-        .context("failed to parse service account key JSON")?;
-    let runtime_service_account = key_data
-        .get("client_email")
-        .and_then(|v| v.as_str())
-        .context("missing client_email in service account key")?;
-
-    // Get a token from the root credentials to authenticate with IAM API
-    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
-
-    credentials_json.zeroize();
-
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
-    let mut signed_jwt = google_sign_jwt(
-        runtime_service_account,
-        &runtime_token,
-        task_name,
-        task_name,
-        &config.aws_role_arn,
-    )
-    .await?;
-
-    runtime_token.zeroize();
+    let mut signed_jwt = google_sign_jwt(task_name, Some(task_name), &config.aws_role_arn).await?;
 
     // Step 2: Use the signed JWT with AssumeRoleWithWebIdentity
     let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
@@ -236,52 +194,10 @@ async fn generate_azure_tokens(
     config: &AzureConfig,
     task_name: &str,
 ) -> anyhow::Result<AzureTokens> {
-    let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
-        .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
-
-    if credentials_path.is_empty() {
-        anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
-    }
-
-    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to read Google Cloud credentials from {}",
-                credentials_path
-            )
-        })?;
-
-    if credentials_json.trim().is_empty() {
-        anyhow::bail!("Google Cloud credentials file is empty");
-    }
-
-    // Parse the credentials to get the runtime service account email
-    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
-        .context("failed to parse service account key JSON")?;
-    let runtime_service_account = key_data
-        .get("client_email")
-        .and_then(|v| v.as_str())
-        .context("missing client_email in service account key")?;
-
-    // Get a token from the root credentials to authenticate with IAM API
-    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
-
-    credentials_json.zeroize();
-
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
-    let mut signed_jwt = google_sign_jwt(
-        runtime_service_account,
-        &runtime_token,
-        task_name,
-        task_name,
-        "api://AzureADTokenExchange",
-    )
-    .await?;
+    let mut signed_jwt =
+        google_sign_jwt(task_name, Some(task_name), "api://AzureADTokenExchange").await?;
 
-    runtime_token.zeroize();
-
-    eprintln!("{}", signed_jwt);
     // Step 2: Exchange signed JWT for target App Registration access token
     let access_token = exchange_azure_jwt_for_app_registration_token(
         &signed_jwt,
@@ -300,39 +216,6 @@ async fn generate_azure_tokens(
 /// 2. Exchange JWT for access token using OAuth 2.0 token exchange
 /// 3. Use the exchanged token to impersonate the target service account
 async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Result<GCPTokens> {
-    let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
-        .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
-
-    if credentials_path.is_empty() {
-        anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
-    }
-
-    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to read Google Cloud credentials from {}",
-                credentials_path
-            )
-        })?;
-
-    if credentials_json.trim().is_empty() {
-        anyhow::bail!("Google Cloud credentials file is empty");
-    }
-
-    // Parse the credentials to get the runtime service account email
-    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
-        .context("failed to parse service account key JSON")?;
-    let runtime_service_account = key_data
-        .get("client_email")
-        .and_then(|v| v.as_str())
-        .context("missing client_email in service account key")?;
-
-    // Get a token from the root credentials to authenticate with IAM API
-    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
-
-    credentials_json.zeroize();
-
     // Google presents the audience with https:, so we strip that if it exists
     let aud = config
         .gcp_workload_identity_pool_audience
@@ -340,16 +223,7 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
         .unwrap_or(&config.gcp_workload_identity_pool_audience);
 
     // Step 1: Sign a JWT using the default runtime service account with task_name in payload
-    let mut signed_jwt = google_sign_jwt(
-        runtime_service_account,
-        &runtime_token,
-        task_name,
-        runtime_service_account,
-        aud,
-    )
-    .await?;
-
-    runtime_token.zeroize();
+    let mut signed_jwt = google_sign_jwt(task_name, None, aud).await?;
 
     // Step 2: Exchange the signed JWT for an access token via OAuth 2.0 token exchange
     let mut exchanged_token = exchange_jwt_for_service_account_token(&signed_jwt, aud).await?;
@@ -390,12 +264,43 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
 
 /// Sign a JWT using Google's signJWT API with configurable subject and audience
 async fn google_sign_jwt(
-    service_account_email: &str,
-    access_token: &str,
     task_name: &str,
-    subject: &str,
+    subject: Option<&str>,
     audience: &str,
 ) -> anyhow::Result<String> {
+    let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
+        .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
+
+    if credentials_path.is_empty() {
+        anyhow::bail!("GOOGLE_APPLICATION_CREDENTIALS environment variable is empty");
+    }
+
+    let mut credentials_json = tokio::fs::read_to_string(&credentials_path)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to read Google Cloud credentials from {}",
+                credentials_path
+            )
+        })?;
+
+    if credentials_json.trim().is_empty() {
+        anyhow::bail!("Google Cloud credentials file is empty");
+    }
+
+    // Parse the credentials to get the runtime service account email
+    let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
+        .context("failed to parse service account key JSON")?;
+    let runtime_service_account = key_data
+        .get("client_email")
+        .and_then(|v| v.as_str())
+        .context("missing client_email in service account key")?;
+
+    // Get a token from the root credentials to authenticate with IAM API
+    let mut runtime_token = get_gcp_token_from_credentials(&credentials_json).await?;
+
+    credentials_json.zeroize();
+
     use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
     use serde_json::json;
 
@@ -414,7 +319,7 @@ async fn google_sign_jwt(
 
     let jwt_payload = json!({
         "iss": issuer,
-        "sub": subject,
+        "sub": subject.unwrap_or(runtime_service_account),
         "aud": audience,
         "iat": now,
         "exp": now + 3600,
@@ -424,7 +329,7 @@ async fn google_sign_jwt(
     let client = reqwest::Client::new();
     let url = format!(
         "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{}:signJwt",
-        service_account_email
+        runtime_service_account
     );
 
     let body = json!({
@@ -434,12 +339,14 @@ async fn google_sign_jwt(
 
     let response = client
         .post(&url)
-        .header(AUTHORIZATION, format!("Bearer {}", access_token))
+        .header(AUTHORIZATION, format!("Bearer {}", runtime_token))
         .header(CONTENT_TYPE, "application/json")
         .json(&body)
         .send()
         .await
         .context("failed to call GCP signJwt API")?;
+
+    runtime_token.zeroize();
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
