@@ -73,7 +73,7 @@ commit;
 
 Be sure to run the entire script with the "Run All" option.
 
-### Key-pair Authentication & Snowpipe
+### Key-pair Authentication
 
 As username and password authentication was deprecated in April 2025, you need to authenticate
 using [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), also known as JWT authentication.
