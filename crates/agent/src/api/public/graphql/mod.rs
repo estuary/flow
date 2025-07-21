@@ -1,6 +1,6 @@
-use async_graphql::{
-    Context as GraphQLContext, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject,
-};
+mod live_specs;
+
+use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use axum::Extension;
 use chrono::{DateTime, Utc};
 use models::{Alert, AlertType, CatalogType, Id};
@@ -10,30 +10,16 @@ use std::sync::Arc;
 use crate::api::public::status::fetch_status;
 use crate::api::{App, ControlClaims};
 
-pub struct LiveSpec<T: models::ModelDef, B> {
-    pub id: Id,
-    pub spec_type: models::CatalogType,
-    pub model: Option<T>,
-    pub last_build_id: Id,
-    pub last_pub_id: Id,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub built_spec: Option<B>,
-}
-
-impl LiveSpec<models::CaptureDef, proto_flow::capture::CaptureDef> {}
-
 pub type GraphQLSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
 pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
-    /// Get live specs by catalog name
-    async fn live_specs(
+    async fn captures(
         &self,
-        ctx: &GraphQLContext<'_>,
-        #[graphql(desc = "Catalog name to filter by")] catalog_name: String,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Catalog name to filter by")] catalog_names: Vec<String>,
     ) -> async_graphql::Result<Vec<LiveSpec>> {
         let app = ctx.data::<Arc<App>>()?;
         let claims = ctx.data::<ControlClaims>()?;
@@ -66,7 +52,7 @@ impl QueryRoot {
     /// Get statuses by live_spec_id or catalog_name
     async fn statuses(
         &self,
-        ctx: &GraphQLContext<'_>,
+        ctx: &Context<'_>,
         #[graphql(desc = "Live spec ID to filter by")] live_spec_id: Option<String>,
         #[graphql(desc = "Catalog name to filter by")] catalog_name: Option<String>,
     ) -> async_graphql::Result<Vec<Status>> {
@@ -143,7 +129,7 @@ impl QueryRoot {
     /// Get alerts from alert_history by catalog_name
     async fn alerts(
         &self,
-        ctx: &GraphQLContext<'_>,
+        ctx: &Context<'_>,
         #[graphql(desc = "Catalog name to filter by")] catalog_name: String,
         #[graphql(desc = "Maximum number of alerts to return", default = 100)] limit: i32,
     ) -> async_graphql::Result<Vec<Alert>> {
