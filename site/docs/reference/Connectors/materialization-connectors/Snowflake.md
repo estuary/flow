@@ -1,7 +1,7 @@
 # Snowflake
 
 This connector materializes Flow collections into tables in a Snowflake database.
-It allows both standard and [delta updates](#delta-updates). [Snowpipe](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-intro) is additionally available for delta update bindings.
+It allows both standard and [delta updates](#delta-updates). [Snowpipe Streaming](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview) is additionally available for delta update bindings.
 
 The connector first uploads data changes to a [Snowflake table stage](https://docs.snowflake.com/en/user-guide/data-load-local-file-system-create-stage.html#table-stages).
 From there, it transactionally applies the changes to the Snowflake table.
@@ -75,7 +75,7 @@ use role sysadmin;
 COMMIT;
 ```
 
-### Key-pair Authentication & Snowpipe
+### Key-pair Authentication
 
 As username and password authentication was deprecated in April 2025, you need to authenticate
 using [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), also known as JWT authentication.
@@ -111,7 +111,11 @@ Then compare with the local version:
 openssl rsa -pubin -in rsa_key.pub -outform DER | openssl dgst -sha256 -binary | openssl enc -base64
 ```
 
-Now you can use the generated _private key_ when configuring your Snowflake connector. Once you have key-pair authentication enabled, delta updates bindings will use Snowpipe for loading data.
+Now you can use the generated _private key_ when configuring your Snowflake connector.
+
+:::tip
+Key-pair authentication is required for delta updates bindings to use Snowpipe Streaming.
+:::
 
 ## Configuration
 
@@ -265,9 +269,10 @@ This is because most materializations tend to be roughly chronological over time
 This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
 because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
 
-### Snowpipe
+### Snowpipe Streaming
 
-[Snowpipe](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-intro) allows for loading data into target tables without waking up the warehouse, which can be cheaper and more performant. Snowpipe can be used for delta updates bindings, and it requires configuring your authentication using a private key. Instructions for configuring key-pair authentication can be found in this page: [Key-pair Authentication & Snowpipe](#key-pair-authentication--snowpipe)
+[Snowpipe Streaming](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview) is the lowest-latency method to load data into Snowflake.
+Snowpipe Streaming is used by default for [delta updates](#delta-updates) bindings. This method of ingress writes rows directly to Snowflake tables and scales compute automatically based on load.
 
 ## Timestamp Data Type Mapping
 
