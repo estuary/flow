@@ -274,10 +274,6 @@ because those rows will tend to live in the same micro-partitions, and Snowflake
 [Snowpipe Streaming](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview) is the lowest-latency method to load data into Snowflake.
 Snowpipe Streaming is used by default for [delta updates](#delta-updates) bindings. This method of ingress writes rows directly to Snowflake tables and scales compute automatically based on load.
 
-### Snowpipe
-
-[Snowpipe](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-intro) allows for loading data into target tables without waking up the warehouse, which can be cheaper and more performant. Snowpipe can be used for delta updates bindings; it requires configuring your authentication using a [private key](#key-pair-authentication) and using the `no_snowpipe_streaming` feature flag.
-
 ## Timestamp Data Type Mapping
 
 Flow materializes timestamp data types as either `TIMESTAMP_LTZ` or
