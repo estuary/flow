@@ -3,7 +3,7 @@ name: Deploy oidc-discovery-server
 on:
   push:
     # Only on pushes to the master branch
-    branches: [master, mahdi/creds-passthrough]
+    branches: [master]
     # Only run if function code or the ci config itself has changed
     paths:
       - crates/oidc-discovery-server/**
