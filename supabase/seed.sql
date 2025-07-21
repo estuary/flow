@@ -111,6 +111,17 @@ begin
   returning id strict into connector_id;
   insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
+  insert into public.connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
+    'ghcr.io/estuary/dekaf-generic',
+    json_build_object('en-US','Dekaf'),
+    json_build_object('en-US','Pull from Estuary using the Kafka API.'),
+    json_build_object('en-US','https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//thumbnail_Group_22747_3_a3bd271619/thumbnail_Group_22747_3_a3bd271619.png'),
+    'https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka',
+    true
+  )
+  returning id strict into connector_id;
+  insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':v1');
+
 end;
 $$ language plpgsql;
 
