@@ -105,7 +105,8 @@ impl Session {
             Ok(client)
         } else {
             let (auth, urls) = match self.auth {
-                Some(SessionAuthentication::Task(_)) => (
+                Some(SessionAuthentication::Task(_))
+                | Some(SessionAuthentication::Redirect { .. }) => (
                     KafkaClientAuth::MSK {
                         aws_region: self.msk_region.clone(),
                         provider: aws_config::from_env()
@@ -118,9 +119,6 @@ impl Session {
                     },
                     self.broker_urls.as_slice(),
                 ),
-                Some(SessionAuthentication::Redirect { .. }) => {
-                    anyhow::bail!("Redirected sessions cannot create kafka clients");
-                }
                 Some(SessionAuthentication::User(_)) => {
                     if let (Some(username), Some(password), Some(urls)) = (
                         &self.legacy_mode_broker_username,

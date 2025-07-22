@@ -25,7 +25,7 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
         .route("/schemas/ids/:id", get(get_schema_by_id))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
-            authenticate_and_redirect,
+            authenticate_and_proxy,
         ))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(app);
@@ -176,7 +176,66 @@ where
     }
 }
 
-async fn authenticate_and_redirect(
+async fn proxy_request_to_target(
+    target_dataplane_fqdn: String,
+    uri: axum::http::Uri,
+    auth: headers::Authorization<headers::authorization::Basic>,
+) -> Response {
+    let client = reqwest::Client::new();
+
+    let target_url = format!(
+        "https://dekaf.{}{}",
+        target_dataplane_fqdn,
+        uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
+    );
+
+    match client
+        .get(&target_url)
+        .basic_auth(auth.username(), Some(auth.password()))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            let headers = response.headers().clone();
+
+            match response.bytes().await {
+                Ok(body) => {
+                    let mut response = axum::response::Response::new(axum::body::Body::from(body));
+                    *response.status_mut() = axum::http::StatusCode::from_u16(status.as_u16())
+                        .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+
+                    // Copy relevant headers from the proxied response
+                    for (name, value) in headers.iter() {
+                        if let Ok(header_name) =
+                            axum::http::HeaderName::from_bytes(name.as_str().as_bytes())
+                        {
+                            if let Ok(header_value) =
+                                axum::http::HeaderValue::from_bytes(value.as_bytes())
+                            {
+                                response.headers_mut().insert(header_name, header_value);
+                            }
+                        }
+                    }
+
+                    response
+                }
+                Err(err) => {
+                    let err = format!("Failed to read response body: {err:#?}");
+                    tracing::error!(err, "proxy request failed");
+                    (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
+                }
+            }
+        }
+        Err(err) => {
+            let err = format!("Failed to proxy request to {}: {err:#?}", target_url);
+            tracing::error!(err, "proxy request failed");
+            (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
+        }
+    }
+}
+
+async fn authenticate_and_proxy(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
         headers::Authorization<headers::authorization::Basic>,
@@ -189,18 +248,7 @@ async fn authenticate_and_redirect(
         Ok(SessionAuthentication::Redirect {
             target_dataplane_fqdn,
             ..
-        }) => {
-            let redirect_url = format!(
-                "https://{}{}",
-                target_dataplane_fqdn,
-                uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
-            );
-            (
-                axum::http::StatusCode::TEMPORARY_REDIRECT,
-                [("Location", redirect_url)],
-            )
-                .into_response()
-        }
+        }) => proxy_request_to_target(target_dataplane_fqdn, uri, auth).await,
         Ok(auth) => {
             // Insert the authentication into request extensions so handlers can access it
             req.extensions_mut().insert(auth);
