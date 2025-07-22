@@ -13,6 +13,7 @@ use flow_client::{
     LOCAL_PG_URL,
 };
 use futures::TryStreamExt;
+use proto_flow::flow;
 use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,
@@ -245,7 +246,13 @@ async fn main() -> anyhow::Result<()> {
         (cli.api_endpoint, cli.api_key)
     };
 
-    let client_base = flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None);
+    let client_base = flow_client::Client::new(
+        cli.agent_endpoint,
+        api_key,
+        api_endpoint,
+        None,
+        ::flow_client::DEFAULT_CONFIG_ENCRYPTION_URL.clone(),
+    );
     let signing_token = jsonwebtoken::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?;
 
     let task_manager = Arc::new(TaskManager::new(

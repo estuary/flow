@@ -21,6 +21,8 @@ pub struct Client {
     // a single connection pool. The clones can have different headers while
     // still re-using the same connection pool, so this will work across refreshes.
     pg_parent: postgrest::Postgrest,
+    // URL of the config encryption service.
+    config_encryption_url: url::Url,
 }
 
 impl Client {
@@ -30,6 +32,7 @@ impl Client {
         pg_api_token: String,
         pg_url: Url,
         user_access_token: Option<String>,
+        config_encryption_url: Url,
     ) -> Self {
         // Build journal and shard clients with an empty default service address.
         // We'll use their with_endpoint_and_metadata() routines to cheaply clone
@@ -56,6 +59,7 @@ impl Client {
             journal_client,
             shard_client,
             user_access_token,
+            config_encryption_url,
         }
     }
 
@@ -166,6 +170,52 @@ impl Client {
             let body = response.text().await?;
             anyhow::bail!("POST {path}: {status}: {body}");
         }
+    }
+
+    /// Calls the endpoint configuration service to encrypt the given endpoint
+    /// configuration, using the provided `endpoint_spec_schema`.
+    pub async fn encrypt_endpoint_config(
+        &self,
+        plaintext_config: &models::RawValue,
+        endpoint_spec_schema: &models::RawValue,
+    ) -> anyhow::Result<models::RawValue> {
+        #[derive(serde::Serialize)]
+        struct EncryptRequest {
+            config: models::RawValue,
+            schema: models::RawValue,
+        }
+
+        let encrypt_endpoint = format!("{}v1/encrypt-config", self.config_encryption_url);
+
+        let request = EncryptRequest {
+            config: plaintext_config.clone(),
+            schema: endpoint_spec_schema.clone(),
+        };
+
+        // The encryption service does not currently require any sort of
+        // authentication, so there's no auth header added here. We'll of course
+        // need to update this if we ever add authentiation to that endpoint.
+        let mut req = self
+            .http_client
+            .post(&encrypt_endpoint)
+            .header("Content-Type", "application/json")
+            .json(&request);
+
+        if let Some(token) = &self.user_access_token {
+            req = req.bearer_auth(token);
+        }
+        let response = req.send().await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "Config encryption failed: {} {}",
+                response.status(),
+                response.text().await?
+            )
+        }
+
+        let encrypt_response: models::RawValue = response.json().await?;
+        Ok(encrypt_response)
     }
 }
 
