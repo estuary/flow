@@ -13,7 +13,9 @@ use author::do_author;
 mod develop;
 use develop::do_develop;
 
-pub use author::upsert_draft_specs;
+mod encrypt;
+
+pub use author::author;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
