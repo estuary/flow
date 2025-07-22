@@ -26,13 +26,13 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     // since that can fail due to missing/expired credentials.
     anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
 
-    let (draft_catalog, _validations) =
+    let (mut draft_catalog, _validations) =
         local_specs::load_and_validate(&ctx.client, &args.source).await?;
 
     let draft = draft::create_draft(&ctx.client).await?;
     println!("Created draft: {}", &draft.id);
     tracing::info!(draft_id = %draft.id, "created draft");
-    draft::upsert_draft_specs(&ctx.client, draft.id, &draft_catalog).await?;
+    draft::author(&ctx.client, draft.id, &mut draft_catalog).await?;
 
     let removed = draft::remove_unchanged(&ctx.client, draft.id).await?;
     if !removed.is_empty() {

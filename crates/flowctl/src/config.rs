@@ -2,8 +2,9 @@ use anyhow::Context;
 use std::path::PathBuf;
 
 use flow_client::{
-    client::RefreshToken, DEFAULT_AGENT_URL, DEFAULT_DASHBOARD_URL, DEFAULT_PG_PUBLIC_TOKEN,
-    DEFAULT_PG_URL, LOCAL_AGENT_URL, LOCAL_DASHBOARD_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+    client::RefreshToken, DEFAULT_AGENT_URL, DEFAULT_CONFIG_ENCRYPTION_URL, DEFAULT_DASHBOARD_URL,
+    DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_AGENT_URL, LOCAL_CONFIG_ENCRYPTION_URL,
+    LOCAL_DASHBOARD_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
 };
 
 /// Configuration of `flowctl`.
@@ -36,6 +37,9 @@ pub struct Config {
     /// used to generate access_token when it's unset or expires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_refresh_token: Option<RefreshToken>,
+    /// URL endpoint for the config encryption service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_encryption_url: Option<url::Url>,
 
     #[serde(skip)]
     is_local: bool,
@@ -98,6 +102,16 @@ impl Config {
             &LOCAL_PG_URL
         } else {
             &DEFAULT_PG_URL
+        }
+    }
+
+    pub fn get_config_encryption_url(&self) -> &url::Url {
+        if let Some(config_encryption_url) = &self.config_encryption_url {
+            config_encryption_url
+        } else if self.is_local {
+            &LOCAL_CONFIG_ENCRYPTION_URL
+        } else {
+            &DEFAULT_CONFIG_ENCRYPTION_URL
         }
     }
 
@@ -181,12 +195,14 @@ impl Config {
 
         Ok(())
     }
+
     pub fn build_anon_client(&self) -> flow_client::Client {
         flow_client::Client::new(
             self.get_agent_url().clone(),
             self.get_pg_public_token().to_string(),
             self.get_pg_url().clone(),
             None,
+            self.get_config_encryption_url().clone(),
         )
     }
 

@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog::SpecSummaryItem, local_specs};
+use crate::{api_exec, catalog::SpecSummaryItem, draft::encrypt, local_specs};
 use anyhow::Context;
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::Serialize;
@@ -24,7 +24,18 @@ pub async fn clear_draft(client: &crate::Client, draft_id: models::Id) -> anyhow
     Ok(())
 }
 
-pub async fn upsert_draft_specs(
+/// Encrypts any unencrypted endpoint configurations in the draft catalog,
+/// and then upserts the draft specs to the given draft ID.
+pub async fn author(
+    client: &crate::Client,
+    draft_id: models::Id,
+    draft: &mut tables::DraftCatalog,
+) -> anyhow::Result<Vec<SpecSummaryItem>> {
+    encrypt::encrypt_endpoint_configs(draft, client).await?;
+    upsert_draft_specs(client, draft_id, &*draft).await
+}
+
+async fn upsert_draft_specs(
     client: &crate::Client,
     draft_id: models::Id,
     draft: &tables::DraftCatalog,
@@ -131,10 +142,10 @@ pub async fn do_author(
     Author { source }: &Author,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
-    let (draft, _) = local_specs::load_and_validate(&ctx.client, &source).await?;
+    let (mut draft, _) = local_specs::load_and_validate(&ctx.client, &source).await?;
 
     clear_draft(&ctx.client, draft_id).await?;
-    let rows = upsert_draft_specs(&ctx.client, draft_id, &draft).await?;
+    let rows = author(&ctx.client, draft_id, &mut draft).await?;
 
     ctx.write_all(rows, ())
 }
