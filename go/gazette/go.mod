@@ -27,7 +27,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/cockroach-encoding v1.1.0
-	github.com/jgraettinger/gorocksdb v0.0.0-20240221161858-8f4873ee26e0
+	github.com/jgraettinger/gorocksdb v0.0.0-20250815051509-2d5c1f160b80
 	github.com/jgraettinger/urkel v0.1.2
 	github.com/klauspost/compress v1.13.5
 	github.com/lib/pq v1.10.2
