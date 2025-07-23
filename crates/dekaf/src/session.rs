@@ -159,10 +159,6 @@ impl Session {
         &mut self,
         request: messages::SaslHandshakeRequest,
     ) -> anyhow::Result<messages::SaslHandshakeResponse> {
-        if let Some(_) = self.auth {
-            anyhow::bail!("This session is already authenticated")
-        }
-
         let mut response = messages::SaslHandshakeResponse::default();
         response.mechanisms.push(StrBytes::from_static_str("PLAIN"));
 
@@ -177,22 +173,29 @@ impl Session {
         &mut self,
         request: messages::SaslAuthenticateRequest,
     ) -> anyhow::Result<messages::SaslAuthenticateResponse> {
-        if let Some(_) = self.auth {
-            anyhow::bail!("This session is already authenticated")
-        }
-
         let mut it = request
             .auth_bytes
             .split(|b| *b == 0) // SASL uses NULL to separate components.
             .map(std::str::from_utf8);
 
         let _authzid = it.next().context("expected SASL authzid")??;
-        let authcid = it.next().context("expected SASL authcid")??;
-        let password = it.next().context("expected SASL passwd")??;
+        let username = it.next().context("expected SASL authcid (username)")??;
+        let password = it.next().context("expected SASL password")??;
+
+        match &self.auth {
+            Some(SessionAuthentication::Task(auth)) if auth.task_name != username => {
+                return Ok(messages::SaslAuthenticateResponse::default()
+                    .with_error_code(ResponseError::SaslAuthenticationFailed.code())
+                    .with_error_message(Some(StrBytes::from_string(
+                        "Session cannot be reauthenticated with a different username".to_string(),
+                    ))))
+            }
+            _ => {}
+        };
 
         let mut attempts = 0;
         loop {
-            let response = match self.app.authenticate(authcid, password).await {
+            let response = match self.app.authenticate(username, password).await {
                 Ok(auth) => {
                     let mut response = messages::SaslAuthenticateResponse::default();
 
