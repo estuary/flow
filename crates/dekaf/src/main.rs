@@ -13,7 +13,6 @@ use flow_client::{
     LOCAL_PG_URL,
 };
 use futures::TryStreamExt;
-use proto_flow::flow;
 use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,

@@ -12,7 +12,7 @@ pub async fn user_has_admin_capability(
         user_id,
         catalog_prefix,
     )
-    .fetch_optional(txn)
+    .fetch_optional(&mut **txn)
     .await?;
     Ok(row.is_some())
 }
@@ -35,7 +35,7 @@ pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
         catalog_prefix as &str,
         TextJson(spec) as TextJson<T>,
     )
-    .execute(txn)
+    .execute(&mut **txn)
     .await?;
     Ok(())
 }
@@ -62,6 +62,6 @@ pub async fn fetch_storage_mappings(
         catalog_prefix,
         recovery_prefix
     )
-    .fetch_all(txn)
+    .fetch_all(&mut **txn)
     .await
 }

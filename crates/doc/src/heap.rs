@@ -5,14 +5,18 @@ use super::{AsNode, BumpStr, BumpVec, Field, Fields, Node};
 // the recursive nature of this structure. For more explanation see:
 // https://github.com/rkyv/rkyv/blob/master/examples/json/src/main.rs
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
-#[archive(
-    archived = "ArchivedNode",
-    bound(
-        serialize = "__S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer + rkyv::ser::SharedSerializeRegistry"
+#[rkyv(
+    archived = ArchivedNode,
+    serialize_bounds(
+        __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+        __S::Error: rkyv::rancor::Source,
+    ),
+    bytecheck(
+        bounds(__C: rkyv::validation::ArchiveContext, <__C as rkyv::rancor::Fallible>::Error: rkyv::rancor::Source)
     )
 )]
 pub enum HeapNode<'alloc> {
-    Array(#[omit_bounds] BumpVec<'alloc, HeapNode<'alloc>>),
+    Array(#[rkyv(omit_bounds)] BumpVec<'alloc, HeapNode<'alloc>>),
     Bool(bool),
     Bytes(BumpVec<'alloc, u8>),
     Float(f64),
@@ -25,15 +29,19 @@ pub enum HeapNode<'alloc> {
 
 /// HeapField is a field representation stored in the heap.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
-#[archive(
-    archived = "ArchivedField",
-    bound(
-        serialize = "__S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer + rkyv::ser::SharedSerializeRegistry"
+#[rkyv(
+    archived = ArchivedField,
+    serialize_bounds(
+        __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+        __S::Error: rkyv::rancor::Source,
+    ),
+    bytecheck(
+        bounds(__C: rkyv::validation::ArchiveContext, <__C as rkyv::rancor::Fallible>::Error: rkyv::rancor::Source)
     )
 )]
 pub struct HeapField<'alloc> {
     pub property: BumpStr<'alloc>,
-    #[omit_bounds]
+    #[rkyv(omit_bounds)]
     pub value: HeapNode<'alloc>,
 }
 
@@ -97,8 +105,14 @@ impl<'alloc> AsNode for HeapNode<'alloc> {
 }
 
 impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
-    type Field<'a> = &'a HeapField<'alloc> where 'alloc: 'a;
-    type Iter<'a> = std::slice::Iter<'a, HeapField<'alloc>> where 'alloc: 'a;
+    type Field<'a>
+        = &'a HeapField<'alloc>
+    where
+        'alloc: 'a;
+    type Iter<'a>
+        = std::slice::Iter<'a, HeapField<'alloc>>
+    where
+        'alloc: 'a;
 
     fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>> {
         match self.binary_search_by(|l| l.property.cmp(property)) {

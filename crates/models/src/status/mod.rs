@@ -341,8 +341,8 @@ mod test {
 
     #[test]
     fn test_status_json_schema() {
-        let settings = schemars::gen::SchemaSettings::draft2019_09();
-        let generator = schemars::gen::SchemaGenerator::new(settings);
+        let settings = schemars::generate::SchemaSettings::draft2019_09();
+        let generator = schemars::generate::SchemaGenerator::new(settings);
         let schema_obj = generator.into_root_schema_for::<ControllerStatus>();
         let schema = serde_json::to_value(&schema_obj).unwrap();
         insta::assert_json_snapshot!(schema);
