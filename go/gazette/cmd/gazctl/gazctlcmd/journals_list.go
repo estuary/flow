@@ -106,7 +106,7 @@ func (cmd *cmdJournalsList) outputTable(resp *pb.ListResponse) {
 		headers = append(headers, "Stores")
 	}
 	headers = append(headers, cmd.Labels...)
-	table.SetHeader(headers)
+	table.Header(headers)
 
 	for _, j := range resp.Journals {
 		var primary = "<none>"

@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/experimental/stats"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/status"
 	gc "gopkg.in/check.v1"
@@ -43,8 +44,8 @@ func (s *DispatcherSuite) TestContextAdapters(c *gc.C) {
 }
 
 func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
-	var cc mockClientConn
-	var disp = dispatcherBuilder{zone: "local"}.Build(&cc, balancer.BuildOptions{}).(*dispatcher)
+	var cc = newMockClientConn()
+	var disp = dispatcherBuilder{zone: "local"}.Build(cc, balancer.BuildOptions{}).(*dispatcher)
 	cc.disp = disp
 	close(disp.sweepDoneCh) // Disable async sweeping.
 
@@ -68,7 +69,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	result, err := disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
 	c.Check(result.Done, gc.IsNil)
-	c.Check(result.SubConn, gc.Equals, mockSubConn{Name: "default.addr:80", disp: disp})
+	c.Check(result.SubConn.(*testSubConnWrapper).name, gc.Equals, "default.addr:80")
 
 	// Case: Specific remote peer is dispatched to.
 	ctx = WithDispatchRoute(context.Background(),
@@ -84,7 +85,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
 	c.Check(result.Done, gc.IsNil)
-	c.Check(result.SubConn, gc.Equals, mockSubConn{Name: "remote.addr:80", disp: disp})
+	c.Check(result.SubConn.(*testSubConnWrapper).name, gc.Equals, "remote.addr:80")
 
 	// Case: Route allows for multiple members. A local one is now dialed.
 	ctx = WithDispatchRoute(context.Background(), buildRouteFixture(), ProcessSpec_ID{})
@@ -99,7 +100,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
 	c.Check(result.Done, gc.IsNil)
-	c.Check(result.SubConn, gc.Equals, mockSubConn{Name: "local.addr:80", disp: disp})
+	c.Check(result.SubConn.(*testSubConnWrapper).name, gc.Equals, "local.addr:80")
 
 	// Case: One local addr is marked as failed. Another is dialed.
 	mockSubConn{Name: "local.addr:80", disp: disp}.UpdateState(balancer.SubConnState{ConnectivityState: connectivity.TransientFailure})
@@ -114,7 +115,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
 	c.Check(result.Done, gc.IsNil)
-	c.Check(result.SubConn, gc.Equals, mockSubConn{Name: "local.otherAddr:80", disp: disp})
+	c.Check(result.SubConn.(*testSubConnWrapper).name, gc.Equals, "local.otherAddr:80")
 
 	// Case: otherAddr is also failed. Expect that an error is returned,
 	// rather than dispatch to remote addr. (Eg we prefer to wait for a
@@ -151,7 +152,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
 	c.Check(result.Done, gc.NotNil)
-	c.Check(result.SubConn, gc.Equals, mockSubConn{Name: "local.addr:80", disp: disp})
+	c.Check(result.SubConn.(*testSubConnWrapper).name, gc.Equals, "local.addr:80")
 
 	// Closure callback with an Unavailable error (only) will trigger an invalidation.
 	result.Done(balancer.DoneInfo{Err: nil})
@@ -163,8 +164,8 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 }
 
 func (s *DispatcherSuite) TestDispatchMarkAndSweep(c *gc.C) {
-	var cc mockClientConn
-	var disp = dispatcherBuilder{zone: "local"}.Build(&cc, balancer.BuildOptions{}).(*dispatcher)
+	var cc = newMockClientConn()
+	var disp = dispatcherBuilder{zone: "local"}.Build(cc, balancer.BuildOptions{}).(*dispatcher)
 	cc.disp = disp
 	defer disp.Close()
 
@@ -233,45 +234,103 @@ func (s *DispatcherSuite) TestDispatchMarkAndSweep(c *gc.C) {
 	c.Check(err, gc.IsNil)
 }
 
-type mockClientConn struct {
-	err     error
-	created []mockSubConn
-	removed []mockSubConn
-	disp    *dispatcher
+// testSubConnWrapper wraps a test SubConn to track operations
+type testSubConnWrapper struct {
+	balancer.SubConn
+	name string
+	disp *dispatcher
 }
 
+// mockSubConn represents a test SubConn for comparisons and state updates
 type mockSubConn struct {
 	Name string
 	disp *dispatcher
 }
 
-func (s1 mockSubConn) Equal(s2 mockSubConn) bool {
-	return s1.Name == s2.Name
+// mockClientConn implements balancer.ClientConn for testing
+type mockClientConn struct {
+	balancer.ClientConn
+	err      error
+	created  []mockSubConn
+	removed  []mockSubConn
+	disp     *dispatcher
+	subConns map[string]*testSubConnWrapper
+	target   string
 }
 
-func (s mockSubConn) UpdateAddresses([]resolver.Address)      { panic("deprecated") }
-func (s mockSubConn) UpdateState(state balancer.SubConnState) { s.disp.updateSubConnState(s, state) }
-func (s mockSubConn) Connect()                                {}
-func (s mockSubConn) GetOrBuildProducer(balancer.ProducerBuilder) (balancer.Producer, func()) {
+func newMockClientConn() *mockClientConn {
+	return &mockClientConn{
+		subConns: make(map[string]*testSubConnWrapper),
+		target:   "default.addr:80", // Default target for tests
+	}
+}
+
+func (c *mockClientConn) NewSubConn(a []resolver.Address, opts balancer.NewSubConnOptions) (balancer.SubConn, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	
+	name := a[0].Addr
+	sc := &testSubConnWrapper{
+		name: name,
+		disp: c.disp,
+	}
+	
+	c.subConns[name] = sc
+	c.created = append(c.created, mockSubConn{Name: name, disp: c.disp})
+	
+	// StateListener is handled by the gRPC framework
+	
+	return sc, nil
+}
+
+func (c *mockClientConn) UpdateState(state balancer.State) {}
+
+func (c *mockClientConn) ResolveNow(resolver.ResolveNowOptions) {}
+
+func (c *mockClientConn) Target() string { return c.target }
+
+func (c *mockClientConn) RemoveSubConn(sc balancer.SubConn) {
+	if tsc, ok := sc.(*testSubConnWrapper); ok {
+		c.removed = append(c.removed, mockSubConn{Name: tsc.name, disp: tsc.disp})
+		delete(c.subConns, tsc.name)
+	}
+}
+
+func (c *mockClientConn) MetricsRecorder() stats.MetricsRecorder { return nil }
+
+// Additional fields for testSubConnWrapper
+var _ balancer.SubConn = (*testSubConnWrapper)(nil)
+
+func (s *testSubConnWrapper) UpdateAddresses([]resolver.Address) { panic("deprecated") }
+
+func (s *testSubConnWrapper) UpdateState(state balancer.SubConnState) {
+	if s.disp != nil {
+		s.disp.updateSubConnState(s, state)
+	}
+}
+
+func (s *testSubConnWrapper) Connect() {}
+
+func (s *testSubConnWrapper) GetOrBuildProducer(balancer.ProducerBuilder) (balancer.Producer, func()) {
 	return nil, func() {}
 }
-func (s mockSubConn) Shutdown() {
-	var c = s.disp.cc.(*mockClientConn)
-	c.removed = append(c.removed, s)
+
+func (s *testSubConnWrapper) Shutdown() {
+	if cc, ok := s.disp.cc.(*mockClientConn); ok {
+		cc.removed = append(cc.removed, mockSubConn{Name: s.name, disp: s.disp})
+	}
 }
 
-func (c *mockClientConn) NewSubConn(a []resolver.Address, _ balancer.NewSubConnOptions) (balancer.SubConn, error) {
-	var sc = mockSubConn{Name: a[0].Addr, disp: c.disp}
-	c.created = append(c.created, sc)
-	return sc, c.err
-}
+func (s *testSubConnWrapper) RegisterHealthListener(func(balancer.SubConnState)) {}
 
-func (c *mockClientConn) UpdateAddresses(balancer.SubConn, []resolver.Address) { panic("deprecated") }
-func (c *mockClientConn) UpdateState(balancer.State)                           {}
-func (c *mockClientConn) ResolveNow(resolver.ResolveNowOptions)                {}
-func (c *mockClientConn) Target() string                                       { return "default.addr:80" }
-func (c *mockClientConn) RemoveSubConn(sc balancer.SubConn) {
-	sc.Shutdown()
+// Helper to create mockSubConn for UpdateState calls
+func (m mockSubConn) UpdateState(state balancer.SubConnState) {
+	if cc, ok := m.disp.cc.(*mockClientConn); ok {
+		if sc, found := cc.subConns[m.Name]; found {
+			sc.UpdateState(state)
+		}
+	}
 }
 
 type mockRouter struct{ invalidated string }

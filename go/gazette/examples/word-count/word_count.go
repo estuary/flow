@@ -7,12 +7,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"unicode"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -71,7 +71,7 @@ func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 		nil,
 	)
 	if err := <-parts.UpdateCh(); err != nil {
-		return errors.Wrap(err, "building NGramDeltaMapping")
+		return fmt.Errorf("building NGramDeltaMapping: %w", err)
 	}
 
 	for len(parts.List().Journals) == 0 {
@@ -120,7 +120,7 @@ func (Counter) ConsumeMessage(_ consumer.Shard, store consumer.Store, env messag
 		} else if len(b) == 0 {
 			// Miss; leave |prior| as zero.
 		} else if p, i := binary.Uvarint(b); i <= 0 {
-			return errors.Wrapf(err, "failed to parse encoded varint count")
+			return fmt.Errorf("failed to parse encoded varint count: %w", err)
 		} else {
 			prior = p
 		}
@@ -237,7 +237,7 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 	}); err != nil {
 		return
 	} else if res.Status != pc.Status_OK {
-		err = fmt.Errorf(res.Status.String())
+		err = errors.New(res.Status.String())
 		return
 	} else if res.Store == nil {
 		req.Header = &res.Header // Proxy to the resolved primary peer.

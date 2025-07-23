@@ -149,7 +149,7 @@ func (m *JournalSpec_Fragment) Validate() error {
 	// Ensure the PathPostfixTemplate parses and evaluates without
 	// error over a zero-valued struct having the proper shape.
 	if tpl, err := template.New("postfix").Parse(m.PathPostfixTemplate); err != nil {
-		return ExtendContext(NewValidationError(err.Error()), "PathPostfixTemplate")
+		return ExtendContext(&ValidationError{Err: err}, "PathPostfixTemplate")
 	} else if err = tpl.Execute(io.Discard, struct {
 		Spool struct {
 			Fragment
@@ -158,7 +158,7 @@ func (m *JournalSpec_Fragment) Validate() error {
 		}
 		JournalSpec
 	}{}); err != nil {
-		return ExtendContext(NewValidationError(err.Error()), "PathPostfixTemplate")
+		return ExtendContext(&ValidationError{Err: err}, "PathPostfixTemplate")
 	}
 
 	// Retention requires no explicit validation (all values permitted).

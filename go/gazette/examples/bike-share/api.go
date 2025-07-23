@@ -65,7 +65,7 @@ func (app *Application) ServeBikeHistory(w http.ResponseWriter, r *http.Request)
 	}); err != nil {
 		return
 	} else if res.Status != pc.Status_OK {
-		err = fmt.Errorf(res.Status.String())
+		err = errors.New(res.Status.String())
 		return
 	} else if res.Store == nil {
 		// Shard is assigned to peer.

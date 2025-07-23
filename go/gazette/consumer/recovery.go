@@ -3,12 +3,12 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -38,7 +38,7 @@ func fetchHints(ctx context.Context, spec *pc.ShardSpec, etcd *clientv3.Client) 
 	out.log = spec.RecoveryLog()
 
 	if out.txnResp, err = etcd.Txn(ctx).If().Then(ops...).Commit(); err != nil {
-		err = errors.WithMessage(err, "fetching ShardSpec.HintKeys")
+		err = fmt.Errorf("fetching ShardSpec.HintKeys: %w", err)
 		return
 	}
 
@@ -53,20 +53,20 @@ func fetchHints(ctx context.Context, spec *pc.ShardSpec, etcd *clientv3.Client) 
 		// Sense whether JSON or proto encoding is used by testing for opening '{'.
 		if kvs[0].Value[0] != '{' {
 			if err = h.Unmarshal(kvs[0].Value); err != nil {
-				err = errors.WithMessage(err, "hints.Unmarshal")
+				err = fmt.Errorf("hints.Unmarshal: %w", err)
 			}
 		} else {
 			if err = json.Unmarshal(kvs[0].Value, h); err != nil {
-				err = errors.WithMessage(err, "json.Unmarshal(hints)")
+				err = fmt.Errorf("json.Unmarshal(hints): %w", err)
 			}
 		}
 
 		if err != nil {
 			// Pass.
 		} else if _, err = recoverylog.NewFSM(*h); err != nil {
-			err = errors.WithMessage(err, "validating FSMHints")
+			err = fmt.Errorf("validating FSMHints: %w", err)
 		} else if h.Log != out.log {
-			err = errors.Errorf("hints.Log %s != ShardSpec.RecoveryLog %s", h.Log, out.log)
+			err = fmt.Errorf("hints.Log %s != ShardSpec.RecoveryLog %s", h.Log, out.log)
 		}
 
 		if err != nil {
@@ -100,7 +100,7 @@ func storeRecordedHints(s *shard, hints recoverylog.FSMHints) error {
 
 	var val, err = json.Marshal(hints)
 	if err != nil {
-		return errors.WithMessage(err, "json.Marshal(hints)")
+		return fmt.Errorf("json.Marshal(hints): %w", err)
 	}
 	// TODO(johnny): Switch over to hints.Marshal() when proto decode support is deployed.
 	/*
@@ -149,12 +149,12 @@ func storeRecoveredHints(s *shard, hints recoverylog.FSMHints) error {
 	// rotate the current value at backups[1] => backups[2], and so on.
 	var val []byte
 	if val, err = json.Marshal(hints); err != nil {
-		return errors.WithMessage(err, "json.Marshal(hints)")
+		return fmt.Errorf("json.Marshal(hints): %w", err)
 	}
 	// TODO(johnny): Switch over to hints.Marshal() when proto decode support is deployed.
 	/*
 		if val, err = hints.Marshal(); err != nil {
-			return errors.WithMessage(err, "hints.Marshal")
+			return fmt.Errorf("hints.Marshal(): %w", err)
 		}
 	*/
 
@@ -203,7 +203,7 @@ func beginRecovery(s *shard) error {
 		&pc.GetHintsRequest{Shard: spec.Id})
 
 	if err == nil && s.recovery.hints.Status != pc.Status_OK {
-		err = fmt.Errorf(s.recovery.hints.Status.String())
+		err = errors.New(s.recovery.hints.Status.String())
 	}
 	if err != nil {
 		return fmt.Errorf("GetHints: %w", err)
@@ -212,15 +212,15 @@ func beginRecovery(s *shard) error {
 
 	// Verify the |pickedHints| recovery log exists, and is of the correct Content-Type.
 	if logSpec, err := client.GetJournal(s.ctx, s.ajc, pickedHints.Log); err != nil {
-		return errors.WithMessage(err, "fetching log spec")
+		return fmt.Errorf("fetching log spec: %w", err)
 	} else if ct := logSpec.LabelSet.ValueOf(labels.ContentType); ct != labels.ContentType_RecoveryLog {
-		return errors.Errorf("expected label %s value %s (got %v)", labels.ContentType, labels.ContentType_RecoveryLog, ct)
+		return fmt.Errorf("expected label %s value %s (got %v)", labels.ContentType, labels.ContentType_RecoveryLog, ct)
 	}
 
 	// Create local temporary directory into which we recover.
 	var dir string
 	if dir, err = os.MkdirTemp("", strings.ReplaceAll(spec.Id.String(), "/", "_")+"-"); err != nil {
-		return errors.WithMessage(err, "creating shard working directory")
+		return fmt.Errorf("creating shard working directory: %w", err)
 	}
 
 	log.WithFields(log.Fields{
@@ -231,7 +231,7 @@ func beginRecovery(s *shard) error {
 
 	// Finally, play back the log.
 	if err = s.recovery.player.Play(s.ctx, pickedHints, dir, s.ajc); err != nil {
-		return errors.WithMessagef(err, "playing log %s", pickedHints.Log)
+		return fmt.Errorf("playing log %s: %w", pickedHints.Log, err)
 	}
 	return nil
 }
@@ -260,7 +260,7 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 
 		var recovered = s.recovery.player.Resolved
 		if recovered.FSM == nil {
-			err = errors.Errorf("completeRecovery aborting due to log playback failure")
+			err = errors.New("completeRecovery aborting due to log playback failure")
 			return
 		}
 
@@ -284,9 +284,9 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 			// cleanup of the playback directory now.
 			_ = os.RemoveAll(s.recovery.recorder.Dir())
 		}
-		return cp, errors.WithMessage(err, "app.NewStore")
+		return cp, fmt.Errorf("app.NewStore: %w", err)
 	} else if cp, err = s.store.RestoreCheckpoint(s); err != nil {
-		return cp, errors.WithMessage(err, "store.RestoreCheckpoint")
+		return cp, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 	}
 
 	// Store |recoveredHints| as a backup. We do this _after_ restoring the

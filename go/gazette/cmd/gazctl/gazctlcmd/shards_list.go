@@ -91,7 +91,7 @@ func (cmd *cmdShardsList) outputTable(resp *pc.ListResponse) {
 		rjc = ShardsCfg.Broker.MustRoutedJournalClient(ctx)
 	}
 
-	table.SetHeader(headers)
+	table.Header(headers)
 
 	for _, j := range resp.Shards {
 		var primary = "<none>"

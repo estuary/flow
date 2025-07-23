@@ -145,7 +145,7 @@ func (cmd *cmdJournalsFragments) outputTable(responses []*pb.FragmentsResponse) 
 	if cmd.SigTTL != 0 {
 		headers = append(headers, "URL")
 	}
-	table.SetHeader(headers)
+	table.Header(headers)
 
 	for _, r := range responses {
 		if r == nil {

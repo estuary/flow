@@ -266,6 +266,10 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 // and terminates the period sweep channel.
 func (d *dispatcher) Close() { close(d.sweepDoneCh) }
 
+// ExitIdle is a no-op for dispatcher as it manages SubConn lifecycle directly
+// based on dispatch routes rather than connection state.
+func (d *dispatcher) ExitIdle() {}
+
 // less defines an ordering over ProcessSpec_ID preferences used by dispatcher.
 func (d *dispatcher) less(lhs, rhs ProcessSpec_ID) bool {
 	// Always prefer a defined ProcessSpec_ID over the zero-valued one
