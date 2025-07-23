@@ -364,7 +364,10 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
                 maybe_msg = event_stream.next() => {
                     match maybe_msg {
                         Some(TaskWriterMessage::SetTaskName{name, build}) => {
-                            anyhow::bail!("You can't change the task name after it has already been set ({shard_ref:?} -> ({name}, {build}))");
+                            let shard = dekaf_shard_ref(name.clone(), build.clone());
+                            if shard != shard_ref {
+                                anyhow::bail!("You can't change the task name after it has already been set ({shard_ref:?} -> ({name}, {build}))");
+                            }
                         },
                         Some(TaskWriterMessage::Log(mut log)) => {
                             for well_known in WELL_KNOWN_LOG_FIELDS {
