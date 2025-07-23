@@ -438,7 +438,6 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     fn widening_snapshot_helper(

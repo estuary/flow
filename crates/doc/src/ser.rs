@@ -171,9 +171,9 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
             Node::Bool(b) => serializer.serialize_bool(b),
             Node::Bytes(b) => {
                 if serializer.is_human_readable() {
-                    serializer.collect_str(&base64::display::Base64Display::with_config(
+                    serializer.collect_str(&base64::display::Base64Display::new(
                         b,
-                        base64::STANDARD,
+                        &base64::engine::general_purpose::STANDARD,
                     ))
                 } else {
                     serializer.serialize_bytes(b)

@@ -29,7 +29,7 @@ macro_rules! env_config_interval {
                 let parsed: humantime::Duration = FromStr::from_str(&val)
                     .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"));
                 chrono::Duration::from_std(parsed.into())
-                    .unwrap_or_else(|err| panic!("invalid {var_name} value: out of range"))
+                    .unwrap_or_else(|_err| panic!("invalid {var_name} value: out of range"))
             } else {
                 $default_val
             }

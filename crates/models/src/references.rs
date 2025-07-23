@@ -52,7 +52,7 @@ macro_rules! string_reference_types {
         $(#[$outer])*
         #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, JsonSchema, Eq, PartialOrd, Ord, Hash)]
         #[cfg_attr(feature = "sqlx-support", derive(sqlx::Decode, sqlx::Encode))]
-        #[schemars(example = "Self::example")]
+        #[schemars(example = Self::example())]
         pub struct $Wrapper(#[schemars(schema_with = $WrapperStr)] String);
 
         impl $Wrapper {
@@ -76,7 +76,7 @@ macro_rules! string_reference_types {
                 &mut self.0
             }
 
-            fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+            fn schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
                 from_value(json!({
                     "type": "string",
                     "pattern": Self::schema_pattern(),
@@ -236,7 +236,7 @@ impl RelativeUrl {
 /// Ordered JSON-Pointers which define how a composite key may be extracted from
 /// a collection document.
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq)]
-#[schemars(example = "CompositeKey::example")]
+#[schemars(example = CompositeKey::example())]
 pub struct CompositeKey(Vec<JsonPointer>);
 
 impl CompositeKey {

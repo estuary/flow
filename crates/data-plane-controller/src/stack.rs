@@ -108,7 +108,7 @@ pub struct DataPlane {
     pub control_plane_api: url::Url,
     pub data_buckets: Vec<url::Url>,
     pub gcp_project: String,
-    pub ssh_subnets: Vec<ipnetwork::IpNetwork>,
+    pub ssh_subnets: Vec<sqlx::types::ipnetwork::IpNetwork>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<PrivateLink>,
     pub deployments: Vec<Deployment>,
@@ -261,7 +261,7 @@ pub struct ControlExports {
     pub azure_application_name: String,
     pub azure_link_endpoints: Vec<serde_json::Value>,
     pub bastion_tunnel_private_key: Option<String>,
-    pub cidr_blocks: Vec<ipnetwork::IpNetwork>,
+    pub cidr_blocks: Vec<sqlx::types::ipnetwork::IpNetwork>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,

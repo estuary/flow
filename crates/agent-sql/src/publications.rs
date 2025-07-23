@@ -75,7 +75,7 @@ pub async fn lock_live_specs(
         "#,
         catalog_names as &[&str],
     )
-    .fetch_all(txn)
+    .fetch_all(&mut **txn)
     .await?;
     Ok(fails)
 }
@@ -268,7 +268,7 @@ pub async fn update_live_specs(
     is_touches as &[bool], // 13
     dependency_hashes as &[Option<&str>], // 14
     )
-    .fetch_all(txn)
+    .fetch_all(&mut **txn)
     .await?;
     Ok(fails)
 }
@@ -289,7 +289,7 @@ pub async fn create(
         detail,
         data_plane_name,
     )
-    .fetch_one(txn)
+    .fetch_one(&mut **txn)
     .await?;
 
     Ok(rec.id)
@@ -316,7 +316,7 @@ where
         Json(status) as Json<&S>,
         final_pub_id as Option<Id>,
     )
-    .fetch_one(txn)
+    .fetch_one(&mut **txn)
     .await?;
 
     Ok(())
@@ -331,13 +331,13 @@ pub async fn delete_draft(delete_draft_id: Id, pg_pool: &sqlx::PgPool) -> sqlx::
 }
 
 pub async fn savepoint_noop(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<()> {
-    sqlx::query!("savepoint noop;").execute(txn).await?;
+    sqlx::query!("savepoint noop;").execute(&mut **txn).await?;
     Ok(())
 }
 
 pub async fn rollback_noop(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<()> {
     sqlx::query!("rollback transaction to noop;")
-        .execute(txn)
+        .execute(&mut **txn)
         .await?;
     Ok(())
 }
@@ -356,7 +356,7 @@ pub async fn add_inferred_schema_md5(
         inferred_schema_md5 as Option<String>,
         live_spec_id as Id,
     )
-    .fetch_one(txn)
+    .fetch_one(&mut **txn)
     .await?;
     Ok(())
 }
@@ -378,7 +378,7 @@ where
         Json(built_spec) as Json<S>,
         live_spec_id as Id,
     )
-    .fetch_one(&mut *txn)
+    .fetch_one(&mut **txn)
     .await?;
 
     Ok(())
@@ -466,7 +466,7 @@ pub async fn delete_stale_flow(
                 "delete from live_spec_flows where source_id = $1 and flow_type = 'capture'",
                 live_spec_id as Id,
             )
-            .execute(&mut *txn)
+            .execute(&mut **txn)
             .await?;
         }
         CatalogType::Collection => {
@@ -474,7 +474,7 @@ pub async fn delete_stale_flow(
                 "delete from live_spec_flows where target_id = $1 and flow_type = 'collection'",
                 live_spec_id as Id,
             )
-            .execute(&mut *txn)
+            .execute(&mut **txn)
             .await?;
         }
         CatalogType::Materialization => {
@@ -482,7 +482,7 @@ pub async fn delete_stale_flow(
                 "delete from live_spec_flows where target_id = $1 and (flow_type = 'materialization' or flow_type = 'source_capture')",
                 live_spec_id as Id,
             )
-            .execute(&mut *txn)
+            .execute(&mut **txn)
             .await?;
         }
         CatalogType::Test => {
@@ -490,7 +490,7 @@ pub async fn delete_stale_flow(
                 "delete from live_spec_flows where (source_id = $1 or target_id = $1) and flow_type = 'test'",
                 live_spec_id as Id,
             )
-            .execute(&mut *txn)
+            .execute(&mut **txn)
             .await?;
         }
     }
@@ -524,7 +524,7 @@ pub async fn insert_publication_spec(
         draft_type as &Option<CatalogType>,
         user_id as Uuid,
     )
-    .execute(&mut *txn)
+    .execute(&mut **txn)
     .await?;
 
     Ok(())
@@ -562,7 +562,7 @@ pub async fn insert_live_spec_flows(
         writes_to as Option<Vec<&str>>,
         source_capture,
     )
-    .execute(&mut *txn)
+    .execute(&mut **txn)
     .await?;
 
     Ok(())

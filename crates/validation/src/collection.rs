@@ -1,6 +1,5 @@
 use super::{indexed, schema, storage_mapping, walk_transition, Error, Scope};
-use doc::shape::X_INITIAL_READ_SCHEMA;
-use json::schema::{types, Keyword};
+use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;

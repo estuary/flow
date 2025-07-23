@@ -79,11 +79,11 @@ impl std::fmt::Debug for Id {
 }
 
 impl schemars::JsonSchema for Id {
-    fn schema_name() -> String {
-        String::from("Id")
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Id")
     }
 
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
         String::json_schema(gen)
     }
 }
@@ -127,9 +127,9 @@ impl sqlx::postgres::PgHasArrayType for Id {
 
 #[cfg(feature = "sqlx-support")]
 impl sqlx::Encode<'_, sqlx::postgres::Postgres> for Id {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
         buf.extend_from_slice(&self.0);
-        sqlx::encode::IsNull::No
+        Ok(sqlx::encode::IsNull::No)
     }
 }
 

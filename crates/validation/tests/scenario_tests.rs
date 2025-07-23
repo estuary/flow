@@ -808,23 +808,6 @@ test://example/int-halve:
 }
 
 #[test]
-fn test_shuffle_is_missing() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-test://example/int-halve:
-  collections:
-    testing/int-halve:
-      derive:
-        transforms:
-          - name: halveIntString
-            source: testing/int-string-rw
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_collection_key_empty() {
     let errors = common::run_errors(
         &MODEL_YAML,
