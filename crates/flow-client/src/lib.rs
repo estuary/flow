@@ -57,7 +57,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_AGENT_URL:  url::Url = url::Url::parse("https://agent-api-1084703453822.us-central1.run.app").unwrap();
     pub static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
     pub static ref DEFAULT_PG_URL: url::Url = url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap();
-    pub static ref DEFAULT_CONFIG_ENCRYPTION_URL: url::Url = url::Url::parse("https://config-encryptions.estuary.dev/").unwrap();
+    pub static ref DEFAULT_CONFIG_ENCRYPTION_URL: url::Url = url::Url::parse("https://config-encryption.estuary.dev/").unwrap();
 
     // Used only when profile is "local".
     pub static ref LOCAL_AGENT_URL: url::Url = url::Url::parse("http://localhost:8675/").unwrap();
