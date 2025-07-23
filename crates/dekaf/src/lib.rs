@@ -39,6 +39,7 @@ use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
 use std::{
+    any,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -109,8 +110,8 @@ impl SessionAuthentication {
             }
             SessionAuthentication::Task(task) => task.exp.into(),
             SessionAuthentication::Redirect { .. } => {
-                // Redirects are valid for a reasonable duration
-                SystemTime::now() + std::time::Duration::from_secs(3600)
+                // Redirects are valid for a short duration
+                SystemTime::now() + std::time::Duration::from_secs(60 * 5)
             }
         }
     }
@@ -134,7 +135,7 @@ impl SessionAuthentication {
                 auth.client = auth.client.clone().with_fresh_gazette_client();
             }
             SessionAuthentication::Redirect { .. } => {
-                // No gazette clients to refresh for redirects
+                unreachable!("This session is a redirect and cannot communicate with Gazette");
             }
         }
     }
@@ -143,7 +144,7 @@ impl SessionAuthentication {
         match self {
             SessionAuthentication::User(user_auth) => user_auth.config.deletions,
             SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
-            SessionAuthentication::Redirect { .. } => connector::DeletionMode::default(),
+            SessionAuthentication::Redirect { .. } => unreachable!("This session is a redirect"),
         }
     }
 }
@@ -205,8 +206,7 @@ impl TaskAuth {
                         + time::Duration::seconds(claims.exp as i64);
                 }
                 TaskState::Redirect { .. } => {
-                    // When in redirect state, we don't update the client
-                    // The session will handle the redirect at the metadata/coordinator level
+                    anyhow::bail!("Task was just moved to a different dataplane, consumer must reconnect to get redirected");
                 }
             }
         }
