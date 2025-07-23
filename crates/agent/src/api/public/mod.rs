@@ -42,7 +42,7 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     // in their docs warning about false positives where it logs errors even
     // when it's able to return a valid response. I know it smells, but seems
     // better than the available alternatives.
-    aide::gen::on_error(|error| {
+    aide::generate::on_error(|error| {
         tracing::error!(?error, "aide gen error");
         if cfg!(test) {
             panic!("aide gen error: {:?}", error);
@@ -59,7 +59,7 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
                 .route_layer(axum::middleware::from_fn(ensure_accepts_json)),
         )
         .api_route(
-            "/api/v1/metrics/*prefix",
+            "/api/v1/metrics/{*prefix}",
             aide::axum::routing::get(open_metrics::handle_get_metrics),
         )
         // All routes below this are publicly accessible to anyone, without an authentication token
