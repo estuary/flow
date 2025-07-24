@@ -36,6 +36,11 @@ To perform an incremental backfill:
 This option is ideal when you want to ensure your collections have the most up-to-date data without
 disrupting your destination systems.
 
+This includes [**Dekaf**](./Connectors/materialization-connectors/Dekaf/dekaf.md) materializations:
+because Dekaf simply provides a Kafka interface, the destination schema is managed via the connected service, such as ClickHouse or Tinybird, rather than Estuary.
+To ensure you don't disrupt your setup with these systems, you can use an incremental backfill.
+Using a dataflow reset may require you to manually update your schemas in the 3rd party system as on initial creation for these connectors.
+
 When you perform an incremental backfill, all data is pulled into collections again, and
 materializations that use those collections will read and process this data. How the data is handled
 at the destination depends on your materialization settings:
@@ -109,6 +114,10 @@ To perform a dataflow reset:
 
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
 you suspect data inconsistencies between source, collections, and destinations.
+
+:::warning
+If your source is connected to a [**Dekaf**](./Connectors/materialization-connectors/Dekaf/dekaf.md) materialization (including ClickHouse, Tinybird, StarTree, and more), consider using an **incremental backfill** instead of a dataflow reset to avoid schema mismatches.
+:::
 
 ### Backfill Selection
 
