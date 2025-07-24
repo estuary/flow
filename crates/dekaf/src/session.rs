@@ -324,22 +324,22 @@ impl Session {
                 let auth = self.auth.as_ref().unwrap();
 
                 // Concurrently fetch Collection instances for all requested topics.
-                let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
+                let collections: Vec<(TopicName, Option<Collection>)> =
                     futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                        let maybe_collection = Collection::new(
+                        Collection::new(
                             auth,
                             pg_client,
                             from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
                                 .as_str(),
                         )
-                        .await?;
-                        Ok((topic.name.unwrap_or_default(), maybe_collection))
+                        .await
+                        .map(|coll| (topic.name.unwrap_or_default(), coll))
                     }))
-                    .await;
+                    .await?;
 
                 let mut topics = vec![];
 
-                for (name, maybe_collection) in collections? {
+                for (name, maybe_collection) in collections {
                     let Some(collection) = maybe_collection else {
                         topics.push(
                             MetadataResponseTopic::default()
