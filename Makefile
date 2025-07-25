@@ -218,6 +218,7 @@ ifeq ($(UNAME),Darwin arm)
 linux-gnu-binaries: $(GNU_TARGETS)
 	codesign -f -s - .build/package/bin/gazette
 	codesign -f -s - .build/package/bin/flowctl-go
+	codesign -f -s - .build/package/bin/flowctl
 else
 linux-gnu-binaries: $(GNU_TARGETS)
 endif

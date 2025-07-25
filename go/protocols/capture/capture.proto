@@ -85,10 +85,13 @@ message Request {
 
   // Discover returns the set of resources available from this connector.
   message Discover {
+    // Name of the capture being discovered.
+    string name = 1
+        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture" ];
     // Connector type addressed by this request.
-    flow.CaptureSpec.ConnectorType connector_type = 1;
+    flow.CaptureSpec.ConnectorType connector_type = 2;
     // Connector configuration, as an encoded JSON object.
-    string config_json = 2 [
+    string config_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "config"
     ];
