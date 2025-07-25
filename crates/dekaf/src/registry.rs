@@ -107,9 +107,12 @@ async fn get_subject_latest(
             (value_id, &collection.value_schema)
         };
 
+        let serialized_schema = serde_json::to_value(schema)
+            .unwrap_or_else(|e| panic!("Cannot parse Schema from JSON: {e}"));
+
         Ok(serde_json::json!({
             "id": id,
-            "schema": schema.canonical_form(),
+            "schema": serialized_schema,
             "schemaType": "AVRO",
             "subject": subject,
             "version": 1,
