@@ -51,6 +51,8 @@ impl Default for TargetNaming {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SourceDef {
     /// Capture name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Capture")]
     pub capture: Option<Capture>,
 
     /// When adding new bindings from a source capture to a materialization, how should the schema

@@ -15,7 +15,7 @@ pub struct DeriveUsingSqlite {
 }
 
 impl DeriveUsingSqlite {
-    fn migrations_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn migrations_schema(gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
         let url_schema = RelativeUrl::json_schema(gen);
 
         from_value(json!({

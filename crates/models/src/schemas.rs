@@ -17,9 +17,9 @@ use std::collections::BTreeMap;
 ///
 // Schema wraps RawValue: see its notes on deserialization, which must use serde_json.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
-#[schemars(example = "Schema::example_absolute")]
-#[schemars(example = "Schema::example_relative")]
-#[schemars(example = "Schema::example_inline_basic")]
+#[schemars(example = Schema::example_absolute())]
+#[schemars(example = Schema::example_relative())]
+#[schemars(example = Schema::example_inline_basic())]
 pub struct Schema(RawValue);
 
 impl std::ops::Deref for Schema {
@@ -268,7 +268,7 @@ struct RelaxedSchemaObj {
     additional_properties: Option<Box<RelaxedSchema>>,
 
     // Keywords which are removed from a relaxed schema.
-    #[serde(rename = "type", skip_serializing)]
+    #[serde(rename = "type", default, skip_serializing)]
     _type: Option<serde_json::Value>,
     #[serde(rename = "required", default, skip_serializing)]
     _required: Vec<String>,

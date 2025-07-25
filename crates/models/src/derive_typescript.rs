@@ -17,7 +17,7 @@ pub struct DeriveUsingTypescript {
 }
 
 impl DeriveUsingTypescript {
-    fn module_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn module_schema(gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
         let url_schema = RelativeUrl::json_schema(gen);
 
         from_value(json!({

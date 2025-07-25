@@ -11,7 +11,7 @@ pub struct Directive {}
 #[derive(Deserialize, Validate, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Claims {
-    #[validate]
+    #[validate(nested)]
     requested_tenant: models::Token,
     // Survey results for the tenant.
     // This is persisted in the DB but is not actually used by the agent.

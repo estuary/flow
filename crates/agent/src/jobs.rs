@@ -69,51 +69,6 @@ pub async fn run_without_removing_env(
         .map_err(|err| Error::detail(err, name, cmd))
 }
 
-// run_with_output spawns the provided Command, capturing its stderr
-// into the provided logs_tx identified by |logs_token|
-// and returning its stdout.
-#[tracing::instrument(err, level = "debug", skip(logs_tx, cmd))]
-pub async fn run_with_output(
-    name: &str,
-    logs_tx: &logs::Tx,
-    logs_token: Uuid,
-    cmd: &mut async_process::Command,
-) -> Result<(std::process::ExitStatus, Vec<u8>), Error> {
-    let mut child = spawn(name, cmd)?;
-    let stdin: &[u8] = &[];
-    let stdout = child.stdout.take().unwrap();
-
-    Ok(futures::try_join!(
-        wait(name, logs_tx, logs_token, stdin, child),
-        read_stdout(stdout)
-    )
-    .map_err(|err| Error::detail(err, name, cmd))?)
-}
-
-// run_with_input_output spawns the provided Command, capturing its stderr
-// into the provided logs_tx identified by |logs_token| and returning its stdout.
-// stdin is copied into the Command.
-#[tracing::instrument(err, level = "debug", skip(logs_tx, stdin, cmd))]
-pub async fn run_with_input_output<I>(
-    name: &str,
-    logs_tx: &logs::Tx,
-    logs_token: Uuid,
-    stdin: I,
-    cmd: &mut async_process::Command,
-) -> Result<(std::process::ExitStatus, Vec<u8>), Error>
-where
-    I: AsyncRead + Unpin,
-{
-    let mut child = spawn(name, cmd)?;
-    let stdout = child.stdout.take().unwrap();
-
-    futures::try_join!(
-        wait(name, logs_tx, logs_token, stdin, child),
-        read_stdout(stdout)
-    )
-    .map_err(|err| Error::detail(err, name, cmd))
-}
-
 /// spawn a command with the provided job name, returning its created Child.
 fn spawn(name: &str, cmd: &mut async_process::Command) -> Result<async_process::Child, Error> {
     cmd.stdin(std::process::Stdio::piped())

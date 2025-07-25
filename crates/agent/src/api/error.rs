@@ -53,7 +53,7 @@ mod status_serde {
         ser::{Serialize, Serializer},
     };
 
-    pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    pub fn schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         serde_json::from_value(serde_json::json!({
             "type": "integer",
             "minimum": 100,
@@ -81,7 +81,7 @@ mod error_serde {
         ser::Serializer,
     };
 
-    pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    pub fn schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         serde_json::from_value(serde_json::json!({
             "type": "string",
         }))
