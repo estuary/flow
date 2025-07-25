@@ -180,7 +180,7 @@ The only time a credential needs to be directly accessed is when Flow initiates 
 Flow integrates with Mozilla’s [sops](https://github.com/mozilla/sops) tool,
 which can encrypt and protect credentials.
 It stores a `sops`-protected configuration in its encrypted form,
-and decrypts it only when invoking a connector on the your behalf.
+and decrypts it only when invoking a connector on your behalf.
 
 sops, short for “Secrets Operations,” is a tool that encrypts the values of a JSON or YAML document
 against a key management system (KMS) such as Google Cloud Platform KMS, Azure Key Vault, or Hashicorp Vault.
@@ -190,12 +190,44 @@ and creates a request trace which can be logged and audited.
 It's also possible to revoke access to the KMS,
 which immediately and permanently removes access to the protected credential.
 
-When you use the Flow web application, Flow automatically
+When you use the Flow web application or `flowctl`, Flow automatically
 adds `sops` protection to sensitive fields on your behalf.
+
+Most workflows can make use of this built-in encryption mechanism.
+There is also the option to configure your own encryption with `sops` to maintain strict control over your encryption process.
+
+### Using `flowctl`'s auto-encryption
+
+Starting with version 0.5.18, `flowctl` will automatically encrypt plain-text connector endpoint configurations when you run one of the following commands:
+
+* `draft author`
+* `catalog test`
+* `catalog publish`
+
+These commands use the same encryption mechanism as the dashboard and ensure that your secrets are encrypted whenever you send your specifications to Estuary.
+
+This does not, by default, encrypt secrets in your local environment.
+If you want to encrypt local files, you can overwrite your local plain-text configuration with Estuary's encrypted version. To do so, run:
+
+```bash
+flowctl draft author --source your/flow.yaml
+flowctl draft develop --overwrite
+```
+
+This will send a draft specification to Estuary without publishing it yet.
+Estuary will encrypt the configuration as part of the `draft author` command, and you can pull this version back to overwrite your local file.
+
+### Controlling encryption with `sops`
+
 You can also implement `sops` manually if you are writing a Flow specification locally.
+
+This can be useful if you need to maintain strict control over how credentials are encrypted.
+In this case, you own the KMS key and grant Estuary access for decryption.
+`flowctl` will not modify endpoint configurations that have already been encrypted.
+
 The examples below provide a useful reference.
 
-### Example: Protect a configuration
+#### Example: Protect a configuration
 
 Suppose you're given a connector configuration:
 
@@ -251,7 +283,7 @@ flow-258@helpful-kingdom-273219.iam.gserviceaccount.com
 
 :::
 
-### Example: Protect portions of a configuration
+#### Example: Protect portions of a configuration
 
 Endpoint configurations are typically a mix of sensitive and non-sensitive values.
 It can be cumbersome when `sops` protects an entire configuration document as you
