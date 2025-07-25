@@ -40,7 +40,6 @@ async fn all_subjects(
 ) -> Response {
     wrap(async move {
         let strict_topic_names = match &auth {
-            SessionAuthentication::User(auth) => auth.config.strict_topic_names,
             SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
             SessionAuthentication::Redirect { config, .. } => config.strict_topic_names,
         };
@@ -87,7 +86,6 @@ async fn get_subject_latest(
 
         let collection = super::Collection::new(
             &auth,
-            client,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),
@@ -107,9 +105,12 @@ async fn get_subject_latest(
             (value_id, &collection.value_schema)
         };
 
+        let serialized_schema = serde_json::to_value(schema)
+            .unwrap_or_else(|e| panic!("Cannot parse Schema from JSON: {e}"));
+
         Ok(serde_json::json!({
             "id": id,
-            "schema": schema.canonical_form(),
+            "schema": serialized_schema,
             "schemaType": "AVRO",
             "subject": subject,
             "version": 1,
