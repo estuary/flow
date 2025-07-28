@@ -41,7 +41,6 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
-    let is_dekaf = matches!(endpoint, models::MaterializationEndpoint::Dekaf(_));
     let mut connector_rx = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
@@ -93,40 +92,37 @@ pub async fn start<L: LogHandler>(
         }
     };
 
-    // Perform IAM authentication for Image and Local connectors (not Dekaf)
-    if !is_dekaf {
-        let spec_request = Request {
-            spec: Some(proto_flow::materialize::request::Spec {
-                config_json: "{}".to_string(),
-                connector_type: connector_type,
-            }),
-            ..Default::default()
-        };
-        connector_tx.try_send(spec_request.clone()).unwrap();
+    let spec_request = Request {
+        spec: Some(proto_flow::materialize::request::Spec {
+            config_json: "{}".to_string(),
+            connector_type: connector_type,
+        }),
+        ..Default::default()
+    };
+    connector_tx.try_send(spec_request.clone()).unwrap();
 
-        let Some(Response {
-            spec: Some(spec_response),
-            ..
-        }) = connector_rx.try_next().await?
-        else {
-            anyhow::bail!("expected first spec response")
-        };
+    let Some(Response {
+        spec: Some(spec_response),
+        ..
+    }) = connector_rx.try_next().await?
+    else {
+        anyhow::bail!("expected first spec response")
+    };
 
-        if let Ok(Some(iam_config)) = crate::iam_auth::extract_iam_auth_from_connector_config(
-            config_json,
-            &spec_response.config_schema_json,
-        ) {
-            // Only proceed with IAM auth if we have an actual catalog name
-            if let Some(task_name) = catalog_name.as_deref() {
-                let mut tokens = iam_config
-                    .generate_tokens(task_name)
-                    .await
-                    .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
+    if let Ok(Some(iam_config)) = crate::iam_auth::extract_iam_auth_from_connector_config(
+        config_json,
+        &spec_response.config_schema_json,
+    ) {
+        // Only proceed with IAM auth if we have an actual catalog name
+        if let Some(task_name) = catalog_name.as_deref() {
+            let mut tokens = iam_config
+                .generate_tokens(task_name)
+                .await
+                .map_err(crate::anyhow_to_status)?;
 
-                tokens.inject_into(config_json)?;
+            tokens.inject_into(config_json)?;
 
-                tokens.zeroize();
-            }
+            tokens.zeroize();
         }
     }
 
