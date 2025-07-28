@@ -424,7 +424,7 @@ The `catalog publish` command will [automatically encrypt any secrets](../../con
 
 ### Choosing a Data Plane
 
-The `catalog publish` command defaults to publishing resources to the `ops/dp/public/gcp-us-central1-c1` data plane.
+The `catalog publish` command defaults to publishing resources to the `ops/dp/public/gcp-us-central1-c2` data plane.
 You can also specify a different public data plane or your own [private or BYOC](../../private-byoc/README.md) data plane.
 
 You can retrieve the full name of your desired data plane from the dashboard:
@@ -440,7 +440,7 @@ You can retrieve the full name of your desired data plane from the dashboard:
 When publishing resources to a data plane besides the default, make sure to specify this data plane name in an option:
 
 ```
-flowctl catalog publish --default-data-plane ops/dp/public/aws-eu-west-1-c1 --source ./flow.yaml
+flowctl catalog publish --default-data-plane ops/dp/public/aws-eu-west-1-c2 --source ./flow.yaml
 ```
 
 All resources that interact with each other (such as derivations or materializations along with their relevant sources) must be part of the same data plane.

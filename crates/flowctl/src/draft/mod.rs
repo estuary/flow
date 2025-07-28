@@ -81,7 +81,7 @@ pub enum Command {
 #[clap(rename_all = "kebab-case")]
 pub struct Publish {
     /// Data-plane into which created specifications will be placed.
-    #[clap(long, default_value = "ops/dp/public/gcp-us-central1-c1")]
+    #[clap(long, default_value = "ops/dp/public/gcp-us-central1-c2")]
     default_data_plane: String,
 }
 
