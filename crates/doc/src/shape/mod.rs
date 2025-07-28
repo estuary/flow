@@ -246,8 +246,8 @@ pub const X_INFER_SCHEMA: &str = "x-infer-schema";
 /// collection's initial read schema.
 pub const X_INITIAL_READ_SCHEMA: &str = "x-initial-read-schema";
 
-/// X_COMPLEXITY_LIMIT is a JSON-Schema annotation added to emitted inferred schemas that
-/// allows for the modification of the default complexity limit applied to inferred schemas.
+/// X_COMPLEXITY_LIMIT is a JSON-Schema annotation optionally added to binding schemas that
+/// specifies the complexity limit applied to collection's inferred schema.
 pub const X_COMPLEXITY_LIMIT: &str = "x-complexity-limit";
 
 #[cfg(test)]
