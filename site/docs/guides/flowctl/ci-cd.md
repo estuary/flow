@@ -6,7 +6,7 @@ import TabItem from '@theme/TabItem';
 
 While Estuary's UI is a convenient way to create and manage resources, some users may prefer to treat their captures, materializations, and other resources as infrastructure-as-code.
 This allows resource specifications to be checked into your own version control system with a clearly logged history of changes.
-You can then set your infa-as-code repositories up with a CI/CD pipeline to automate deployment.
+You can then set your infra-as-code repositories up with a CI/CD pipeline to automate deployment.
 
 This guide will show you how to configure Estuary Flow resources programmatically for use in CI/CD workflows or other automation.
 
@@ -45,7 +45,6 @@ At a minimum, the configuration will need to specify:
 * The capture name
 * The connector image for the capture
 * Any credentials needed for source system authentication
-    * These ideally should be [encrypted](#encrypting-secrets)
 * The resource streams from the source system you wish to use
 
 Consider these example specifications:
@@ -304,7 +303,6 @@ The configuration, at a minimum, will need to specify:
 * The materialization name
 * The connector image for the materialization
 * Any credentials needed for destination system authentication
-    * These ideally should be [encrypted](#encrypting-secrets)
 * The data collections to use as sources and which tables they should map to
 
 Consider this example specification:
@@ -339,13 +337,6 @@ materializations:
 
 </TabItem>
 </Tabs>
-
-### Encrypting Secrets
-
-Passwords, authentication tokens, and other sensitive information in your specifications should be encrypted.
-If you create resources through the UI, Estuary will do this for you. In an automation setting, you will need to encrypt sensitive information yourself.
-
-See the section on [`sops`](../../concepts/flowctl.md#protecting-secrets) for guidance and examples.
 
 ## Testing Specifications
 
@@ -428,6 +419,8 @@ flowctl catalog publish --source <SOURCE>
 ```
 
 The command's default behavior is to summarize the resource configurations to publish and prompt for confirmation. You can skip this prompt with the `--auto-approve` option.
+
+The `catalog publish` command will [automatically encrypt any secrets](../../concepts/flowctl.md#using-flowctls-auto-encryption) in your endpoint configurations.
 
 ### Choosing a Data Plane
 
