@@ -28,7 +28,7 @@ Finally set up provider attributes to the following values, replacing your tenan
 |---|---|
 | google.subject | assertion.sub |
 | attribute.task_name | assertion.task_name |
-| Attribute Conditions | attribute.task_name.startsWith("yourTenantName/") |
+| Attribute Conditions | attribute.task_name.startsWith("acmeCo/") |
 
 ![Workload Identity Provider Attributes Configuration](../guide-images/gcp-iam-2-provider-attributes.png)
 

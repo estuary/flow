@@ -271,11 +271,7 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
 }
 
 /// Sign a JWT using Google's signJWT API with configurable subject and audience
-async fn google_sign_jwt(
-    task_name: &str,
-    subject: &str,
-    audience: &str,
-) -> anyhow::Result<String> {
+async fn google_sign_jwt(task_name: &str, subject: &str, audience: &str) -> anyhow::Result<String> {
     let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
         .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
 
@@ -299,7 +295,7 @@ async fn google_sign_jwt(
     // Parse the credentials to get the runtime service account email
     let key_data: serde_json::Value = serde_json::from_str(&credentials_json)
         .context("failed to parse service account key JSON")?;
-    let runtime_service_account = key_data
+    let runtime_service_account_email = key_data
         .get("client_email")
         .and_then(|v| v.as_str())
         .context("missing client_email in service account key")?;
@@ -337,7 +333,7 @@ async fn google_sign_jwt(
     let client = reqwest::Client::new();
     let url = format!(
         "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{}:signJwt",
-        runtime_service_account
+        runtime_service_account_email
     );
 
     let body = json!({
