@@ -36,7 +36,7 @@ impl<T> sqlx::postgres::PgHasArrayType for TextJson<T> {
 // Encode and Decode pass through to the sqlx::types::Json implementation,
 // but are restricted to the JSON (and not JSONB) postgres types.
 impl<'q, T: Serialize> Encode<'q, postgres::Postgres> for TextJson<T> {
-    fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
         <sqlx::types::Json<&Self> as Encode<'q, postgres::Postgres>>::encode(
             sqlx::types::Json(self),
             buf,

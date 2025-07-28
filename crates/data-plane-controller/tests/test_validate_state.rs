@@ -5,7 +5,7 @@ use std::{
 };
 
 mod util;
-use util::{initial_state, mock_emit_log_fn, mock_run_cmd_fn, TraceEntry};
+use util::{initial_state, mock_emit_log_fn, mock_run_cmd_fn};
 
 #[tokio::test]
 async fn test_validate_state() {
@@ -49,16 +49,5 @@ async fn test_validate_state() {
         .await;
 
     insta::assert_json_snapshot!(trace.lock().unwrap().as_slice());
-
-    if let Err(e) = outcome {
-        assert_eq!(
-            e.to_string(),
-            r#"failed to validate data-plane state: 
-"quay.io/coreos/etcd:v0.0" is not one of ["quay.io/coreos/etcd:v3.5","ghcr.io/estuary/flow:v2.3.4","ghcr.io/gazette/broker:v1.2.3","ghcr.io/gazette/broker:v5.6.7"] at /stack/config/est-dry-dock:model/deployments/0/oci_image
-"ghcr.io/estuary/flow:v0.0.0" is not one of ["quay.io/coreos/etcd:v3.5","ghcr.io/estuary/flow:v2.3.4","ghcr.io/gazette/broker:v1.2.3","ghcr.io/gazette/broker:v5.6.7"] at /stack/config/est-dry-dock:model/deployments/1/oci_image
-"ghcr.io/gazette/broker:v0.0.0" is not one of ["quay.io/coreos/etcd:v3.5","ghcr.io/estuary/flow:v2.3.4","ghcr.io/gazette/broker:v1.2.3","ghcr.io/gazette/broker:v5.6.7"] at /stack/config/est-dry-dock:model/deployments/2/oci_image"#
-        );
-    } else {
-        panic!("expected validation error");
-    }
+    insta::assert_compact_debug_snapshot!(outcome);
 }

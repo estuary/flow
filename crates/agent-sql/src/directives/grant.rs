@@ -21,7 +21,7 @@ pub async fn upsert_user_grant(
         capability as crate::Capability,
         detail as Option<String>,
     )
-    .execute(txn)
+    .execute(&mut **txn)
     .await?;
 
     Ok(())

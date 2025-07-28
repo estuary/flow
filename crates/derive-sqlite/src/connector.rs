@@ -27,7 +27,7 @@ where
 }
 
 async fn serve<R>(
-    mut request_rx: R,
+    request_rx: R,
     response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
 ) -> anyhow::Result<()>
 where
