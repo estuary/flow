@@ -131,7 +131,7 @@ async fn generate_aws_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
     use aws_config::Region;
 
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
-    let mut signed_jwt = google_sign_jwt(task_name, Some(task_name), &config.aws_role_arn).await?;
+    let mut signed_jwt = google_sign_jwt(task_name, task_name, &config.aws_role_arn).await?;
 
     // Step 2: Use the signed JWT with AssumeRoleWithWebIdentity
     let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
@@ -196,7 +196,7 @@ async fn generate_azure_tokens(
 ) -> anyhow::Result<AzureTokens> {
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
     let mut signed_jwt =
-        google_sign_jwt(task_name, Some(task_name), "api://AzureADTokenExchange").await?;
+        google_sign_jwt(task_name, task_name, "api://AzureADTokenExchange").await?;
 
     // Step 2: Exchange signed JWT for target App Registration access token
     let access_token = exchange_azure_jwt_for_app_registration_token(
@@ -222,8 +222,16 @@ async fn generate_gcp_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
         .strip_prefix("https:")
         .unwrap_or(&config.gcp_workload_identity_pool_audience);
 
-    // Step 1: Sign a JWT using the default runtime service account with task_name in payload
-    let mut signed_jwt = google_sign_jwt(task_name, None, aud).await?;
+    // Get the data plane name to use as subject
+    let data_plane_fqdn = std::env::var("FLOW_DATA_PLANE_FQDN")
+        .context("FLOW_DATA_PLANE_FQDN environment variable not set")?;
+
+    if data_plane_fqdn.is_empty() {
+        anyhow::bail!("FLOW_DATA_PLANE_FQDN environment variable is empty");
+    }
+
+    // Step 1: Sign a JWT using the default runtime service account with data plane name as subject
+    let mut signed_jwt = google_sign_jwt(task_name, &data_plane_fqdn, aud).await?;
 
     // Step 2: Exchange the signed JWT for an access token via OAuth 2.0 token exchange
     let mut exchanged_token = exchange_jwt_for_service_account_token(&signed_jwt, aud).await?;
@@ -265,7 +273,7 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
 /// Sign a JWT using Google's signJWT API with configurable subject and audience
 async fn google_sign_jwt(
     task_name: &str,
-    subject: Option<&str>,
+    subject: &str,
     audience: &str,
 ) -> anyhow::Result<String> {
     let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
@@ -319,7 +327,7 @@ async fn google_sign_jwt(
 
     let jwt_payload = json!({
         "iss": issuer,
-        "sub": subject.unwrap_or(runtime_service_account),
+        "sub": subject,
         "aud": audience,
         "iat": now,
         "exp": now + 3600,
