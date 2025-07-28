@@ -8,6 +8,7 @@ expression: json_test(msg)
     "config": {"spec":"config"}
   },
   "discover": {
+    "name": "discover/capture",
     "connectorType": "IMAGE",
     "config": {"discover":"config"}
   },

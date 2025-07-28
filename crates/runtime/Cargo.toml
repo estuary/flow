@@ -18,6 +18,7 @@ derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
 gazette = { path = "../gazette" }
+iam-auth = { path = "../iam-auth" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
