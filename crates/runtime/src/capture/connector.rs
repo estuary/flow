@@ -115,7 +115,7 @@ pub async fn start<L: LogHandler>(
             let mut tokens = iam_config
                 .generate_tokens(task_name)
                 .await
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, e.to_string()))?;
+                .map_err(crate::anyhow_to_status)?;
 
             tokens.inject_into(config_json)?;
 

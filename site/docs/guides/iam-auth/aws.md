@@ -36,7 +36,7 @@ Finally, in the details page of your role, head to "Trust relationships" tab and
                     "estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:aud": "<ARN OF ROLE>"
                 },
                 "StringLike": {
-                    "estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:sub": "daveCo/*"
+                    "estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:sub": "acmeCo/*"
                 }
             }
         }
