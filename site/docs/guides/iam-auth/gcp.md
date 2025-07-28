@@ -36,8 +36,8 @@ Next, copy the IAM principal you see in the workload identity pool details page 
 
 | Data Plane | SUBJECT_ATTRIBUTE_VALUE |
 |---|---|
-| US central-1 GCP data plane | flow-258@helpful-kingdom-273219.iam.gserviceaccount.com |
-| EU west-1 AWS data plane | data-plane-48vsfi8i91j6c1ns@helpful-kingdom-273219.iam.gserviceaccount.com |
+| US central-1 GCP data plane | gcp-us-central1-c2.dp.estuary-data.com |
+| EU west-1 AWS data plane | aws-eu-west-1-c1.dp.estuary-data.com |
 
 ![Workload Identity Pool Principal](../guide-images/gcp-iam-3-principal.png)
 
