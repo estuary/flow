@@ -43,16 +43,16 @@ pub mod request {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Discover {
         /// Name of the capture being discovered.
-        #[prost(string, tag = "1")]
+        #[prost(string, tag = "3")]
         pub name: ::prost::alloc::string::String,
         /// Connector type addressed by this request.
         #[prost(
             enumeration = "super::super::flow::capture_spec::ConnectorType",
-            tag = "2"
+            tag = "1"
         )]
         pub connector_type: i32,
         /// Connector configuration, as an encoded JSON object.
-        #[prost(string, tag = "3")]
+        #[prost(string, tag = "2")]
         pub config_json: ::prost::alloc::string::String,
     }
     /// Validate a capture configuration and proposed bindings.
