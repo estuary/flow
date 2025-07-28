@@ -109,7 +109,7 @@ pub async fn start<L: LogHandler>(
         anyhow::bail!("expected first spec response")
     };
 
-    if let Ok(Some(iam_config)) = crate::iam_auth::extract_iam_auth_from_connector_config(
+    if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
         &spec_response.config_schema_json,
     ) {
