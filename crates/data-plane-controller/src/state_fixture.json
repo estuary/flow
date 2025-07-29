@@ -58,7 +58,8 @@
         ],
         "aws_assume_role": {
           "role_arn": "arn:aws:iam::12345678:role/estuary",
-          "external_id": "c90634a4-0000-404d-ba7f-0facfba5b5cd"
+          "external_id": "c90634a4-0000-404d-ba7f-0facfba5b5cd",
+          "iam_instance_profile": "arn:aws:iam::12345678:role/instance"
         },
         "builds_kms_keys": [
           "projects/the-project/locations/us-central1/keyRings/the-key-ring/cryptoKeys/the-key"
