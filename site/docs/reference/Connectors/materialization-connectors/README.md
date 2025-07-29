@@ -139,6 +139,9 @@ In the future, other open-source materialization connectors from third parties c
   * Package - ghcr.io/estuary/materialize-starburst:dev
 * Startree
   * [Configuration](./Dekaf/startree.md)
+* Supabase
+  * [Configuration](./PostgreSQL/supabase.md)
+  * Package - ghcr.io/estuary/materialize-supabase-postgres:dev
 * TimescaleDB
   * [Configuration](./timescaledb.md)
   * Package - ghcr.io/estuary/materialize-timescaledb:dev
