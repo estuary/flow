@@ -64,7 +64,7 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 ```
 
-2. Configure the binary log to retain data for at least 7 days. We recommend 30 days where possible.
+2. We recommend that you set your binary log to retain data for at least 7 days.  It is possible to use a shorter binlog retention period by selecting "Skip Binlog Retention Sanity Check" under "Endpoint Config" -> "Advanced Options".
 
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
