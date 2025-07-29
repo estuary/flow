@@ -126,6 +126,8 @@ pub struct ConnectorLimits {
 pub struct AWSAssumeRole {
     pub role_arn: String,
     pub external_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iam_instance_profile: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
