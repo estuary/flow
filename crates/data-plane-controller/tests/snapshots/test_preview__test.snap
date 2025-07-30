@@ -4,61 +4,7 @@ expression: trace.lock().unwrap().as_slice()
 ---
 [
   {
-    "Cmd": [
-      "git-clone",
-      "git clone git@github.com:estuary/ops.git ."
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "SetEncryption"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Cmd": [
@@ -94,24 +40,6 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "pulumi-change-secrets-provider",
       "pulumi stack init test-stack --secrets-provider testing --non-interactive"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
     ]
   },
   {
@@ -185,61 +113,7 @@ expression: trace.lock().unwrap().as_slice()
     "Status": "Idle"
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "PulumiPreview"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Cmd": [
@@ -278,82 +152,10 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "Idle"
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "PulumiRefresh"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Cmd": [
@@ -392,82 +194,10 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "Idle"
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "PulumiUp1"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Cmd": [
@@ -518,82 +248,10 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "AwaitDNS1"
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "Ansible"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Cmd": [
@@ -641,24 +299,6 @@ expression: trace.lock().unwrap().as_slice()
     "Cmd": [
       "ansible-playbook",
       "./venv/bin/ansible-playbook data-plane.ansible.yaml"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
     ]
   },
   {
@@ -720,24 +360,6 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
       "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
@@ -772,61 +394,7 @@ expression: trace.lock().unwrap().as_slice()
     ]
   },
   {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
     "Status": "AwaitDNS2"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Stack": {
@@ -897,42 +465,6 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Status": "Idle"
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-clean",
-      "git clean --force"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-fetch",
-      "git fetch"
-    ]
-  },
-  {
-    "Cmd": [
-      "git-checkout",
-      "git checkout --detach --force --quiet origin/master"
-    ]
   },
   {
     "Status": "Idle"
