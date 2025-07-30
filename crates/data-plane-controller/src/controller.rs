@@ -1,7 +1,6 @@
 use super::stack::{self, State, Status};
 use anyhow::Context;
 use futures::future::BoxFuture;
-use serde_json::json;
 use sqlx::types::uuid;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -150,14 +149,6 @@ impl Controller {
         };
         let state = state.as_mut().unwrap();
 
-        {
-            // Validate the state before operating on it, to ensure the data-plane-controller
-            // never operates on an invalid state
-            let ops_checkout = self
-                .git_checkout(state, &self.ops_remote, checkouts, "master")
-                .await?;
-            self.validate_state(ops_checkout, state).await?;
-        }
 
         let sleep = match state.status {
             Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
@@ -174,14 +165,6 @@ impl Controller {
             Status::AwaitDNS2 => self.on_await_dns_2(state).await?,
         };
 
-        {
-            // Validate the state after operating on it, to prevent writing a bad state into the
-            // database which would lead to manual recovery being required
-            let ops_checkout = self
-                .git_checkout(state, &self.ops_remote, checkouts, "master")
-                .await?;
-            self.validate_state(ops_checkout, state).await?;
-        }
 
         // We publish an updated stack only when transitioning back to Idle.
         let publish_stack = if matches!(state.status, Status::Idle) {
@@ -866,36 +849,6 @@ impl Controller {
         (self.run_cmd_fn)(owned, true, stream, logs_token).await
     }
 
-    async fn validate_state(
-        &self,
-        ops_checkout: &tempfile::TempDir,
-        state: &State,
-    ) -> anyhow::Result<()> {
-        // Read jsonschema validation schema for data planes
-        let schema = serde_yaml::from_slice(
-            &std::fs::read(&ops_checkout.path().join("data-planes-schema.yaml"))
-                .context("failed to read data-planes-schema.yaml")?,
-        )
-        .context("failed to parse data-planes-schema.yaml")?;
-
-        let validator = jsonschema::validator_for(&schema)?;
-        let output = validator.apply(&json!(state)).basic();
-        if let jsonschema::BasicOutput::Invalid(errs) = output {
-            let messages = errs.iter().fold(String::new(), |acc, e| {
-                format!(
-                    "{acc}\n{} at {}",
-                    e.error_description(),
-                    e.instance_location()
-                )
-            });
-
-            let err_message = format!("failed to validate data-plane state: {messages}");
-
-            (self.emit_log_fn)(state.logs_token, "controller", err_message.clone()).await?;
-            anyhow::bail!(err_message);
-        }
-        Ok(())
-    }
 }
 
 async fn fetch_row_state(
