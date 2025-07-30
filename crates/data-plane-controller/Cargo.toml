@@ -33,7 +33,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
-jsonschema = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
