@@ -23,10 +23,55 @@ pub struct Alert {
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
     /// may be used in formatting the alert message.
-    pub arguments: Json<models::RawValue>,
+    pub arguments: Json<async_graphql::Value>,
     // Note that resovled_arguments are omitted for now, because it's
     // unclear whether we really have a use case for them in the API.
     // pub resolved_arguments: Option<models::RawValue>,
+}
+
+pub struct AlertLoader(pub sqlx::PgPool);
+
+impl async_graphql::dataloader::Loader<String> for AlertLoader {
+    type Value = Vec<Alert>;
+    type Error = String;
+
+    async fn load(
+        &self,
+        keys: &[String],
+    ) -> Result<std::collections::HashMap<String, Self::Value>, Self::Error> {
+        use itertools::Itertools;
+        let rows = sqlx::query!(
+            r#"select
+            alert_type as "alert_type: AlertType",
+            catalog_name,
+            fired_at,
+            resolved_at,
+            arguments as "arguments: sqlx::types::Json<async_graphql::Value>"
+        from alert_history
+        where catalog_name = any($1::text[])
+            "#,
+            keys
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(|err| format!("failed to fetch alerts: {err:#}"))?;
+
+        let result = rows
+            .into_iter()
+            .map(|row| {
+                let key = row.catalog_name.clone();
+                let alert = Alert {
+                    alert_type: row.alert_type,
+                    catalog_name: key.clone(),
+                    fired_at: row.fired_at,
+                    resolved_at: row.resolved_at,
+                    arguments: async_graphql::types::Json(row.arguments.0),
+                };
+                (key, alert)
+            })
+            .into_group_map();
+        Ok(result)
+    }
 }
 
 /// Get alerts from alert_history by catalog_name
@@ -55,7 +100,7 @@ pub async fn list_alerts_firing(
             catalog_name as "catalog_name!: String",
             fired_at,
             resolved_at,
-            arguments as "arguments!: models::RawValue"
+            arguments as "arguments!: sqlx::types::Json<async_graphql::Value>"
         from unnest($1::text[]) p(prefix)
         join alert_history a on a.resolved_at is null and starts_with(a.catalog_name, p.prefix)
         order by a.fired_at desc
@@ -74,7 +119,7 @@ pub async fn list_alerts_firing(
             catalog_name: row.catalog_name,
             fired_at: row.fired_at,
             resolved_at: row.resolved_at,
-            arguments: Json(row.arguments),
+            arguments: Json(row.arguments.0),
         })
         .collect();
 
