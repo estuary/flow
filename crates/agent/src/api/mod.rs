@@ -99,6 +99,27 @@ impl App {
         }
     }
 
+    pub async fn authorized_prefixes(
+        &self,
+        claims: &ControlClaims,
+        capability: models::Capability,
+    ) -> Vec<String> {
+        let (_, roles) =
+            Snapshot::evaluate(&self.snapshot, chrono::Utc::now(), |snapshot: &Snapshot| {
+                let roles = tables::UserGrant::transitive_roles(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                )
+                .filter(|grant| grant.capability >= capability)
+                .map(|grant| grant.object_role.to_string())
+                .collect::<Vec<String>>();
+                Ok((None, roles))
+            })
+            .expect("evaluation cannot fail");
+        roles
+    }
+
     /// Uses the current authorization snapshot to filter `unfiltered_results`
     /// to include only the items that the user has `min_capability` to. The
     /// authorization snapshot won't be refreshed, so if it is empty or missing

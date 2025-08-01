@@ -1,9 +1,14 @@
+mod alerts;
 mod live_specs;
 
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
+use async_graphql::{
+    types::connection, Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject,
+};
 use axum::Extension;
 use chrono::{DateTime, Utc};
-use models::{Alert, AlertType, CatalogType, Id};
+use live_specs::fetch_live_specs;
+use models::Capability;
+use models::{status::AlertType, CatalogType, Id};
 use serde_json::value::RawValue;
 use std::sync::Arc;
 
@@ -20,178 +25,34 @@ impl QueryRoot {
         &self,
         ctx: &Context<'_>,
         #[graphql(desc = "Catalog name to filter by")] catalog_names: Vec<String>,
-    ) -> async_graphql::Result<Vec<LiveSpec>> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
-        // Verify user authorization for the catalog name
-        let authorized_names = app
-            .verify_user_authorization(claims, vec![catalog_name.clone()], models::Capability::Read)
-            .await
-            .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
-
-        if authorized_names.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Fetch live specs using existing function
-        let live_catalog = crate::live_specs::get_live_specs(
-            claims.sub,
-            &authorized_names,
-            Some(models::Capability::Read),
-            &app.pg_pool,
-        )
-        .await
-        .map_err(|e| async_graphql::Error::new(format!("Failed to fetch live specs: {}", e)))?;
-
-        let mut results = Vec::new();
-
-        Ok(results)
-    }
-
-    /// Get statuses by live_spec_id or catalog_name
-    async fn statuses(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(desc = "Live spec ID to filter by")] live_spec_id: Option<String>,
-        #[graphql(desc = "Catalog name to filter by")] catalog_name: Option<String>,
-    ) -> async_graphql::Result<Vec<Status>> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
-        let names = if let Some(name) = catalog_name {
-            vec![name]
-        } else if let Some(_id) = live_spec_id {
-            // Query by ID requires a different approach
-            let rows = sqlx::query!(
-                r#"
-                SELECT catalog_name as "catalog_name!: String"
-                FROM live_specs
-                WHERE id = $1
-                "#,
-                _id.parse::<models::Id>()
-                    .map_err(|e| async_graphql::Error::new(format!(
-                        "Invalid live_spec_id format: {}",
-                        e
-                    )))?
-            )
-            .fetch_all(&app.pg_pool)
-            .await
-            .map_err(|e| {
-                async_graphql::Error::new(format!("Failed to query live_spec_id: {}", e))
-            })?;
-
-            if rows.is_empty() {
-                return Ok(vec![]);
-            }
-
-            rows.into_iter().map(|row| row.catalog_name).collect()
-        } else {
-            return Err(async_graphql::Error::new(
-                "Either live_spec_id or catalog_name must be provided",
-            ));
-        };
-
-        // Verify user authorization
-        let authorized_names = app
-            .verify_user_authorization(claims, names, models::Capability::Read)
-            .await
-            .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
-
-        if authorized_names.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Use existing fetch_status function
-        let status_responses = fetch_status(&app.pg_pool, &authorized_names, false)
-            .await
-            .map_err(|e| async_graphql::Error::new(format!("Failed to fetch statuses: {}", e)))?;
-
-        let results = status_responses
-            .into_iter()
-            .map(|status| Status {
-                catalog_name: status.catalog_name,
-                live_spec_id: status.live_spec_id.to_string(),
-                spec_type: status.spec_type,
-                disabled: status.disabled,
-                last_pub_id: status.last_pub_id.to_string(),
-                last_build_id: status.last_build_id.to_string(),
-                live_spec_updated_at: status.live_spec_updated_at,
-                controller_updated_at: status.controller_updated_at,
-                controller_error: status.controller_error,
-                controller_failures: status.controller_failures,
-            })
-            .collect();
-
-        Ok(results)
+    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
+        fetch_live_specs(ctx, models::CatalogType::Capture, catalog_names).await
     }
 
     /// Get alerts from alert_history by catalog_name
     async fn alerts(
         &self,
         ctx: &Context<'_>,
-        #[graphql(desc = "Catalog name to filter by")] catalog_name: String,
-        #[graphql(desc = "Maximum number of alerts to return", default = 100)] limit: i32,
-    ) -> async_graphql::Result<Vec<Alert>> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
-        // Verify user authorization
-        let authorized_names = app
-            .verify_user_authorization(claims, vec![catalog_name.clone()], models::Capability::Read)
-            .await
-            .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
-
-        if authorized_names.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Query alert_history table
-        let rows = sqlx::query!(
-            r#"
-            SELECT
-                alert_type as "alert_type!: AlertType",
-                catalog_name as "catalog_name!: String",
-                fired_at,
-                resolved_at,
-                arguments,
-                resolved_arguments
-            FROM alert_history
-            WHERE catalog_name = $1
-            ORDER BY fired_at DESC
-            LIMIT $2
-            "#,
-            catalog_name,
-            limit as i64,
-        )
-        .fetch_all(&app.pg_pool)
-        .await
-        .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
-
-        let results = rows
-            .into_iter()
-            .map(|row| Alert {
-                alert_type: row.alert_type,
-                catalog_name: row.catalog_name,
-                fired_at: row.fired_at,
-                resolved_at: row.resolved_at,
-                arguments: row.arguments.to_string(),
-                resolved_arguments: row.resolved_arguments.map(|v| v.to_string()),
-            })
-            .collect();
-
-        Ok(results)
+        prefixes: Vec<String>,
+    ) -> async_graphql::Result<Vec<alerts::Alert>> {
+        alerts::list_alerts_firing(ctx, prefixes).await
     }
-}
 
-#[derive(SimpleObject)]
-struct LiveSpec {
-    catalog_name: String,
-    spec_type: CatalogType,
-    spec: Option<String>,
-    built_spec: Option<String>,
-    last_pub_id: Id,
-    last_build_id: Id,
+    /*
+    async fn authorized_prefixes(
+        &self,
+        ctx: &Context<'_>,
+        min_capability: Capability,
+        after: Option<String>,
+        first: Option<u32>,
+    ) -> async_graphql::Result<Vec<String>> {
+        let claims = ctx.data::<ControlClaims>().unwrap();
+        let app = ctx.data::<App>().unwrap();
+        async_graphql::types::connection::query(after, before, first, last, f)
+        let prefixes = app.authorized_prefixes(claims).await?;
+        Ok(prefixes)
+    }
+    */
 }
 
 #[derive(SimpleObject)]
@@ -224,8 +85,98 @@ pub async fn graphql_handler(
     axum::Json(response)
 }
 
-pub async fn graphql_playground() -> impl axum::response::IntoResponse {
-    axum::response::Html(async_graphql::http::playground_source(
-        async_graphql::http::GraphQLPlaygroundConfig::new("/api/v1/graphql"),
-    ))
+/// Returns an HTML page for the GraphiQL interface, which allows users to
+/// explore and interact with the GraphQL API. The html was copied from the
+/// official example at:
+/// https://github.com/graphql/graphiql/blob/0d9e51aa6452de1a1dee1ff1d1dae6df923f389f/examples/graphiql-cdn/index.html
+pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
+    axum::response::Html(
+        r#"
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>GraphiQL 5 with React 19 and GraphiQL Explorer</title>
+            <style>
+              body {
+                margin: 0;
+              }
+
+              #graphiql {
+                height: 100dvh;
+              }
+
+              .loading {
+                height: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 4rem;
+              }
+            </style>
+            <link rel="stylesheet" href="https://esm.sh/graphiql/dist/style.css" />
+            <link
+              rel="stylesheet"
+              href="https://esm.sh/@graphiql/plugin-explorer/dist/style.css"
+            />
+            <!--
+             * Note:
+             * The ?standalone flag bundles the module along with all of its `dependencies`, excluding `peerDependencies`, into a single JavaScript file.
+             * `@emotion/is-prop-valid` is a shim to remove the console error ` module "@emotion /is-prop-valid" not found`. Upstream issue: https://github.com/motiondivision/motion/issues/3126
+            -->
+            <script type="importmap">
+              {
+                "imports": {
+                  "react": "https://esm.sh/react@19.1.0",
+                  "react/": "https://esm.sh/react@19.1.0/",
+
+                  "react-dom": "https://esm.sh/react-dom@19.1.0",
+                  "react-dom/": "https://esm.sh/react-dom@19.1.0/",
+
+                  "graphiql": "https://esm.sh/graphiql?standalone&external=react,react-dom,@graphiql/react,graphql",
+                  "graphiql/": "https://esm.sh/graphiql/",
+                  "@graphiql/plugin-explorer": "https://esm.sh/@graphiql/plugin-explorer?standalone&external=react,@graphiql/react,graphql",
+                  "@graphiql/react": "https://esm.sh/@graphiql/react?standalone&external=react,react-dom,graphql,@graphiql/toolkit,@emotion/is-prop-valid",
+
+                  "@graphiql/toolkit": "https://esm.sh/@graphiql/toolkit?standalone&external=graphql",
+                  "graphql": "https://esm.sh/graphql@16.11.0",
+                  "@emotion/is-prop-valid": "data:text/javascript,"
+                }
+              }
+            </script>
+            <script type="module">
+              import React from 'react';
+              import ReactDOM from 'react-dom/client';
+              import { GraphiQL, HISTORY_PLUGIN } from 'graphiql';
+              import { createGraphiQLFetcher } from '@graphiql/toolkit';
+              import { explorerPlugin } from '@graphiql/plugin-explorer';
+              import 'graphiql/setup-workers/esm.sh';
+
+              const fetcher = createGraphiQLFetcher({
+                url: 'http://localhost:8675/api/v1/graphql',
+              });
+              const plugins = [HISTORY_PLUGIN, explorerPlugin()];
+
+              function App() {
+                return React.createElement(GraphiQL, {
+                  fetcher,
+                  plugins,
+                  defaultEditorToolsVisibility: true,
+                });
+              }
+
+              const container = document.getElementById('graphiql');
+              const root = ReactDOM.createRoot(container);
+              root.render(React.createElement(App));
+            </script>
+          </head>
+          <body>
+            <div id="graphiql">
+              <div class="loading">Loading…</div>
+            </div>
+          </body>
+        </html>
+        "#,
+    )
 }

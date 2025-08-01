@@ -10,6 +10,38 @@ use sqlx::Decode;
 #[derive(serde::Serialize, Clone)]
 pub struct RawValue(Box<serde_json::value::RawValue>);
 
+#[cfg(feature = "async-graphql")]
+impl async_graphql::OutputType for RawValue {
+    fn type_name() -> std::borrow::Cow<'static, str> {
+        "JSON".into()
+    }
+
+    fn create_type_info(registry: &mut async_graphql::registry::Registry) -> String {
+        use async_graphql::registry::{MetaType, MetaTypeId};
+        registry.create_output_type::<RawValue, _>(MetaTypeId::Scalar, |_| MetaType::Scalar {
+            name: <Self as async_graphql::OutputType>::type_name().to_string(),
+            description: Some("A scalar that can represent any JSON value.".to_string()),
+            is_valid: None,
+            visible: None,
+            inaccessible: false,
+            tags: Default::default(),
+            specified_by_url: None,
+            directive_invocations: Default::default(),
+            requires_scopes: Default::default(),
+        })
+    }
+
+    async fn resolve(
+        &self,
+        _ctx: &async_graphql::context::ContextSelectionSet<'_>,
+        _field: &async_graphql::Positioned<async_graphql::parser::types::Field>,
+    ) -> async_graphql::ServerResult<async_graphql::Value> {
+        let val = serde_json::from_str(self.get())
+            .expect("deserializing a raw value to graphql value cannot fail");
+        Ok(val)
+    }
+}
+
 // RawValues are only equal if they are byte-for-byte identical,
 // except for leading and trailing whitespace.
 impl std::cmp::PartialEq<RawValue> for RawValue {

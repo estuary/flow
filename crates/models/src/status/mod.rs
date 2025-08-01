@@ -212,6 +212,7 @@ impl ControllerStatus {
 /// Identifies the specific task shard that is the source of an event. This
 /// matches the shape of the `shard` field in an `ops.Log` message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 #[serde(rename_all = "camelCase")]
 pub struct ShardRef {
     /// The name of the task
@@ -233,6 +234,7 @@ pub struct ShardRef {
 /// Information on the config updates performed by the controller.
 /// This does not include any information on user-initiated config updates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PendingConfigUpdateStatus {
     // The next time the config update publication should be attempted
     // if it previously failed.
@@ -241,6 +243,40 @@ pub struct PendingConfigUpdateStatus {
     /// The id of the build when the associated config update event was generated.
     pub build: Id,
 }
+
+/*
+*
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct JsonObject(std::collections::BTreeMap<String, serde_json::Value>);
+
+#[cfg(feature = "async-graphql")]
+impl async_graphql::InputType for JsonObject {
+    type RawValueType = serde_json::Map<String, serde_json::Value>;
+
+    fn type_name() -> std::borrow::Cow<'static, str> {
+        "JSONObject".into()
+    }
+
+    fn create_type_info(registry: &mut async_graphql::registry::Registry) -> String {
+        <serde_json::Map<String, serde_json::Value> as async_graphql::InputType>::create_type_info(
+            registry,
+        )
+    }
+
+    fn parse(value: Option<async_graphql::Value>) -> async_graphql::InputValueResult<Self> {
+        todo!()
+    }
+
+    fn to_value(&self) -> async_graphql::Value {
+        let sj_val = serde_json::Value::Object(self.0.clone());
+        async_graphql::Value::from_json(sj_val).expect("conversion from json cannot fail")
+    }
+
+    fn as_raw_value(&self) -> Option<&Self::RawValueType> {
+        Some(&self.0)
+    }
+}
+*/
 
 #[cfg(test)]
 mod test {

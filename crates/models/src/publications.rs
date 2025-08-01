@@ -104,8 +104,153 @@ impl JobStatus {
     }
 }
 
+#[cfg(feature = "async-graphql")]
+impl async_graphql::OutputType for JobStatus {
+    fn type_name() -> std::borrow::Cow<'static, str> {
+        "JobStatus".into()
+    }
+
+    fn create_type_info(registry: &mut async_graphql::registry::Registry) -> String {
+        use async_graphql::registry::*;
+        
+        registry.create_output_type::<Self, _>(MetaTypeId::Object, |registry| {
+            let mut fields = async_graphql::indexmap::IndexMap::new();
+            
+            // Add type field
+            fields.insert("type".to_string(), MetaField {
+                name: "type".to_string(),
+                description: Some("The type of job status".to_string()),
+                args: async_graphql::indexmap::IndexMap::new(),
+                ty: "String!".to_string(),
+                deprecation: Deprecation::NoDeprecated,
+                cache_control: Default::default(),
+                external: false,
+                provides: None,
+                requires: None,
+                visible: None,
+                inaccessible: false,
+                tags: vec![],
+                override_from: None,
+                compute_complexity: None,
+                directive_invocations: vec![],
+                requires_scopes: vec![],
+                shareable: false,
+            });
+
+            // Add optional fields
+            fields.insert("incompatibleCollections".to_string(), MetaField {
+                name: "incompatibleCollections".to_string(),
+                description: Some("Incompatible collections (only for BuildFailed status)".to_string()),
+                args: async_graphql::indexmap::IndexMap::new(),
+                ty: format!("[{}!]", <IncompatibleCollection as async_graphql::OutputType>::create_type_info(registry)),
+                deprecation: Deprecation::NoDeprecated,
+                cache_control: Default::default(),
+                external: false,
+                provides: None,
+                requires: None,
+                visible: None,
+                inaccessible: false,
+                tags: vec![],
+                override_from: None,
+                compute_complexity: None,
+                directive_invocations: vec![],
+                requires_scopes: vec![],
+                shareable: false,
+            });
+
+            fields.insert("failures".to_string(), MetaField {
+                name: "failures".to_string(),
+                description: Some("Lock failures (only for lock failure statuses)".to_string()),
+                args: async_graphql::indexmap::IndexMap::new(),
+                ty: format!("[{}!]", <LockFailure as async_graphql::OutputType>::create_type_info(registry)),
+                deprecation: Deprecation::NoDeprecated,
+                cache_control: Default::default(),
+                external: false,
+                provides: None,
+                requires: None,
+                visible: None,
+                inaccessible: false,
+                tags: vec![],
+                override_from: None,
+                compute_complexity: None,
+                directive_invocations: vec![],
+                requires_scopes: vec![],
+                shareable: false,
+            });
+
+            MetaType::Object {
+                name: "JobStatus".to_string(),
+                description: Some("The possible outcomes of a handled publication".to_string()),
+                fields,
+                cache_control: Default::default(),
+                extends: false,
+                shareable: false,
+                resolvable: true,
+                inaccessible: false,
+                interface_object: false,
+                tags: vec![],
+                visible: None,
+                is_subscription: false,
+                rust_typename: Some(std::any::type_name::<Self>()),
+                directive_invocations: vec![],
+                keys: None,
+                requires_scopes: vec![],
+            }
+        })
+    }
+
+    async fn resolve(
+        &self,
+        ctx: &async_graphql::ContextSelectionSet<'_>,
+        _field: &async_graphql::Positioned<async_graphql::parser::types::Field>,
+    ) -> async_graphql::ServerResult<async_graphql::Value> {
+        use async_graphql::{Value, Name};
+        
+        let mut object = async_graphql::indexmap::IndexMap::new();
+        
+        // Always include the type field
+        let type_name = match self {
+            JobStatus::Queued => "queued",
+            JobStatus::BuildFailed { .. } => "buildFailed",
+            JobStatus::TestFailed => "testFailed",
+            JobStatus::PublishFailed => "publishFailed",
+            JobStatus::Success => "success",
+            JobStatus::EmptyDraft => "emptyDraft",
+            JobStatus::ExpectPubIdMismatch { .. } => "expectPubIdMismatch",
+            JobStatus::BuildIdLockFailure { .. } => "buildIdLockFailure",
+            JobStatus::DeprecatedBackground => "deprecatedBackground",
+        };
+        object.insert(Name::new("type"), Value::String(type_name.to_string()));
+
+        // Add conditional fields based on variant
+        match self {
+            JobStatus::BuildFailed { incompatible_collections, .. } => {
+                let collections: Vec<Value> = futures::future::try_join_all(
+                    incompatible_collections.iter().map(|c| async move {
+                        <IncompatibleCollection as async_graphql::OutputType>::resolve(c, ctx, _field).await
+                    })
+                ).await?;
+                object.insert(Name::new("incompatibleCollections"), Value::List(collections));
+            }
+            JobStatus::ExpectPubIdMismatch { failures } | 
+            JobStatus::BuildIdLockFailure { failures } => {
+                let failures_list: Vec<Value> = futures::future::try_join_all(
+                    failures.iter().map(|f| async move {
+                        <LockFailure as async_graphql::OutputType>::resolve(f, ctx, _field).await
+                    })
+                ).await?;
+                object.insert(Name::new("failures"), Value::List(failures_list));
+            }
+            _ => {}
+        }
+
+        Ok(Value::Object(object))
+    }
+}
+
 /// Represents an optimistic lock failure when trying to update live specs.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct LockFailure {
     /// The name of the spec that failed the optimistic concurrency check.
     pub catalog_name: String,
@@ -117,7 +262,8 @@ pub struct LockFailure {
 }
 
 /// Reasons why a draft collection spec would need to be published under a new name.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::Enum))]
 #[serde(rename_all = "camelCase")]
 pub enum ReCreateReason {
     /// The collection key in the draft differs from that of the live spec.
@@ -127,6 +273,7 @@ pub enum ReCreateReason {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 #[serde(rename_all = "snake_case")]
 pub struct IncompatibleCollection {
     /// The name of the drafted collection that was deemed incompatible.
@@ -152,6 +299,7 @@ pub struct IncompatibleCollection {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AffectedConsumer {
     /// The catalog name of the affected task.
     pub name: String,
@@ -166,6 +314,7 @@ pub struct AffectedConsumer {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct RejectedField {
     /// The name of the field that was rejected. This will be the name from the
     /// collection `projections`.

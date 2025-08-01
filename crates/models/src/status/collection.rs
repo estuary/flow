@@ -8,6 +8,7 @@ use super::Alerts;
 
 /// The status of a collection controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct CollectionStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inferred_schema: Option<InferredSchemaStatus>,
@@ -21,6 +22,7 @@ pub struct CollectionStatus {
 
 /// Status of the inferred schema
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct InferredSchemaStatus {
     /// The time at which the inferred schema was last published. This will only
     /// be present if the inferred schema was published at least once.

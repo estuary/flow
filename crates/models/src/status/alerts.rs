@@ -4,10 +4,20 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, schemars::JsonSchema)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "lowercase")
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AlertType {
     AutoDiscoverFailed,
     ShardFailed,
+    DataMovementStalled,
+    FreeTrial,
+    FreeTrialEnding,
+    FreeTrialStalled,
+    MissingPaymentMethod,
 }
 
 impl std::fmt::Display for AlertType {
@@ -21,16 +31,29 @@ impl AlertType {
         match self {
             AlertType::AutoDiscoverFailed => "auto_discover_failed",
             AlertType::ShardFailed => "shard_failed",
+            AlertType::DataMovementStalled => "data_movement_stalled",
+            AlertType::FreeTrial => "free_trial",
+            AlertType::FreeTrialEnding => "free_trial_ending",
+            AlertType::FreeTrialStalled => "free_trial_stalled",
+            AlertType::MissingPaymentMethod => "missing_payment_method",
         }
     }
 
     fn all() -> &'static [AlertType] {
-        &[AlertType::AutoDiscoverFailed, AlertType::ShardFailed]
+        &[
+            AlertType::AutoDiscoverFailed,
+            AlertType::ShardFailed,
+            AlertType::DataMovementStalled,
+            AlertType::FreeTrial,
+            AlertType::FreeTrialEnding,
+            AlertType::FreeTrialStalled,
+            AlertType::MissingPaymentMethod,
+        ]
     }
 
     pub fn from_str(name: &str) -> Option<AlertType> {
         for alert_type in AlertType::all() {
-            if alert_type.name() == name {
+            if name.eq_ignore_ascii_case(alert_type.name()) {
                 return Some(*alert_type);
             }
         }
@@ -58,6 +81,28 @@ impl<'de> serde::Deserialize<'de> for AlertType {
         AlertType::from_str(&str_val).ok_or(serde::de::Error::custom(format!(
             "invalid alert type: '{str_val}'"
         )))
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Type<sqlx::postgres::Postgres> for AlertType {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("alert_type")
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Encode<'_, sqlx::postgres::Postgres> for AlertType {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        self.name().encode_by_ref(buf)
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Decode<'_, sqlx::postgres::Postgres> for AlertType {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as sqlx::Decode<sqlx::postgres::Postgres>>::decode(value)?;
+        AlertType::from_str(s).ok_or_else(|| format!("Invalid alert_type: {}", s).into())
     }
 }
 
