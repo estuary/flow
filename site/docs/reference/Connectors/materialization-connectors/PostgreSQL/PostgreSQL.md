@@ -19,6 +19,7 @@ To meet these requirements, follow the steps for your hosting type.
 - [Amazon RDS](./amazon-rds-postgres/)
 - [Google Cloud SQL](./google-cloud-sql-postgres/)
 - [Azure Database for PostgreSQL](#azure-database-for-postgresql)
+- [Supabase](./supabase.md)
 
 In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances. Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported. You may use other cloud platforms, but Estuary doesn't guarantee performance.
 
