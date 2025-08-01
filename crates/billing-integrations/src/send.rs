@@ -232,12 +232,18 @@ async fn finalize_invoices(
         let stripe_client = stripe_client;
         let pb = pb.clone();
         async move {
-            StripeInvoice::finalize(stripe_client, row.id(), FinalizeInvoiceParams::default())
-                .await
-                .map_err(|e| {
-                    pb.println(format!("Error finalizing invoice {}: {}", row.id(), e));
-                    anyhow::Error::from(e)
-                })?;
+            StripeInvoice::finalize(
+                stripe_client,
+                row.id(),
+                FinalizeInvoiceParams {
+                    auto_advance: Some(true), // Turn on auto-advance to enable automatic retries
+                },
+            )
+            .await
+            .map_err(|e| {
+                pb.println(format!("Error finalizing invoice {}: {}", row.id(), e));
+                anyhow::Error::from(e)
+            })?;
             pb.inc(1);
 
             let invoice =
