@@ -13,6 +13,8 @@ license.workspace = true
 
 anyhow = { workspace = true }
 async-graphql = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }
 caseless = { workspace = true }
 chrono = { workspace = true }
 humantime-serde = { workspace = true }
@@ -38,4 +40,4 @@ serde_yaml = { workspace = true }
 default = []
 
 sqlx-support = ["sqlx"]
-async-graphql-support = ["async-graphql"]
+async-graphql = ["dep:async-graphql", "dep:futures", "dep:indexmap"]

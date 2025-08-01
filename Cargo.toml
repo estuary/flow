@@ -232,10 +232,12 @@ axum-server = { version = "0.7", features = ["tls-rustls"] }
 axum-extra = { version = "0.9", features = ["typed-header", "query"] }
 async-graphql = { version = "7.0", features = [
     "chrono",
+    "dataloader",
     "raw_value",
     "tracing",
     "uuid",
     "url",
+    "graphiql",
 ] }
 async-graphql-axum = "7.0"
 

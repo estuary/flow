@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::ShardRef;
 
 /// Represents a high level status aggregate of all the shards for a given task.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::Enum))]
 pub enum ShardsStatus {
     /// All task shards have a `Primary` member.
     Ok,
@@ -18,6 +19,7 @@ pub enum ShardsStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct ShardStatusCheck {
     /// The number of checks that have returned ths status
     #[serde(default, skip_serializing_if = "crate::is_u32_zero")]
@@ -36,6 +38,7 @@ pub struct ShardStatusCheck {
 /// the activations of builds in the data-plane, including any subsequent re-activations
 /// due to shard failures.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct ActivationStatus {
     /// The build id that was last activated in the data plane.
     /// If this is less than the `last_build_id` of the controlled spec,
@@ -78,6 +81,7 @@ fn is_zero(i: &u32) -> bool {
 
 /// The shape of a connector status, which matches that of an ops::Log.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 #[serde(rename_all = "camelCase")]
 pub struct ShardFailure {
     /// The specific shard that failed
@@ -91,8 +95,8 @@ pub struct ShardFailure {
     /// specific fields and their meanings are up to the connector, except for
     /// the flow `/events` fields: `eventType`, `eventTarget`, and `error`, which
     /// are restricted to string values.
-    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
-    pub fields: serde_json::Map<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub fields: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 crate::sqlx_json::sqlx_json!(ShardFailure);

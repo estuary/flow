@@ -24,7 +24,7 @@ gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
-models = { path = "../models", features = ["async-graphql-support"] }
+models = { path = "../models", features = ["async-graphql"] }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }

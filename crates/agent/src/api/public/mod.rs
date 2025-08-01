@@ -68,12 +68,12 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
             "/api/v1/graphql",
             axum::routing::post(graphql::graphql_handler),
         )
-        .route(
-            "/api/v1/graphql/playground",
-            axum::routing::get(graphql::graphql_playground),
-        )
         // All routes below this are publicly accessible to anyone, without an authentication token
         .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+        .route(
+            "/api/v1/graphql/graphiql",
+            axum::routing::get(graphql::graphql_graphiql),
+        )
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
         // The docs UI is not documented as an API route

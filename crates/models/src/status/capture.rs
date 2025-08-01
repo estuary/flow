@@ -14,6 +14,7 @@ use super::Alerts;
 
 /// Status of a capture controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct CaptureStatus {
     #[serde(default)]
     pub publications: PublicationStatus,
@@ -29,6 +30,7 @@ pub struct CaptureStatus {
 
 /// A capture binding that has changed as a result of a discover
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct DiscoverChange {
     /// Identifies the resource in the source system that this change pertains to.
     pub resource_path: ResourcePath,
@@ -50,6 +52,7 @@ impl DiscoverChange {
 
 /// The results of an auto-discover attempt
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverOutcome {
     /// Time at which the disocver was attempted
     #[schemars(schema_with = "crate::datetime_schema")]
@@ -126,6 +129,7 @@ impl AutoDiscoverOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverFailure {
     /// The number of consecutive failures that have been observed.
     pub count: u32,
@@ -139,6 +143,7 @@ pub struct AutoDiscoverFailure {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverStatus {
     /// The interval at which auto-discovery is run. This is normally unset, which uses
     /// the default interval.
@@ -148,6 +153,7 @@ pub struct AutoDiscoverStatus {
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "interval_schema")]
+    #[cfg_attr(feature = "async-graphql", graphql(skip))]
     pub interval: Option<std::time::Duration>,
 
     /// Time at which the next auto-discover should be run.

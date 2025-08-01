@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-pub mod alerts;
 pub mod authorizations;
 mod captures;
 mod catalogs;
@@ -29,7 +28,6 @@ pub mod status;
 mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
-pub use alerts::{Alert, AlertType};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
@@ -295,7 +293,7 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     .unwrap()
 }
 
-fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+pub fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string"],
         "format": "date-time",
@@ -303,7 +301,7 @@ fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     .unwrap()
 }
 
-fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+pub fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "format": "date-time",

@@ -49,6 +49,11 @@ pub struct Catalog {
     derive(sqlx::Type),
     sqlx(type_name = "catalog_spec_type", rename_all = "lowercase")
 )]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "lowercase")
+)]
 pub enum CatalogType {
     Capture,
     Collection,
