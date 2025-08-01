@@ -87,7 +87,15 @@ pub async fn graphql_handler(
     app_state: axum::extract::State<Arc<App>>,
     req: axum::extract::Json<async_graphql::Request>,
 ) -> axum::Json<async_graphql::Response> {
-    let request = req.0.data(app_state.0).data(claims.0);
+    let pool = app_state.pg_pool.clone();
+    let request =
+        req.0
+            .data(app_state.0)
+            .data(claims.0)
+            .data(async_graphql::dataloader::DataLoader::new(
+                alerts::AlertLoader(pool),
+                tokio::spawn,
+            ));
 
     let response = schema.execute(request).await;
     axum::Json(response)
