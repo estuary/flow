@@ -4,13 +4,19 @@
     "deployments": [],
     "gcp_project": "testing-ground-123456",
     "ssh_subnets": [],
-    "data_buckets": ["gs://estuary-trial", "gs://estuary-flow-poc"],
+    "data_buckets": [
+      "gs://estuary-trial",
+      "gs://estuary-flow-poc"
+    ],
     "builds_kms_keys": [
       "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
     ],
     "private_links": [
       {
-        "az_ids": ["a", "b"],
+        "az_ids": [
+          "a",
+          "b"
+        ],
         "region": "us-west-2",
         "service_name": "service"
       }
@@ -22,7 +28,10 @@
     "deployments": [],
     "gcp_project": "testing-ground-123456",
     "ssh_subnets": [],
-    "data_buckets": ["gs://estuary-trial", "gs://estuary-flow-poc"],
+    "data_buckets": [
+      "gs://estuary-trial",
+      "gs://estuary-flow-poc"
+    ],
     "builds_kms_keys": [
       "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
     ],
@@ -37,6 +46,24 @@
       "subscription_id": "12345678",
       "tenant_id": "910111213"
     },
+    "control_plane_api": "https://agent-api.app/"
+  },
+  "gcp_byoc": {
+    "gcp_byoc": {
+      "project_id": "12345678"
+    },
+    "builds_root": "gs://estuary-control/builds/",
+    "deployments": [],
+    "gcp_project": "testing-ground-123456",
+    "ssh_subnets": [],
+    "data_buckets": [
+      "gs://estuary-trial",
+      "gs://estuary-flow-poc"
+    ],
+    "builds_kms_keys": [
+      "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
+    ],
+    "private_links": [],
     "control_plane_api": "https://agent-api.app/"
   }
 }
