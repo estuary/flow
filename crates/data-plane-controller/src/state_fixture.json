@@ -56,6 +56,9 @@
           "gs://estuary-trial",
           "gs://estuary-flow-poc"
         ],
+        "gcp_byoc": {
+          "project_id": "test-project"
+        },
         "aws_assume_role": {
           "role_arn": "arn:aws:iam::12345678:role/estuary",
           "external_id": "c90634a4-0000-404d-ba7f-0facfba5b5cd",

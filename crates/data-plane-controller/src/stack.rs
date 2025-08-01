@@ -107,6 +107,8 @@ pub struct DataPlane {
     pub builds_kms_keys: Vec<String>,
     pub control_plane_api: url::Url,
     pub data_buckets: Vec<url::Url>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gcp_byoc: Option<GCPBYOC>,
     pub gcp_project: String,
     pub ssh_subnets: Vec<ipnetwork::IpNetwork>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -134,6 +136,11 @@ pub struct AWSAssumeRole {
 pub struct AzureBYOC {
     pub tenant_id: String,
     pub subscription_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GCPBYOC {
+    pub project_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -535,6 +542,15 @@ mod test {
             Some(AzureBYOC {
                 subscription_id: "12345678".to_string(),
                 tenant_id: "910111213".to_string(),
+            }),
+        );
+
+        let gcp_byoc_parsed =
+            serde_json::from_value::<DataPlane>(fixtures.get("gcp_byoc").unwrap().clone()).unwrap();
+        assert_eq!(
+            gcp_byoc_parsed.gcp_byoc,
+            Some(GCPBYOC {
+                project_id: "12345678".to_string(),
             }),
         );
     }
