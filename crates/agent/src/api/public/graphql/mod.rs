@@ -24,16 +24,38 @@ impl QueryRoot {
     async fn captures(
         &self,
         ctx: &Context<'_>,
-        #[graphql(desc = "Catalog name to filter by")] catalog_names: Vec<String>,
+        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
     ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
-        fetch_live_specs(ctx, models::CatalogType::Capture, catalog_names).await
+        fetch_live_specs(ctx, models::CatalogType::Capture, prefixes).await
+    }
+    async fn collections(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
+    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
+        fetch_live_specs(ctx, models::CatalogType::Collection, prefixes).await
+    }
+    async fn materializations(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
+    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
+        fetch_live_specs(ctx, models::CatalogType::Materialization, prefixes).await
+    }
+    async fn tests(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
+    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
+        fetch_live_specs(ctx, models::CatalogType::Test, prefixes).await
     }
 
-    /// Get alerts from alert_history by catalog_name
+    /// Returns a list of alerts that are currently firing for the given catalog
+    /// prefixes.
     async fn alerts(
         &self,
         ctx: &Context<'_>,
-        prefixes: Vec<String>,
+        #[graphql(desc = "Show alerts for the given catalog prefixes")] prefixes: Vec<String>,
     ) -> async_graphql::Result<Vec<alerts::Alert>> {
         alerts::list_alerts_firing(ctx, prefixes).await
     }
@@ -53,20 +75,6 @@ impl QueryRoot {
         Ok(prefixes)
     }
     */
-}
-
-#[derive(SimpleObject)]
-struct Status {
-    catalog_name: String,
-    live_spec_id: String,
-    spec_type: Option<CatalogType>,
-    disabled: bool,
-    last_pub_id: String,
-    last_build_id: String,
-    live_spec_updated_at: DateTime<Utc>,
-    controller_updated_at: DateTime<Utc>,
-    controller_error: Option<String>,
-    controller_failures: i32,
 }
 
 pub fn create_schema() -> GraphQLSchema {
@@ -89,6 +97,8 @@ pub async fn graphql_handler(
 /// explore and interact with the GraphQL API. The html was copied from the
 /// official example at:
 /// https://github.com/graphql/graphiql/blob/0d9e51aa6452de1a1dee1ff1d1dae6df923f389f/examples/graphiql-cdn/index.html
+/// The version of GraphiQL that's bundled with the `async_graphql` crate is out
+/// of date, which is why we're using this html instead.
 pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
     axum::response::Html(
         r#"
