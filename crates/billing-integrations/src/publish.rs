@@ -56,6 +56,9 @@ pub struct PublishInvoice {
     /// Number of invoices to publish concurrently
     #[clap(long, default_value_t = 2)]
     pub concurrency: usize,
+    /// Clean up dangling invoices that are not in the database
+    #[clap(long, default_value_t = false)]
+    pub clean_up: bool,
 }
 
 fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
@@ -149,10 +152,10 @@ struct Invoice {
     billed_prefix: String,
     invoice_type: InvoiceType,
     extra: Option<sqlx::types::Json<Option<Extra>>>,
-    has_payment_method: Option<bool>,
     capture_hours: Option<f64>,
     materialization_hours: Option<f64>,
     payment_provider: PaymentProvider,
+    tenant_trial_start: Option<NaiveDate>,
 }
 
 impl Invoice {
@@ -205,6 +208,22 @@ impl Invoice {
                 bail!("Should not create Stripe invoices for preview invoices")
             }
             (InvoiceType::Final, Some(extra)) if !self.has_payment_method.unwrap_or(false) => {
+                let unwrapped_extra = extra.clone().0.expect(
+                    "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
+                );
+                if unwrapped_extra.processed_data_gb.unwrap_or_default() == 0.0
+                    && !matches!(&self.invoice_type, InvoiceType::Manual)
+                {
+                    return Ok(InvoiceResult::NoDataMoved);
+                }
+
+                if (self.capture_hours.unwrap_or_default() == 0.0
+                    || self.materialization_hours.unwrap_or_default() == 0.0)
+                    && !matches!(&self.invoice_type, InvoiceType::Manual)
+                {
+                    return Ok(InvoiceResult::NoFullPipeline);
+                }
+
                 // The Stripe capture in the database has been known to be unreliable.
                 // Let's double-check with Stripe to make sure it agrees that we really
                 // do not have a payment method set.
@@ -223,18 +242,6 @@ impl Invoice {
                         bail!("Stripe reports customer {} ({}) has a payment method set, database disagrees.", customer.id.to_string(), self.billed_prefix.to_owned());
                     }
                 }
-                let unwrapped_extra = extra.clone().0.expect(
-                    "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
-                );
-                if unwrapped_extra.processed_data_gb.unwrap_or_default() == 0.0 {
-                    return Ok(InvoiceResult::NoDataMoved);
-                }
-
-                if self.capture_hours.unwrap_or_default() == 0.0
-                    || self.materialization_hours.unwrap_or_default() == 0.0
-                {
-                    return Ok(InvoiceResult::NoFullPipeline);
-                }
             }
             (InvoiceType::Final, None) => {
                 bail!("Invoice should have extra")
@@ -246,7 +253,7 @@ impl Invoice {
         // * The tenant has a free trial start date
         // * The tenant's free trial start date is before the invoice period's end date
         if let InvoiceType::Final = self.invoice_type {
-            match get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
+            match self.tenant_trial_start {
                 Some(trial_start) if self.date_end < trial_start => {
                     return Ok(InvoiceResult::FutureTrialStart);
                 }
@@ -504,35 +511,30 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
                     subtotal::bigint as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
-                    customer.has_payment_method as has_payment_method,
                     dataflow_hours.capture_hours::float as capture_hours,
                     dataflow_hours.materialization_hours::float as materialization_hours,
-                    tenants.payment_provider as "payment_provider!: PaymentProvider"
+                    tenants.payment_provider as "payment_provider!: PaymentProvider",
+                    tenants.trial_start as tenant_trial_start
                 from invoices_ext
                 left join tenants on tenants.tenant = billed_prefix
-                inner join lateral(
-                	select bool_or("invoice_settings/default_payment_method" is not null) as has_payment_method
-                	from stripe.customers
-                	where customers.metadata->>'estuary.dev/tenant_name' = billed_prefix
-                	group by billed_prefix
-                ) as customer on true
-                inner join lateral(
+                left join lateral(
                 	select
-                		sum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,
-                    	sum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours
-                    from catalog_stats
-                    join live_specs on live_specs.catalog_name = catalog_stats.catalog_name
+                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,
+                    	sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours
+                    from catalog_stats_monthly
+                    join live_specs on live_specs.catalog_name = catalog_stats_monthly.catalog_name
                     where
-                    	catalog_stats.catalog_name ^@ billed_prefix
-                    	and grain = 'monthly'
-                    	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats.ts
+                    	catalog_stats_monthly.catalog_name = billed_prefix
+                    	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
                 ) as dataflow_hours on true
                 where ((
                     date_start >= date_trunc('day', $1::date)
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
                     and invoice_type = 'final'
                 ) or (
-                    invoice_type = 'manual'
+                    date_start >= date_trunc('day', $1::date)
+                    and date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    and invoice_type = 'manual'
                 ))
                 and billed_prefix = any($2)
             "#,
@@ -553,35 +555,30 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
                     subtotal::bigint as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
-                    customer.has_payment_method as has_payment_method,
                     dataflow_hours.capture_hours::float as capture_hours,
                     dataflow_hours.materialization_hours::float as materialization_hours,
-                    tenants.payment_provider as "payment_provider!: PaymentProvider"
+                    tenants.payment_provider as "payment_provider!: PaymentProvider",
+                    tenants.trial_start as tenant_trial_start
                 from invoices_ext
                 left join tenants on tenants.tenant = billed_prefix
-                inner join lateral(
-                	select bool_or("invoice_settings/default_payment_method" is not null) as has_payment_method
-                	from stripe.customers
-                	where customers.metadata->>'estuary.dev/tenant_name' = billed_prefix
-                	group by billed_prefix
-                ) as customer on true
-                inner join lateral(
+                left join lateral(
                 	select
-                		sum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,
-                    	sum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours
-                    from catalog_stats
-                    join live_specs on live_specs.catalog_name = catalog_stats.catalog_name
+                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,
+                    	sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours
+                    from catalog_stats_monthly
+                    join live_specs on live_specs.catalog_name = catalog_stats_monthly.catalog_name
                     where
-                    	catalog_stats.catalog_name ^@ billed_prefix
-                    	and grain = 'monthly'
-                    	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats.ts
+                    	catalog_stats_monthly.catalog_name = billed_prefix
+                    	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
                 ) as dataflow_hours on true
                 where (
                     date_start >= date_trunc('day', $1::date)
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
                     and invoice_type = 'final'
                 ) or (
-                    invoice_type = 'manual'
+                    date_start >= date_trunc('day', $1::date)
+                    and date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    and invoice_type = 'manual'
                 )
             "#,
             cmd.month
@@ -647,7 +644,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                             | InvoiceResult::Updated
                             | InvoiceResult::Error => {}
                             // Remove any incorrectly created invoices that are now skipped for whatever reason
-                            _ => {
+                            _ if cmd.clean_up => {
                                 let task_res: Result<(), anyhow::Error> = async move {
                                     let customer = match get_or_create_customer_for_tenant(
                                         &client,
@@ -682,7 +679,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                                 if let Err(e) = task_res {
                                     tracing::warn!("Failed to check for or clear potential leaked draft invoices for {}, this is probably not a problem: {e:#}", response.billed_prefix.to_owned());
                                 }
-                            }
+                            },
+                            _ => {}
                         }
                         Ok((res, response.subtotal, response.billed_prefix.to_owned()))
                     }
@@ -755,24 +753,6 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-#[tracing::instrument(skip(db_client))]
-async fn get_tenant_trial_date(
-    db_client: &Pool<Postgres>,
-    tenant: String,
-) -> anyhow::Result<Option<NaiveDate>> {
-    let query_result = sqlx::query!(
-        r#"
-            select tenants.trial_start
-            from tenants
-            where tenants.tenant = $1
-        "#,
-        tenant
-    )
-    .fetch_one(db_client)
-    .await?;
-
-    Ok(query_result.trial_start)
 }
 
 #[tracing::instrument(skip(client, db_client))]
