@@ -1,5 +1,5 @@
 
-# Hubspot
+# HubSpot
 
 This connector captures data from a Hubspot account.
 
