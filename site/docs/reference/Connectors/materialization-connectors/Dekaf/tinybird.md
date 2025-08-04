@@ -65,13 +65,14 @@ ENGINE_PARTITION_KEY "toYYYYMM(__timestamp)"
 ENGINE_SORTING_KEY "__timestamp"
 
 KAFKA_CONNECTION_NAME "YOUR_TB_CONNECTION_FILENAME"
-KAFKA_TOPIC "YOUR_ESTUARY_COLLECTION_NAME"
+KAFKA_TOPIC "YOUR_ESTUARY_TABLE_NAME"
 KAFKA_GROUP_ID "KAFKA_GROUP_ID"
 KAFKA_KEY_FORMAT "avro"
 KAFKA_VALUE_FORMAT "avro"
 KAFKA_STORE_RAW_VALUE "True"
 KAFKA_AUTO_OFFSET_RESET "earliest"
 ```
+Note that your topic name needs to match exactly what is set as a topic name in the binding resource config.
 
 Build and deploy your Tinybird project using:
 
