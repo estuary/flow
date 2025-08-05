@@ -50,8 +50,6 @@ pub async fn run(
         _ => Codec::Proto,
     };
 
-    check_protocol(&entrypoint, codec).await?;
-
     let capture = proto_grpc::capture::connector_server::ConnectorServer::new(capture::Proxy {
         entrypoint: entrypoint.clone(),
         codec,
@@ -84,30 +82,17 @@ pub async fn run(
     Ok(())
 }
 
-async fn check_protocol(entrypoint: &[String], codec: Codec) -> anyhow::Result<()> {
-    // All protocols - capture, derive, & materialize - use the same tags for
-    // request::Spec and for response::Spec::protocol.
-    let spec_response: proto_flow::capture::Response = rpc::unary(
-        rpc::new_command(&entrypoint),
-        codec,
-        proto_flow::capture::Request {
-            spec: Some(proto_flow::capture::request::Spec {
-                connector_type: proto_flow::flow::capture_spec::ConnectorType::Image as i32,
-                config_json: String::new(),
-            }),
-            ..Default::default()
-        },
-        ops::stderr_log_handler,
-    )
-    .await
-    .map_err(|status| anyhow::anyhow!(status.message().to_string()))
-    .context("querying for spec response")?;
-
-    let actual_protocol = spec_response.spec.map(|s| s.protocol).unwrap_or_default();
-    if EXPECT_PROTOCOL != actual_protocol {
-        anyhow::bail!("connector returned an unexpected protocol version {actual_protocol} (expected {EXPECT_PROTOCOL}");
+fn check_protocol<R>(
+    actual_protocol: Option<u32>,
+    response: Result<R, tonic::Status>,
+) -> Result<R, tonic::Status> {
+    if let Some(actual_protocol) = actual_protocol {
+        if EXPECT_PROTOCOL != actual_protocol {
+            return Err(tonic::Status::internal(format!(
+                "connector returned an unexpected protocol version {actual_protocol} (expected {EXPECT_PROTOCOL}")));
+        }
     }
-    Ok(())
+    response
 }
 
 // IncOnDrop defers an increment of a metric until it's dropped.

@@ -31,7 +31,15 @@ impl proto_grpc::capture::connector_server::Connector for Proxy {
             )?
             .map(move |response| {
                 let _ = &guard; // Owned by closure.
-                response
+
+                crate::check_protocol(
+                    response
+                        .as_ref()
+                        .ok()
+                        .and_then(|r| r.spec.as_ref())
+                        .map(|spec| spec.protocol),
+                    response,
+                )
             })
             .boxed(),
         ))
