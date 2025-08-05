@@ -8,7 +8,7 @@ pub fn get_incompatible_collections(output: &tables::Validations) -> Vec<Incompa
     // We'll collect a map of collection names to lists of materializations that have rejected the proposed collection changes.
     let mut naughty_collections = BTreeMap::new();
 
-    // Look at materialization validation responses for any collections that have been rejected due to unsatisfiable constraints.
+    // Look at materialization validation responses for any collections that have been rejected due to incompatible constraints.
     for mat in output.built_materializations.iter() {
         let Some(validated) = mat.validated() else {
             continue;
@@ -21,7 +21,7 @@ pub fn get_incompatible_collections(output: &tables::Validations) -> Vec<Incompa
                 .constraints
                 .iter()
                 .filter(|(_, constraint)| {
-                    constraint.r#type == constraint::Type::Unsatisfiable as i32
+                    constraint.r#type == constraint::Type::Incompatible as i32
                 })
                 .map(|(field, constraint)| RejectedField {
                     field: field.clone(),
@@ -122,7 +122,7 @@ mod test {
                     ser_policy: None,
                 },
                 validated::Binding {
-                    constraints: test_constraints(constraint::Type::Unsatisfiable),
+                    constraints: test_constraints(constraint::Type::Incompatible),
                     resource_path: vec!["naughty".to_string()],
                     delta_updates: false,
                     ser_policy: None,

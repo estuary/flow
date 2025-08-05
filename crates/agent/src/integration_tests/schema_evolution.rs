@@ -223,24 +223,24 @@ async fn test_schema_evolution() {
         .await;
     harness.run_pending_controller("goats/pasture").await;
 
-    // Simulate an unsatisfiable constraint on the next publications of the materializations
+    // Simulate an incompatible constraint on the next publications of the materializations
     harness.control_plane().fail_next_build(
         "goats/materializeBackfill",
-        UnsatisfiableConstraints {
+        IncompatibleConstraints {
             binding: 0,
             field: "p1",
         },
     );
     harness.control_plane().fail_next_build(
         "goats/materializeDisableBinding",
-        UnsatisfiableConstraints {
+        IncompatibleConstraints {
             binding: 0,
             field: "p0",
         },
     );
     harness.control_plane().fail_next_build(
         "goats/materializeMixed",
-        UnsatisfiableConstraints {
+        IncompatibleConstraints {
             binding: 0,
             field: "p0",
         },
@@ -299,10 +299,10 @@ async fn test_schema_evolution() {
     let specs = materialization_specs(all_materializations, &mut harness).await;
     insta::assert_yaml_snapshot!("after-totes-initial-schema", specs);
 
-    // Simulate an unsatisfiable constraint on the next publications of the materializations
+    // Simulate an incompatible constraint on the next publications of the materializations
     harness.control_plane().fail_next_build(
         "goats/materializeBackfill",
-        UnsatisfiableConstraints {
+        IncompatibleConstraints {
             binding: 1,
             field: "p1",
         },
@@ -311,14 +311,14 @@ async fn test_schema_evolution() {
     // and disabled bindings are not sent as part of the validate request.
     harness.control_plane().fail_next_build(
         "goats/materializeDisableBinding",
-        UnsatisfiableConstraints {
+        IncompatibleConstraints {
             binding: 0,
             field: "p0",
         },
     );
     harness.control_plane().fail_next_build(
         "goats/materializeMixed",
-        UnsatisfiableConstraints {
+        IncompatibleConstraints {
             binding: 0,
             field: "p0",
         },
@@ -360,7 +360,7 @@ async fn test_schema_evolution() {
         .assert_controller_pending("goats/materializeMixed")
         .await;
 
-    // Now re-try materializeMixed, and this time there is no unsatisfiable constraint. IRL, this
+    // Now re-try materializeMixed, and this time there is no incompatible constraint. IRL, this
     // might happen if someone was manually updating the destination table.
     // We need to first skip past the backoff from the failed publication.
     let new_last_attempt = harness.control_plane().current_time() - chrono::Duration::minutes(2);
@@ -379,11 +379,11 @@ async fn test_schema_evolution() {
 }
 
 #[derive(Debug)]
-struct UnsatisfiableConstraints {
+struct IncompatibleConstraints {
     binding: usize,
     field: &'static str,
 }
-impl FailBuild for UnsatisfiableConstraints {
+impl FailBuild for IncompatibleConstraints {
     fn modify(&mut self, result: &mut UncommittedBuild) {
         let Some(mat) = result
             .output
@@ -398,7 +398,7 @@ impl FailBuild for UnsatisfiableConstraints {
         let Some(validated) = mat.validated.as_mut() else {
             panic!("validated must be Some");
         };
-        tracing::warn!(materialization = %mat.materialization, binding = %self.binding, "setting binding field to unsatisfiable");
+        tracing::warn!(materialization = %mat.materialization, binding = %self.binding, "setting binding field to incompatible");
 
         validated
             .bindings
@@ -407,8 +407,8 @@ impl FailBuild for UnsatisfiableConstraints {
         validated.bindings[self.binding].constraints = [(
             self.field.to_string(),
             Constraint {
-                r#type: ConstraintType::Unsatisfiable as i32,
-                reason: "mock unsatisfiable field".to_string(),
+                r#type: ConstraintType::Incompatible as i32,
+                reason: "mock incompatible field".to_string(),
                 folded_field: String::new(),
             },
         )]
@@ -420,7 +420,7 @@ impl FailBuild for UnsatisfiableConstraints {
                 CatalogType::Materialization,
                 mat.materialization.as_str(),
             ),
-            error: anyhow::anyhow!("omg an unsatisfiable constraint"),
+            error: anyhow::anyhow!("omg an incompatible constraint"),
         });
     }
 }

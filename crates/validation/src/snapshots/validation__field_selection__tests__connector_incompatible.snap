@@ -132,7 +132,7 @@ Snap {
         ),
         (
             "an_array",
-            ConnectorUnsatisfiable {
+            ConnectorIncompatible {
                 reason: "Wrong type in the DB and can't migrate",
             },
         ),
@@ -272,7 +272,7 @@ Snap {
         ),
         "an_array": Both(
             CurrentValue,
-            ConnectorUnsatisfiable {
+            ConnectorIncompatible {
                 reason: "Wrong type in the DB and can't migrate",
             },
         ),

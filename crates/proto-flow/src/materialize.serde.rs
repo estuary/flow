@@ -3275,6 +3275,7 @@ impl serde::Serialize for response::validated::constraint::Type {
             Self::LocationRecommended => "LOCATION_RECOMMENDED",
             Self::FieldOptional => "FIELD_OPTIONAL",
             Self::FieldForbidden => "FIELD_FORBIDDEN",
+            Self::Incompatible => "INCOMPATIBLE",
             Self::Unsatisfiable => "UNSATISFIABLE",
         };
         serializer.serialize_str(variant)
@@ -3293,6 +3294,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::constraint::Type {
             "LOCATION_RECOMMENDED",
             "FIELD_OPTIONAL",
             "FIELD_FORBIDDEN",
+            "INCOMPATIBLE",
             "UNSATISFIABLE",
         ];
 
@@ -3340,6 +3342,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::constraint::Type {
                     "LOCATION_RECOMMENDED" => Ok(response::validated::constraint::Type::LocationRecommended),
                     "FIELD_OPTIONAL" => Ok(response::validated::constraint::Type::FieldOptional),
                     "FIELD_FORBIDDEN" => Ok(response::validated::constraint::Type::FieldForbidden),
+                    "INCOMPATIBLE" => Ok(response::validated::constraint::Type::Incompatible),
                     "UNSATISFIABLE" => Ok(response::validated::constraint::Type::Unsatisfiable),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }

@@ -41,7 +41,7 @@ pub fn validate_binding_against_constraints(
         let ctype = constraint::Type::try_from(constraint.r#type).unwrap();
         if vec![
             constraint::Type::FieldForbidden,
-            constraint::Type::Unsatisfiable,
+            constraint::Type::Incompatible,
         ]
         .contains(&ctype)
         {
@@ -154,7 +154,7 @@ pub fn validate_existing_projection(
                     let pp = match collection.projections.iter().find(|p| &p.field == field) {
                         Some(p) => p,
                         None => return Some((field.clone(), Constraint {
-                            r#type: constraint::Type::Unsatisfiable.into(),
+                            r#type: constraint::Type::Incompatible.into(),
                             reason: "The proposed materialization is missing the projection, which is required because it's included in the existing materialization".to_string(),
                             folded_field: String::new(),
                         }))
@@ -171,7 +171,7 @@ pub fn validate_existing_projection(
                         if diff != types::INVALID {
                             let new_types: String = diff.to_vec().join(", ");
                             Constraint {
-                                r#type: constraint::Type::Unsatisfiable.into(),
+                                r#type: constraint::Type::Incompatible.into(),
                                 reason: format!("The proposed projection may contain types {}, which are not part of the original projection.", new_types)
                                     .to_string(),
                                 folded_field: String::new(),
@@ -180,7 +180,7 @@ pub fn validate_existing_projection(
                                   !ep_type_set.overlaps(types::NULL) &&
                                   pp_infer.exists != i32::from(Exists::Must) {
                             Constraint {
-                                r#type: constraint::Type::Unsatisfiable.into(),
+                                r#type: constraint::Type::Incompatible.into(),
                                 reason: "The existing projection must exist and be non-null, so the new projection must also exist."
                                     .to_string(),
                                 folded_field: String::new(),
@@ -362,7 +362,7 @@ mod tests {
                 BTreeMap::from([(
                     "pk".to_string(),
                     Constraint {
-                        r#type: constraint::Type::Unsatisfiable.into(),
+                        r#type: constraint::Type::Incompatible.into(),
                         reason: "".to_string(),
                         folded_field: String::new(),
                     },
@@ -678,7 +678,7 @@ mod tests {
                 ..Default::default()
             },
             Constraint {
-                r#type: constraint::Type::Unsatisfiable.into(),
+                r#type: constraint::Type::Incompatible.into(),
                 reason: "The proposed projection may contain types number, which are not part of the original projection.".to_string(),
                 folded_field: String::new(),
             },
@@ -706,7 +706,7 @@ mod tests {
                 ..Default::default()
             },
             Constraint {
-                r#type: constraint::Type::Unsatisfiable.into(),
+                r#type: constraint::Type::Incompatible.into(),
                 reason: "The existing projection must exist and be non-null, so the new projection must also exist.".to_string(),
                 folded_field: String::new(),
             },
