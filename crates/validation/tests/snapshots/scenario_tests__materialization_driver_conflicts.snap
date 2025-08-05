@@ -13,7 +13,7 @@ expression: errors
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field int is not satisfiable (connector reports as unsatisfiable with reason: field unsatisfiable),
+        error: materialization testing/db-views field int is not satisfiable (connector reports as incompatible with reason: field incompatible),
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,

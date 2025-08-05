@@ -311,8 +311,8 @@ Outcome {
                                 folded_field: "",
                             },
                             "naughty_u": Constraint {
-                                r#type: Unsatisfiable,
-                                reason: "field unsatisfiable",
+                                r#type: Incompatible,
+                                reason: "field incompatible",
                                 folded_field: "",
                             },
                         },

@@ -53,6 +53,6 @@ driver:
         - constraints:
             flow_document: { type: 1, reason: "location required" }
             id: { type: 1, reason: "location required" }
-            naughty_u: { type: 6, reason: "field unsatisfiable" }
+            naughty_u: { type: 6, reason: "field incompatible" }
             naughty_f: { type: 5, reason: "field forbidden" }
           resourcePath: [anything]
