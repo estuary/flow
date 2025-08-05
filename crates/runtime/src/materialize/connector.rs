@@ -50,6 +50,7 @@ pub async fn start<L: LogHandler>(
 
             crate::image_connector::serve(
                 attach_container,
+                1, // Skip first (internal) Spec response.
                 image,
                 runtime.log_handler.clone(),
                 log_level,
@@ -92,21 +93,21 @@ pub async fn start<L: LogHandler>(
         }
     };
 
-    let spec_request = Request {
-        spec: Some(proto_flow::materialize::request::Spec {
-            config_json: "{}".to_string(),
-            connector_type: connector_type,
-        }),
-        ..Default::default()
-    };
-    connector_tx.try_send(spec_request.clone()).unwrap();
+    // Send an initial Spec request which may direct us to perform an IAM token exchange.
+    connector_tx
+        .try_send(Request {
+            spec: Some(proto_flow::materialize::request::Spec {
+                config_json: "{}".to_string(),
+                connector_type: connector_type,
+            }),
+            ..Default::default()
+        })
+        .unwrap();
 
-    let Some(Response {
-        spec: Some(spec_response),
-        ..
-    }) = connector_rx.try_next().await?
-    else {
-        anyhow::bail!("expected first spec response")
+    let verify = crate::verify("connector", "spec response");
+    let spec_response = match verify.not_eof(connector_rx.try_next().await?)? {
+        Response { spec: Some(r), .. } => r,
+        response => return verify.fail(response),
     };
 
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
@@ -121,7 +122,6 @@ pub async fn start<L: LogHandler>(
                 .map_err(crate::anyhow_to_status)?;
 
             tokens.inject_into(config_json)?;
-
             tokens.zeroize();
         }
     }
