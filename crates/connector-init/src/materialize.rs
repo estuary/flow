@@ -31,7 +31,15 @@ impl proto_grpc::materialize::connector_server::Connector for Proxy {
             )?
             .map(move |response| {
                 let _ = &guard;
-                response
+
+                crate::check_protocol(
+                    response
+                        .as_ref()
+                        .ok()
+                        .and_then(|r| r.spec.as_ref())
+                        .map(|spec| spec.protocol),
+                    response,
+                )
             })
             .boxed(),
         ))

@@ -12,6 +12,7 @@ pub type StartRpcFuture<Response> =
 /// and then starting a gRPC request.
 pub async fn serve<Request, Response, StartRpc, Attach>(
     attach_container: Attach, // Attaches a Container description to a response.
+    attach_offset: usize,     // Offset of response stream to which the container is attached.
     image: String,            // Container image to run.
     log_handler: impl crate::LogHandler, // Handler for connector logs.
     log_level: ops::LogLevel, // Log-level of the connector, if known.
@@ -30,7 +31,7 @@ where
         + 'static,
     Attach: Fn(&mut Response, Container) + Send + 'static,
 {
-    let (container, channel, guard) = container::start(
+    let (mut container, channel, guard) = container::start(
         &image,
         log_handler.clone(),
         log_level,
@@ -47,16 +48,13 @@ where
 
     let container_rx = coroutines::try_coroutine(move |mut co| async move {
         let _guard = guard; // Move into future.
+        let mut offset = 0;
 
-        // Attach `container` to the first request.
-        let Some(mut first) = container_rx.try_next().await? else {
-            return Ok(());
-        };
-        (attach_container)(&mut first, container);
-        () = co.yield_(first).await;
-
-        // Stream successive requests.
-        while let Some(response) = container_rx.try_next().await? {
+        while let Some(mut response) = container_rx.try_next().await? {
+            if offset == attach_offset {
+                (attach_container)(&mut response, std::mem::take(&mut container));
+            }
+            offset += 1;
             () = co.yield_(response).await;
         }
         Ok(())

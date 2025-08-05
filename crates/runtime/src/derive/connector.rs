@@ -50,6 +50,7 @@ pub async fn start<L: LogHandler>(
 
             crate::image_connector::serve(
                 attach_container,
+                0, // Attach container to the first response.
                 image,
                 runtime.log_handler.clone(),
                 log_level,
