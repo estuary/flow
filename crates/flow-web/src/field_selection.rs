@@ -45,10 +45,10 @@ pub struct FieldOutcome {
     /// None if the field was not rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reject: Option<RejectOutput>,
-    /// Whether this field has an unsatisfiable constraint conflict.
-    /// True when there's a conflict and the reject reason is ConnectorUnsatisfiable.
+    /// Whether this field has an incompatible constraint conflict.
+    /// True when there's a conflict and the reject reason is ConnectorIncompatible.
     #[serde(skip_serializing_if = "is_false")]
-    pub is_unsatisfiable: bool,
+    pub is_incompatible: bool,
 }
 
 /// Complete result of field selection evaluation.
@@ -177,11 +177,11 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
     // Convert outcomes to structured format with rendered details
     let mut outcomes = Vec::new();
     for (field, outcome) in field_outcomes {
-        let is_unsatisfiable = matches!(
+        let is_incompatible = matches!(
             &outcome,
             tables::EitherOrBoth::Both(
                 _select,
-                validation::field_selection::Reject::ConnectorUnsatisfiable { .. },
+                validation::field_selection::Reject::ConnectorIncompatible { .. },
             )
         );
         
@@ -199,7 +199,7 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
             field,
             select,
             reject,
-            is_unsatisfiable,
+            is_incompatible,
         });
     }
 

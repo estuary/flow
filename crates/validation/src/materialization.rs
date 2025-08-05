@@ -450,7 +450,7 @@ async fn walk_materialization<C: Connectors>(
             }
 
             // TODO(johnny): if field selection returns non-empty conflicts
-            // which are all Reject::Unsatisfiable, then we must apply the
+            // which are all Reject::Incompatible, then we must apply the
             // `onIncompatibleSchemaChange` action. The selection is valid
             // for use if the "backfill" action is taken.
         }
@@ -833,7 +833,7 @@ fn walk_materialization_fields<'a>(
         index += 1;
 
         if require.contains_key(field) {
-            Error::FieldUnsatisfiable {
+            Error::FieldIncompatible {
                 name: catalog_name.to_string(),
                 field: field.to_string(),
                 reason: "field is both included and excluded by selector".to_string(),
@@ -1012,9 +1012,9 @@ fn walk_materialization_response(
         ) {
             // Selector / connector constraints conflict internally:
             (true, true, _) => panic!("included and excluded (should have been filtered)"),
-            // Unsatisfiable is OK only if the field is explicitly excluded
-            (_, false, Type::Unsatisfiable) => Err(format!(
-                "connector reports as unsatisfiable with reason: {}",
+            // Incompatible (and its alias Unsatisfiable) is OK only if the field is explicitly excluded
+            (_, false, Type::Incompatible | Type::Unsatisfiable) => Err(format!(
+                "connector reports as incompatible with reason: {}",
                 reason
             )),
             // Selector / connector constraints conflict with each other:
@@ -1054,7 +1054,7 @@ fn walk_materialization_response(
 
         match resolution {
             Err(reason) => {
-                Error::FieldUnsatisfiable {
+                Error::FieldIncompatible {
                     name: materialization.to_string(),
                     field: field.to_string(),
                     reason,

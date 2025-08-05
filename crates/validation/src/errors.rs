@@ -187,7 +187,7 @@ pub enum Error {
     FieldConflict(#[from] crate::field_selection::Conflict),
     // TODO(johnny): Remove this error, and use FieldConflict instead.
     #[error("materialization {name} field {field} is not satisfiable ({reason})")]
-    FieldUnsatisfiable {
+    FieldIncompatible {
         name: String,
         field: String,
         reason: String,

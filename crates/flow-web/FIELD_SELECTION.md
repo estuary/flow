@@ -18,7 +18,7 @@ function evaluate_field_selection(input: FieldSelectionInput): FieldSelectionRes
 interface FieldSelectionInput {
   collectionKey: string[];                    // Collection key JSON pointers (e.g., ["/id", "/timestamp"])
   collectionProjections: Projection[];        // Available fields from the collection
-  liveSpec?: MaterializationBinding;          // Existing materialization (if updating)
+  liveSpec?: BuiltMaterializationBinding;     // Existing materialization (if updating)
   model: MaterializationBinding;              // User's desired configuration
   validated: ValidatedBinding;                // Connector validation results
 }
@@ -37,7 +37,7 @@ interface FieldOutcome {
   field: string;                              // Field name
   select?: SelectOutput;                      // Structured selection reason (if selected)
   reject?: RejectOutput;                      // Structured rejection reason (if rejected)
-  isUnsatisfiable?: boolean;                  // True when conflict has ConnectorUnsatisfiable reject reason
+  isIncompatible?: boolean;                   // True when conflict has ConnectorIncompatible reject reason
 }
 
 interface SelectOutput {
@@ -75,7 +75,7 @@ interface FieldSelection {
 ### Rejection Reasons (strongest to weakest)
 - **UserExcludes**: Excluded by user's field selection
 - **ConnectorForbids**: Forbidden by connector
-- **ConnectorUnsatisfiable**: Requires backfill to resolve
+- **ConnectorIncompatible**: Requires backfill to resolve
 - **CollectionOmits**: Field doesn't exist in source
 - **ConnectorOmits**: No connector constraint provided
 - **DuplicateFold**: Ambiguous folded field name
@@ -137,10 +137,10 @@ result.outcomes.forEach(outcome => {
   }
 });
 
-// Check for unsatisfiable conflicts that may require backfill
-const unsatisfiableFields = result.outcomes.filter(o => o.isUnsatisfiable);
-if (unsatisfiableFields.length > 0) {
-  console.log("Fields requiring backfill:", unsatisfiableFields.map(f => f.field));
+// Check for incompatible conflicts that may require backfill
+const incompatibleFields = result.outcomes.filter(o => o.isIncompatible);
+if (incompatibleFields.length > 0) {
+  console.log("Fields requiring backfill:", incompatibleFields.map(f => f.field));
 }
 ```
 
@@ -161,12 +161,12 @@ Users can specify depth limits to control how deeply nested fields are automatic
 ### Backward Compatibility
 The system preserves existing field selections when updating materializations, ensuring that changes don't unexpectedly break running tasks.
 
-### Unsatisfiable Conflict Handling
-The `isUnsatisfiable` boolean provides special handling for conflicts where a field is both selected and rejected with a `ConnectorUnsatisfiable` reason. This indicates the field would be included if a backfill were performed to resolve schema incompatibilities.
+### Incompatible Conflict Handling
+The `isIncompatible` boolean provides special handling for conflicts where a field is both selected and rejected with a `ConnectorIncompatible` reason. This indicates the field would be included if a backfill were performed to resolve schema incompatibilities.
 
-**When `isUnsatisfiable` is true:**
+**When `isIncompatible` is true:**
 - The field has both selection and rejection reasons
-- The rejection reason is specifically `ConnectorUnsatisfiable`
+- The rejection reason is specifically `ConnectorIncompatible`
 - The field could be resolved by performing a backfill operation
 - The UI should present backfill options to the user
 
@@ -176,17 +176,17 @@ The `isUnsatisfiable` boolean provides special handling for conflicts where a fi
 - Field format requirements that existing data doesn't satisfy
 
 ```javascript
-// Handle unsatisfiable conflicts in UI
-const unsatisfiableFields = result.outcomes.filter(o => o.isUnsatisfiable);
-if (unsatisfiableFields.length > 0) {
+// Handle incompatible conflicts in UI
+const incompatibleFields = result.outcomes.filter(o => o.isIncompatible);
+if (incompatibleFields.length > 0) {
   // Show user that backfill is required for these fields
   // Access structured reason for detailed conflict information
-  unsatisfiableFields.forEach(field => {
+  incompatibleFields.forEach(field => {
     console.log(`Field ${field.field} requires backfill:`);
     console.log(`  Selected because: ${field.select?.detail}`);
     console.log(`  Rejected because: ${field.reject?.detail}`);
   });
-  showBackfillPrompt(unsatisfiableFields);
+  showBackfillPrompt(incompatibleFields);
 }
 ```
 
