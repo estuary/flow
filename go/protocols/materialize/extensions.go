@@ -8,10 +8,11 @@ import (
 )
 
 // IsForbidden returns true if the constraint type forbids inclusion in a materialization. This will
-// return true for FIELD_FORBIDDEN and UNSATISFIABLE, and false for any other constraint type.
+// return true for FIELD_FORBIDDEN, INCOMPATIBLE, and UNSATISFIABLE (deprecated alias for INCOMPATIBLE),
+// and false for any other constraint type.
 func (m *Response_Validated_Constraint_Type) IsForbidden() bool {
 	switch *m {
-	case Response_Validated_Constraint_FIELD_FORBIDDEN, Response_Validated_Constraint_UNSATISFIABLE:
+	case Response_Validated_Constraint_FIELD_FORBIDDEN, Response_Validated_Constraint_INCOMPATIBLE, Response_Validated_Constraint_UNSATISFIABLE:
 		return true
 	default:
 		return false

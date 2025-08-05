@@ -66,7 +66,7 @@ pub enum Reject {
     #[error("field does not exist within the source collection")]
     CollectionOmits,
     #[error("connector cannot support this field without a back-fill ({reason})")]
-    ConnectorUnsatisfiable { reason: String },
+    ConnectorIncompatible { reason: String },
     #[error("field is forbidden by the connector ({reason})")]
     ConnectorForbids { reason: String },
     #[error("field is excluded by the user's field selection")]
@@ -83,8 +83,8 @@ pub struct Conflict {
 }
 
 /// Evaluate field selection for a materialization binding, returning the outcome
-/// and any conflicts. If all conflicts are Reject::ConnectorUnsatisfiable,
-/// then the returned FieldSelection is correct if a back-fill is also performed.
+/// and any conflicts. If all conflicts are Reject::ConnectorIncompatible,
+/// then the returned FieldSelection is valid if a back-fill is also performed.
 pub fn evaluate(
     collection_projections: &[flow::Projection],
     group_by: Vec<String>,
@@ -266,18 +266,24 @@ pub fn extract_constraints<'a>(
                     reason: constraint.reason.clone(),
                 },
             )),
-            Ok(ConstraintType::Unsatisfiable) if live_field_selection.is_some() => rejects.push((
-                field,
-                Reject::ConnectorUnsatisfiable {
-                    reason: constraint.reason.clone(),
-                },
-            )),
+            Ok(ConstraintType::Incompatible | ConstraintType::Unsatisfiable)
+                if live_field_selection.is_some() =>
+            {
+                rejects.push((
+                    field,
+                    Reject::ConnectorIncompatible {
+                        reason: constraint.reason.clone(),
+                    },
+                ))
+            }
             Ok(
                 ConstraintType::LocationRecommended
                 | ConstraintType::FieldOptional
+                | ConstraintType::Incompatible
                 | ConstraintType::Unsatisfiable,
             ) => {
                 // Field is neither selected nor rejected by the connector.
+                // Note: UNSATISFIABLE is an alias for INCOMPATIBLE and treated the same way.
             }
 
             // Any other constraint type is invalid and errors elsewhere.
@@ -421,9 +427,9 @@ pub fn group_outcomes(
             (None, Some(reject)) => EOB::Right(reject),
             (Some(select), None) => EOB::Left(select),
 
-            // Always surface unsatisfiable conflicts for any Select reason.
-            (Some(select), Some(Reject::ConnectorUnsatisfiable { reason })) => {
-                EOB::Both(select, Reject::ConnectorUnsatisfiable { reason })
+            // Always surface incompatible conflicts for any Select reason.
+            (Some(select), Some(Reject::ConnectorIncompatible { reason })) => {
+                EOB::Both(select, Reject::ConnectorIncompatible { reason })
             }
             // Certain Select reasons may be be overridden by remaining Reject reasons.
             (
@@ -471,14 +477,14 @@ pub fn build_selection(
 
     for (field, outcome) in field_outcomes {
         let _select: Select =
-            if let EOB::Both(select, Reject::ConnectorUnsatisfiable { reason }) = outcome {
-                // Unsatisfiable means the field *would* be FieldOptional if we
+            if let EOB::Both(select, Reject::ConnectorIncompatible { reason }) = outcome {
+                // Incompatible means the field *would* be FieldOptional if we
                 // backfill, but is currently incompatible. Record the conflict,
                 // but also produce a field selection which presumes a backfill.
                 conflicts.push(Conflict {
                     field: field.clone(),
                     select: select.clone(),
-                    reject: Reject::ConnectorUnsatisfiable { reason },
+                    reject: Reject::ConnectorIncompatible { reason },
                 });
                 select
             } else if let EOB::Both(select, reject) = outcome {
@@ -739,14 +745,14 @@ validated:
     }
 
     #[test]
-    fn test_connector_unsatisfiable() {
+    fn test_connector_incompatible() {
         let snap = run_test(
             include_str!("field_selection.fixture.yaml"),
             r##"
 collection:
     projections: null
 validated:
-    an_array: { type: UNSATISFIABLE, reason: "Wrong type in the DB and can't migrate"}
+    an_array: { type: INCOMPATIBLE, reason: "Wrong type in the DB and can't migrate"}
 "##,
         );
         insta::assert_debug_snapshot!(snap); // Expect `an_array` is in selection.

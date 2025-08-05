@@ -371,11 +371,15 @@ pub mod response {
                 /// However, a backfill of the binding would clear this condition
                 /// and the field could again participate.
                 ///
-                /// Connectors must return UNSATISFIABLE for fields which would be
+                /// Connectors must return INCOMPATIBLE for fields which would be
                 /// FIELD_OPTIONAL if (and only if) the binding were to be backfilled.
                 /// A common use is for fields that map to an existing SQL column having
                 /// an incompatible type which cannot be migrated automatically.
-                Unsatisfiable = 6,
+                Incompatible = 6,
+                /// DEPRECATED: UNSATISFIABLE is an alias for INCOMPATIBLE.
+                /// This variant is kept for backward compatibility with JSON-encoded
+                /// protobuf messages. New code should use INCOMPATIBLE instead.
+                Unsatisfiable = 7,
             }
             impl Type {
                 /// String value of the enum field names used in the ProtoBuf definition.
@@ -390,6 +394,7 @@ pub mod response {
                         Self::LocationRecommended => "LOCATION_RECOMMENDED",
                         Self::FieldOptional => "FIELD_OPTIONAL",
                         Self::FieldForbidden => "FIELD_FORBIDDEN",
+                        Self::Incompatible => "INCOMPATIBLE",
                         Self::Unsatisfiable => "UNSATISFIABLE",
                     }
                 }
@@ -402,6 +407,7 @@ pub mod response {
                         "LOCATION_RECOMMENDED" => Some(Self::LocationRecommended),
                         "FIELD_OPTIONAL" => Some(Self::FieldOptional),
                         "FIELD_FORBIDDEN" => Some(Self::FieldForbidden),
+                        "INCOMPATIBLE" => Some(Self::Incompatible),
                         "UNSATISFIABLE" => Some(Self::Unsatisfiable),
                         _ => None,
                     }

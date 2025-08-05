@@ -295,7 +295,11 @@ fn apply_evolution_actions(
         let naughty_fields: Vec<RejectedField> = binding
             .constraints
             .iter()
-            .filter(|(_, constraint)| constraint.r#type == ConstraintType::Unsatisfiable as i32)
+            .filter(|(_, constraint)| {
+                // Unsatisfiable is a simple alias for Incompatible.
+                constraint.r#type == ConstraintType::Incompatible as i32
+                    || constraint.r#type == ConstraintType::Unsatisfiable as i32
+            })
             .map(|(field, constraint)| RejectedField {
                 field: field.clone(),
                 reason: constraint.reason.clone(),
