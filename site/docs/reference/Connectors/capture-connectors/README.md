@@ -113,6 +113,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Google Drive
   - [Configuration](./google-drive.md)
   - Package - ghcr.io/estuary/source-google-drive:dev
+- Google Play
+  - [Configuration](./google-play.md)
+  - Package - ghcr.io/estuary/source-google-play:dev
 - Google Sheets
   - [Configuration](./google-sheets.md)
   - Package - ghcr.io/estuary/source-google-sheets-native:dev
