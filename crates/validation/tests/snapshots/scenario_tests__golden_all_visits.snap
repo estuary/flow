@@ -5855,6 +5855,11 @@ Outcome {
                                 reason: "location required",
                                 folded_field: "",
                             },
+                            "int": Constraint {
+                                r#type: FieldOptional,
+                                reason: "optional",
+                                folded_field: "",
+                            },
                         },
                         resource_path: [
                             "view",
@@ -6155,7 +6160,9 @@ Outcome {
                         priority: 0,
                         field_selection: Some(
                             FieldSelection {
-                                keys: [],
+                                keys: [
+                                    "int",
+                                ],
                                 values: [],
                                 document: "flow_document",
                                 field_config_json_map: {},
@@ -6724,9 +6731,10 @@ Outcome {
                         field_selection: Some(
                             FieldSelection {
                                 keys: [
-                                    "int",
+                                    "Int",
                                 ],
                                 values: [
+                                    "int",
                                     "str",
                                 ],
                                 document: "flow_document",

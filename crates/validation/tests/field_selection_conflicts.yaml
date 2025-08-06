@@ -1,0 +1,63 @@
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      schema:
+        type: object
+        properties:
+          f_required: { type: integer }
+          f_loc_required: { type: integer }
+          f_optional: { type: integer }
+          f_forbidden: { type: integer }
+          f_incompatible: { type: integer }
+      key: [/f_required]
+
+  materializations:
+    the/materialization:
+      endpoint:
+        connector:
+          image: an/image:test
+          config: {}
+      bindings: &the_bindings
+        - source: the/collection
+          resource:
+            _meta: { path: [a] }
+            table: a
+          fields:
+            recommended: 1
+            #include:
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+
+  liveCollections:
+    the/collection:
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      key: [/f_required]
+
+  liveMaterializations:
+    the/materialization:
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      bindings: *the_bindings
+      lastFields:
+       - keys: [f_required]
+
+  materializations:
+    the/materialization:
+      connectorType: IMAGE
+      config:
+        image: an/image:test
+        config: {}
+      bindings:
+        - constraints:
+            f_required: { type: 1, reason: "I'm a required field" }
+            f_loc_required: { type: 2, reason: "I'm a required location"}
+            f_optional: { type: 4, reason: "I'm an optional field" }
+            f_forbidden: { type: 5, reason: "I'm a forbidden fruit" }
+            f_incompatible: { type: 6, reason: "I'm an incompatible field" }
+          resourcePath: [a]

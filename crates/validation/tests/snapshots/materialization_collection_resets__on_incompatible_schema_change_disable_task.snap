@@ -432,7 +432,7 @@ Outcome {
             },
             model_fixes: [
               "disabling binding of reset collection testing/reset/b",
-              "disabling materialization due to reset of collection testing/reset/a and `onIncompatibleSchemaChange: disableTask`"
+              "disabling materialization due to reset of collection testing/reset/a (onIncompatibleSchemaChange: disableTask)"
             ],
             validated: Validated {
                 bindings: [],
