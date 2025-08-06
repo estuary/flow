@@ -51,6 +51,21 @@ impl StatsAggregator {
         if let Some(out) = &stats.out {
             ops::merge_docs_and_bytes(out, &mut binding.out);
         }
+        if let Some(last_source_published_at) = stats.last_source_published_at {
+            binding.last_source_published_at = Some(match binding.last_source_published_at {
+                Some(prev) => {
+                    if prev.seconds < last_source_published_at.seconds
+                        || (prev.seconds == last_source_published_at.seconds
+                            && prev.nanos < last_source_published_at.nanos)
+                    {
+                        last_source_published_at
+                    } else {
+                        prev
+                    }
+                }
+                None => last_source_published_at,
+            });
+        }
     }
 
     // If any stats have been written, return them and reset the counter. Otherwise None
