@@ -241,7 +241,7 @@ impl Session {
         mut request: messages::MetadataRequest,
     ) -> anyhow::Result<messages::MetadataResponse> {
         let topics = match request.topics.take() {
-            Some(topics) if topics.len() > 0 => self.metadata_select_topics(topics).await,
+            Some(topics) if !topics.is_empty() => self.metadata_select_topics(topics).await,
             _ => self.metadata_all_topics().await,
         }?;
 
@@ -383,6 +383,11 @@ impl Session {
         &mut self,
         request: messages::FindCoordinatorRequest,
     ) -> anyhow::Result<messages::FindCoordinatorResponse> {
+        // if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        //     return Ok(messages::FindCoordinatorResponse::default()
+        //         .with_error_code(ResponseError::CoordinatorNotAvailable.code()));
+        // }
+
         let (broker_host, broker_port) = match self.get_redirect_address() {
             Some((host, port)) => (host, port),
             None => (
@@ -413,6 +418,31 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
+        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+            let topics = request
+            .topics
+            .into_iter()
+            .map(|topic| {
+                messages::list_offsets_response::ListOffsetsTopicResponse::default()
+                    .with_name(topic.name)
+                    .with_partitions(
+                        topic
+                            .partitions
+                            .into_iter()
+                            .map(|p| {
+                                messages::list_offsets_response::ListOffsetsPartitionResponse::default()
+                                    .with_partition_index(p.partition_index)
+                                    .with_error_code(
+                                        ResponseError::NotLeaderOrFollower.code(),
+                                    )
+                            })
+                            .collect(),
+                    )
+            })
+            .collect();
+            return Ok(messages::ListOffsetsResponse::default().with_topics(topics));
+        }
+
         let auth = self
             .auth
             .as_mut()
@@ -518,6 +548,28 @@ impl Session {
         request: messages::FetchRequest,
     ) -> anyhow::Result<messages::FetchResponse> {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
+
+        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+            let responses = request
+                .topics
+                .iter()
+                .map(|topic_req| {
+                    let partitions = topic_req
+                        .partitions
+                        .iter()
+                        .map(|p| {
+                            PartitionData::default()
+                                .with_partition_index(p.partition)
+                                .with_error_code(ResponseError::NotLeaderOrFollower.code())
+                        })
+                        .collect();
+                    FetchableTopicResponse::default()
+                        .with_topic(topic_req.topic.clone())
+                        .with_partitions(partitions)
+                })
+                .collect();
+            return Ok(messages::FetchResponse::default().with_responses(responses));
+        }
 
         let task_name = match &self.auth {
             Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
@@ -928,7 +980,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot join groups");
+            return Ok(messages::JoinGroupResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
         let mut mutable_req = req.clone();
@@ -1046,7 +1099,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::LeaveGroupResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot leave groups");
+            return Ok(messages::LeaveGroupResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
         let client = self
@@ -1099,7 +1153,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot sync groups");
+            return Ok(messages::SyncGroupResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
         let mut mutable_req = req.clone();
@@ -1213,7 +1268,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::HeartbeatResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot send heartbeats");
+            return Ok(messages::HeartbeatResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
         let client = self
@@ -1230,6 +1286,23 @@ impl Session {
         mut req: messages::OffsetCommitRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
+        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+            return Ok(messages::OffsetCommitResponse::default().with_topics(
+                req.topics
+                    .into_iter()
+                    .map(|t| {
+                        messages::offset_commit_response::OffsetCommitResponseTopic::default()
+                    .with_name(t.name)
+                    .with_partitions(t.partitions.into_iter().map(|p| {
+                        messages::offset_commit_response::OffsetCommitResponsePartition::default()
+                            .with_partition_index(p.partition_index)
+                            .with_error_code(ResponseError::NotCoordinator.code())
+                    }).collect())
+                    })
+                    .collect(),
+            ));
+        }
+
         let collections = self
             .fetch_collections(req.topics.iter().map(|topic| &topic.name))
             .await?;
@@ -1330,6 +1403,26 @@ impl Session {
         mut req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+            return Ok(messages::OffsetFetchResponse::default().with_topics(
+            req.topics
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| {
+                    messages::offset_fetch_response::OffsetFetchResponseTopic::default()
+                        .with_name(t.name)
+                        .with_partitions(
+                            // We have no good way to know partitions here. We could either return a high level error
+                            // on the OffsetFetchResponse, or return a single partition with NotCoordinator.
+                            vec![messages::offset_fetch_response::OffsetFetchResponsePartition::default()
+                                .with_partition_index(0)
+                                .with_error_code(ResponseError::NotCoordinator.code())]
+                        )
+                })
+                .collect(),
+        ));
+        }
+
         let collection_partitions = if let Some(topics) = &req.topics {
             self.fetch_collections(topics.iter().map(|topic| &topic.name))
                 .await?
