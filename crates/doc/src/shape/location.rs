@@ -262,7 +262,6 @@ static SENTINEL_SHAPE: Shape = Shape::anything();
 #[cfg(test)]
 mod test {
     use super::*;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_locate() {

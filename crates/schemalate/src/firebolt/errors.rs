@@ -4,7 +4,7 @@ use serde::Serialize;
 pub enum Error {
     #[error("Could not parse Resource JSON")]
     SchemaJsonParsing(#[from] serde_json::Error),
-    #[error("Unknown type {r#type} in projection for field '{field}'")]
+    #[error("Unknown type {type} in projection for field '{field}'")]
     UnknownType { r#type: String, field: String },
     #[error("failed building schema")]
     SchemaBuildError(#[from] json::schema::BuildError),

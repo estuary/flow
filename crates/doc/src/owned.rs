@@ -29,7 +29,7 @@ impl OwnedArchivedNode {
     #[inline]
     pub fn get<'s>(&'s self) -> &'s ArchivedNode {
         // Cast `backing` into its archived type.
-        unsafe { rkyv::archived_root::<HeapNode>(&self.0) }
+        unsafe { rkyv::access_unchecked::<ArchivedNode>(&self.0) }
     }
 
     pub fn bytes(&self) -> &bytes::Bytes {

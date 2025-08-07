@@ -17,20 +17,23 @@ UNAME := $(shell uname -sp)
 # developers to omit the --target in most cases, and still be able to run make commands that can use
 # the same build cache.
 # See: https://github.com/rust-lang/cargo/issues/8899
+
+# Make Rust builds fail on warnings (similar to -Werror in C++)
+export RUSTFLAGS = -D warnings
 ifeq ($(UNAME),Darwin arm)
 export CARGO_BUILD_TARGET=aarch64-apple-darwin
 PACKAGE_ARCH=arm64-darwin
 ETCD_ARCH=darwin-arm64
 ETCD_SHASUM=33094133a771b2d086dc04f2ede41c249258947042de72132af127972880171f
 ETCD_EXT=zip
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc -D warnings
 else ifeq ($(UNAME),Darwin i386)
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 PACKAGE_ARCH=x86-darwin
 ETCD_ARCH=darwin-amd64
 ETCD_SHASUM=8bd279948877cfb730345ecff2478f69eaaa02513c2a43384ba182c9985267bd
 ETCD_EXT=zip
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc -D warnings
 else
 export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
 PACKAGE_ARCH=x86-linux
@@ -274,6 +277,7 @@ extra-ci-runner-setup:
 	sudo apt install -y \
 		build-essential \
 		clang \
+		libclang-dev \
 		libsqlite3-dev \
 		lld \
 		musl \
