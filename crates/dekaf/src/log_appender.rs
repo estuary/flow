@@ -236,7 +236,7 @@ impl GazetteAppender {
                     target_dataplane_fqdn,
                     ..
                 } => {
-                    unreachable!("Task has been redirected to {}", target_dataplane_fqdn);
+                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
                 }
             },
             GazetteAppender::OpsLogs(state) => match state.task_listener.get().await? {
@@ -249,7 +249,7 @@ impl GazetteAppender {
                     target_dataplane_fqdn,
                     ..
                 } => {
-                    unreachable!("Task has been redirected to {}", target_dataplane_fqdn);
+                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
                 }
             },
         }

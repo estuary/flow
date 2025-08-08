@@ -3,7 +3,7 @@ use crate::{
     api_client::KafkaClientAuth, from_downstream_topic_name, from_upstream_topic_name,
     logging::propagate_task_forwarder, read::BatchResult, to_downstream_topic_name,
     to_upstream_topic_name, topology::PartitionOffset, DekafError, KafkaApiClient,
-    SessionAuthentication,
+    SessionAuthentication, TaskState,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -86,18 +86,22 @@ impl Session {
         }
     }
 
+    /// Helper function to check if an error is a TaskRedirected error
+    fn is_redirect_error(err: &anyhow::Error) -> bool {
+        err.downcast_ref::<crate::DekafError>().map_or(false, |e| {
+            matches!(e, crate::DekafError::TaskRedirected { .. })
+        })
+    }
+
     /// For redirected tasks, this returns the target dataplane's broker address.
-    fn get_redirect_address(&self) -> Option<(String, i32)> {
-        match &self.auth {
-            Some(SessionAuthentication::Redirect {
-                target_dataplane_fqdn,
-                ..
-            }) => Some((
-                format!("dekaf.{}", target_dataplane_fqdn),
-                (self.app.advertise_kafka_port) as i32,
-            )),
-            _ => None,
+    async fn get_redirect_address(&self) -> anyhow::Result<Option<(String, i32)>> {
+        if let Some(hostname) = self.get_redirect().await? {
+            return Ok(Some((
+                format!("dekaf.{hostname}"),
+                self.app.advertise_kafka_port as i32,
+            )));
         }
+        Ok(None)
     }
 
     async fn get_kafka_client(&mut self) -> anyhow::Result<&mut KafkaApiClient> {
@@ -212,6 +216,9 @@ impl Session {
                 Err(DekafError::Authentication(e)) => messages::SaslAuthenticateResponse::default()
                     .with_error_code(ResponseError::SaslAuthenticationFailed.code())
                     .with_error_message(Some(StrBytes::from_string(format!("{e}")))),
+                Err(DekafError::TaskRedirected { .. }) => {
+                    unreachable!("This error should not be returned here.")
+                }
                 Err(DekafError::Unknown(e)) => {
                     tracing::warn!(
                         ?attempts,
@@ -241,14 +248,14 @@ impl Session {
         mut request: messages::MetadataRequest,
     ) -> anyhow::Result<messages::MetadataResponse> {
         let topics = match request.topics.take() {
-            Some(topics) if topics.len() > 0 => self.metadata_select_topics(topics).await,
+            Some(topics) if !topics.is_empty() => self.metadata_select_topics(topics).await,
             _ => self.metadata_all_topics().await,
         }?;
 
         // If the session needs to be redirected, this causes the consumer to
         // connect to the correct Dekaf instance by advertising it as the
         // only broker in the response. Otherwise advertise ourselves as the broker.
-        let broker = if let Some((broker_host, broker_port)) = self.get_redirect_address() {
+        let broker = if let Some((broker_host, broker_port)) = self.get_redirect_address().await? {
             MetadataResponseBroker::default()
                 .with_node_id(messages::BrokerId(1))
                 .with_host(StrBytes::from_string(broker_host))
@@ -300,8 +307,70 @@ impl Session {
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
-        match self.auth.as_ref().unwrap() {
-            SessionAuthentication::Redirect { .. } => {
+        let topics: anyhow::Result<_> = async {
+            let auth = self
+                .auth
+                .as_mut()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+            let pg_client = &auth.flow_client().await?.pg_client();
+
+            // Re-declare here to drop mutable reference
+            let auth = self.auth.as_ref().unwrap();
+
+            // Concurrently fetch Collection instances for all requested topics.
+            let collections: Vec<(TopicName, Option<Collection>)> = futures::future::try_join_all(
+                requests.clone().into_iter().map(|topic| async move {
+                    Collection::new(
+                        auth,
+                        pg_client,
+                        from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
+                            .as_str(),
+                    )
+                    .await
+                    .map(|coll| (topic.name.unwrap_or_default(), coll))
+                }),
+            )
+            .await?;
+
+            let mut topics = vec![];
+
+            for (name, maybe_collection) in collections {
+                let Some(collection) = maybe_collection else {
+                    topics.push(
+                        MetadataResponseTopic::default()
+                            .with_name(Some(self.encode_topic_name(name.to_string())?))
+                            .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
+                    );
+                    continue;
+                };
+
+                let partitions = collection
+                    .partitions
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| {
+                        messages::metadata_response::MetadataResponsePartition::default()
+                            .with_partition_index(index as i32)
+                            .with_leader_id(messages::BrokerId(1))
+                            .with_replica_nodes(vec![messages::BrokerId(1)])
+                            .with_isr_nodes(vec![messages::BrokerId(1)])
+                    })
+                    .collect();
+
+                topics.push(
+                    MetadataResponseTopic::default()
+                        .with_name(Some(name))
+                        .with_is_internal(false)
+                        .with_partitions(partitions),
+                );
+            }
+            Ok(topics)
+        }
+        .await;
+
+        match topics {
+            Ok(topics) => Ok(topics),
+            Err(e) if Self::is_redirect_error(&e) => {
                 return Ok(requests
                     .into_iter()
                     .map(|req| {
@@ -316,65 +385,7 @@ impl Session {
                     })
                     .collect_vec())
             }
-            _ => {
-                let auth = self
-                    .auth
-                    .as_mut()
-                    .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-                let pg_client = &auth.flow_client().await?.pg_client();
-
-                // Re-declare here to drop mutable reference
-                let auth = self.auth.as_ref().unwrap();
-
-                // Concurrently fetch Collection instances for all requested topics.
-                let collections: Vec<(TopicName, Option<Collection>)> =
-                    futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                        Collection::new(
-                            auth,
-                            pg_client,
-                            from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
-                                .as_str(),
-                        )
-                        .await
-                        .map(|coll| (topic.name.unwrap_or_default(), coll))
-                    }))
-                    .await?;
-
-                let mut topics = vec![];
-
-                for (name, maybe_collection) in collections {
-                    let Some(collection) = maybe_collection else {
-                        topics.push(
-                            MetadataResponseTopic::default()
-                                .with_name(Some(self.encode_topic_name(name.to_string())?))
-                                .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
-                        );
-                        continue;
-                    };
-
-                    let partitions = collection
-                        .partitions
-                        .iter()
-                        .enumerate()
-                        .map(|(index, _)| {
-                            messages::metadata_response::MetadataResponsePartition::default()
-                                .with_partition_index(index as i32)
-                                .with_leader_id(messages::BrokerId(1))
-                                .with_replica_nodes(vec![messages::BrokerId(1)])
-                                .with_isr_nodes(vec![messages::BrokerId(1)])
-                        })
-                        .collect();
-
-                    topics.push(
-                        MetadataResponseTopic::default()
-                            .with_name(Some(name))
-                            .with_is_internal(false)
-                            .with_partitions(partitions),
-                    );
-                }
-
-                return Ok(topics);
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -383,7 +394,7 @@ impl Session {
         &mut self,
         request: messages::FindCoordinatorRequest,
     ) -> anyhow::Result<messages::FindCoordinatorResponse> {
-        let (broker_host, broker_port) = match self.get_redirect_address() {
+        let (broker_host, broker_port) = match self.get_redirect_address().await? {
             Some((host, port)) => (host, port),
             None => (
                 self.app.advertise_host.clone(),
@@ -413,97 +424,131 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+        let result: anyhow::Result<_> = async {
+            let auth = self
+                .auth
+                .as_mut()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let pg_client = &auth.flow_client().await?.pg_client();
+            let pg_client = &auth.flow_client().await?.pg_client();
 
-        // Re-declare here to drop mutable reference
-        let auth = self.auth.as_ref().unwrap();
+            // Re-declare here to drop mutable reference
+            let auth = self.auth.as_ref().unwrap();
 
-        // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
-        // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
-        let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
-            futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(
-                    auth,
-                    pg_client,
-                    from_downstream_topic_name(topic.name.clone()).as_str(),
-                )
-                .await?;
+            // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
+            // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
+            let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
+                futures::future::try_join_all(request.topics.clone().into_iter().map(
+                    |topic| async move {
+                        let maybe_collection = Collection::new(
+                            auth,
+                            pg_client,
+                            from_downstream_topic_name(topic.name.clone()).as_str(),
+                        )
+                        .await?;
 
-                let Some(collection) = maybe_collection else {
-                    return Ok((
-                        topic.name,
-                        topic
-                            .partitions
-                            .iter()
-                            .map(|p| (p.partition_index, None))
-                            .collect(),
-                    ));
-                };
-                let collection = &collection;
+                        let Some(collection) = maybe_collection else {
+                            return Ok((
+                                topic.name,
+                                topic
+                                    .partitions
+                                    .iter()
+                                    .map(|p| (p.partition_index, None))
+                                    .collect(),
+                            ));
+                        };
+                        let collection = &collection;
 
-                // Concurrently fetch requested offset for each named partition.
-                let offsets: anyhow::Result<_> = futures::future::try_join_all(
-                    topic.partitions.into_iter().map(|partition| async move {
-                        Ok((
-                            partition.partition_index,
-                            collection
-                                .fetch_partition_offset(
-                                    partition.partition_index as usize,
-                                    partition.timestamp, // In millis.
-                                )
-                                .await?,
-                        ))
-                    }),
-                )
+                        // Concurrently fetch requested offset for each named partition.
+                        let offsets: anyhow::Result<_> = futures::future::try_join_all(
+                            topic.partitions.into_iter().map(|partition| async move {
+                                Ok((
+                                    partition.partition_index,
+                                    collection
+                                        .fetch_partition_offset(
+                                            partition.partition_index as usize,
+                                            partition.timestamp, // In millis.
+                                        )
+                                        .await?,
+                                ))
+                            }),
+                        )
+                        .await;
+
+                        Ok((topic.name, offsets?))
+                    },
+                ))
                 .await;
 
-                Ok((topic.name, offsets?))
-            }))
-            .await;
+            let collections = collections?;
 
-        let collections = collections?;
+            use messages::list_offsets_response::{
+                ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
+            };
 
-        use messages::list_offsets_response::{
-            ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
-        };
+            // Map topics, partition indices, and fetched offsets into a comprehensive response.
+            let response = collections
+                .into_iter()
+                .map(|(topic_name, offsets)| {
+                    let partitions = offsets
+                        .into_iter()
+                        .map(|(partition_index, maybe_offset)| {
+                            let Some(PartitionOffset {
+                                offset,
+                                mod_time: timestamp,
+                                ..
+                            }) = maybe_offset
+                            else {
+                                return ListOffsetsPartitionResponse::default()
+                                    .with_partition_index(partition_index)
+                                    .with_error_code(
+                                        ResponseError::UnknownTopicOrPartition.code(),
+                                    );
+                            };
 
-        // Map topics, partition indices, and fetched offsets into a comprehensive response.
-        let response = collections
-            .into_iter()
-            .map(|(topic_name, offsets)| {
-                let partitions = offsets
-                    .into_iter()
-                    .map(|(partition_index, maybe_offset)| {
-                        let Some(PartitionOffset {
-                            offset,
-                            mod_time: timestamp,
-                            ..
-                        }) = maybe_offset
-                        else {
-                            return ListOffsetsPartitionResponse::default()
+                            ListOffsetsPartitionResponse::default()
                                 .with_partition_index(partition_index)
-                                .with_error_code(ResponseError::UnknownTopicOrPartition.code());
-                        };
+                                .with_offset(offset)
+                                .with_timestamp(timestamp)
+                        })
+                        .collect();
 
-                        ListOffsetsPartitionResponse::default()
-                            .with_partition_index(partition_index)
-                            .with_offset(offset)
-                            .with_timestamp(timestamp)
+                    ListOffsetsTopicResponse::default()
+                        .with_name(topic_name)
+                        .with_partitions(partitions)
+                })
+                .collect();
+
+            Ok(messages::ListOffsetsResponse::default().with_topics(response))
+        }
+        .await;
+
+        match result {
+            Ok(response) => Ok(response),
+            Err(e) if Self::is_redirect_error(&e) => {
+                let topics = request
+                    .topics
+                    .into_iter()
+                    .map(|topic| {
+                        messages::list_offsets_response::ListOffsetsTopicResponse::default()
+                            .with_name(topic.name)
+                            .with_partitions(
+                                topic
+                                    .partitions
+                                    .into_iter()
+                                    .map(|p| {
+                                        messages::list_offsets_response::ListOffsetsPartitionResponse::default()
+                                            .with_partition_index(p.partition_index)
+                                            .with_error_code(ResponseError::NotLeaderOrFollower.code())
+                                    })
+                                    .collect(),
+                            )
                     })
                     .collect();
-
-                ListOffsetsTopicResponse::default()
-                    .with_name(topic_name)
-                    .with_partitions(partitions)
-            })
-            .collect();
-
-        Ok(messages::ListOffsetsResponse::default().with_topics(response))
+                Ok(messages::ListOffsetsResponse::default().with_topics(topics))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
@@ -519,6 +564,28 @@ impl Session {
     ) -> anyhow::Result<messages::FetchResponse> {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
+        if self.get_redirect().await?.is_some() {
+            let responses = request
+                .topics
+                .iter()
+                .map(|topic_req| {
+                    let partitions = topic_req
+                        .partitions
+                        .iter()
+                        .map(|p| {
+                            PartitionData::default()
+                                .with_partition_index(p.partition)
+                                .with_error_code(ResponseError::NotLeaderOrFollower.code())
+                        })
+                        .collect();
+                    FetchableTopicResponse::default()
+                        .with_topic(topic_req.topic.clone())
+                        .with_partitions(partitions)
+                })
+                .collect();
+            return Ok(messages::FetchResponse::default().with_responses(responses));
+        }
+
         let task_name = match &self.auth {
             Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
             Some(SessionAuthentication::User(auth)) => {
@@ -531,7 +598,7 @@ impl Session {
         };
 
         let messages::FetchRequest {
-            topics: topic_requests,
+            topics: ref topic_requests,
             max_bytes: _, // Ignored.
             max_wait_ms,
             min_bytes: _, // Ignored.
@@ -542,7 +609,7 @@ impl Session {
         let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
         // Start reads for all partitions which aren't already pending.
-        for topic_request in &topic_requests {
+        for topic_request in topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
 
             for partition_request in &topic_request.partitions {
@@ -642,7 +709,34 @@ impl Session {
                 }
 
                 let auth = self.auth.as_mut().unwrap();
-                let pg_client = auth.flow_client().await?.pg_client();
+                let pg_client = match auth.flow_client().await {
+                    Ok(client) => client.pg_client(),
+                    Err(crate::DekafError::TaskRedirected { .. }) => {
+                        // Task was redirected mid-fetch, stop processing and return redirect response
+                        let responses = request
+                            .topics
+                            .iter()
+                            .map(|topic_req| {
+                                let partitions = topic_req
+                                    .partitions
+                                    .iter()
+                                    .map(|p| {
+                                        PartitionData::default()
+                                            .with_partition_index(p.partition)
+                                            .with_error_code(
+                                                ResponseError::NotLeaderOrFollower.code(),
+                                            )
+                                    })
+                                    .collect();
+                                FetchableTopicResponse::default()
+                                    .with_topic(topic_req.topic.clone())
+                                    .with_partitions(partitions)
+                            })
+                            .collect();
+                        return Ok(messages::FetchResponse::default().with_responses(responses));
+                    }
+                    Err(e) => return Err(e.into()),
+                };
                 let Some(collection) = Collection::new(&auth, &pg_client, &key.0).await? else {
                     metrics::counter!(
                         "dekaf_fetch_requests",
@@ -773,7 +867,7 @@ impl Session {
         // Poll pending reads across all requested topics.
         let mut topic_responses = Vec::with_capacity(topic_requests.len());
 
-        for topic_request in &topic_requests {
+        for topic_request in topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
             let mut partition_responses = Vec::with_capacity(topic_request.partitions.len());
 
@@ -928,7 +1022,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot join groups");
+            return Ok(messages::JoinGroupResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
         let mut mutable_req = req.clone();
@@ -988,13 +1083,24 @@ impl Session {
             protocol.metadata = new_protocol_subscription.into();
         }
 
-        let response = self
-            .get_kafka_client()
-            .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?
-            .send_request(mutable_req.clone(), Some(header))
-            .await?;
+        let response: anyhow::Result<_> = async {
+            let client = self.get_kafka_client().await?;
+            client
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?
+                .send_request(mutable_req.clone(), Some(header))
+                .await
+        }
+        .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(e) if Self::is_redirect_error(&e) => {
+                return Ok(messages::JoinGroupResponse::default()
+                    .with_error_code(ResponseError::NotCoordinator.code()));
+            }
+            Err(e) => return Err(e),
+        };
 
         if let Some(err) = response.error_code.err() {
             tracing::debug!(?err, req=?mutable_req, "Request errored");
@@ -1046,15 +1152,28 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::LeaveGroupResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot leave groups");
+            return Ok(messages::LeaveGroupResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
-        let client = self
-            .get_kafka_client()
-            .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-        let response = client.send_request(req, Some(header)).await?;
+        let response: anyhow::Result<_> = async {
+            let client = self.get_kafka_client().await?;
+            client
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?
+                .send_request(req, Some(header))
+                .await
+        }
+        .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(e) if Self::is_redirect_error(&e) => {
+                return Ok(messages::LeaveGroupResponse::default()
+                    .with_error_code(ResponseError::NotCoordinator.code()));
+            }
+            Err(e) => return Err(e),
+        };
         Ok(response)
     }
 
@@ -1085,6 +1204,11 @@ impl Session {
 
                 return Ok(e);
             }
+            Err(e) if Self::is_redirect_error(&e) => {
+                // Return empty list for redirect errors
+                tracing::debug!("list_groups called during redirect, returning empty list");
+                Ok(ListGroupsResponse::default().with_groups(vec![]))
+            }
             Err(e) => {
                 tracing::warn!(e=?e, "Failed to list_groups");
                 Ok(ListGroupsResponse::default().with_groups(vec![]))
@@ -1099,7 +1223,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot sync groups");
+            return Ok(messages::SyncGroupResponse::default()
+                .with_error_code(ResponseError::NotCoordinator.code()));
         }
 
         let mut mutable_req = req.clone();
@@ -1144,13 +1269,24 @@ impl Session {
             assignment.assignment = new_protocol_assignment.into();
         }
 
-        let response = self
-            .get_kafka_client()
-            .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?
-            .send_request(mutable_req.clone(), Some(header))
-            .await?;
+        let response: anyhow::Result<_> = async {
+            let client = self.get_kafka_client().await?;
+            client
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?
+                .send_request(mutable_req.clone(), Some(header))
+                .await
+        }
+        .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(e) if Self::is_redirect_error(&e) => {
+                return Ok(messages::SyncGroupResponse::default()
+                    .with_error_code(ResponseError::NotCoordinator.code()));
+            }
+            Err(e) => return Err(e),
+        };
 
         if let Some(err) = response.error_code.err() {
             tracing::debug!(?err, req=?mutable_req, "Request errored");
@@ -1199,11 +1335,20 @@ impl Session {
             anyhow::bail!("Redirected sessions cannot delete groups");
         }
 
-        return self
-            .get_kafka_client()
-            .await?
-            .send_request(req, Some(header))
-            .await;
+        let response: anyhow::Result<_> = async {
+            let client = self.get_kafka_client().await?;
+            client.send_request(req, Some(header)).await
+        }
+        .await;
+
+        match response {
+            Ok(response) => Ok(response),
+            Err(e) if Self::is_redirect_error(&e) => {
+                // For delete groups, we should probably return an error rather than silently fail
+                anyhow::bail!("Cannot delete groups: task has been redirected")
+            }
+            Err(e) => Err(e),
+        }
     }
 
     #[instrument(skip_all, fields(group=?req.group_id))]
@@ -1212,16 +1357,28 @@ impl Session {
         req: messages::HeartbeatRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::HeartbeatResponse> {
+        let redirect_response = messages::HeartbeatResponse::default()
+            .with_error_code(ResponseError::NotCoordinator.code());
+
         if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
-            anyhow::bail!("Redirected sessions cannot send heartbeats");
+            return Ok(redirect_response);
         }
 
-        let client = self
-            .get_kafka_client()
-            .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-        return client.send_request(req, Some(header)).await;
+        let response: anyhow::Result<_> = async {
+            let client = self
+                .get_kafka_client()
+                .await?
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?;
+            client.send_request(req, Some(header)).await
+        }
+        .await;
+
+        match response {
+            Ok(r) => Ok(r),
+            Err(e) if Self::is_redirect_error(&e) => Ok(redirect_response),
+            Err(e) => Err(e),
+        }
     }
 
     #[instrument(skip_all, fields(group=?req.group_id))]
@@ -1230,98 +1387,127 @@ impl Session {
         mut req: messages::OffsetCommitRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
-        let collections = self
-            .fetch_collections(req.topics.iter().map(|topic| &topic.name))
-            .await?;
+        let redirect_response = messages::OffsetCommitResponse::default().with_topics(
+            req.topics
+                .clone()
+                .into_iter()
+                .map(|t| {
+                    messages::offset_commit_response::OffsetCommitResponseTopic::default()
+                    .with_name(t.name)
+                    .with_partitions(t.partitions.into_iter().map(|p| {
+                        messages::offset_commit_response::OffsetCommitResponsePartition::default()
+                            .with_partition_index(p.partition_index)
+                            .with_error_code(ResponseError::NotCoordinator.code())
+                    }).collect())
+                })
+                .collect(),
+        );
 
-        let desired_topic_partitions = collections
-            .iter()
-            .map(|(topic_name, collection)| {
-                self.encrypt_topic_name(topic_name.clone())
-                    .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        for topic in &mut req.topics {
-            let encrypted = self.encrypt_topic_name(topic.name.clone())?;
-            topic.name = encrypted;
+        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+            return Ok(redirect_response);
         }
 
-        let client = self
-            .get_kafka_client()
-            .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
+        let resp: anyhow::Result<_> = async {
 
-        client.ensure_topics(desired_topic_partitions).await?;
+            let collections = self
+                .fetch_collections(req.topics.iter().map(|topic| &topic.name))
+                .await?;
 
-        let mut resp = client.send_request(req.clone(), Some(header)).await?;
-
-        for topic in resp.topics.iter_mut() {
-            let encrypted_name = topic.name.clone();
-            let decrypted_name = self.decrypt_topic_name(topic.name.to_owned())?;
-
-            let collection_partitions = &collections
+            let desired_topic_partitions = collections
                 .iter()
-                .find(|(topic_name, _)| topic_name == &decrypted_name)
-                .context(format!(
-                    "unable to look up partitions for {:?}",
-                    decrypted_name
-                ))?
-                .1
-                .partitions;
+                .map(|(topic_name, collection)| {
+                    self.encrypt_topic_name(topic_name.clone())
+                        .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-            for partition in &topic.partitions {
-                if let Some(error) = partition.error_code.err() {
-                    tracing::warn!(
-                        topic = decrypted_name.as_str(),
-                        partition = partition.partition_index,
-                        ?error,
-                        "Got error from upstream Kafka when trying to commit offsets"
-                    );
-                } else {
-                    let response_partition_index = partition.partition_index;
+            for topic in &mut req.topics {
+                let encrypted = self.encrypt_topic_name(topic.name.clone())?;
+                topic.name = encrypted;
+            }
 
-                    let journal_name = collection_partitions
-                        .get(response_partition_index as usize)
-                        .context(format!(
-                            "unable to find collection partition idx {} in collection {:?}",
-                            response_partition_index,
-                            decrypted_name.as_str()
-                        ))?
-                        .spec
-                        .name
-                        .to_owned();
+            let client = self
+                .get_kafka_client()
+                .await?
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?;
 
-                    let request_partitions = &req
-                        .topics
-                        .iter()
-                        .find(|req_topic| req_topic.name == encrypted_name)
-                        .context(format!(
-                            "unable to find topic in request {:?}",
-                            decrypted_name.as_str()
-                        ))?
-                        .partitions;
+            client.ensure_topics(desired_topic_partitions).await?;
 
-                    let committed_offset = request_partitions
-                        .iter()
-                        .find(|req_part| req_part.partition_index == response_partition_index)
-                        .context(format!(
-                            "Unable to find partition index {} in request partitions for topic {:?}, though response contained it. Request partitions: {:?}. Flow has: {:?}",
-                            response_partition_index,
-                            decrypted_name.as_str(),
-                            request_partitions,
-                            collection_partitions
-                        ))?
-                        .committed_offset;
+            let mut resp = client.send_request(req.clone(), Some(header)).await?;
 
-                    metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name.clone()).set(committed_offset as f64);
-                    tracing::info!(topic_name = decrypted_name.as_str(), journal_name, partitions = ?topic.partitions, committed_offset, "Committed offset");
+            for topic in resp.topics.iter_mut() {
+                let encrypted_name = topic.name.clone();
+                let decrypted_name = self.decrypt_topic_name(topic.name.to_owned())?;
+
+                let collection_partitions = &collections
+                    .iter()
+                    .find(|(topic_name, _)| topic_name == &decrypted_name)
+                    .context(format!(
+                        "unable to look up partitions for {:?}",
+                        decrypted_name
+                    ))?
+                    .1
+                    .partitions;
+
+                for partition in &topic.partitions {
+                    if let Some(error) = partition.error_code.err() {
+                        tracing::warn!(
+                            topic = decrypted_name.as_str(),
+                            partition = partition.partition_index,
+                            ?error,
+                            "Got error from upstream Kafka when trying to commit offsets"
+                        );
+                    } else {
+                        let response_partition_index = partition.partition_index;
+
+                        let journal_name = collection_partitions
+                            .get(response_partition_index as usize)
+                            .context(format!(
+                                "unable to find collection partition idx {} in collection {:?}",
+                                response_partition_index,
+                                decrypted_name.as_str()
+                            ))?
+                            .spec
+                            .name
+                            .to_owned();
+
+                        let request_partitions = &req
+                            .topics
+                            .iter()
+                            .find(|req_topic| req_topic.name == encrypted_name)
+                            .context(format!(
+                                "unable to find topic in request {:?}",
+                                decrypted_name.as_str()
+                            ))?
+                            .partitions;
+
+                        let committed_offset = request_partitions
+                            .iter()
+                            .find(|req_part| req_part.partition_index == response_partition_index)
+                            .context(format!(
+                                "Unable to find partition index {} in request partitions for topic {:?}, though response contained it. Request partitions: {:?}. Flow has: {:?}",
+                                response_partition_index,
+                                decrypted_name.as_str(),
+                                request_partitions,
+                                collection_partitions
+                            ))?
+                            .committed_offset;
+
+                        metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name.clone()).set(committed_offset as f64);
+                        tracing::info!(topic_name = decrypted_name.as_str(), journal_name, partitions = ?topic.partitions, committed_offset, "Committed offset");
+                    }
                 }
             }
-        }
 
-        Ok(resp)
+            Ok(resp)
+        }.await;
+
+        match resp {
+            Ok(r) => Ok(r),
+            Err(e) if Self::is_redirect_error(&e) => Ok(redirect_response),
+            Err(e) => Err(e),
+        }
     }
 
     #[instrument(skip_all, fields(group=?req.group_id))]
@@ -1330,15 +1516,44 @@ impl Session {
         mut req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
-        let collection_partitions = if let Some(topics) = &req.topics {
-            self.fetch_collections(topics.iter().map(|topic| &topic.name))
-                .await?
+        let redirect_response = messages::OffsetFetchResponse::default().with_topics(
+            req.topics
+                .clone()
+                .unwrap_or_default()
                 .into_iter()
-                .map(|(topic_name, collection)| {
-                    self.encrypt_topic_name(topic_name)
-                        .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                .map(|t| {
+                    messages::offset_fetch_response::OffsetFetchResponseTopic::default()
+                        .with_name(t.name)
+                        .with_partitions(
+                            // We have no good way to know partitions here. We could either return a high level error
+                            // on the OffsetFetchResponse, or return a single partition with NotCoordinator.
+                            vec![messages::offset_fetch_response::OffsetFetchResponsePartition::default()
+                                .with_partition_index(0)
+                                .with_error_code(ResponseError::NotCoordinator.code())]
+                        )
                 })
-                .collect::<Result<Vec<_>, _>>()?
+                .collect(),
+        );
+
+        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+            return Ok(redirect_response);
+        }
+
+        let collection_partitions = if let Some(topics) = &req.topics {
+            match self
+                .fetch_collections(topics.iter().map(|topic| &topic.name))
+                .await
+            {
+                Ok(collections) => collections
+                    .into_iter()
+                    .map(|(topic_name, collection)| {
+                        self.encrypt_topic_name(topic_name)
+                            .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                Err(e) if Self::is_redirect_error(&e) => return Ok(redirect_response),
+                Err(e) => return Err(e),
+            }
         } else {
             vec![]
         };
@@ -1499,66 +1714,97 @@ impl Session {
         partition: i32,
         fetch_offset: i64,
     ) -> anyhow::Result<Option<PartitionOffset>> {
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+        let result: anyhow::Result<_> = async {
+            let auth = self
+                .auth
+                .as_mut()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let client = auth.flow_client().await?.clone();
+            let client = auth.flow_client().await?.clone();
 
-        tracing::debug!(
-            "Loading latest offset for this partition to check if session is data-preview"
-        );
-        let collection = Collection::new(auth, &client.pg_client(), collection_name.as_str())
-            .await?
-            .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
+            tracing::debug!(
+                "Loading latest offset for this partition to check if session is data-preview"
+            );
+            let collection = Collection::new(auth, &client.pg_client(), collection_name.as_str())
+                .await?
+                .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
 
-        match collection
-            .fetch_partition_offset(partition as usize, -1)
-            .await
-        {
-            Ok(Some(
-                partition_offset @ PartitionOffset {
-                    offset: latest_offset,
-                    ..
-                },
-            )) => {
-                // If fetch_offset is >= latest_offset, this is a caught-up consumer
-                // polling for new documents, not a data preview request.
-                if fetch_offset < latest_offset && latest_offset - fetch_offset < 13 {
-                    tracing::info!(
-                        latest_offset,
-                        diff = latest_offset - fetch_offset,
-                        "Marking session as data-preview"
-                    );
-                    Ok(Some(partition_offset))
-                } else {
+            match collection
+                .fetch_partition_offset(partition as usize, -1)
+                .await
+            {
+                Ok(Some(
+                    partition_offset @ PartitionOffset {
+                        offset: latest_offset,
+                        ..
+                    },
+                )) => {
+                    // If fetch_offset is >= latest_offset, this is a caught-up consumer
+                    // polling for new documents, not a data preview request.
+                    if fetch_offset < latest_offset && latest_offset - fetch_offset < 13 {
+                        tracing::info!(
+                            latest_offset,
+                            diff = latest_offset - fetch_offset,
+                            "Marking session as data-preview"
+                        );
+                        Ok(Some(partition_offset))
+                    } else {
+                        tracing::debug!(
+                            fetch_offset,
+                            latest_offset,
+                            diff = latest_offset - fetch_offset,
+                            "Marking session as non-data-preview"
+                        );
+                        Ok(None)
+                    }
+                }
+                Ok(_) => Ok(None),
+                // Handle Suspended errors as not data preiew
+                Err(e)
+                    if e.downcast_ref::<gazette::Error>().map_or(false, |err| {
+                        matches!(
+                            err,
+                            gazette::Error::BrokerStatus(gazette::broker::Status::Suspended { .. })
+                        )
+                    }) =>
+                {
                     tracing::debug!(
-                        fetch_offset,
-                        latest_offset,
-                        diff = latest_offset - fetch_offset,
-                        "Marking session as non-data-preview"
+                        "Partition is suspended, treating as non-data-preview: {:?}",
+                        e
                     );
                     Ok(None)
                 }
+                Err(e) => return Err(e),
             }
-            Ok(_) => Ok(None),
-            // Handle Suspended errors as not data preiew
-            Err(e)
-                if e.downcast_ref::<gazette::Error>().map_or(false, |err| {
-                    matches!(
-                        err,
-                        gazette::Error::BrokerStatus(gazette::broker::Status::Suspended { .. })
-                    )
-                }) =>
-            {
-                tracing::debug!(
-                    "Partition is suspended, treating as non-data-preview: {:?}",
-                    e
-                );
+        }
+        .await;
+
+        match result {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_redirect_error(&e) => {
+                // Task was redirected, treat as non-data-preview
                 Ok(None)
             }
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn get_redirect(&self) -> anyhow::Result<Option<String>> {
+        match self.auth.as_ref() {
+            Some(SessionAuthentication::Task(auth)) => {
+                match auth.task_state_listener.get().await? {
+                    TaskState::Redirect {
+                        target_dataplane_fqdn,
+                        ..
+                    } => Ok(Some(target_dataplane_fqdn.clone())),
+                    _ => Ok(None),
+                }
+            }
+            Some(SessionAuthentication::Redirect {
+                target_dataplane_fqdn,
+                ..
+            }) => Ok(Some(target_dataplane_fqdn.clone())),
+            _ => Ok(None),
         }
     }
 }
