@@ -107,6 +107,9 @@ pub async fn graphql_handler(
 /// https://github.com/graphql/graphiql/blob/0d9e51aa6452de1a1dee1ff1d1dae6df923f389f/examples/graphiql-cdn/index.html
 /// The version of GraphiQL that's bundled with the `async_graphql` crate is out
 /// of date, which is why we're using this html instead.
+/// Changes from original:
+///     1. Added default auth header
+///     2. Added pulling in `access_token` from search params
 pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
     axum::response::Html(
         r#"
@@ -181,6 +184,18 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
                   fetcher,
                   plugins,
                   defaultEditorToolsVisibility: true,
+                  // ---------- auth header customization ---------- 
+                  defaultHeaders : (()=>{
+                    const access_token = new URLSearchParams(window.location.search).get('access_token');
+
+                    // If we have a access_token use it - otherwise make it easy to past in
+                    const bearerToken = `Bearer ${access_token && access_token.length > 0 ? access_token : ''}`
+
+                    return JSON.stringify({
+                        Authorization: bearerToken,
+                    });
+                  })()
+                  // ---------- auth header customization ---------- 
                 });
               }
 
