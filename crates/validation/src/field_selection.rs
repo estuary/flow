@@ -57,6 +57,8 @@ pub enum Reject {
     NotSelected,
     #[error("field's location is underneath another selected field")]
     CoveredLocation,
+    #[error("field's parent location is excluded by the user's field selection")]
+    ExcludedParent,
     #[error("field's location is already materialized by another selected field")]
     DuplicateLocation,
     #[error("field is represented by the endpoint as {folded_field:?}, which is ambiguous with another selected field")]
@@ -364,6 +366,19 @@ pub fn group_outcomes(
         .sorted_by(|(_, l, _, _, _), (_, r, _, _, _)| l.cmp(r).reverse())
         .collect();
 
+    // Pre-scan to find user-excluded canonical projections.
+    let mut excluded_canonical_ptrs: Vec<&str> = Vec::new();
+    for (field, _, reject, projection, _) in &grouped {
+        if matches!(reject, Some(Reject::UserExcludes)) {
+            if let Some(projection) = projection {
+                // Check if this is a canonical projection (field matches ptr without leading '/').
+                if projection.ptr.len() > 1 && &projection.ptr[1..] == *field {
+                    excluded_canonical_ptrs.push(projection.ptr.as_str());
+                }
+            }
+        }
+    }
+
     let mut document_field: Option<String> = None;
     let mut outcomes: BTreeMap<String, EOB<Select, Reject>> = BTreeMap::new();
     let mut selected_folds: Vec<&str> = Vec::new();
@@ -419,6 +434,16 @@ pub fn group_outcomes(
             if matches!(select, None | Some(Select::DesiredDepth)) {
                 select = None; // Satisfied by the already-selected field.
                 reject = reject.max(Some(Reject::CoveredLocation));
+            }
+        }
+        // Is the field pointer a child of an excluded canonical projection?
+        else if excluded_canonical_ptrs
+            .iter()
+            .any(|excluded_ptr| is_parent_of(excluded_ptr, field_ptr))
+        {
+            if matches!(select, None | Some(Select::DesiredDepth)) {
+                select = None; // Override DesiredDepth selection.
+                reject = reject.max(Some(Reject::ExcludedParent));
             }
         }
 
@@ -773,6 +798,46 @@ model:
         insta::assert_debug_snapshot!(snap.field_outcomes.get("a_map").unwrap(), @r###"
         Right(
             NotSelected,
+        )
+        "###);
+    }
+
+    #[test]
+    fn test_excluded_canonical_parent() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+collection:
+    projections: null
+live: null
+model:
+    require: null
+    recommended: 2 # Ordinarily `nested/*` is desired.
+    exclude:
+        - nested
+"##,
+        );
+        // Verify that nested is excluded.
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("nested").unwrap(), @r###"
+        Right(
+            UserExcludes,
+        )
+        "###);
+        // Verify that nested children are rejected due to excluded canonical parent.
+        // These would normally be selected due to DesiredDepth at depth 2.
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("nested/bar").unwrap(), @r###"
+        Right(
+            ExcludedParent,
+        )
+        "###);
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("nested/baz").unwrap(), @r###"
+        Right(
+            ExcludedParent,
+        )
+        "###);
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("nested/foo").unwrap(), @r###"
+        Right(
+            ExcludedParent,
         )
         "###);
     }
