@@ -610,6 +610,9 @@ pub struct AppendResponse {
     /// Number of content chunks which were delayed by journal flow control.
     #[prost(int64, tag = "6")]
     pub delayed_chunks: i64,
+    /// Error message from unhealthy fragment store (when status is FRAGMENT_STORE_UNHEALTHY).
+    #[prost(string, tag = "7")]
+    pub store_health_error: ::prost::alloc::string::String,
 }
 /// ReplicateRequest is the streamed request message of the broker's internal
 /// Replicate RPC. Each message is either a pending content chunk or a
@@ -891,6 +894,28 @@ pub mod header {
         pub raft_term: u64,
     }
 }
+/// FragmentStoreHealthRequest is the unary request message of the broker FragmentStoreHealth RPC.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FragmentStoreHealthRequest {
+    /// Fragment store to check the health of.
+    #[prost(string, tag = "1")]
+    pub fragment_store: ::prost::alloc::string::String,
+}
+/// FragmentStoreHealthResponse is the unary response message of the broker FragmentStoreHealth RPC.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FragmentStoreHealthResponse {
+    /// Status of the HealthCheck RPC.
+    #[prost(enumeration = "Status", tag = "1")]
+    pub status: i32,
+    /// Header of the response.
+    #[prost(message, optional, tag = "2")]
+    pub header: ::core::option::Option<Header>,
+    /// Error message from unhealthy fragment store (when status is FRAGMENT_STORE_UNHEALTHY).
+    #[prost(string, tag = "3")]
+    pub store_health_error: ::prost::alloc::string::String,
+}
 /// Status is a response status code, used universally across Gazette RPC APIs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -940,6 +965,9 @@ pub enum Status {
     /// An Append will resume the journal, or the client may want to filter
     /// further requests directed to suspended journals.
     Suspended = 14,
+    /// The Append is refused because a fragment store is unhealthy.
+    /// The store has failed its health check for an extended period.
+    FragmentStoreUnhealthy = 15,
 }
 impl Status {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -963,6 +991,7 @@ impl Status {
             Status::IndexHasGreaterOffset => "INDEX_HAS_GREATER_OFFSET",
             Status::RegisterMismatch => "REGISTER_MISMATCH",
             Status::Suspended => "SUSPENDED",
+            Status::FragmentStoreUnhealthy => "FRAGMENT_STORE_UNHEALTHY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -983,6 +1012,7 @@ impl Status {
             "INDEX_HAS_GREATER_OFFSET" => Some(Self::IndexHasGreaterOffset),
             "REGISTER_MISMATCH" => Some(Self::RegisterMismatch),
             "SUSPENDED" => Some(Self::Suspended),
+            "FRAGMENT_STORE_UNHEALTHY" => Some(Self::FragmentStoreUnhealthy),
             _ => None,
         }
     }
