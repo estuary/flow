@@ -90,6 +90,14 @@ const config = {
             to: '/guides/flowctl/create-derivation/',
             from: '/guides/create-derivation/',
           },
+          {
+            to: '/reference/Connectors/capture-connectors/HubSpot/',
+            from: '/reference/Connectors/capture-connectors/hubspot/',
+          },
+          {
+            to: '/reference/Connectors/capture-connectors/HubSpot-real-time/',
+            from: '/reference/Connectors/capture-connectors/hubspot-real-time/',
+          },
         ],
       },
     ],
