@@ -242,6 +242,34 @@ pub mod journal_client {
                 .insert(GrpcMethod::new("protocol.Journal", "ListFragments"));
             self.inner.unary(req, path, codec).await
         }
+        /// Check the health of a fragment store.
+        pub async fn fragment_store_health(
+            &mut self,
+            request: impl tonic::IntoRequest<
+                ::proto_gazette::broker::FragmentStoreHealthRequest,
+            >,
+        ) -> std::result::Result<
+            tonic::Response<::proto_gazette::broker::FragmentStoreHealthResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/protocol.Journal/FragmentStoreHealth",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "FragmentStoreHealth"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -322,6 +350,14 @@ pub mod journal_server {
             request: tonic::Request<::proto_gazette::broker::FragmentsRequest>,
         ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::FragmentsResponse>,
+            tonic::Status,
+        >;
+        /// Check the health of a fragment store.
+        async fn fragment_store_health(
+            &self,
+            request: tonic::Request<::proto_gazette::broker::FragmentStoreHealthRequest>,
+        ) -> std::result::Result<
+            tonic::Response<::proto_gazette::broker::FragmentStoreHealthResponse>,
             tonic::Status,
         >;
     }
@@ -673,6 +709,54 @@ pub mod journal_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = ListFragmentsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/protocol.Journal/FragmentStoreHealth" => {
+                    #[allow(non_camel_case_types)]
+                    struct FragmentStoreHealthSvc<T: Journal>(pub Arc<T>);
+                    impl<
+                        T: Journal,
+                    > tonic::server::UnaryService<
+                        ::proto_gazette::broker::FragmentStoreHealthRequest,
+                    > for FragmentStoreHealthSvc<T> {
+                        type Response = ::proto_gazette::broker::FragmentStoreHealthResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                ::proto_gazette::broker::FragmentStoreHealthRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Journal>::fragment_store_health(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = FragmentStoreHealthSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
