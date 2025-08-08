@@ -215,8 +215,10 @@ pub fn extract_constraints<'a>(
         // Determine the number of JSON pointer path components.
         let depth = doc::Pointer::from_str(&p.ptr).iter().count();
 
-        let desired = if p.ptr.starts_with("/_meta") {
+        let desired = if desired_depth == 0 {
             false
+        } else if p.ptr.starts_with("/_meta") {
+            false // _meta is ignored by DesiredDepth.
         } else if depth == desired_depth {
             true
         } else if depth > desired_depth {
@@ -798,6 +800,31 @@ model:
         insta::assert_debug_snapshot!(snap.field_outcomes.get("a_map").unwrap(), @r###"
         Right(
             NotSelected,
+        )
+        "###);
+    }
+
+    #[test]
+    fn test_depth_zero_root_not_required() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+live: null
+model:
+    recommended: 0
+validated:
+    flow_document: { type: FIELD_OPTIONAL }  # Not LOCATION_REQUIRED
+"##,
+        );
+        // Verify that flow_document is not selected (no DesiredDepth at depth 0).
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("flow_document").unwrap(), @r###"
+        Right(
+            NotSelected,
+        )
+        "###);
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("a_bool").unwrap(), @r###"
+        Left(
+            GroupByKey,
         )
         "###);
     }
