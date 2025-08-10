@@ -8,7 +8,7 @@ on:
     paths-ignore:
       - "site/**"
   pull_request:
-    branches: [master, dekaf/revert-cherry-picked]
+    branches: [master, dekaf/revert-base]
     paths-ignore:
       - "site/**"
 
