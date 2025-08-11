@@ -52,6 +52,7 @@
           "2600:1900:4000:97c7::/128",
           "34.136.233.238/32"
         ],
+        "allow_cidrs": [],
         "data_buckets": [
           "gs://estuary-trial",
           "gs://estuary-flow-poc"

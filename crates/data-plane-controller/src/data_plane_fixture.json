@@ -4,6 +4,7 @@
     "deployments": [],
     "gcp_project": "testing-ground-123456",
     "ssh_subnets": [],
+    "allow_cidrs": [],
     "data_buckets": [
       "gs://estuary-trial",
       "gs://estuary-flow-poc"
@@ -28,6 +29,7 @@
     "deployments": [],
     "gcp_project": "testing-ground-123456",
     "ssh_subnets": [],
+    "allow_cidrs": [],
     "data_buckets": [
       "gs://estuary-trial",
       "gs://estuary-flow-poc"
@@ -56,6 +58,27 @@
     "deployments": [],
     "gcp_project": "testing-ground-123456",
     "ssh_subnets": [],
+    "allow_cidrs": [],
+    "data_buckets": [
+      "gs://estuary-trial",
+      "gs://estuary-flow-poc"
+    ],
+    "builds_kms_keys": [
+      "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
+    ],
+    "private_links": [],
+    "control_plane_api": "https://agent-api.app/"
+  },
+  "allow_cidrs": {
+    "builds_root": "gs://estuary-control/builds/",
+    "deployments": [],
+    "gcp_project": "testing-ground-123456",
+    "ssh_subnets": [],
+    "allow_cidrs": [
+      "10.0.0.0/16",
+      "192.168.1.0/24",
+      "172.16.0.0/12"
+    ],
     "data_buckets": [
       "gs://estuary-trial",
       "gs://estuary-flow-poc"

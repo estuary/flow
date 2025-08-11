@@ -112,6 +112,8 @@ pub struct DataPlane {
     pub gcp_project: String,
     pub ssh_subnets: Vec<ipnetwork::IpNetwork>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_cidrs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<PrivateLink>,
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -552,6 +554,14 @@ mod test {
             Some(GCPBYOC {
                 project_id: "12345678".to_string(),
             }),
+        );
+
+        let allow_cidrs_parsed =
+            serde_json::from_value::<DataPlane>(fixtures.get("allow_cidrs").unwrap().clone())
+                .unwrap();
+        assert_eq!(
+            allow_cidrs_parsed.allow_cidrs,
+            vec!["10.0.0.0/16", "192.168.1.0/24", "172.16.0.0/12"]
         );
     }
 
