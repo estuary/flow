@@ -115,6 +115,7 @@ pub fn initial_state() -> stack::State {
         "12.34.56.78/32",
         "2600:1234:5000:6000::/128"
       ],
+      "allow_cidrs": [],
       "data_buckets": [
         "gs://example-bucket"
       ],
