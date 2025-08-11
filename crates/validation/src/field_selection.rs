@@ -201,7 +201,7 @@ pub fn extract_constraints<'a>(
         if p.is_partition_key {
             selects.push((p.field.as_str(), Select::PartitionKey));
         }
-        if p.explicit {
+        if desired_depth > 0 && p.explicit {
             selects.push((p.field.as_str(), Select::UserDefined));
         }
 
@@ -597,6 +597,19 @@ mod tests {
 live: null
 model:
     groupBy: [AnInt, ABool]
+"##,
+        );
+        insta::assert_debug_snapshot!(snap);
+    }
+
+    #[test]
+    fn test_no_live_depth_0() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+model:
+    recommended: false
+live: null
 "##,
         );
         insta::assert_debug_snapshot!(snap);
