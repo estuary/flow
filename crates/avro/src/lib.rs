@@ -54,7 +54,7 @@ pub fn json_schema_to_avro(
     schema: &str,
     key: &[doc::Pointer],
 ) -> Result<(apache_avro::Schema, apache_avro::Schema), Error> {
-    let json_schema = doc::validation::build_bundle(schema)?;
+    let json_schema = doc::validation::build_bundle(schema.as_bytes())?;
     let validator = doc::Validator::new(json_schema)?;
     let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 

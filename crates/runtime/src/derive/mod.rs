@@ -34,14 +34,14 @@ pub struct Task {
     // Transforms of this task.
     transforms: Vec<Transform>,
     // Write JSON-Schema of the derivation collection.
-    write_schema_json: String,
+    write_schema_json: bytes::Bytes,
 }
 
 #[derive(Debug)]
 struct Transform {
-    collection_name: String,  // Source collection.
-    name: String,             // Name of this Transform.
-    read_schema_json: String, // Read JSON-Schema of the derivation source collection.
+    collection_name: String,        // Source collection.
+    name: String,                   // Name of this Transform.
+    read_schema_json: bytes::Bytes, // Read JSON-Schema of the derivation source collection.
 }
 
 #[derive(Debug)]

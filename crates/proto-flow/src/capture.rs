@@ -35,8 +35,8 @@ pub mod request {
         /// This may be a partial specification (for example, a Docker image),
         /// providing only enough information to fetch the remainder of the
         /// specification schema.
-        #[prost(string, tag = "2")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_json: ::prost::bytes::Bytes,
     }
     /// Discover returns the set of resources available from this connector.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -52,8 +52,8 @@ pub mod request {
         )]
         pub connector_type: i32,
         /// Connector configuration, as an encoded JSON object.
-        #[prost(string, tag = "2")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_json: ::prost::bytes::Bytes,
     }
     /// Validate a capture configuration and proposed bindings.
     /// Validate is run out-of-band with ongoing capture invocations.
@@ -73,8 +73,8 @@ pub mod request {
         )]
         pub connector_type: i32,
         /// Connector configuration, as an encoded JSON object.
-        #[prost(string, tag = "3")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "3")]
+        pub config_json: ::prost::bytes::Bytes,
         #[prost(message, repeated, tag = "4")]
         pub bindings: ::prost::alloc::vec::Vec<validate::Binding>,
         /// Last CaptureSpec which was validated and published.
@@ -93,8 +93,8 @@ pub mod request {
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
             /// JSON-encoded object which specifies the endpoint resource to be captured.
-            #[prost(string, tag = "1")]
-            pub resource_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "1")]
+            pub resource_config_json: ::prost::bytes::Bytes,
             /// Collection to be captured.
             #[prost(message, optional, tag = "2")]
             pub collection: ::core::option::Option<
@@ -148,8 +148,8 @@ pub mod request {
         #[prost(message, optional, tag = "3")]
         pub range: ::core::option::Option<super::super::flow::RangeSpec>,
         /// Last-persisted connector checkpoint state from a previous invocation.
-        #[prost(string, tag = "4")]
-        pub state_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "4")]
+        pub state_json: ::prost::bytes::Bytes,
     }
     /// Tell the connector that some number of its preceding Checkpoints have
     /// committed to the Flow recovery log.
@@ -199,11 +199,11 @@ pub mod response {
         #[prost(uint32, tag = "1")]
         pub protocol: u32,
         /// JSON schema of the connector's configuration.
-        #[prost(string, tag = "2")]
-        pub config_schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_schema_json: ::prost::bytes::Bytes,
         /// JSON schema of the connector's resource configuration.
-        #[prost(string, tag = "3")]
-        pub resource_config_schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "3")]
+        pub resource_config_schema_json: ::prost::bytes::Bytes,
         /// URL for connector's documentation.
         #[prost(string, tag = "4")]
         pub documentation_url: ::prost::alloc::string::String,
@@ -241,11 +241,11 @@ pub mod response {
             #[prost(string, tag = "1")]
             pub recommended_name: ::prost::alloc::string::String,
             /// JSON-encoded object which specifies the captured resource configuration.
-            #[prost(string, tag = "2")]
-            pub resource_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "2")]
+            pub resource_config_json: ::prost::bytes::Bytes,
             /// JSON schema of documents produced by this binding.
-            #[prost(string, tag = "3")]
-            pub document_schema_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "3")]
+            pub document_schema_json: ::prost::bytes::Bytes,
             /// Composite key of documents (if known), as JSON-Pointers.
             #[prost(string, repeated, tag = "4")]
             pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -337,8 +337,8 @@ pub mod response {
         #[prost(uint32, tag = "1")]
         pub binding: u32,
         /// Published JSON document.
-        #[prost(string, tag = "2")]
-        pub doc_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub doc_json: ::prost::bytes::Bytes,
     }
     /// SourcedSchema notifies the runtime of a source-defined schema of the
     /// indicated binding. It's not required that the connector know that the
@@ -367,8 +367,8 @@ pub mod response {
         #[prost(uint32, tag = "1")]
         pub binding: u32,
         /// JSON schema of documents produced by this binding.
-        #[prost(string, tag = "2")]
-        pub schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub schema_json: ::prost::bytes::Bytes,
     }
     /// Checkpoint all preceding documents of this invocation since the last checkpoint.
     /// The Flow runtime may begin to commit documents in a transaction.

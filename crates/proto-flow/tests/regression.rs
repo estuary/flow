@@ -14,7 +14,7 @@ fn ex_projections() -> Vec<flow::Projection> {
         field: "a-field".to_string(),
         ptr: "/json/ptr".to_string(),
         inference: Some(flow::Inference {
-            default_json: json!({"def": "ault"}).to_string(),
+            default_json: json!({"def": "ault"}).to_string().into(),
             description: "desc".to_string(),
             title: "title".to_string(),
             exists: inference::Exists::Must as i32,
@@ -50,13 +50,16 @@ fn ex_oauth2() -> flow::OAuth2 {
         access_token_method: "POST".to_string(),
         access_token_body: "foo".to_string(),
         access_token_headers_json_map: [
-            ("hdr-one".to_string(), json!({"hello": "hdr"}).to_string()),
-            ("hdr-two".to_string(), json!(42.5).to_string()),
+            (
+                "hdr-one".to_string(),
+                json!({"hello": "hdr"}).to_string().into(),
+            ),
+            ("hdr-two".to_string(), json!(42.5).to_string().into()),
         ]
         .into(),
         access_token_response_json_map: [
-            ("key".to_string(), json!("value").to_string()),
-            ("foo".to_string(), json!(true).to_string()),
+            ("key".to_string(), json!("value").to_string().into()),
+            ("foo".to_string(), json!(true).to_string().into()),
         ]
         .into(),
         refresh_token_url_template: "https://refresh-token".to_string(),
@@ -64,10 +67,11 @@ fn ex_oauth2() -> flow::OAuth2 {
         refresh_token_body: "refresh!".to_string(),
         refresh_token_headers_json_map: [(
             "hdr-three".to_string(),
-            json!({"refresh": "hdr"}).to_string(),
+            json!({"refresh": "hdr"}).to_string().into(),
         )]
         .into(),
-        refresh_token_response_json_map: [("access".to_string(), json!("here").to_string())].into(),
+        refresh_token_response_json_map: [("access".to_string(), json!("here").to_string().into())]
+            .into(),
     }
 }
 
@@ -175,13 +179,13 @@ fn ex_shard_template() -> consumer::ShardSpec {
 fn ex_collection_spec() -> flow::CollectionSpec {
     flow::CollectionSpec {
         name: "acmeCo/collection".to_string(),
-        write_schema_json: json!({"write": "schema"}).to_string(),
-        read_schema_json: json!({"read":"schema"}).to_string(),
+        write_schema_json: json!({"write": "schema"}).to_string().into(),
+        read_schema_json: json!({"read":"schema"}).to_string().into(),
         key: vec!["/key/one".to_string(), "/key/two".to_string()],
         uuid_ptr: "/_meta/uuid".to_string(),
         projections: ex_projections(),
         partition_fields: vec!["type".to_string(), "region".to_string()],
-        ack_template_json: json!({"ack":"true"}).to_string(),
+        ack_template_json: json!({"ack":"true"}).to_string().into(),
         partition_template: Some(ex_partition_template()),
         derivation: None,
     }
@@ -190,13 +194,13 @@ fn ex_collection_spec() -> flow::CollectionSpec {
 fn ex_capture_spec() -> flow::CaptureSpec {
     flow::CaptureSpec {
         name: "acmeCo/capture".to_string(),
-        config_json: json!({"capture": {"config": 42}}).to_string(),
+        config_json: json!({"capture": {"config": 42}}).to_string().into(),
         connector_type: flow::capture_spec::ConnectorType::Image as i32,
         interval_seconds: 300,
         recovery_log_template: Some(ex_recovery_template()),
         shard_template: Some(ex_shard_template()),
         bindings: vec![flow::capture_spec::Binding {
-            resource_config_json: json!({"resource": "config"}).to_string(),
+            resource_config_json: json!({"resource": "config"}).to_string().into(),
             resource_path: vec!["some".to_string(), "path".to_string()],
             collection: Some(ex_collection_spec()),
             backfill: 3,
@@ -211,20 +215,20 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
     let mut spec = ex_collection_spec();
 
     spec.derivation = Some(flow::collection_spec::Derivation {
-        config_json: json!({"derivation": {"config": 42}}).to_string(),
+        config_json: json!({"derivation": {"config": 42}}).to_string().into(),
         connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
         recovery_log_template: Some(ex_recovery_template()),
         shard_template: Some(ex_shard_template()),
         transforms: vec![flow::collection_spec::derivation::Transform {
             name: "transform_name".to_string(),
             collection: Some(ex_collection_spec()),
-            lambda_config_json: json!({"lambda": "config"}).to_string(),
+            lambda_config_json: json!({"lambda": "config"}).to_string().into(),
             partition_selector: Some(ex_label_selector()),
             priority: 1,
             read_delay_seconds: 14,
             read_only: true,
             shuffle_key: vec!["/shuffle".to_string(), "/key".to_string()],
-            shuffle_lambda_config_json: json!("SELECT $shuffle, $key;").to_string(),
+            shuffle_lambda_config_json: json!("SELECT $shuffle, $key;").to_string().into(),
             journal_read_suffix: "derive/a/collection/transform_name.v2".to_string(),
             not_before: Some(pbjson_types::Timestamp {
                 seconds: 1691722827,
@@ -247,13 +251,13 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
     spec
 }
 
-fn ex_field_config() -> BTreeMap<String, String> {
+fn ex_field_config() -> BTreeMap<String, bytes::Bytes> {
     [
         (
             "a_field".to_string(),
-            json!({"field": "config"}).to_string(),
+            json!({"field": "config"}).to_string().into(),
         ),
-        ("other/field".to_string(), json!(42.5).to_string()),
+        ("other/field".to_string(), json!(42.5).to_string().into()),
     ]
     .into()
 }
@@ -261,12 +265,12 @@ fn ex_field_config() -> BTreeMap<String, String> {
 fn ex_materialization_spec() -> flow::MaterializationSpec {
     flow::MaterializationSpec {
         name: "acmeCo/materialization".to_string(),
-        config_json: json!({"materialize": {"config": 42}}).to_string(),
+        config_json: json!({"materialize": {"config": 42}}).to_string().into(),
         connector_type: flow::materialization_spec::ConnectorType::Image as i32,
         recovery_log_template: Some(ex_recovery_template()),
         shard_template: Some(ex_shard_template()),
         bindings: vec![flow::materialization_spec::Binding {
-            resource_config_json: json!({"resource": "config"}).to_string(),
+            resource_config_json: json!({"resource": "config"}).to_string().into(),
             resource_path: vec!["some".to_string(), "path".to_string()],
             collection: Some(ex_collection_spec()),
             partition_selector: Some(ex_label_selector()),
@@ -313,8 +317,8 @@ fn ex_test_spec() -> flow::TestSpec {
                 step_index: 0,
                 step_type: flow::test_spec::step::Type::Ingest as i32,
                 docs_json_vec: vec![
-                    json!({"doc": "one"}).to_string(),
-                    json!({"doc": 2}).to_string(),
+                    json!({"doc": "one"}).to_string().into(),
+                    json!({"doc": 2}).to_string().into(),
                 ],
             },
             flow::test_spec::Step {
@@ -325,8 +329,8 @@ fn ex_test_spec() -> flow::TestSpec {
                 step_index: 1,
                 step_type: flow::test_spec::step::Type::Verify as i32,
                 docs_json_vec: vec![
-                    json!({"verify": "one"}).to_string(),
-                    json!({"verify": 2}).to_string(),
+                    json!({"verify": "one"}).to_string().into(),
+                    json!({"verify": 2}).to_string().into(),
                 ],
             },
         ],
@@ -335,7 +339,7 @@ fn ex_test_spec() -> flow::TestSpec {
 
 fn ex_connector_state() -> flow::ConnectorState {
     flow::ConnectorState {
-        updated_json: json!({"state":"update"}).to_string(),
+        updated_json: json!({"state":"update"}).to_string().into(),
         merge_patch: true,
     }
 }
@@ -392,20 +396,20 @@ fn ex_capture_request() -> capture::Request {
     capture::Request {
         spec: Some(capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: json!({"spec":"config"}).to_string(),
+            config_json: json!({"spec":"config"}).to_string().into(),
         }),
         discover: Some(capture::request::Discover {
             name: "discover/capture".to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: json!({"discover":"config"}).to_string(),
+            config_json: json!({"discover":"config"}).to_string().into(),
         }),
         validate: Some(capture::request::Validate {
             name: "validate/capture".to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: json!({"validate":"config"}).to_string(),
+            config_json: json!({"validate":"config"}).to_string().into(),
             bindings: vec![capture::request::validate::Binding {
                 collection: Some(ex_collection_spec()),
-                resource_config_json: json!({"resource":"config"}).to_string(),
+                resource_config_json: json!({"resource":"config"}).to_string().into(),
                 backfill: 1,
             }],
             last_capture: None,
@@ -421,7 +425,7 @@ fn ex_capture_request() -> capture::Request {
             capture: Some(ex_capture_spec()),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
-            state_json: json!({"connector": {"state": 42}}).to_string(),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
         acknowledge: Some(capture::request::Acknowledge { checkpoints: 32 }),
         internal: ex_internal(),
@@ -432,18 +436,18 @@ fn ex_capture_response() -> capture::Response {
     capture::Response {
         spec: Some(capture::response::Spec {
             protocol: 3032023,
-            config_schema_json: json!({"config": "schema"}).to_string(),
-            resource_config_schema_json: json!({"resource": "schema"}).to_string(),
+            config_schema_json: json!({"config": "schema"}).to_string().into(),
+            resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
             resource_path_pointers: vec!["/stream".to_string()],
         }),
         discovered: Some(capture::response::Discovered {
             bindings: vec![capture::response::discovered::Binding {
-                document_schema_json: json!({"doc":"schema"}).to_string(),
+                document_schema_json: json!({"doc":"schema"}).to_string().into(),
                 recommended_name: "recommended name".to_string(),
                 disable: true,
-                resource_config_json: json!({"resource": 1234}).to_string(),
+                resource_config_json: json!({"resource": 1234}).to_string().into(),
                 key: vec!["/key/ptr".to_string()],
                 resource_path: vec!["1234".to_string()],
                 is_fallback_key: false,
@@ -462,11 +466,13 @@ fn ex_capture_response() -> capture::Response {
         }),
         captured: Some(capture::response::Captured {
             binding: 2,
-            doc_json: json!({"captured":"doc"}).to_string(),
+            doc_json: json!({"captured":"doc"}).to_string().into(),
         }),
         sourced_schema: Some(capture::response::SourcedSchema {
             binding: 3,
-            schema_json: json!({"type": "string", "format": "date-time"}).to_string(),
+            schema_json: json!({"type": "string", "format": "date-time"})
+                .to_string()
+                .into(),
         }),
         checkpoint: Some(capture::response::Checkpoint {
             state: Some(ex_connector_state()),
@@ -479,17 +485,17 @@ fn ex_derive_request() -> derive::Request {
     derive::Request {
         spec: Some(derive::request::Spec {
             connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
-            config_json: json!({"spec":"config"}).to_string(),
+            config_json: json!({"spec":"config"}).to_string().into(),
         }),
         validate: Some(derive::request::Validate {
             connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
-            config_json: json!({"validate":"config"}).to_string(),
+            config_json: json!({"validate":"config"}).to_string().into(),
             collection: Some(ex_collection_spec()),
             transforms: vec![derive::request::validate::Transform {
                 name: "stable_name".to_string(),
                 collection: Some(ex_collection_spec()),
-                lambda_config_json: json!({"lambda": "config"}).to_string(),
-                shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string(),
+                lambda_config_json: json!({"lambda": "config"}).to_string().into(),
+                shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string().into(),
                 backfill: 2,
             }],
             shuffle_key_types: vec![
@@ -509,7 +515,7 @@ fn ex_derive_request() -> derive::Request {
             collection: Some(ex_collection_spec()),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
-            state_json: json!({"connector": {"state": 42}}).to_string(),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
         read: Some(derive::request::Read {
             transform: 2,
@@ -518,11 +524,11 @@ fn ex_derive_request() -> derive::Request {
                 clock: 5678,
             }),
             shuffle: Some(derive::request::read::Shuffle {
-                key_json: json!([true, 32]).to_string(),
-                packed: vec![86, 75, 30, 9],
+                key_json: json!([true, 32]).to_string().into(),
+                packed: vec![86, 75, 30, 9].into(),
                 hash: 44556677,
             }),
-            doc_json: json!({"read": "doc"}).to_string(),
+            doc_json: json!({"read": "doc"}).to_string().into(),
         }),
         flush: Some(derive::request::Flush {}),
         start_commit: Some(derive::request::StartCommit {
@@ -537,8 +543,8 @@ fn ex_derive_response() -> derive::Response {
     derive::Response {
         spec: Some(derive::response::Spec {
             protocol: 3032023,
-            config_schema_json: json!({"config": "schema"}).to_string(),
-            resource_config_schema_json: json!({"lambda": "schema"}).to_string(),
+            config_schema_json: json!({"config": "schema"}).to_string().into(),
+            resource_config_schema_json: json!({"lambda": "schema"}).to_string().into(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
         }),
@@ -555,7 +561,7 @@ fn ex_derive_response() -> derive::Response {
         }),
         opened: Some(derive::response::Opened {}),
         published: Some(derive::response::Published {
-            doc_json: json!({"published": "doc"}).to_string(),
+            doc_json: json!({"published": "doc"}).to_string().into(),
         }),
         flushed: Some(derive::response::Flushed {}),
         started_commit: Some(derive::response::StartedCommit {
@@ -569,15 +575,15 @@ fn ex_materialize_request() -> materialize::Request {
     materialize::Request {
         spec: Some(materialize::request::Spec {
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-            config_json: json!({"spec":"config"}).to_string(),
+            config_json: json!({"spec":"config"}).to_string().into(),
         }),
         validate: Some(materialize::request::Validate {
             name: "validate/materialization".to_string(),
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-            config_json: json!({"validate":"config"}).to_string(),
+            config_json: json!({"validate":"config"}).to_string().into(),
             bindings: vec![materialize::request::validate::Binding {
                 collection: Some(ex_collection_spec()),
-                resource_config_json: json!({"resource":"config"}).to_string(),
+                resource_config_json: json!({"resource":"config"}).to_string().into(),
                 field_config_json_map: ex_field_config(),
                 backfill: 3,
                 group_by: vec!["key/one".to_string()],
@@ -590,28 +596,28 @@ fn ex_materialize_request() -> materialize::Request {
             version: "11:22:33:44".to_string(),
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
-            state_json: json!({"connector":"state"}).to_string(),
+            state_json: json!({"connector":"state"}).to_string().into(),
         }),
         open: Some(materialize::request::Open {
             materialization: Some(ex_materialization_spec()),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
-            state_json: json!({"connector": {"state": 42}}).to_string(),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
         acknowledge: Some(materialize::request::Acknowledge {}),
         load: Some(materialize::request::Load {
             binding: 12,
             key_packed: vec![86, 75, 30, 9].into(),
-            key_json: json!([42, "hi"]).to_string(),
+            key_json: json!([42, "hi"]).to_string().into(),
         }),
         flush: Some(materialize::request::Flush {}),
         store: Some(materialize::request::Store {
             binding: 3,
             key_packed: vec![90, 21, 0].into(),
-            key_json: json!([true, null]).to_string(),
+            key_json: json!([true, null]).to_string().into(),
             values_packed: vec![60, 91].into(),
-            values_json: json!([3.14159, "field!"]).to_string(),
-            doc_json: json!({"full": "document"}).to_string(),
+            values_json: json!([3.14159, "field!"]).to_string().into(),
+            doc_json: json!({"full": "document"}).to_string().into(),
             exists: true,
             delete: true,
         }),
@@ -626,8 +632,8 @@ fn ex_materialize_response() -> materialize::Response {
     materialize::Response {
         spec: Some(materialize::response::Spec {
             protocol: 3032023,
-            config_schema_json: json!({"config": "schema"}).to_string(),
-            resource_config_schema_json: json!({"resource": "schema"}).to_string(),
+            config_schema_json: json!({"config": "schema"}).to_string().into(),
+            resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
         }),
@@ -679,7 +685,7 @@ fn ex_materialize_response() -> materialize::Response {
         }),
         loaded: Some(materialize::response::Loaded {
             binding: 4,
-            doc_json: json!({"loaded": "doc"}).to_string(),
+            doc_json: json!({"loaded": "doc"}).to_string().into(),
         }),
         flushed: Some(materialize::response::Flushed {
             state: Some(ex_connector_state()),
@@ -724,16 +730,16 @@ fn ex_log() -> ops::Log {
         fields_json_map: [
             (
                 "structured".to_string(),
-                json!({"log": "fields"}).to_string(),
+                json!({"log": "fields"}).to_string().into(),
             ),
-            ("a".to_string(), json!(42).to_string()),
+            ("a".to_string(), json!(42).to_string().into()),
         ]
         .into(),
         spans: vec![ops::Log {
             message: "some parent span".to_string(),
             fields_json_map: [(
                 "more".to_string(),
-                json!(["structured", "stuff", true]).to_string(),
+                json!(["structured", "stuff", true]).to_string().into(),
             )]
             .into(),
             ..Default::default()

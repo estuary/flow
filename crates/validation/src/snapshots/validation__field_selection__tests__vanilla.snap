@@ -387,7 +387,7 @@ Snap {
         ],
         document: "flow_document",
         field_config_json_map: {
-            "nested": "{\"cfg\":42}",
+            "nested": b"{\"cfg\":42}",
         },
     },
     conflicts: [],

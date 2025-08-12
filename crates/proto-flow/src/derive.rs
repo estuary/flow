@@ -37,8 +37,8 @@ pub mod request {
         /// This may be a partial specification (for example, a Docker image),
         /// providing only enough information to fetch the remainder of the
         /// specification schema.
-        #[prost(string, tag = "2")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_json: ::prost::bytes::Bytes,
     }
     /// Validate a derivation configuration and proposed transforms.
     /// Validate is run out-of-band with ongoing connector invocations.
@@ -55,8 +55,8 @@ pub mod request {
         )]
         pub connector_type: i32,
         /// Connector configuration, as an encoded JSON object.
-        #[prost(string, tag = "2")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_json: ::prost::bytes::Bytes,
         /// Collection to be derived.
         #[prost(message, optional, tag = "3")]
         pub collection: ::core::option::Option<super::super::flow::CollectionSpec>,
@@ -107,11 +107,11 @@ pub mod request {
             >,
             /// JSON-encoded object which specifies the shuffle lambda configuration.
             /// If this transform has no shuffle lambda, this is empty.
-            #[prost(string, tag = "3")]
-            pub shuffle_lambda_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "3")]
+            pub shuffle_lambda_config_json: ::prost::bytes::Bytes,
             /// JSON-encoded object which specifies the lambda configuration.
-            #[prost(string, tag = "4")]
-            pub lambda_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "4")]
+            pub lambda_config_json: ::prost::bytes::Bytes,
             /// Backfill counter for this transform.
             #[prost(uint32, tag = "5")]
             pub backfill: u32,
@@ -134,8 +134,8 @@ pub mod request {
         #[prost(message, optional, tag = "3")]
         pub range: ::core::option::Option<super::super::flow::RangeSpec>,
         /// Last-persisted connector checkpoint state from a previous invocation.
-        #[prost(string, tag = "5")]
-        pub state_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "5")]
+        pub state_json: ::prost::bytes::Bytes,
     }
     /// Read a document for one of the Opened transforms.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -150,8 +150,8 @@ pub mod request {
         #[prost(message, optional, tag = "3")]
         pub shuffle: ::core::option::Option<read::Shuffle>,
         /// JSON document which was read.
-        #[prost(string, tag = "4")]
-        pub doc_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "4")]
+        pub doc_json: ::prost::bytes::Bytes,
     }
     /// Nested message and enum types in `Read`.
     pub mod read {
@@ -161,11 +161,11 @@ pub mod request {
         pub struct Shuffle {
             /// Shuffle key, as an array of key components.
             /// Ordering matches `keys` of the materialization's field selection.
-            #[prost(string, tag = "1")]
-            pub key_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "1")]
+            pub key_json: ::prost::bytes::Bytes,
             /// Packed tuple of the document's shuffled key.
-            #[prost(bytes = "vec", tag = "2")]
-            pub packed: ::prost::alloc::vec::Vec<u8>,
+            #[prost(bytes = "bytes", tag = "2")]
+            pub packed: ::prost::bytes::Bytes,
             /// Stable hash of this document's shuffle key, which falls within
             /// `key_begin` and `key_end` of the Request.Open.
             #[prost(uint32, tag = "3")]
@@ -226,16 +226,16 @@ pub mod response {
         #[prost(uint32, tag = "1")]
         pub protocol: u32,
         /// JSON schema of the connector's configuration.
-        #[prost(string, tag = "2")]
-        pub config_schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_schema_json: ::prost::bytes::Bytes,
         /// JSON schema of the connector's lambda configuration.
         /// The "resource" terminology is used with Response.Spec
         /// only for symmetry with the capture and materialization protocols.
         /// NOTE(johnny): We can encapsulate separate lambda config vs
         /// shuffle lambda config schemas by encapsulating them as separate
         /// definitions within the resource config schema.
-        #[prost(string, tag = "3")]
-        pub resource_config_schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "3")]
+        pub resource_config_schema_json: ::prost::bytes::Bytes,
         /// URL for connector's documention.
         #[prost(string, tag = "4")]
         pub documentation_url: ::prost::alloc::string::String,
@@ -286,8 +286,8 @@ pub mod response {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Published {
         /// Published JSON document.
-        #[prost(string, tag = "1")]
-        pub doc_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "1")]
+        pub doc_json: ::prost::bytes::Bytes,
     }
     /// Flushed responds to Request.Flush, and indicates that all documents
     /// have been published.

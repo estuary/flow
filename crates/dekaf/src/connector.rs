@@ -91,8 +91,9 @@ where
                 materialize::Response {
                     spec: Some(materialize::response::Spec {
                         protocol: 3032023,
-                        config_schema_json: serde_json::to_string(&config_schema)?,
-                        resource_config_schema_json: serde_json::to_string(&resource_schema)?,
+                        config_schema_json: serde_json::to_string(&config_schema)?.into(),
+                        resource_config_schema_json: serde_json::to_string(&resource_schema)?
+                            .into(),
                         documentation_url:
                             "https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka"
                                 .to_string(),
@@ -108,7 +109,7 @@ where
                 };
 
                 let parsed_outer_config =
-                    serde_json::from_str::<models::DekafConfig>(&validate.config_json)
+                    serde_json::from_slice::<models::DekafConfig>(&validate.config_json)
                         .context("validating dekaf config")?;
 
                 let parsed_inner_config = serde_json::from_value::<DekafConfig>(
@@ -128,8 +129,8 @@ where
                 let validated_bindings = std::mem::take(&mut validate.bindings)
                     .into_iter()
                     .map(|binding| {
-                        let resource_config = serde_json::from_str::<DekafResourceConfig>(
-                            binding.resource_config_json.as_str(),
+                        let resource_config = serde_json::from_slice::<DekafResourceConfig>(
+                            &binding.resource_config_json,
                         )
                         .context(format!(
                             "validating dekaf resource config for variant {}",

@@ -66,11 +66,13 @@ where
                                     }
                                 }
                             })
-                            .to_string(),
+                            .to_string()
+                            .into(),
                             resource_config_schema_json: serde_json::json!({
                                 "type": "string",
                             })
-                            .to_string(),
+                            .to_string()
+                            .into(),
                             oauth2: None,
                         }),
                         ..Default::default()
@@ -222,8 +224,8 @@ fn parse_open(
         ..
     } = derivation.as_ref().unwrap();
 
-    let config: Config = serde_json::from_str(config_json)
-        .with_context(|| format!("failed to parse SQLite configuration: {config_json}"))?;
+    let config: Config = serde_json::from_slice(config_json)
+        .with_context(|| format!("failed to parse SQLite configuration: {config_json:?}"))?;
 
     let transforms: Vec<Transform> = transforms
         .into_iter()
@@ -243,8 +245,8 @@ fn parse_open(
                 .map(Param::new)
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let block: String = serde_json::from_str(&lambda_config_json).with_context(|| {
-                format!("failed to parse SQLite lambda block: {lambda_config_json}")
+            let block: String = serde_json::from_slice(lambda_config_json).with_context(|| {
+                format!("failed to parse SQLite lambda block: {lambda_config_json:?}")
             })?;
 
             Ok(Transform {
@@ -280,8 +282,8 @@ fn do_read<'db>(
 
     alloc.reset();
     let doc = parser
-        .parse_one(doc_json.as_bytes(), alloc)
-        .with_context(|| format!("couldn't parse read document as JSON: {doc_json}",))?;
+        .parse_one(&doc_json, alloc)
+        .with_context(|| format!("couldn't parse read document as JSON: {doc_json:?}",))?;
 
     // Invoke each lambda of the stack in turn, streaming published documents into `response_tx`.
     // It's important that we don't block here -- these result sets could be very large.
@@ -291,7 +293,7 @@ fn do_read<'db>(
         let it = it.map(|published| match published {
             Ok(published) => Ok(Ok(Response {
                 published: Some(response::Published {
-                    doc_json: published.to_string(),
+                    doc_json: published.to_string().into(),
                 }),
                 ..Default::default()
             })),

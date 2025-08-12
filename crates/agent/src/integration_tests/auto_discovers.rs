@@ -87,8 +87,8 @@ async fn test_auto_discovers_add_new_bindings() {
         bindings: vec![
             Binding {
                 recommended_name: "grass".to_string(),
-                resource_config_json: r#"{"id": "grass", "extra": "grass" }"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                resource_config_json: r#"{"id": "grass", "extra": "grass" }"#.to_string().into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -96,8 +96,8 @@ async fn test_auto_discovers_add_new_bindings() {
             },
             Binding {
                 recommended_name: "moss".to_string(),
-                resource_config_json: r#"{"id": "moss", "extra": "stuff" }"#.to_string(),
-                document_schema_json: document_schema(1).to_string(),
+                resource_config_json: r#"{"id": "moss", "extra": "stuff" }"#.to_string().into(),
+                document_schema_json: document_schema(1).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
@@ -195,8 +195,8 @@ async fn test_auto_discovers_add_new_bindings() {
             Binding {
                 recommended_name: "grass".to_string(),
                 resource_config_json:
-                    r#"{"id": "grass", "expect": "ignore in favor of existing" }"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                    r#"{"id": "grass", "expect": "ignore in favor of existing" }"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -204,8 +204,8 @@ async fn test_auto_discovers_add_new_bindings() {
             },
             Binding {
                 recommended_name: "flowers".to_string(),
-                resource_config_json: r#"{"id": "flowers", "extra": "flowers" }"#.to_string(),
-                document_schema_json: document_schema(1).to_string(),
+                resource_config_json: r#"{"id": "flowers", "extra": "flowers" }"#.into(),
+                document_schema_json: document_schema(1).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -365,8 +365,8 @@ async fn test_auto_discovers_no_evolution() {
     let discovered = Discovered {
         bindings: vec![Binding {
             recommended_name: "hey".to_string(),
-            resource_config_json: r#"{"id": "hey"}"#.to_string(),
-            document_schema_json: document_schema(1).to_string(),
+            resource_config_json: r#"{"id": "hey"}"#.into(),
+            document_schema_json: document_schema(1).to_string().into(),
             key: vec!["/id".to_string()],
             disable: false,
             resource_path: Vec::new(),
@@ -395,8 +395,8 @@ async fn test_auto_discovers_no_evolution() {
     let discovered_diff_key = Discovered {
         bindings: vec![Binding {
             recommended_name: "hey".to_string(),
-            resource_config_json: r#"{"id": "hey"}"#.to_string(),
-            document_schema_json: document_schema(1).to_string(),
+            resource_config_json: r#"{"id": "hey"}"#.into(),
+            document_schema_json: document_schema(1).to_string().into(),
             key: vec!["/id".to_string(), "/squeaks".to_string()],
             disable: false,
             resource_path: Vec::new(),
@@ -724,8 +724,8 @@ async fn test_auto_discovers_update_only() {
         bindings: vec![
             Binding {
                 recommended_name: "grass".to_string(),
-                resource_config_json: r#"{"id": "grass"}"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                resource_config_json: r#"{"id": "grass"}"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
@@ -734,8 +734,8 @@ async fn test_auto_discovers_update_only() {
             Binding {
                 recommended_name: "moss".to_string(),
                 resource_config_json:
-                    r#"{"id": "moss", "expect": "existing config takes precedence" }"#.to_string(),
-                document_schema_json: document_schema(1).to_string(),
+                    r#"{"id": "moss", "expect": "existing config takes precedence" }"#.into(),
+                document_schema_json: document_schema(1).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
@@ -743,8 +743,8 @@ async fn test_auto_discovers_update_only() {
             },
             Binding {
                 recommended_name: "lichen".to_string(),
-                resource_config_json: r#"{"id": "lichen"}"#.to_string(),
-                document_schema_json: document_schema(1).to_string(),
+                resource_config_json: r#"{"id": "lichen"}"#.into(),
+                document_schema_json: document_schema(1).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -910,8 +910,8 @@ async fn test_auto_discovers_update_only() {
         bindings: vec![
             Binding {
                 recommended_name: "grass".to_string(),
-                resource_config_json: r#"{"id": "grass"}"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                resource_config_json: r#"{"id": "grass"}"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -920,8 +920,8 @@ async fn test_auto_discovers_update_only() {
             Binding {
                 recommended_name: "moss".to_string(),
                 resource_config_json:
-                    r#"{"id": "moss", "expect": "existing config takes precedence" }"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                    r#"{"id": "moss", "expect": "existing config takes precedence" }"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
@@ -1006,8 +1006,8 @@ async fn test_auto_discovers_update_only() {
         bindings: vec![
             Binding {
                 recommended_name: "grass".to_string(),
-                resource_config_json: r#"{"id": "grass"}"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                resource_config_json: r#"{"id": "grass"}"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string(), "/squeaks".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -1016,8 +1016,8 @@ async fn test_auto_discovers_update_only() {
             Binding {
                 recommended_name: "moss".to_string(),
                 resource_config_json:
-                    r#"{"id": "moss", "expect": "existing config takes precedence" }"#.to_string(),
-                document_schema_json: document_schema(2).to_string(),
+                    r#"{"id": "moss", "expect": "existing config takes precedence" }"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),

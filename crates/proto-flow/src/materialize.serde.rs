@@ -647,7 +647,9 @@ impl serde::Serialize for request::Apply {
             struct_ser.serialize_field("lastVersion", &self.last_version)?;
         }
         if !self.state_json.is_empty() {
-            struct_ser.serialize_field("state", crate::as_raw_json(&self.state_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("state", &crate::as_raw_json(&self.state_json)?)?;
         }
         struct_ser.end()
     }
@@ -725,7 +727,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 let mut version__ = None;
                 let mut last_materialization__ = None;
                 let mut last_version__ = None;
-                let mut state_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut state_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Materialization => {
@@ -756,7 +758,9 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             if state_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            state_json__ = Some(map_.next_value()?);
+                            state_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                     }
                 }
@@ -765,7 +769,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                     version: version__.unwrap_or_default(),
                     last_materialization: last_materialization__,
                     last_version: last_version__.unwrap_or_default(),
-                    state_json: state_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    state_json: state_json__.unwrap_or_default(),
                 })
             }
         }
@@ -865,7 +869,9 @@ impl serde::Serialize for request::Load {
             struct_ser.serialize_field("binding", &self.binding)?;
         }
         if !self.key_json.is_empty() {
-            struct_ser.serialize_field("key", crate::as_raw_json(&self.key_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("key", &crate::as_raw_json(&self.key_json)?)?;
         }
         if !self.key_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -938,7 +944,7 @@ impl<'de> serde::Deserialize<'de> for request::Load {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
-                let mut key_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut key_json__ = None;
                 let mut key_packed__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -954,7 +960,9 @@ impl<'de> serde::Deserialize<'de> for request::Load {
                             if key_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("key"));
                             }
-                            key_json__ = Some(map_.next_value()?);
+                            key_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::KeyPacked => {
                             if key_packed__.is_some() {
@@ -968,7 +976,7 @@ impl<'de> serde::Deserialize<'de> for request::Load {
                 }
                 Ok(request::Load {
                     binding: binding__.unwrap_or_default(),
-                    key_json: key_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    key_json: key_json__.unwrap_or_default(),
                     key_packed: key_packed__.unwrap_or_default(),
                 })
             }
@@ -1007,7 +1015,9 @@ impl serde::Serialize for request::Open {
             struct_ser.serialize_field("range", v)?;
         }
         if !self.state_json.is_empty() {
-            struct_ser.serialize_field("state", crate::as_raw_json(&self.state_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("state", &crate::as_raw_json(&self.state_json)?)?;
         }
         struct_ser.end()
     }
@@ -1079,7 +1089,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                 let mut materialization__ = None;
                 let mut version__ = None;
                 let mut range__ = None;
-                let mut state_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut state_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Materialization => {
@@ -1104,7 +1114,9 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                             if state_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            state_json__ = Some(map_.next_value()?);
+                            state_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                     }
                 }
@@ -1112,7 +1124,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                     materialization: materialization__,
                     version: version__.unwrap_or_default(),
                     range: range__,
-                    state_json: state_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    state_json: state_json__.unwrap_or_default(),
                 })
             }
         }
@@ -1140,7 +1152,9 @@ impl serde::Serialize for request::Spec {
             struct_ser.serialize_field("connectorType", &v)?;
         }
         if !self.config_json.is_empty() {
-            struct_ser.serialize_field("config", crate::as_raw_json(&self.config_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("config", &crate::as_raw_json(&self.config_json)?)?;
         }
         struct_ser.end()
     }
@@ -1205,7 +1219,7 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut connector_type__ = None;
-                let mut config_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut config_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1218,13 +1232,15 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
                             if config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("config"));
                             }
-                            config_json__ = Some(map_.next_value()?);
+                            config_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                     }
                 }
                 Ok(request::Spec {
                     connector_type: connector_type__.unwrap_or_default(),
-                    config_json: config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    config_json: config_json__.unwrap_or_default(),
                 })
             }
         }
@@ -1360,7 +1376,9 @@ impl serde::Serialize for request::Store {
             struct_ser.serialize_field("binding", &self.binding)?;
         }
         if !self.key_json.is_empty() {
-            struct_ser.serialize_field("key", crate::as_raw_json(&self.key_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("key", &crate::as_raw_json(&self.key_json)?)?;
         }
         if !self.key_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1368,7 +1386,9 @@ impl serde::Serialize for request::Store {
             struct_ser.serialize_field("keyPacked", pbjson::private::base64::encode(&self.key_packed).as_str())?;
         }
         if !self.values_json.is_empty() {
-            struct_ser.serialize_field("values", crate::as_raw_json(&self.values_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("values", &crate::as_raw_json(&self.values_json)?)?;
         }
         if !self.values_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1376,7 +1396,9 @@ impl serde::Serialize for request::Store {
             struct_ser.serialize_field("valuesPacked", pbjson::private::base64::encode(&self.values_packed).as_str())?;
         }
         if !self.doc_json.is_empty() {
-            struct_ser.serialize_field("doc", crate::as_raw_json(&self.doc_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("doc", &crate::as_raw_json(&self.doc_json)?)?;
         }
         if self.exists {
             struct_ser.serialize_field("exists", &self.exists)?;
@@ -1468,11 +1490,11 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
-                let mut key_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut key_json__ = None;
                 let mut key_packed__ = None;
-                let mut values_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut values_json__ = None;
                 let mut values_packed__ = None;
-                let mut doc_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut doc_json__ = None;
                 let mut exists__ = None;
                 let mut delete__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -1489,7 +1511,9 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                             if key_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("key"));
                             }
-                            key_json__ = Some(map_.next_value()?);
+                            key_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::KeyPacked => {
                             if key_packed__.is_some() {
@@ -1503,7 +1527,9 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                             if values_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("values"));
                             }
-                            values_json__ = Some(map_.next_value()?);
+                            values_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::ValuesPacked => {
                             if values_packed__.is_some() {
@@ -1517,7 +1543,9 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                             if doc_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("doc"));
                             }
-                            doc_json__ = Some(map_.next_value()?);
+                            doc_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::Exists => {
                             if exists__.is_some() {
@@ -1535,11 +1563,11 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                 }
                 Ok(request::Store {
                     binding: binding__.unwrap_or_default(),
-                    key_json: key_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    key_json: key_json__.unwrap_or_default(),
                     key_packed: key_packed__.unwrap_or_default(),
-                    values_json: values_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    values_json: values_json__.unwrap_or_default(),
                     values_packed: values_packed__.unwrap_or_default(),
-                    doc_json: doc_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    doc_json: doc_json__.unwrap_or_default(),
                     exists: exists__.unwrap_or_default(),
                     delete: delete__.unwrap_or_default(),
                 })
@@ -1584,7 +1612,9 @@ impl serde::Serialize for request::Validate {
             struct_ser.serialize_field("connectorType", &v)?;
         }
         if !self.config_json.is_empty() {
-            struct_ser.serialize_field("config", crate::as_raw_json(&self.config_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("config", &crate::as_raw_json(&self.config_json)?)?;
         }
         if !self.bindings.is_empty() {
             struct_ser.serialize_field("bindings", &self.bindings)?;
@@ -1673,7 +1703,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             {
                 let mut name__ = None;
                 let mut connector_type__ = None;
-                let mut config_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut config_json__ = None;
                 let mut bindings__ = None;
                 let mut last_materialization__ = None;
                 let mut last_version__ = None;
@@ -1695,7 +1725,9 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             if config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("config"));
                             }
-                            config_json__ = Some(map_.next_value()?);
+                            config_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::Bindings => {
                             if bindings__.is_some() {
@@ -1720,7 +1752,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 Ok(request::Validate {
                     name: name__.unwrap_or_default(),
                     connector_type: connector_type__.unwrap_or_default(),
-                    config_json: config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    config_json: config_json__.unwrap_or_default(),
                     bindings: bindings__.unwrap_or_default(),
                     last_materialization: last_materialization__,
                     last_version: last_version__.unwrap_or_default(),
@@ -1755,7 +1787,9 @@ impl serde::Serialize for request::validate::Binding {
         }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Validate.Binding", len)?;
         if !self.resource_config_json.is_empty() {
-            struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("resourceConfig", &crate::as_raw_json(&self.resource_config_json)?)?;
         }
         if let Some(v) = self.collection.as_ref() {
             struct_ser.serialize_field("collection", v)?;
@@ -1841,9 +1875,9 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut resource_config_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut resource_config_json__ = None;
                 let mut collection__ = None;
-                let mut field_config_json_map__ : Option<std::collections::BTreeMap<String, Box<serde_json::value::RawValue>>> = None;
+                let mut field_config_json_map__ = None;
                 let mut backfill__ = None;
                 let mut group_by__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -1852,7 +1886,9 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             if resource_config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("resourceConfig"));
                             }
-                            resource_config_json__ = Some(map_.next_value()?);
+                            resource_config_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::Collection => {
                             if collection__.is_some() {
@@ -1865,7 +1901,8 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                                 return Err(serde::de::Error::duplicate_field("fieldConfig"));
                             }
                             field_config_json_map__ = Some(
-                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, crate::RawJSONDeserialize>>()?
+                                    .into_iter().map(|(k,v)| (k, v.0)).collect()
                             );
                         }
                         GeneratedField::Backfill => {
@@ -1885,9 +1922,9 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                     }
                 }
                 Ok(request::validate::Binding {
-                    resource_config_json: resource_config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    resource_config_json: resource_config_json__.unwrap_or_default(),
                     collection: collection__,
-                    field_config_json_map: field_config_json_map__.unwrap_or_default().into_iter().map(|(field, value)| (field, Box::<str>::from(value).into())).collect(),
+                    field_config_json_map: field_config_json_map__.unwrap_or_default(),
                     backfill: backfill__.unwrap_or_default(),
                     group_by: group_by__.unwrap_or_default(),
                 })
@@ -2439,7 +2476,9 @@ impl serde::Serialize for response::Loaded {
             struct_ser.serialize_field("binding", &self.binding)?;
         }
         if !self.doc_json.is_empty() {
-            struct_ser.serialize_field("doc", crate::as_raw_json(&self.doc_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("doc", &crate::as_raw_json(&self.doc_json)?)?;
         }
         struct_ser.end()
     }
@@ -2503,7 +2542,7 @@ impl<'de> serde::Deserialize<'de> for response::Loaded {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
-                let mut doc_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut doc_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Binding => {
@@ -2518,13 +2557,15 @@ impl<'de> serde::Deserialize<'de> for response::Loaded {
                             if doc_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("doc"));
                             }
-                            doc_json__ = Some(map_.next_value()?);
+                            doc_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                     }
                 }
                 Ok(response::Loaded {
                     binding: binding__.unwrap_or_default(),
-                    doc_json: doc_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    doc_json: doc_json__.unwrap_or_default(),
                 })
             }
         }
@@ -2669,10 +2710,14 @@ impl serde::Serialize for response::Spec {
             struct_ser.serialize_field("protocol", &self.protocol)?;
         }
         if !self.config_schema_json.is_empty() {
-            struct_ser.serialize_field("configSchema", crate::as_raw_json(&self.config_schema_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("configSchema", &crate::as_raw_json(&self.config_schema_json)?)?;
         }
         if !self.resource_config_schema_json.is_empty() {
-            struct_ser.serialize_field("resourceConfigSchema", crate::as_raw_json(&self.resource_config_schema_json)?)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("resourceConfigSchema", &crate::as_raw_json(&self.resource_config_schema_json)?)?;
         }
         if !self.documentation_url.is_empty() {
             struct_ser.serialize_field("documentationUrl", &self.documentation_url)?;
@@ -2753,8 +2798,8 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut protocol__ = None;
-                let mut config_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
-                let mut resource_config_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut config_schema_json__ = None;
+                let mut resource_config_schema_json__ = None;
                 let mut documentation_url__ = None;
                 let mut oauth2__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -2771,13 +2816,17 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                             if config_schema_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("configSchema"));
                             }
-                            config_schema_json__ = Some(map_.next_value()?);
+                            config_schema_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::ResourceConfigSchemaJson => {
                             if resource_config_schema_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("resourceConfigSchema"));
                             }
-                            resource_config_schema_json__ = Some(map_.next_value()?);
+                            resource_config_schema_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
                         }
                         GeneratedField::DocumentationUrl => {
                             if documentation_url__.is_some() {
@@ -2795,8 +2844,8 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                 }
                 Ok(response::Spec {
                     protocol: protocol__.unwrap_or_default(),
-                    config_schema_json: config_schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
-                    resource_config_schema_json: resource_config_schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    config_schema_json: config_schema_json__.unwrap_or_default(),
+                    resource_config_schema_json: resource_config_schema_json__.unwrap_or_default(),
                     documentation_url: documentation_url__.unwrap_or_default(),
                     oauth2: oauth2__,
                 })

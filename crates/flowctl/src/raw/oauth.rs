@@ -89,11 +89,11 @@ pub async fn do_oauth(
     let spec_req = match &model.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&config).unwrap(),
+            config_json: serde_json::to_string(&config).unwrap().into(),
         },
         models::CaptureEndpoint::Local(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Local as i32,
-            config_json: serde_json::to_string(config).unwrap(),
+            config_json: serde_json::to_string(config).unwrap().into(),
         },
     };
     // Get the task spec's oauth field
@@ -127,7 +127,7 @@ pub async fn do_oauth(
     // schema emitted by the connector
     let curi = url::Url::parse("flow://fixture").unwrap();
     let mut parsed_schema: serde_json::Value =
-        serde_json::from_str(spec_response.config_schema_json.as_str()).unwrap();
+        serde_json::from_slice(&spec_response.config_schema_json).unwrap();
 
     // We have to remove the special "credentials" key from the list of required fields
     // because the whole point of this command is to generate it, so it's expected

@@ -113,7 +113,7 @@ message Inference {
   // The description from the schema, if provided.
   string description = 5;
   // The default value from the schema, if provided.
-  string default_json = 6 [
+  bytes default_json = 6 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "default"
   ];
@@ -175,13 +175,13 @@ message CollectionSpec {
   // Name of this collection.
   string name = 1 [ (gogoproto.casttype) = "Collection" ];
   // Bundled write-time JSON Schema of the collection.
-  string write_schema_json = 8 [
+  bytes write_schema_json = 8 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "writeSchema"
   ];
   // Bundled read-time JSON Schema of the collection.
   // Optional. If not set then `write_schema_json` should be used.
-  string read_schema_json = 11 [
+  bytes read_schema_json = 11 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "readSchema"
   ];
@@ -197,7 +197,7 @@ message CollectionSpec {
   repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  string ack_template_json = 7
+  bytes ack_template_json = 7
       [ (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "ackTemplate"
   ];
@@ -219,7 +219,7 @@ message CollectionSpec {
     // Type of the derivation's connector.
     ConnectorType connector_type = 1;
     // JSON-encoded connector configuration of this derivation.
-    string config_json = 2 [
+    bytes config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "config"
     ];
@@ -243,12 +243,12 @@ message CollectionSpec {
       // Shuffle key of this transform, or empty if a shuffle key is not defined.
       repeated string shuffle_key = 6;
       /// JSON-encoded shuffle lambda of this transform, or empty if a shuffle lambda is not defined.
-      string shuffle_lambda_config_json = 7 [
+      bytes shuffle_lambda_config_json = 7 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "shuffleLambdaConfig"
       ];
       // JSON-encoded lambda of this transform.
-      string lambda_config_json = 8 [
+      bytes lambda_config_json = 8 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "lambdaConfig"
       ];
@@ -301,7 +301,7 @@ message FieldSelection {
   string document = 3;
   // Additional configuration, keyed by fields included in |keys|, |values|, or
   // |document|. Values are arbitrary JSON-encoded objects.
-  map<string, string> field_config_json_map = 4 [
+  map<string, bytes> field_config_json_map = 4 [
     (gogoproto.castvalue) = "encoding/json.RawMessage",
     json_name = "fieldConfig"
   ];
@@ -319,7 +319,7 @@ message CaptureSpec {
   }
   ConnectorType connector_type = 2;
   // JSON-encoded connector configuration of this capture.
-  string config_json = 3 [
+  bytes config_json = 3 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "config"
   ];
@@ -329,7 +329,7 @@ message CaptureSpec {
     // Next tag: 6.
 
     // JSON-encoded configuration of the bound resource.
-    string resource_config_json = 1 [
+    bytes resource_config_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceConfig"
     ];
@@ -373,7 +373,7 @@ message MaterializationSpec {
   }
   ConnectorType connector_type = 2;
   // JSON-encoded connector configuration of this materialization.
-  string config_json = 3 [
+  bytes config_json = 3 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "config"
   ];
@@ -383,7 +383,7 @@ message MaterializationSpec {
     // Next tag: 15.
 
     // JSON-encoded configuration of the bound resource.
-    string resource_config_json = 1 [
+    bytes resource_config_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceConfig"
     ];
@@ -485,7 +485,7 @@ message OAuth2 {
   string access_token_body = 4;
 
   // Headers for the access_token request
-  map<string, string> access_token_headers_json_map = 5 [
+  map<string, bytes> access_token_headers_json_map = 5 [
     (gogoproto.castvalue) = "encoding/json.RawMessage",
     json_name = "accessTokenHeaders"
   ];
@@ -495,7 +495,7 @@ message OAuth2 {
   // If the connector supports refresh tokens, must include `refresh_token` and
   // `expires_in`. If this mapping is not provided, the keys from the response
   // are passed as-is to the connector config.
-  map<string, string> access_token_response_json_map = 6 [
+  map<string, bytes> access_token_response_json_map = 6 [
     (gogoproto.castvalue) = "encoding/json.RawMessage",
     json_name = "accessTokenResponseMap"
   ];
@@ -511,7 +511,7 @@ message OAuth2 {
   string refresh_token_body = 8;
 
   // Headers for the refresh_token request
-  map<string, string> refresh_token_headers_json_map = 9 [
+  map<string, bytes> refresh_token_headers_json_map = 9 [
     (gogoproto.castvalue) = "encoding/json.RawMessage",
     json_name = "refreshTokenHeaders"
   ];
@@ -521,7 +521,7 @@ message OAuth2 {
   // If the connector supports refresh tokens, must include `refresh_token` and
   // `expires_in`. If this mapping is not provided, the keys from the response
   // are passed as-is to the connector config.
-  map<string, string> refresh_token_response_json_map = 10 [
+  map<string, bytes> refresh_token_response_json_map = 10 [
     (gogoproto.castvalue) = "encoding/json.RawMessage",
     json_name = "refreshTokenResponseMap"
   ];
@@ -548,7 +548,7 @@ message TestSpec {
     // Collection ingested or verified by this step.
     string collection = 5 [ (gogoproto.casttype) = "Collection" ];
     // JSON documents to ingest or verify.
-    repeated string docs_json_vec = 6 [
+    repeated bytes docs_json_vec = 6 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "docs"
     ];
@@ -590,7 +590,7 @@ message RangeSpec {
 message ConnectorState {
   // Update of the connector state, to be persisted by the Flow runtime
   // and supplied in the Open of a future connector invocation.
-  string updated_json = 1 [
+  bytes updated_json = 1 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "updated"
   ];
@@ -635,7 +635,7 @@ message ExtractAPI {
     string uuid_ptr = 1;
     // JSON schema to validate non-ACK documents against.
     // If empty then schema validation is not performed.
-    string schema_json = 2
+    bytes schema_json = 2
         [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
     // Field JSON pointers to extract from documents and return as packed
     // tuples.
@@ -696,7 +696,7 @@ message IngestRequest {
   // Build ID of the ingested collection.
   string build_id = 2;
   // JSON documents to ingest or verify.
-  repeated string docs_json_vec = 3 [
+  repeated bytes docs_json_vec = 3 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "docs"
   ];

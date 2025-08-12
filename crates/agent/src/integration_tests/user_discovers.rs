@@ -17,7 +17,7 @@ async fn test_user_discovers() {
             Binding {
                 recommended_name: String::from("acorns"),
                 document_schema_json: document_schema(1),
-                resource_config_json: String::from(r#"{"id": "acorns"}"#),
+                resource_config_json: r#"{"id": "acorns"}"#.into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -26,7 +26,7 @@ async fn test_user_discovers() {
             Binding {
                 recommended_name: String::from("walnuts"),
                 document_schema_json: document_schema(1),
-                resource_config_json: String::from(r#"{"id": "walnuts"}"#),
+                resource_config_json: r#"{"id": "walnuts"}"#.into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -35,7 +35,7 @@ async fn test_user_discovers() {
             Binding {
                 recommended_name: String::from("crab apples"),
                 document_schema_json: document_schema(1),
-                resource_config_json: String::from(r#"{"id": "crab apples"}"#),
+                resource_config_json: r#"{"id": "crab apples"}"#.into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
@@ -193,7 +193,7 @@ async fn test_user_discovers() {
             Binding {
                 recommended_name: String::from("acorns"),
                 document_schema_json: document_schema(2),
-                resource_config_json: String::from(r#"{"id": "acorns"}"#),
+                resource_config_json: r#"{"id": "acorns"}"#.into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -202,7 +202,7 @@ async fn test_user_discovers() {
             Binding {
                 recommended_name: String::from("walnuts"),
                 document_schema_json: document_schema(2),
-                resource_config_json: String::from(r#"{"id": "walnuts"}"#),
+                resource_config_json: r#"{"id": "walnuts"}"#.into(),
                 key: vec!["/id".to_string()],
                 disable: true,
                 resource_path: Vec::new(),
@@ -211,7 +211,7 @@ async fn test_user_discovers() {
             Binding {
                 recommended_name: String::from("hickory nuts!"),
                 document_schema_json: document_schema(2),
-                resource_config_json: String::from(r#"{"id": "hickory-nuts"}"#),
+                resource_config_json: r#"{"id": "hickory-nuts"}"#.into(),
                 key: vec!["/id".to_string()],
                 disable: false,
                 resource_path: Vec::new(),
@@ -334,7 +334,7 @@ async fn test_user_discovers() {
     }
 }
 
-fn document_schema(version: usize) -> String {
+fn document_schema(version: usize) -> bytes::Bytes {
     serde_json::to_string(&serde_json::json!({
         "type": "object",
         "properties": {
@@ -344,4 +344,5 @@ fn document_schema(version: usize) -> String {
         "required": ["id"]
     }))
     .unwrap()
+    .into()
 }

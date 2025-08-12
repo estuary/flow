@@ -80,9 +80,8 @@ impl Connectors for TestConnectors {
                     let response = Response {
                         spec: Some(response::Spec {
                             protocol: 3032023,
-                            config_schema_json: r#"{"type": "object", "properties": {}}"#
-                                .to_string(),
-                            resource_config_schema_json: r#"true"#.to_string(),
+                            config_schema_json: r#"{"type": "object", "properties": {}}"#.into(),
+                            resource_config_schema_json: r#"true"#.into(),
                             documentation_url: "http://test.test/test-docs".to_string(),
                             oauth2: None,
                             resource_path_pointers: vec!["/id".to_string()],
@@ -96,7 +95,7 @@ impl Connectors for TestConnectors {
                         .iter()
                         .map(|binding| {
                             let resource_config =
-                                serde_json::from_str(&binding.resource_config_json).unwrap();
+                                serde_json::from_slice(&binding.resource_config_json).unwrap();
                             let resource_path = mock_resource_path(&resource_config);
                             response::validated::Binding { resource_path }
                         })
@@ -133,8 +132,8 @@ impl Connectors for TestConnectors {
                     let response = Response {
                         spec: Some(Spec {
                             protocol: 3032023,
-                            config_schema_json: "{}".to_owned(),
-                            resource_config_schema_json: "{}".to_string(),
+                            config_schema_json: "{}".into(),
+                            resource_config_schema_json: "{}".into(),
                             documentation_url: "http://test.test/test-docs".to_string(),
                             oauth2: None,
                         }),
@@ -179,7 +178,7 @@ impl Connectors for TestConnectors {
                     () = co
                         .yield_(materialize::Response {
                             spec: Some(materialize::response::Spec {
-                                config_schema_json: "true".to_string(),
+                                config_schema_json: "true".into(),
                                 resource_config_schema_json: r#"{
                                     "type": "object",
                                     "properties": {
@@ -193,7 +192,7 @@ impl Connectors for TestConnectors {
                                       }
                                     }
                                 }"#
-                                .to_string(),
+                                .into(),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -207,7 +206,7 @@ impl Connectors for TestConnectors {
                         .map(|binding| {
                             let collection = binding.collection.as_ref().unwrap();
                             let resource_config: serde_json::Value =
-                                serde_json::from_str(&binding.resource_config_json).unwrap();
+                                serde_json::from_slice(&binding.resource_config_json).unwrap();
                             let delta_updates = resource_config
                                 .get("deltaUpdates")
                                 .and_then(|d| d.as_bool())

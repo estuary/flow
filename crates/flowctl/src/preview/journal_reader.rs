@@ -102,7 +102,7 @@ impl Reader {
                         () = co
                             .yield_(runtime::harness::Read::Document {
                                 binding: binding as u32,
-                                doc: doc_json,
+                                doc: doc_json.into(),
                             })
                             .await;
 

@@ -8,7 +8,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default
         .as_ref()
-        .map(|v| v.0.to_string())
+        .map(|v| v.0.to_string().into())
         .unwrap_or_default();
 
     let exists = match exists {

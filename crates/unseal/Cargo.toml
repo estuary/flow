@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 async-process = { path = "../async-process" }
+bytes = { workspace = true }
 models = { path = "../models" }
 locate-bin = { path = "../locate-bin" }
 

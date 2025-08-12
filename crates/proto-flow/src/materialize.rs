@@ -41,8 +41,8 @@ pub mod request {
         /// This may be a partial specification (for example, a Docker image),
         /// providing only enough information to fetch the remainder of the
         /// specification schema.
-        #[prost(string, tag = "2")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_json: ::prost::bytes::Bytes,
     }
     /// Validate a materialization configuration and proposed bindings.
     /// Validate is run out-of-band with ongoing capture invocations.
@@ -62,8 +62,8 @@ pub mod request {
         )]
         pub connector_type: i32,
         /// Connector configuration, as an encoded JSON object.
-        #[prost(string, tag = "3")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "3")]
+        pub config_json: ::prost::bytes::Bytes,
         #[prost(message, repeated, tag = "4")]
         pub bindings: ::prost::alloc::vec::Vec<validate::Binding>,
         /// Last MaterializationSpec which was validated and published.
@@ -84,8 +84,8 @@ pub mod request {
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
             /// JSON-encoded object which specifies the endpoint resource to be materialized.
-            #[prost(string, tag = "1")]
-            pub resource_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "1")]
+            pub resource_config_json: ::prost::bytes::Bytes,
             /// Collection to be materialized.
             #[prost(message, optional, tag = "2")]
             pub collection: ::core::option::Option<
@@ -93,10 +93,10 @@ pub mod request {
             >,
             /// Projection configuration, keyed by the projection field name,
             /// with JSON-encoded and driver-defined configuration objects.
-            #[prost(btree_map = "string, string", tag = "3")]
+            #[prost(btree_map = "string, bytes", tag = "3")]
             pub field_config_json_map: ::prost::alloc::collections::BTreeMap<
                 ::prost::alloc::string::String,
-                ::prost::alloc::string::String,
+                ::prost::bytes::Bytes,
             >,
             /// Backfill counter for this binding.
             #[prost(uint32, tag = "4")]
@@ -137,8 +137,8 @@ pub mod request {
         /// Last-persisted connector checkpoint state from a previous session.
         /// The Apply RPC may use this state to perform a post-commit apply
         /// of files staged under the `last_materialization` specification.
-        #[prost(string, tag = "6")]
-        pub state_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "6")]
+        pub state_json: ::prost::bytes::Bytes,
     }
     /// Open a materialization stream.
     ///
@@ -174,8 +174,8 @@ pub mod request {
         #[prost(message, optional, tag = "3")]
         pub range: ::core::option::Option<super::super::flow::RangeSpec>,
         /// Last-persisted connector checkpoint state from a previous session.
-        #[prost(string, tag = "4")]
-        pub state_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "4")]
+        pub state_json: ::prost::bytes::Bytes,
     }
     /// Load a document identified by its key. The given key may have never before been stored,
     /// but a given key will be sent in a transaction Load just one time.
@@ -187,8 +187,8 @@ pub mod request {
         pub binding: u32,
         /// key tuple, as an array of key components.
         /// Ordering matches `keys` of the materialization's field selection.
-        #[prost(string, tag = "2")]
-        pub key_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub key_json: ::prost::bytes::Bytes,
         /// Packed tuple of the document key to load.
         #[prost(bytes = "bytes", tag = "3")]
         pub key_packed: ::prost::bytes::Bytes,
@@ -208,21 +208,21 @@ pub mod request {
         pub binding: u32,
         /// Key tuple, as an array of key components.
         /// Ordering matches `keys` of the materialization's field selection.
-        #[prost(string, tag = "2")]
-        pub key_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub key_json: ::prost::bytes::Bytes,
         /// Packed FoundationDB tuple of the document key to store.
         #[prost(bytes = "bytes", tag = "3")]
         pub key_packed: ::prost::bytes::Bytes,
         /// Values tuple, as an array of value components.
         /// Ordering matches `values` of the materialization's field selection.
-        #[prost(string, tag = "4")]
-        pub values_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "4")]
+        pub values_json: ::prost::bytes::Bytes,
         /// Packed FoundationDB tuple of the document values to store.
         #[prost(bytes = "bytes", tag = "5")]
         pub values_packed: ::prost::bytes::Bytes,
         /// JSON document to store.
-        #[prost(string, tag = "6")]
-        pub doc_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "6")]
+        pub doc_json: ::prost::bytes::Bytes,
         /// Exists is true if this document has previously been loaded or stored.
         #[prost(bool, tag = "7")]
         pub exists: bool,
@@ -280,16 +280,16 @@ pub mod response {
         #[prost(uint32, tag = "1")]
         pub protocol: u32,
         /// JSON schema of the connector's configuration.
-        #[prost(string, tag = "2")]
-        pub config_schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_schema_json: ::prost::bytes::Bytes,
         /// JSON schema of the connector's resource configuration.
         /// Schemas must use specific annotations to communicate the expected
         /// locations of injected platform variables:
         /// - `x-collection-name: true`, a string location for a resource name (required).
         /// - `x-schema-name: true`, a string location for a resource schema (optional).
         /// - `x-delta-updates: true`, a boolean location for enabling delta-updates mode (optional).
-        #[prost(string, tag = "3")]
-        pub resource_config_schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "3")]
+        pub resource_config_schema_json: ::prost::bytes::Bytes,
         /// URL for connector's documentation.
         #[prost(string, tag = "4")]
         pub documentation_url: ::prost::alloc::string::String,
@@ -531,8 +531,8 @@ pub mod response {
         #[prost(uint32, tag = "1")]
         pub binding: u32,
         /// Loaded JSON document.
-        #[prost(string, tag = "2")]
-        pub doc_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub doc_json: ::prost::bytes::Bytes,
     }
     /// Flushed responds to a Request.Flush.
     /// The driver will send no further Loaded responses.

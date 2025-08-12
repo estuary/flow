@@ -1,6 +1,7 @@
 use super::{Binding, Request, Response};
 use crate::Accumulator;
 use anyhow::Context;
+use bytes::BufMut;
 use doc::HeapNode;
 use proto_flow::runtime::combine_request;
 
@@ -72,7 +73,7 @@ pub fn recv_client_add(
         .with_context(|| "invalid binding {binding}")?;
 
     let (memtable, alloc, mut doc) = accumulator
-        .doc_bytes_to_heap_node(doc_json.as_bytes())
+        .doc_bytes_to_heap_node(&doc_json)
         .context("couldn't parse added document as JSON")?;
 
     if let Some(uuid_ptr) = &binding.uuid_ptr {
@@ -123,8 +124,10 @@ pub fn send_client_response(
 
     let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key, buf);
     let values_packed = doc::Extractor::extract_all_owned(&root, &binding.values, buf);
-    let doc_json = serde_json::to_string(&binding.ser_policy.on_owned(&root))
+
+    serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");
+    let doc_json = buf.split().freeze();
 
     Ok(Response {
         binding: binding_index as u32,

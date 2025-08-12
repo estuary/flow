@@ -199,7 +199,7 @@ pub fn queue_connector_state_update(
     } = state;
 
     let updated: models::RawValue =
-        serde_json::from_str(updated_json).context("failed to decode connector state as JSON")?;
+        serde_json::from_slice(updated_json).context("failed to decode connector state as JSON")?;
 
     if *merge_patch {
         wb.merge(RocksDB::CONNECTOR_STATE_KEY, updated.get());
@@ -275,7 +275,7 @@ fn task_state_default_json_schema(state_schema: &serde_json::Value) -> serde_jso
 // Set a reduction merge operator using the given `schema`.
 fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> anyhow::Result<()> {
     // Check that we can build a validator for `schema`.
-    let bundle = doc::validation::build_bundle(schema)?;
+    let bundle = doc::validation::build_bundle(schema.as_bytes())?;
     let _validator = doc::Validator::new(bundle)?;
 
     let schema_1 = schema.to_owned();
@@ -323,7 +323,7 @@ fn do_merge(
     operands: &rocksdb::merge_operator::MergeOperands,
     schema: &str,
 ) -> anyhow::Result<Vec<u8>> {
-    let bundle = doc::validation::build_bundle(schema).unwrap();
+    let bundle = doc::validation::build_bundle(schema.as_bytes()).unwrap();
     let validator = doc::Validator::new(bundle).unwrap();
     let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", None, validator);
     let memtable = doc::combine::MemTable::new(spec);

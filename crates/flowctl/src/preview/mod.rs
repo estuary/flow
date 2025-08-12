@@ -304,7 +304,7 @@ async fn preview_capture<L: runtime::LogHandler>(
                 .unwrap()
                 .name;
 
-            print!("[{collection:?},{doc_json}]\n");
+            print!("[{collection:?},{}]\n", str::from_utf8(&doc_json).unwrap());
         } else if let Some(capture::response::Checkpoint { state }) = response.checkpoint {
             let proto_flow::runtime::capture_response_ext::Checkpoint { stats, .. } =
                 internal.checkpoint.unwrap_or_default();
@@ -354,7 +354,7 @@ async fn preview_derivation<L: runtime::LogHandler>(
 
             tracing::trace!(?max_clock, ?key_packed, ?partitions_packed, "published");
 
-            print!("{doc_json}\n");
+            print!("{}\n", str::from_utf8(&doc_json).unwrap());
         } else if let Some(derive::response::Flushed {}) = response.flushed {
             let proto_flow::runtime::derive_response_ext::Flushed { stats } =
                 internal.flushed.unwrap_or_default();

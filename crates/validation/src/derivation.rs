@@ -218,22 +218,22 @@ async fn walk_derivation<C: Connectors>(
     } = model;
 
     // Unwrap `using` into a connector type and configuration.
-    let (connector_type, config_json) = match &using {
+    let (connector_type, config_json): (i32, bytes::Bytes) = match &using {
         models::DeriveUsing::Connector(config) => (
             ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
         models::DeriveUsing::Local(config) => (
             ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
         models::DeriveUsing::Sqlite(config) => (
             ConnectorType::Sqlite as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
         models::DeriveUsing::Typescript(config) => (
             ConnectorType::Typescript as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
     };
     // Resolve the data-plane for this task. We cannot continue without it.
@@ -839,8 +839,8 @@ fn walk_derive_transform<'a>(
         validate: derive::request::validate::Transform {
             name: model.name.to_string(),
             collection: Some(source_spec),
-            lambda_config_json: model.lambda.to_string(),
-            shuffle_lambda_config_json,
+            lambda_config_json: model.lambda.to_string().into(),
+            shuffle_lambda_config_json: shuffle_lambda_config_json.into(),
             backfill: model.backfill,
         },
         inferred_shuffle_types: shuffle_types,

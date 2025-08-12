@@ -156,9 +156,13 @@ async fn test_schema_evolution() {
         .get()
         .contains("inferredSchemaIsNotAvailable"));
     let pasture_spec = unwrap_built_collection(&pasture_state);
-    assert!(pasture_spec
-        .read_schema_json
-        .contains("inferredSchemaIsNotAvailable"));
+    assert_eq!(
+        bytes_matches(
+            &pasture_spec.read_schema_json,
+            b"inferredSchemaIsNotAvailable"
+        ),
+        2,
+    );
     // A collection that uses schema inferrence should always have a wake_at scheduled
     harness.assert_controller_pending("goats/pasture").await;
 
@@ -166,16 +170,20 @@ async fn test_schema_evolution() {
     let totes_state = harness.get_controller_state("goats/totes").await;
     harness.assert_controller_pending("goats/totes").await;
     let totes_spec = unwrap_built_collection(&totes_state);
-    assert!(totes_spec
-        .read_schema_json
-        .contains("inferredSchemaIsNotAvailable"));
+    assert_eq!(
+        bytes_matches(
+            &totes_spec.read_schema_json,
+            b"inferredSchemaIsNotAvailable"
+        ),
+        2
+    );
     // Assert that the schema in the built spec _does_ contain the bundled write schema
     assert_eq!(
-        3,
-        totes_spec
-            .read_schema_json
-            .matches(models::Schema::REF_WRITE_SCHEMA_URL)
-            .count()
+        bytes_matches(
+            &totes_spec.read_schema_json,
+            models::Schema::REF_WRITE_SCHEMA_URL.as_bytes()
+        ),
+        3
     );
     let pasture_generation_id = get_collection_generation_id(&pasture_state);
     harness.control_plane().reset_activations();
@@ -191,9 +199,13 @@ async fn test_schema_evolution() {
     let pasture_state = harness.get_controller_state("goats/pasture").await;
     let pasture_spec = unwrap_built_collection(&pasture_state);
     // Assert the placeholder schema is no longer present
-    assert!(!pasture_spec
-        .read_schema_json
-        .contains("inferredSchemaIsNotAvailable"));
+    assert_eq!(
+        bytes_matches(
+            &pasture_spec.read_schema_json,
+            b"inferredSchemaIsNotAvailable"
+        ),
+        0
+    );
 
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
@@ -447,4 +459,10 @@ async fn materialization_specs(
         .into_iter()
         .map(|m| (m.materialization, m.model))
         .collect()
+}
+
+fn bytes_matches(b: &[u8], needle: &[u8]) -> usize {
+    b.windows(needle.len())
+        .filter(|window| *window == needle)
+        .count()
 }

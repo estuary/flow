@@ -40,7 +40,12 @@ impl Task {
             ("ghcr.io/estuary/materialize-sqlite", 1000),
         ]
         .iter()
-        .filter_map(|(image, limit)| config_json.contains(image).then_some(*limit))
+        .filter_map(|(image, limit)| {
+            config_json
+                .windows(image.len())
+                .any(|window| window == image.as_bytes())
+                .then_some(*limit)
+        })
         .next()
         {
             doc::SerPolicy {
