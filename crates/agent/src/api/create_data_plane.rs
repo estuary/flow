@@ -3,6 +3,7 @@ use crate::api::error::ApiErrorExt;
 use crate::publications::{
     DoNotRetry, DraftPublication, NoopInitialize, NoopWithCommit, PruneUnboundCollections,
 };
+use agent_sql::directives::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
 use anyhow::Context;
 use axum::http::StatusCode;
 use std::sync::Arc;
@@ -224,6 +225,43 @@ pub async fn create_data_plane(
         tracing::error!(error = ?err, "create-data-plane build error");
     }
     let _result = result.error_for_status()?;
+
+    // Update storage mappings for private data planes to add the new data plane as the first option
+    if let Some(tenant_prefix) = &private {
+        let mut txn = app.pg_pool.begin().await?;
+        let recovery_prefix = format!("recovery/{}", tenant_prefix);
+
+        // Fetch existing storage mappings for this tenant
+        let existing_mappings =
+            fetch_storage_mappings(tenant_prefix, &recovery_prefix, &mut txn).await?;
+
+        for mapping in existing_mappings {
+            if mapping.catalog_prefix.starts_with("recovery/") {
+                continue;
+            }
+            // Parse the existing spec
+            let mut storage_spec: models::StorageDef = serde_json::from_str(mapping.spec.get())
+                .context("deserializing existing storage mapping")?;
+
+            // Add the new data plane to the front of the data_planes list
+            // Remove it first if it already exists to avoid duplicates
+            storage_spec.data_planes.retain(|dp| dp != &data_plane_name);
+            storage_spec.data_planes.insert(0, data_plane_name.clone());
+
+            // Update the storage mapping
+            let detail = format!("updated by create-data-plane for {}", data_plane_name);
+            upsert_storage_mapping(&detail, &mapping.catalog_prefix, &storage_spec, &mut txn)
+                .await?;
+
+            tracing::info!(
+                tenant_prefix = %tenant_prefix,
+                data_plane_name = %data_plane_name,
+                "updated storage mapping to prioritize new data plane"
+            );
+        }
+
+        txn.commit().await?;
+    }
 
     tracing::info!(
         data_plane_fqdn,
