@@ -84,10 +84,10 @@ pub struct Log {
     #[prost(string, tag = "5")]
     pub message: ::prost::alloc::string::String,
     /// Structured Fields of the log.
-    #[prost(btree_map = "string, string", tag = "6")]
+    #[prost(btree_map = "string, bytes", tag = "6")]
     pub fields_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
     >,
     /// Parent spans of this log event.
     #[prost(message, repeated, tag = "7")]

@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 # External dependencies
 anyhow = { workspace = true }
+bytes = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-sts = { workspace = true }
 jsonwebtoken = { workspace = true }

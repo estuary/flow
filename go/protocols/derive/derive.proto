@@ -26,7 +26,7 @@ message Request {
     // This may be a partial specification (for example, a Docker image),
     // providing only enough information to fetch the remainder of the
     // specification schema.
-    string config_json = 2 [
+    bytes config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "config"
     ];
@@ -42,7 +42,7 @@ message Request {
     // Connector type addressed by this request.
     flow.CollectionSpec.Derivation.ConnectorType connector_type = 1;
     // Connector configuration, as an encoded JSON object.
-    string config_json = 2 [
+    bytes config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "config"
     ];
@@ -56,12 +56,12 @@ message Request {
       flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
       // JSON-encoded object which specifies the shuffle lambda configuration.
       // If this transform has no shuffle lambda, this is empty.
-      string shuffle_lambda_config_json = 3 [
+      bytes shuffle_lambda_config_json = 3 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "shuffleLambdaConfig"
       ];
       // JSON-encoded object which specifies the lambda configuration.
-      string lambda_config_json = 4 [
+      bytes lambda_config_json = 4 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "lambdaConfig"
       ];
@@ -101,7 +101,7 @@ message Request {
     // Range of documents to be processed by this invocation.
     flow.RangeSpec range = 3;
     // Last-persisted connector checkpoint state from a previous invocation.
-    string state_json = 5 [
+    bytes state_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
     ];
@@ -118,7 +118,7 @@ message Request {
     message Shuffle {
       // Shuffle key, as an array of key components.
       // Ordering matches `keys` of the materialization's field selection.
-      string key_json = 1 [
+      bytes key_json = 1 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "key"
       ];
@@ -130,7 +130,7 @@ message Request {
     }
     Shuffle shuffle = 3;
     // JSON document which was read.
-    string doc_json = 4 [
+    bytes doc_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "doc"
     ];
@@ -168,7 +168,7 @@ message Response {
     // Protocol version must be 3032023.
     uint32 protocol = 1;
     // JSON schema of the connector's configuration.
-    string config_schema_json = 2 [
+    bytes config_schema_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "configSchema"
     ];
@@ -178,7 +178,7 @@ message Response {
     // NOTE(johnny): We can encapsulate separate lambda config vs
     // shuffle lambda config schemas by encapsulating them as separate
     // definitions within the resource config schema.
-    string resource_config_schema_json = 3 [
+    bytes resource_config_schema_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceConfigSchema"
     ];
@@ -222,7 +222,7 @@ message Response {
 
   message Published {
     // Published JSON document.
-    string doc_json = 1 [
+    bytes doc_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "doc"
     ];

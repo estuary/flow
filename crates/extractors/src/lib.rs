@@ -106,7 +106,7 @@ pub fn for_projection(
     }
 
     let default = if inf.default_json != "" {
-        serde_json::from_str(&inf.default_json).map_err(Error::ParseDefault)?
+        serde_json::from_slice(&inf.default_json).map_err(Error::ParseDefault)?
     } else {
         serde_json::Value::Null
     };

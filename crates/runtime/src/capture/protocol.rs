@@ -1,6 +1,7 @@
 use super::{Task, Transaction};
 use crate::{rocksdb::RocksDB, verify, Accumulator};
 use anyhow::Context;
+use bytes::BufMut;
 use doc::shape::X_COMPLEXITY_LIMIT;
 use prost::Message;
 use proto_flow::capture::{request, response, Request, Response};
@@ -112,7 +113,7 @@ pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Resul
 
     open.state_json = db
         .load_connector_state(
-            models::RawValue::from_str(&open.state_json)
+            serde_json::from_slice::<models::RawValue>(&open.state_json)
                 .context("failed to parse initial open connector state")?,
         )
         .await?
@@ -219,10 +220,12 @@ pub fn send_client_captured_or_checkpoint(
 
     if index == task.bindings.len() {
         // This is a merged checkpoint state update.
-        let updated_json = serde_json::to_string(&doc::SerPolicy::noop().on_owned(&root)).unwrap();
+        serde_json::to_writer(buf.writer(), &doc::SerPolicy::noop().on_owned(&root))
+            .expect("checkpoint serialization cannot fail");
+        let updated_json = buf.split().freeze();
 
         tracing::debug!(
-            state=%updated_json,
+            state=?updated_json,
             "persisting updated connector state",
         );
         () = wb.merge(RocksDB::CONNECTOR_STATE_KEY, &updated_json);
@@ -241,8 +244,10 @@ pub fn send_client_captured_or_checkpoint(
     let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf);
     let partitions_packed =
         doc::Extractor::extract_all_owned(&root, &binding.partition_extractors, buf);
-    let doc_json = serde_json::to_string(&binding.ser_policy.on_owned(&root))
+
+    serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");
+    let doc_json = buf.split().freeze();
 
     let stats = &mut txn.stats.entry(index as u32).or_default().1;
     stats.docs_total += 1;
@@ -396,14 +401,15 @@ pub fn recv_connector_captured(
         doc_json,
     } = captured;
 
-    let (memtable, alloc, mut doc) = accumulator
-        .doc_bytes_to_heap_node(doc_json.as_bytes())
-        .with_context(|| {
-            format!(
-                "couldn't parse captured document as JSON (target {})",
-                task.bindings[binding_index as usize].collection_name
-            )
-        })?;
+    let (memtable, alloc, mut doc) =
+        accumulator
+            .doc_bytes_to_heap_node(&doc_json)
+            .with_context(|| {
+                format!(
+                    "couldn't parse captured document as JSON (target {})",
+                    task.bindings[binding_index as usize].collection_name
+                )
+            })?;
 
     let uuid_ptr = &task
         .bindings
@@ -436,7 +442,7 @@ pub fn recv_connector_sourced_schema(
         schema_json,
     } = sourced;
 
-    tracing::debug!(schema=%schema_json, binding, "sourced schema");
+    tracing::debug!(schema=?schema_json, binding, "sourced schema");
 
     let built_schema = doc::validation::build_bundle(&schema_json).with_context(|| {
         format!(
@@ -529,7 +535,7 @@ pub fn recv_connector_checkpoint(
     } = state;
 
     let (memtable, _alloc, doc) = accumulator
-        .doc_bytes_to_heap_node(updated_json.as_bytes())
+        .doc_bytes_to_heap_node(&updated_json)
         .context("couldn't parse connector state as JSON")?;
 
     // Combine over the checkpoint state.

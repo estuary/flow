@@ -86,7 +86,7 @@ fn test_param(
                 content_encoding: if is_base64 { "base64" } else { "" }.to_string(),
                 ..Default::default()
             }),
-            default_json: "\"the default\"".to_string(),
+            default_json: "\"the default\"".to_string().into(),
             ..Default::default()
         }),
         ..Default::default()

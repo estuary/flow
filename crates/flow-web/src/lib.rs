@@ -13,7 +13,6 @@ pub mod collection;
 pub mod field_selection;
 mod utils;
 
-
 #[wasm_bindgen]
 extern "C" {
     fn alert(s: &str);

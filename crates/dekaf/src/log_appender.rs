@@ -412,7 +412,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
                                     .find_map(|l| l.fields_json_map.get(&well_known.to_string()))
                                 {
                                     log.fields_json_map
-                                        .insert(well_known.to_string(), value.to_string());
+                                        .insert(well_known.to_string(), value.clone());
                                 }
                             }
                             pending_logs.push(log);

@@ -22,8 +22,8 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/constraints",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema\",\"properties\":{\"id\":{\"type\":\"string\"},\"naughty_f\":{\"type\":\"string\"},\"naughty_u\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema\",\"properties\":{\"id\":{\"type\":\"string\"},\"naughty_f\":{\"type\":\"string\"},\"naughty_u\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/id",
                 ],
@@ -44,7 +44,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -66,7 +66,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -95,7 +95,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -124,7 +124,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -153,7 +153,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: May,
                                 numeric: None,
@@ -182,7 +182,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: May,
                                 numeric: None,
@@ -191,7 +191,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "testing/constraints/2020202020202020",
@@ -328,18 +328,18 @@ Outcome {
             spec: MaterializationSpec {
                 name: "testing/db-views",
                 connector_type: Image,
-                config_json: "{\"image\":\"an/image:test\",\"config\":{}}",
+                config_json: b"{\"image\":\"an/image:test\",\"config\":{}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"table\":\"anything\"}",
+                        resource_config_json: b"{\"table\":\"anything\"}",
                         resource_path: [
                             "anything",
                         ],
                         collection: Some(
                             CollectionSpec {
                                 name: "testing/constraints",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema\",\"properties\":{\"id\":{\"type\":\"string\"},\"naughty_f\":{\"type\":\"string\"},\"naughty_u\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                                read_schema_json: "",
+                                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema\",\"properties\":{\"id\":{\"type\":\"string\"},\"naughty_f\":{\"type\":\"string\"},\"naughty_u\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                                read_schema_json: b"",
                                 key: [
                                     "/id",
                                 ],
@@ -360,7 +360,7 @@ Outcome {
                                                 string: None,
                                                 title: "Flow truncation indicator",
                                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -382,7 +382,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -411,7 +411,7 @@ Outcome {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -440,7 +440,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -469,7 +469,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: May,
                                                 numeric: None,
@@ -498,7 +498,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: May,
                                                 numeric: None,
@@ -507,7 +507,7 @@ Outcome {
                                         ),
                                     },
                                 ],
-                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "testing/constraints/2020202020202020",
@@ -736,23 +736,23 @@ Outcome {
             previous_spec: MaterializationSpec {
                 name: "testing/db-views",
                 connector_type: Image,
-                config_json: "",
+                config_json: b"",
                 bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "anything",
                         ],
                         collection: Some(
                             CollectionSpec {
                                 name: "testing/constraints",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "testing/constraints/0000000000000001",

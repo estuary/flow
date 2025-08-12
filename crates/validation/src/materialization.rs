@@ -120,18 +120,18 @@ async fn walk_materialization<C: Connectors>(
     );
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json) = match &endpoint {
+    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
         models::MaterializationEndpoint::Connector(config) => (
             flow::materialization_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
         models::MaterializationEndpoint::Local(config) => (
             flow::materialization_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
         models::MaterializationEndpoint::Dekaf(config) => (
             flow::materialization_spec::ConnectorType::Dekaf as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
     };
     // Resolve the data-plane for this task. We cannot continue without it.
@@ -191,7 +191,7 @@ async fn walk_materialization<C: Connectors>(
         .iter()
         .flat_map(|model| model.bindings.iter())
         .filter_map(|model| {
-            let model_path = super::load_resource_meta_path(model.resource.get());
+            let model_path = super::load_resource_meta_path(model.resource.get().as_bytes());
             (!model_path.is_empty()).then_some((model_path, model))
         })
         .collect();
@@ -617,7 +617,7 @@ fn walk_materialization_binding<'a>(
     bool,                           // Should we disable the task due to onIncompatibleSchemaChange?
     Option<materialize::request::validate::Binding>, // Validate request if active.
 ) {
-    let model_path = super::load_resource_meta_path(model.resource.get());
+    let model_path = super::load_resource_meta_path(model.resource.get().as_bytes());
 
     if model.disable {
         // A disabled binding may reference a non-extant collection.
@@ -666,7 +666,7 @@ fn walk_materialization_binding<'a>(
         collection::walk_selector(scope, &source_spec, &selector, errors);
     }
 
-    let field_config_json_map: BTreeMap<String, String>;
+    let field_config_json_map: BTreeMap<String, bytes::Bytes>;
     let group_by: Vec<String>;
     (model.fields, field_config_json_map, group_by) = walk_materialization_fields(
         scope.push_prop("fields"),
@@ -748,9 +748,9 @@ fn walk_materialization_fields<'a>(
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
-    models::MaterializationFields, // `model` with fixes.
-    BTreeMap<String, String>,      // `field_config` for the connector.
-    Vec<String>,                   // Effective group-by keys of the binding.
+    models::MaterializationFields,  // `model` with fixes.
+    BTreeMap<String, bytes::Bytes>, // `field_config` for the connector.
+    Vec<String>,                    // Effective group-by keys of the binding.
 ) {
     let models::MaterializationFields {
         group_by,
@@ -817,7 +817,7 @@ fn walk_materialization_fields<'a>(
         let scope = scope.push_prop(field);
 
         if projections.iter().any(|p| p.field == field.as_str()) {
-            field_config.insert(field.to_string(), config.to_string());
+            field_config.insert(field.to_string(), config.to_string().into());
         } else {
             Error::NoSuchProjection {
                 category: "required".to_string(),
@@ -1078,7 +1078,7 @@ fn walk_materialization_response(
 
                 // Pass-through JSON-encoded field configuration.
                 if let Some(cfg) = require.get(&models::Field::new(field)) {
-                    field_config_json_map.insert(field.clone(), cfg.to_string());
+                    field_config_json_map.insert(field.clone(), cfg.to_string().into());
                 }
                 // Mark location as having been selected.
                 locations.insert(ptr.clone(), true);
