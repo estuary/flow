@@ -152,7 +152,7 @@ pub fn extract_constraints<'a>(
 ) -> (
     Vec<(&'a str, Select)>,
     Vec<(&'a str, Reject)>,
-    BTreeMap<String, String>,
+    BTreeMap<String, bytes::Bytes>,
 ) {
     let models::MaterializationFields {
         group_by: _,
@@ -169,7 +169,7 @@ pub fn extract_constraints<'a>(
 
     let mut selects: Vec<(&str, Select)> = Vec::new();
     let mut rejects: Vec<(&str, Reject)> = Vec::new();
-    let mut field_config: BTreeMap<String, String> = BTreeMap::new();
+    let mut field_config: BTreeMap<String, bytes::Bytes> = BTreeMap::new();
 
     // Group-by keys are always required.
     for field in group_by {
@@ -189,7 +189,7 @@ pub fn extract_constraints<'a>(
     // Account for fields required or excluded by the user's model.
     for (field, config) in require {
         selects.push((field.as_str(), Select::UserRequires));
-        field_config.insert(field.to_string(), config.to_string());
+        field_config.insert(field.to_string(), config.to_string().into());
     }
     for field in exclude {
         rejects.push((field.as_str(), Reject::UserExcludes));
@@ -521,7 +521,7 @@ pub fn group_outcomes(
 pub fn build_selection(
     group_by: Vec<String>,
     document_field: Option<String>,
-    field_config: BTreeMap<String, String>,
+    field_config: BTreeMap<String, bytes::Bytes>,
     field_outcomes: BTreeMap<String, EOB<Select, Reject>>,
 ) -> (flow::FieldSelection, Vec<Conflict>) {
     let mut conflicts = Vec::new();

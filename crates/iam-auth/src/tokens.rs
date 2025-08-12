@@ -26,8 +26,8 @@ pub struct AzureTokens {
 }
 
 impl IAMTokens {
-    pub fn inject_into(&self, config: &mut String) -> anyhow::Result<()> {
-        let mut parsed = serde_json::from_str::<serde_json::Value>(&config)?;
+    pub fn inject_into(&self, config: &bytes::Bytes) -> anyhow::Result<serde_json::Value> {
+        let mut parsed = serde_json::from_slice::<serde_json::Value>(config)?;
 
         let credentials = parsed
             .as_object_mut()
@@ -70,9 +70,7 @@ impl IAMTokens {
             }
         }
 
-        *config = serde_json::to_string(&parsed)?;
-
-        Ok(())
+        Ok(parsed)
     }
 }
 
@@ -83,13 +81,14 @@ mod tests {
 
     #[test]
     fn test_tokens_inject_into_aws() {
-        let mut config = serde_json::to_string(&json!({
+        let config = serde_json::to_string(&json!({
             "address": "1.1.1.1",
             "credentials": {
                 "auth_type": "aws"
             }
         }))
-        .unwrap();
+        .unwrap()
+        .into();
 
         let tokens = IAMTokens::AWS(AWSTokens {
             access_key_id: "test_access_key_id".to_string(),
@@ -97,11 +96,9 @@ mod tests {
             session_token: "test_session_token".to_string(),
         });
 
-        let result = tokens.inject_into(&mut config);
-        assert!(result.is_ok());
         assert_eq!(
-            config,
-            serde_json::to_string(&json!({
+            tokens.inject_into(&config).unwrap(),
+            json!({
                 "address": "1.1.1.1",
                 "credentials": {
                     "auth_type": "aws",
@@ -109,66 +106,61 @@ mod tests {
                     "aws_secret_access_key": "test_secret_access_key",
                     "aws_session_token": "test_session_token"
                 }
-            }))
-            .unwrap()
+            })
         )
     }
 
     #[test]
     fn test_tokens_inject_into_gcp() {
-        let mut config = serde_json::to_string(&json!({
+        let config = serde_json::to_string(&json!({
             "address": "1.1.1.1",
             "credentials": {
                 "auth_type": "gcp"
             }
         }))
-        .unwrap();
+        .unwrap()
+        .into();
 
         let tokens = IAMTokens::GCP(GCPTokens {
             access_token: "test_access_token".to_string(),
         });
 
-        let result = tokens.inject_into(&mut config);
-        assert!(result.is_ok());
         assert_eq!(
-            config,
-            serde_json::to_string(&json!({
+            tokens.inject_into(&config).unwrap(),
+            json!({
                 "address": "1.1.1.1",
                 "credentials": {
                     "auth_type": "gcp",
                     "gcp_access_token": "test_access_token",
                 }
-            }))
-            .unwrap()
+            })
         )
     }
 
     #[test]
     fn test_tokens_inject_into_azure() {
-        let mut config = serde_json::to_string(&json!({
+        let config = serde_json::to_string(&json!({
             "address": "1.1.1.1",
             "credentials": {
                 "auth_type": "azure"
             }
         }))
-        .unwrap();
+        .unwrap()
+        .into();
 
         let tokens = IAMTokens::Azure(AzureTokens {
             access_token: "test_azure_access_token".to_string(),
         });
 
-        let result = tokens.inject_into(&mut config);
-        assert!(result.is_ok());
         assert_eq!(
-            config,
-            serde_json::to_string(&json!({
+            tokens.inject_into(&config).unwrap(),
+            json!({
                 "address": "1.1.1.1",
                 "credentials": {
                     "auth_type": "azure",
                     "azure_access_token": "test_azure_access_token",
                 }
-            }))
-            .unwrap()
+            })
         )
     }
 }

@@ -8,7 +8,6 @@ mod internal;
 pub mod materialize;
 pub mod ops;
 pub mod runtime;
-mod zeroize;
 
 /// An enum representing any one of the types of built specs.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -19,9 +18,25 @@ pub enum AnyBuiltSpec {
     Test(flow::TestSpec),
 }
 
-// Adapt a &str of JSON to a &RawValue for serialization.
-fn as_raw_json<E: serde::ser::Error>(v: &str) -> Result<&RawValue, E> {
-    match serde_json::from_str::<&RawValue>(v) {
+#[derive(Debug, Clone, PartialOrd, PartialEq, Hash, Ord, Eq)]
+pub struct RawJSONDeserialize(pub bytes::Bytes);
+
+impl<'de> serde::Deserialize<'de> for RawJSONDeserialize {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        let value: Box<str> = value.into();
+        let value: String = value.into();
+        let value: bytes::Bytes = value.into();
+        Ok(Self(value))
+    }
+}
+
+// Adapt a &[u8] of JSON to a &RawValue for serialization.
+fn as_raw_json<E: serde::ser::Error>(v: &[u8]) -> Result<&RawValue, E> {
+    match serde_json::from_slice::<&RawValue>(v) {
         Ok(v) => Ok(v),
         Err(err) => Err(E::custom(format!(
             "field is required to be JSON but is not: {err:?}"
@@ -31,11 +46,11 @@ fn as_raw_json<E: serde::ser::Error>(v: &str) -> Result<&RawValue, E> {
 
 // Adapt a map of JSON string values to a BTreeMap of &RawValue for serialization.
 fn as_raw_json_map<'a, E: serde::ser::Error>(
-    v: &'a BTreeMap<String, String>,
+    v: &'a BTreeMap<String, bytes::Bytes>,
 ) -> Result<BTreeMap<&'a str, &'a RawValue>, E> {
     v.iter()
         .map(
-            |(field, value)| match serde_json::from_str::<&RawValue>(value) {
+            |(field, value)| match serde_json::from_slice::<&RawValue>(value) {
                 Ok(v) => Ok((field.as_str(), v)),
                 Err(err) => Err(E::custom(format!(
                     "field {field} is required to be JSON but is not: {err:?}"
@@ -46,11 +61,13 @@ fn as_raw_json_map<'a, E: serde::ser::Error>(
 }
 
 // Adapt a vector of JSON string values to a Vec of &RawValue for serialization.
-fn as_raw_json_vec<'a, E: serde::ser::Error>(v: &'a Vec<String>) -> Result<Vec<&'a RawValue>, E> {
+fn as_raw_json_vec<'a, E: serde::ser::Error>(
+    v: &'a Vec<bytes::Bytes>,
+) -> Result<Vec<&'a RawValue>, E> {
     v.iter()
         .enumerate()
         .map(
-            |(index, value)| match serde_json::from_str::<&RawValue>(value) {
+            |(index, value)| match serde_json::from_slice::<&RawValue>(value) {
                 Ok(v) => Ok(v),
                 Err(err) => Err(E::custom(format!(
                     "index {index} is required to be JSON but is not: {err:?}"

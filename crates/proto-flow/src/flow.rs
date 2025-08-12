@@ -76,8 +76,8 @@ pub struct Inference {
     #[prost(string, tag = "5")]
     pub description: ::prost::alloc::string::String,
     /// The default value from the schema, if provided.
-    #[prost(string, tag = "6")]
-    pub default_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "6")]
+    pub default_json: ::prost::bytes::Bytes,
     /// Whether this location is marked as a secret, like a credential or password.
     #[prost(bool, tag = "7")]
     pub secret: bool,
@@ -234,12 +234,12 @@ pub struct CollectionSpec {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     /// Bundled write-time JSON Schema of the collection.
-    #[prost(string, tag = "8")]
-    pub write_schema_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "8")]
+    pub write_schema_json: ::prost::bytes::Bytes,
     /// Bundled read-time JSON Schema of the collection.
     /// Optional. If not set then `write_schema_json` should be used.
-    #[prost(string, tag = "11")]
-    pub read_schema_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "11")]
+    pub read_schema_json: ::prost::bytes::Bytes,
     /// Composite key of the collection, as JSON-Pointers.
     #[prost(string, repeated, tag = "3")]
     pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -256,8 +256,8 @@ pub struct CollectionSpec {
     pub projections: ::prost::alloc::vec::Vec<Projection>,
     /// JSON-encoded document template for creating Gazette consumer
     /// transaction acknowledgements of writes into this collection.
-    #[prost(string, tag = "7")]
-    pub ack_template_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "7")]
+    pub ack_template_json: ::prost::bytes::Bytes,
     /// Template for partitions of this collection.
     #[prost(message, optional, tag = "9")]
     pub partition_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
@@ -277,8 +277,8 @@ pub mod collection_spec {
         #[prost(enumeration = "derivation::ConnectorType", tag = "1")]
         pub connector_type: i32,
         /// JSON-encoded connector configuration of this derivation.
-        #[prost(string, tag = "2")]
-        pub config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub config_json: ::prost::bytes::Bytes,
         #[prost(message, repeated, tag = "3")]
         pub transforms: ::prost::alloc::vec::Vec<derivation::Transform>,
         #[prost(enumeration = "derivation::ShuffleType", repeated, tag = "4")]
@@ -332,11 +332,11 @@ pub mod collection_spec {
             #[prost(string, repeated, tag = "6")]
             pub shuffle_key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
             /// / JSON-encoded shuffle lambda of this transform, or empty if a shuffle lambda is not defined.
-            #[prost(string, tag = "7")]
-            pub shuffle_lambda_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "7")]
+            pub shuffle_lambda_config_json: ::prost::bytes::Bytes,
             /// JSON-encoded lambda of this transform.
-            #[prost(string, tag = "8")]
-            pub lambda_config_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "8")]
+            pub lambda_config_json: ::prost::bytes::Bytes,
             /// Is this transform known to always be read-only?
             #[prost(bool, tag = "9")]
             pub read_only: bool,
@@ -463,10 +463,10 @@ pub struct FieldSelection {
     pub document: ::prost::alloc::string::String,
     /// Additional configuration, keyed by fields included in |keys|, |values|, or
     /// |document|. Values are arbitrary JSON-encoded objects.
-    #[prost(btree_map = "string, string", tag = "4")]
+    #[prost(btree_map = "string, bytes", tag = "4")]
     pub field_config_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
     >,
 }
 /// CaptureSpec describes a collection and its capture from an endpoint.
@@ -479,8 +479,8 @@ pub struct CaptureSpec {
     #[prost(enumeration = "capture_spec::ConnectorType", tag = "2")]
     pub connector_type: i32,
     /// JSON-encoded connector configuration of this capture.
-    #[prost(string, tag = "3")]
-    pub config_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "3")]
+    pub config_json: ::prost::bytes::Bytes,
     #[prost(message, repeated, tag = "4")]
     pub bindings: ::prost::alloc::vec::Vec<capture_spec::Binding>,
     /// Minimum interval of time between successive invocations of the capture.
@@ -513,8 +513,8 @@ pub mod capture_spec {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
         /// JSON-encoded configuration of the bound resource.
-        #[prost(string, tag = "1")]
-        pub resource_config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "1")]
+        pub resource_config_json: ::prost::bytes::Bytes,
         /// Driver-supplied path components which fully qualify the
         /// subresource being captured.
         #[prost(string, repeated, tag = "2")]
@@ -582,8 +582,8 @@ pub struct MaterializationSpec {
     #[prost(enumeration = "materialization_spec::ConnectorType", tag = "2")]
     pub connector_type: i32,
     /// JSON-encoded connector configuration of this materialization.
-    #[prost(string, tag = "3")]
-    pub config_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "3")]
+    pub config_json: ::prost::bytes::Bytes,
     #[prost(message, repeated, tag = "4")]
     pub bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
     /// Template for shards of this materialization.
@@ -613,8 +613,8 @@ pub mod materialization_spec {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
         /// JSON-encoded configuration of the bound resource.
-        #[prost(string, tag = "1")]
-        pub resource_config_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "1")]
+        pub resource_config_json: ::prost::bytes::Bytes,
         /// Driver-supplied path components which fully qualify the
         /// subresource being materialized.
         #[prost(string, repeated, tag = "2")]
@@ -743,20 +743,20 @@ pub struct OAuth2 {
     #[prost(string, tag = "4")]
     pub access_token_body: ::prost::alloc::string::String,
     /// Headers for the access_token request
-    #[prost(btree_map = "string, string", tag = "5")]
+    #[prost(btree_map = "string, bytes", tag = "5")]
     pub access_token_headers_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
     >,
     /// A json map that maps the response from the OAuth provider for Access Token
     /// request to keys in the connector endpoint configuration.
     /// If the connector supports refresh tokens, must include `refresh_token` and
     /// `expires_in`. If this mapping is not provided, the keys from the response
     /// are passed as-is to the connector config.
-    #[prost(btree_map = "string, string", tag = "6")]
+    #[prost(btree_map = "string, bytes", tag = "6")]
     pub access_token_response_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
     >,
     /// Template for refresh token URL, some providers require that the access
     /// token be refreshed.
@@ -769,20 +769,20 @@ pub struct OAuth2 {
     #[prost(string, tag = "8")]
     pub refresh_token_body: ::prost::alloc::string::String,
     /// Headers for the refresh_token request
-    #[prost(btree_map = "string, string", tag = "9")]
+    #[prost(btree_map = "string, bytes", tag = "9")]
     pub refresh_token_headers_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
     >,
     /// A json map that maps the response from the OAuth provider for Refresh Token
     /// request to keys in the connector endpoint configuration.
     /// If the connector supports refresh tokens, must include `refresh_token` and
     /// `expires_in`. If this mapping is not provided, the keys from the response
     /// are passed as-is to the connector config.
-    #[prost(btree_map = "string, string", tag = "10")]
+    #[prost(btree_map = "string, bytes", tag = "10")]
     pub refresh_token_response_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
     >,
 }
 /// TestSpec describes a catalog test.
@@ -816,8 +816,8 @@ pub mod test_spec {
         #[prost(string, tag = "5")]
         pub collection: ::prost::alloc::string::String,
         /// JSON documents to ingest or verify.
-        #[prost(string, repeated, tag = "6")]
-        pub docs_json_vec: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(bytes = "bytes", repeated, tag = "6")]
+        pub docs_json_vec: ::prost::alloc::vec::Vec<::prost::bytes::Bytes>,
         /// When verifying, selector over logical partitions of the collection.
         #[prost(message, optional, tag = "7")]
         pub partitions: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
@@ -895,8 +895,8 @@ pub struct RangeSpec {
 pub struct ConnectorState {
     /// Update of the connector state, to be persisted by the Flow runtime
     /// and supplied in the Open of a future connector invocation.
-    #[prost(string, tag = "1")]
-    pub updated_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "1")]
+    pub updated_json: ::prost::bytes::Bytes,
     /// If true, then this state is applied to a previous state
     /// as a RFC7396 Merge Patch.
     #[prost(bool, tag = "2")]
@@ -935,8 +935,8 @@ pub mod extract_api {
         pub uuid_ptr: ::prost::alloc::string::String,
         /// JSON schema to validate non-ACK documents against.
         /// If empty then schema validation is not performed.
-        #[prost(string, tag = "2")]
-        pub schema_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub schema_json: ::prost::bytes::Bytes,
         /// Field JSON pointers to extract from documents and return as packed
         /// tuples.
         #[prost(string, repeated, tag = "3")]
@@ -1061,8 +1061,8 @@ pub struct IngestRequest {
     #[prost(string, tag = "2")]
     pub build_id: ::prost::alloc::string::String,
     /// JSON documents to ingest or verify.
-    #[prost(string, repeated, tag = "3")]
-    pub docs_json_vec: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bytes = "bytes", repeated, tag = "3")]
+    pub docs_json_vec: ::prost::alloc::vec::Vec<::prost::bytes::Bytes>,
 }
 /// IngestResponse is the response of the Testing.Ingest RPC.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1083,8 +1083,8 @@ pub struct IngestResponse {
 pub struct TaskNetworkProxyRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<task_network_proxy_request::Open>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub data: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "2")]
+    pub data: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `TaskNetworkProxyRequest`.
 pub mod task_network_proxy_request {
@@ -1109,8 +1109,8 @@ pub mod task_network_proxy_request {
 pub struct TaskNetworkProxyResponse {
     #[prost(message, optional, tag = "1")]
     pub open_response: ::core::option::Option<task_network_proxy_response::OpenResponse>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub data: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "2")]
+    pub data: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `TaskNetworkProxyResponse`.
 pub mod task_network_proxy_response {

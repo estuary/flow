@@ -37,8 +37,10 @@ where
             spans: Default::default(),
         };
 
-        log.fields_json_map
-            .insert("module".to_string(), json!(metadata.target()).to_string());
+        log.fields_json_map.insert(
+            "module".to_string(),
+            json!(metadata.target()).to_string().into(),
+        );
 
         log
     }
@@ -106,15 +108,15 @@ impl<'a> FieldVisitor<'a> {
     {
         if field.name() == "message" && self.0.message.is_empty() {
             self.0.message = value.to_string();
-        } else if let Ok(value) = serde_json::to_string(&value) {
+        } else if let Ok(value) = serde_json::to_vec(&value) {
             self.0
                 .fields_json_map
-                .insert(field.name().to_string(), value);
+                .insert(field.name().to_string(), value.into());
         } else {
             // If `value` doesn't serialize, fall back to serializing its string representation.
             self.0.fields_json_map.insert(
                 field.name().to_string(),
-                json!(value.to_string()).to_string(),
+                json!(value.to_string()).to_string().into(),
             );
         }
     }
@@ -168,7 +170,7 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
 
         self.0
             .fields_json_map
-            .insert(field.name().to_string(), json!(chain).to_string());
+            .insert(field.name().to_string(), json!(chain).to_string().into());
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
@@ -177,7 +179,7 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
             Ok(_) => {
                 self.0
                     .fields_json_map
-                    .insert(field.name().to_string(), stringified);
+                    .insert(field.name().to_string(), stringified.into());
             }
             Err(_) => self.record_raw(field, stringified),
         };
