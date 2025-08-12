@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"unsafe"
 
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -175,7 +176,9 @@ func pickPartition(logicalPrefix []byte, hexKey []byte, journals []pb.ListRespon
 		if l, r := len(logicalPrefix), len(pre); l < r {
 			pre = pre[:l] // Compare over the prefix.
 		}
-		switch bytes.Compare([]byte(pre), logicalPrefix) {
+		// Equivalent to `var unsafePrefixBytes = []byte(pre)` but without extra string allocations
+		var unsafePrefixBytes = unsafe.Slice(unsafe.StringData(string(pre)), len(pre))
+		switch bytes.Compare(unsafePrefixBytes, logicalPrefix) {
 		case -1:
 			return false
 		case 0:
@@ -223,8 +226,19 @@ func (m Mappable) SetUUID(uuid message.UUID) {
 	}
 
 	// Replace it with the string-form UUID.
-	var str = uuid.String()
-	copy(m.Doc[ind:ind+36], str[0:36])
+	encodeHex(m.Doc[ind:ind+36], uuid)
+}
+
+func encodeHex(dst []byte, uuid message.UUID) {
+	hex.Encode(dst, uuid[:4])
+	dst[8] = '-'
+	hex.Encode(dst[9:13], uuid[4:6])
+	dst[13] = '-'
+	hex.Encode(dst[14:18], uuid[6:8])
+	dst[18] = '-'
+	hex.Encode(dst[19:23], uuid[8:10])
+	dst[23] = '-'
+	hex.Encode(dst[24:], uuid[10:])
 }
 
 // NewAcknowledgementMessage returns a new acknowledgement message for a journal of the given
