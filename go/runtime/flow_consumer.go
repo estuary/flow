@@ -3,6 +3,9 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +50,12 @@ type FlowConsumerConfig struct {
 
 // Execute delegates to runconsumer.Cmd.Execute.
 func (c *FlowConsumerConfig) Execute(args []string) error {
+	// Start pprof HTTP server for profiling (only in consumer process)
+	go func() {
+		log.Printf("Starting pprof server on :6060 for consumer process")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	var app = &FlowConsumer{
 		tap: network.NewTap(),
 	}
