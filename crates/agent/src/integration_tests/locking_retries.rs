@@ -9,6 +9,96 @@ use crate::{
 
 #[tokio::test]
 #[serial_test::serial]
+async fn test_publication_concurrent_commits() {
+    let harness = TestHarness::init("test_publication_concurrent_commits").await;
+
+    let user_id = harness.setup_tenant("beavers").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "beavers/dens": minimal_collection(None),
+        },
+        "captures": {
+            "beavers/dams": minimal_capture(None, &["beavers/dens"]),
+        }
+    }));
+
+    // Try to reproduce a scenario where multiple different publications all try to commit
+    // concurrently. We'll expect exactly one of them to succeed, and the others to fail.
+    for test_iteration in 0..5 {
+        let publisher_1 = harness.publisher.clone();
+        let publisher_2 = harness.publisher.clone();
+        let publisher_3 = harness.publisher.clone();
+
+        let build_1 = publisher_1
+            .build(
+                user_id,
+                Id::new([test_iteration, 1, 1, 1, 1, 1, 1, 1]),
+                Some("build_1".to_string()),
+                draft.clone_specs(),
+                Uuid::new_v4(),
+                "ops/dp/public/test",
+                true,
+                0,
+            )
+            .await
+            .unwrap();
+
+        let build_2 = publisher_2
+            .build(
+                user_id,
+                Id::new([test_iteration, 1, 1, 1, 1, 1, 1, 2]),
+                Some("build_2".to_string()),
+                draft.clone_specs(),
+                Uuid::new_v4(),
+                "ops/dp/public/test",
+                true,
+                0,
+            )
+            .await
+            .unwrap();
+        let build_3 = publisher_3
+            .build(
+                user_id,
+                Id::new([test_iteration, 1, 1, 1, 1, 1, 1, 3]),
+                Some("build_3".to_string()),
+                draft.clone_specs(),
+                Uuid::new_v4(),
+                "ops/dp/public/test",
+                true,
+                0,
+            )
+            .await
+            .unwrap();
+
+        let handle_1 =
+            tokio::spawn(async move { publisher_1.commit(build_1, NoopWithCommit).await.unwrap() });
+        let handle_2 =
+            tokio::spawn(async move { publisher_2.commit(build_2, NoopWithCommit).await.unwrap() });
+        let handle_3 =
+            tokio::spawn(async move { publisher_3.commit(build_3, NoopWithCommit).await.unwrap() });
+
+        let mut success_count = 0;
+        for (build, handle) in [handle_1, handle_2, handle_3].into_iter().enumerate() {
+            let result = handle.await.unwrap();
+
+            if result.status.is_success() {
+                success_count += 1;
+            }
+            // if result.as_ref().is_ok_and(|s| s.is_success()) {
+            //     success_count += 1;
+            // }
+            tracing::debug!(%test_iteration, %build, result = ?result.status, "finished commit");
+        }
+        assert_eq!(
+            1, success_count,
+            "expected exactly one successful commit for iteration {test_iteration}"
+        );
+    }
+}
+
+#[tokio::test]
+#[serial_test::serial]
 async fn test_publication_optimistic_locking_failures() {
     let mut harness = TestHarness::init("test_publication_optimistic_locking_failures").await;
 
