@@ -13,7 +13,6 @@ use flow_client::{
     LOCAL_PG_URL,
 };
 use futures::TryStreamExt;
-use proto_flow::flow;
 use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,
@@ -22,6 +21,7 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream;
 use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
@@ -302,7 +302,8 @@ async fn main() -> anyhow::Result<()> {
 
     let msk_region = cli.default_broker_msk_region.as_str();
 
-    if let Some(tls_cfg) = cli.tls {
+    // Setup TLS acceptor if TLS configuration is provided
+    let tls_acceptor = if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
             tls_cfg.certificate_key_file.clone().unwrap(),
@@ -312,6 +313,7 @@ async fn main() -> anyhow::Result<()> {
 
         let schema_server_task = axum_server::bind_rustls(schema_addr, axum_rustls_config.clone())
             .serve(schema_router.into_make_service());
+        tokio::spawn(async move { schema_server_task.await.unwrap() });
 
         let certs = load_certs(&tls_cfg.certificate_file.unwrap())?;
         let key = load_key(&tls_cfg.certificate_key_file.unwrap())?;
@@ -334,119 +336,98 @@ async fn main() -> anyhow::Result<()> {
             .with_single_cert(certs, key)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
 
-        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
-
-        tokio::spawn(async move { schema_server_task.await.unwrap() });
-        // Accept and serve Kafka sessions until we're signaled to stop.
-        loop {
-            let acceptor = acceptor.clone();
-            tokio::select! {
-                accept = kafka_listener.accept() => {
-                    let Ok((socket, addr)) = accept else {
-                        continue
-                    };
-                    let Ok(socket) = acceptor.accept(socket).await else {
-                        continue
-                    };
-
-                    // > Unlike a cloned CancellationToken, cancelling a child token does not cancel the parent token.
-                    // So every `task_cancellation` will get cancelled when `cancel_token` (ctrl-c) is cancelled, but only
-                    // a particular task's `task_cancellation` token will get cancelled if its `TaskForwarder` crashes.
-                    let task_cancellation = cancel_token.child_token();
-
-                    tokio::spawn(
-                        logging::forward_logs(
-                            GazetteWriter::new(
-                                app.task_manager.clone(),
-                            ),
-                            task_cancellation.clone(),
-                            serve(
-                                Session::new(
-                                    app.clone(),
-                                    cli.encryption_secret.to_owned(),
-                                    upstream_kafka_urls.clone(),
-                                    msk_region.to_string(),
-                                    cli.read_buffer_chunk_limit,
-                                    legacy_mode_kafka_urls.clone(),
-                                    legacy_broker_username.as_ref().map(|u| u.to_string()),
-                                    legacy_broker_password.as_ref().map(|p| p.to_string())
-                                ),
-                                socket,
-                                addr,
-                                cli.idle_session_timeout,
-                                task_cancellation,
-                                connection_limit.clone()
-                            )
-                        )
-                    );
-                }
-                _ = cancel_token.cancelled() => break,
-            }
-        }
+        Some(Arc::new(tokio_rustls::TlsAcceptor::from(Arc::new(config))))
     } else {
         tracing::info!("No TLS certificate provided, Dekaf will not terminate TLS");
         let schema_server_task =
             axum_server::bind(schema_addr).serve(schema_router.into_make_service());
-
         tokio::spawn(async move { schema_server_task.await.unwrap() });
-
-        // Accept and serve Kafka sessions until we're signaled to stop.
-        loop {
-            tokio::select! {
-                accept = kafka_listener.accept() => {
-                    let Ok((socket, addr)) = accept else {
-                        continue
-                    };
-                    socket.set_nodelay(true)?;
-
-                    let task_cancellation = cancel_token.child_token();
-
-                    tokio::spawn(
-                        logging::forward_logs(
-                            GazetteWriter::new(
-                                app.task_manager.clone(),
-                            ),
-                            task_cancellation.clone(),
-                            serve(
-                                Session::new(
-                                    app.clone(),
-                                    cli.encryption_secret.to_owned(),
-                                    upstream_kafka_urls.clone(),
-                                    msk_region.to_string(),
-                                    cli.read_buffer_chunk_limit,
-                                    legacy_mode_kafka_urls.clone(),
-                                    legacy_broker_username.as_ref().map(|u| u.to_string()),
-                                    legacy_broker_password.as_ref().map(|p| p.to_string())
-                                ),
-                                socket,
-                                addr,
-                                cli.idle_session_timeout,
-                                task_cancellation,
-                                connection_limit.clone()
-                            )
-                        )
-                    );
-                }
-                _ = cancel_token.cancelled() => break,
-            }
-        }
+        None
     };
+
+    let mut backoff = None;
+
+    // Accept and serve Kafka sessions until we're signaled to stop.
+    loop {
+        tokio::select! {
+            accept = kafka_listener.accept() => {
+                if let Some(sleep_until) = backoff {
+                    tokio::time::sleep_until(sleep_until).await;
+                    backoff = None;
+                }
+                let (socket, addr) = match accept {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!("Failed to accept connection: {e:?}");
+                        backoff = Some(tokio::time::Instant::now() + std::time::Duration::from_millis(100));
+                        continue;
+                    }
+                };
+
+                if let Err(e) = socket.set_nodelay(true) {
+                    tracing::error!("Failed to set nodelay: {e:?}");
+                    backoff = Some(tokio::time::Instant::now() + std::time::Duration::from_millis(100));
+                    continue;
+                }
+
+                // > Unlike a cloned CancellationToken, cancelling a child token does not cancel the parent token.
+                // So every `task_cancellation` will get cancelled when `cancel_token` (ctrl-c) is cancelled, but only
+                // a particular task's `task_cancellation` token will get cancelled if its `TaskForwarder` crashes.
+                let task_cancellation = cancel_token.child_token();
+
+                tokio::spawn(
+                    logging::forward_logs(
+                        GazetteWriter::new(
+                            app.task_manager.clone(),
+                        ),
+                        task_cancellation.clone(),
+                        serve(
+                            Session::new(
+                                app.clone(),
+                                cli.encryption_secret.to_owned(),
+                                upstream_kafka_urls.clone(),
+                                msk_region.to_string(),
+                                cli.read_buffer_chunk_limit,
+                                legacy_mode_kafka_urls.clone(),
+                                legacy_broker_username.as_ref().map(|u| u.to_string()),
+                                legacy_broker_password.as_ref().map(|p| p.to_string())
+                            ),
+                            socket,
+                            tls_acceptor.clone(),
+                            addr,
+                            cli.idle_session_timeout,
+                            task_cancellation,
+                            connection_limit.clone()
+                        )
+                    )
+                );
+            }
+            _ = cancel_token.cancelled() => break,
+        }
+    }
 
     Ok(())
 }
 
-#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, stop, connection_limit), fields(?addr))]
-async fn serve<S>(
+/// Trait that combines AsyncRead and AsyncWrite for our connection type
+trait Connection: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl Connection for TcpStream {}
+impl<S> Connection for tokio_rustls::server::TlsStream<S> where
+    S: AsyncRead + AsyncWrite + Send + Unpin
+{
+}
+
+#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, tls_acceptor, stop, connection_limit), fields(?addr))]
+async fn serve(
     mut session: Session,
-    socket: S,
+    socket: TcpStream,
+    tls_acceptor: Option<Arc<tokio_rustls::TlsAcceptor>>,
     addr: std::net::SocketAddr,
     idle_timeout: std::time::Duration,
     stop: tokio_util::sync::CancellationToken,
     connection_limit: Arc<tokio::sync::Semaphore>,
-) -> anyhow::Result<()>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
+) -> anyhow::Result<()> {
     let permit = match connection_limit.try_acquire() {
         Ok(permit) => permit,
         Err(_) => {
@@ -456,6 +437,18 @@ where
     };
 
     tracing::info!("accepted client connection");
+
+    // Optionally drive TLS handshake if needed
+    let socket: Box<dyn Connection> = match tls_acceptor {
+        Some(acceptor) => {
+            let tls_stream = acceptor
+                .accept(socket)
+                .await
+                .context("TLS handshake failed")?;
+            Box::new(tls_stream)
+        }
+        None => Box::new(socket),
+    };
 
     let (r, mut w) = tokio::io::split(socket);
     let mut r = tokio_util::codec::FramedRead::new(
