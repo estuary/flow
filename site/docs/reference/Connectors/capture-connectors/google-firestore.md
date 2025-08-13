@@ -63,6 +63,14 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/backfillMode`** | Backfill Mode | Configures the handling of data already in the collection. See [below](#backfill-mode) for details or just stick with &#x27;async&#x27; | string | Required |
 | **`/path`** | Path to Collection | Supports parent&#x2F;&#x2A;&#x2F;nested to capture all nested collections of parent&#x27;s children | string | Required |
+| **`/restartCursorPath`** | Restart Cursor Path | a specified cursor (ideally timestamp) that we will use (+5 minutes overlap) to start our backfills from, rather than the whole collection | string | Optional |
+| **`/minBackfillInterval`** | Minimum Backfill Interval | A minimum amount of time between backfills if consistency is lost. Defaults to 24 hours if no restart cursor is set, 5 minutes if there is | string | Optional |
+
+
+
+
+
+
 
 ### Sample
 
