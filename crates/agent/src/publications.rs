@@ -5,8 +5,10 @@ use crate::proxy_connectors::MakeConnectors;
 use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use rand::Rng;
 use sqlx::types::Uuid;
-use tables::LiveRow;
+use sqlx::Executor;
+use tables::{BuiltRow, LiveRow};
 
 pub mod builds;
 mod commit;
@@ -69,6 +71,10 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
 /// Represents a publication that has just completed.
 #[derive(Debug)]
 pub struct PublicationResult {
+    /// The effective pub_id of the publication. This is distinct from the `id`
+    /// of the `publications` table, and gets set as the `pub_id` column there.
+    /// This value will also be reflected in `live_specs.last_pub_id`, and
+    /// `publication_specs.pub_id`
     pub pub_id: models::Id,
     pub user_id: Uuid,
     pub detail: Option<String>,
@@ -198,7 +204,7 @@ impl UncommittedBuild {
             output,
             test_errors,
             incompatible_collections,
-            build_id: _,
+            build_id,
             retry_count,
         } = self;
         debug_assert!(
@@ -528,38 +534,155 @@ impl<MC: MakeConnectors> Publisher<MC> {
             "cannot commit uncommitted build that has errors"
         );
 
-        let completed_at = Utc::now();
+        // Assign live spec ids prior to attempting commit. This simplifies the
+        // commit process, which would otherwise need to determine the IDs and
+        // hold them in memory while the commit is in progress.
+        self.assign_control_ids(&mut uncommitted.output);
+
+        // The one and only case where we retry _here_ is in response to
+        // transaction serialization failures. It's relatively likely that we'll
+        // return a lock failure after retrying here. Lock failures can also be
+        // retried, but doing so requires a fresh build, and so is handled
+        // outside of this function.
+        for attempt in 0..10 {
+            let completed_at = Utc::now();
+            match self.try_commit(&uncommitted, &with_commit).await {
+                Ok((_, quota_errors)) if !quota_errors.is_empty() => {
+                    let mut result =
+                        uncommitted.into_result(completed_at, JobStatus::PublishFailed);
+                    result.built.errors.extend(quota_errors.into_iter());
+                    return Ok(result);
+                }
+                Ok((lock_failures, _)) if !lock_failures.is_empty() => {
+                    return Ok(uncommitted.into_result(
+                        completed_at,
+                        JobStatus::BuildIdLockFailure {
+                            failures: lock_failures,
+                        },
+                    ));
+                }
+                Ok(_no_failures) => {
+                    tracing::info!("successfully committed publication");
+                    return Ok(uncommitted.into_result(completed_at, JobStatus::Success));
+                }
+                Err(err) if is_transaction_serialization_error(&err) => {
+                    let jitter = rand::thread_rng().gen_range(0..500);
+                    tracing::debug!(
+                        attempt,
+                        backoff_ms = jitter,
+                        "retrying commit due to transaction serialization failure"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(jitter)).await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Err(anyhow::anyhow!(
+            "failed to commit publication due to reaching retry limit"
+        ))
+    }
+
+    async fn try_commit<C: WithCommit>(
+        &self,
+        uncommitted: &UncommittedBuild,
+        with_commit: &C,
+    ) -> anyhow::Result<(Vec<LockFailure>, tables::Errors)> {
         let mut txn = self.db.begin().await?;
+
+        // We need to set the transaction isolation level to repeatable read in
+        // order to ensure correctness. With 'read committed' isolation, our
+        // optimistic concurrency control cannot prevent multiple concurrent
+        // publications from each inserting their own versions of the new specs,
+        // and the second one can clobber the first. This causes postgres to
+        // return an error if a given transaction can't be serialized with other
+        // concurrent transaction. In that case, there's a strong possibility
+        // that we'll return lock failures on the second attempt.
+        txn.execute("set transaction isolation level repeatable read")
+            .await?;
 
         let quota_errors =
             self::quotas::check_resource_quotas(&uncommitted.output, &mut txn).await?;
         if !quota_errors.is_empty() {
-            uncommitted
-                .output
-                .built
-                .errors
-                .extend(quota_errors.into_iter());
-            return Ok(uncommitted.into_result(completed_at, JobStatus::PublishFailed));
+            return Ok((Vec::new(), quota_errors));
         }
 
-        let failures = specs::persist_updates(&mut uncommitted, &mut txn).await?;
+        let failures = specs::persist_updates(&uncommitted, &mut txn).await?;
         if !failures.is_empty() {
-            return Ok(
-                uncommitted.into_result(completed_at, JobStatus::BuildIdLockFailure { failures })
-            );
+            return Ok((failures, Default::default()));
         }
 
-        let pub_result = uncommitted.into_result(completed_at, JobStatus::Success);
         with_commit
-            .before_commit(&mut txn, &pub_result)
+            .before_commit(&mut txn, uncommitted, &JobStatus::Success)
             .await
             .context("on publication commit")?;
 
         txn.commit()
             .await
             .context("committing publication transaction")?;
-        tracing::info!("successfully committed publication");
-        Ok(pub_result)
+        Ok((Default::default(), Default::default()))
+    }
+
+    /// Assigns ids to all new specs being created by this publication. We do
+    /// this here instead of in the database because we need to use these ids
+    /// for updating `live_spec_flows` and other things. The ids need to be
+    /// added to the built rows in `output.built`, and assigning them up front
+    /// helps simplify the process of retrying after a transaction serialization
+    /// failure.
+    fn assign_control_ids(&self, output: &mut build::Output) {
+        let mut id_gen = self.id_gen.lock().unwrap();
+        let mut new_captures = 0;
+        for r in output.built.built_captures.iter_mut() {
+            if r.control_id.is_zero() {
+                assert!(
+                    r.is_insert(),
+                    "expected row to be an insert since control_id is zero"
+                );
+                r.control_id = id_gen.next();
+                new_captures += 1;
+            }
+        }
+        let mut new_collections = 0;
+        for r in output.built.built_collections.iter_mut() {
+            if r.control_id.is_zero() {
+                assert!(
+                    r.is_insert(),
+                    "expected row to be an insert since control_id is zero"
+                );
+                r.control_id = id_gen.next();
+                new_collections += 1;
+            }
+        }
+        let mut new_materializations = 0;
+        for r in output.built.built_materializations.iter_mut() {
+            if r.control_id.is_zero() {
+                assert!(
+                    r.is_insert(),
+                    "expected row to be an insert since control_id is zero"
+                );
+                r.control_id = id_gen.next();
+                new_materializations += 1;
+            }
+        }
+        let mut new_tests = 0;
+        for r in output.built.built_tests.iter_mut() {
+            if r.control_id.is_zero() {
+                assert!(
+                    r.is_insert(),
+                    "expected row to be an insert since control_id is zero"
+                );
+                r.control_id = id_gen.next();
+                new_tests += 1;
+            }
+        }
+        let total_new = new_captures + new_collections + new_materializations + new_tests;
+        tracing::debug!(
+            new_captures,
+            new_collections,
+            new_materializations,
+            new_tests,
+            total_new,
+            "assigned control_ids"
+        );
     }
 }
 
@@ -640,6 +763,20 @@ pub fn validate_collection_transitions(
             },
         )
         .collect()
+}
+
+/// Determines whether the given error is due to a transaction serialization failure,
+/// meaning that the commit must be retried.
+fn is_transaction_serialization_error(err: &anyhow::Error) -> bool {
+    let Some(db_err) = err
+        .downcast_ref::<sqlx::Error>()
+        .and_then(|e| e.as_database_error())
+    else {
+        return false;
+    };
+    // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
+    // for the definition of `40001`.
+    db_err.code() == Some(std::borrow::Cow::Borrowed("40001"))
 }
 
 #[cfg(test)]
