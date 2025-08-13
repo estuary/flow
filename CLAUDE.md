@@ -136,6 +136,9 @@ Keep READMEs current - update with code changes.
   Don't write `// Get credentials` before a call `getCredentials()`
 - Prefer functional approaches. Try to avoid mutation.
 - Use early-return over nested conditionals
+- Use at least one level of name qualification for third-party types and functions.
+  For example, `axum::Router::new()` instead of `use axum::Router; Router::new()`.
+  Types / functions should be unqualified ONLY if they're in the current module.
 
 ### Testing
 - Prefer snapshots over fine-grain assertions (`insta` / `cupaloy`)
