@@ -210,8 +210,7 @@ impl Cli {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() {
     logging::install();
 
     let cli = Cli::parse();
@@ -222,6 +221,31 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Starting dekaf");
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            tracing::error!(%error, "couldn't build Tokio runtime");
+            std::process::exit(1);
+        }
+    };
+
+    let result = runtime.block_on(async_main(cli));
+
+    // Explicitly shut down the runtime without waiting for blocking background tasks.
+    // This prevents hangs from tasks that may be waiting on I/O that will never complete.
+    runtime.shutdown_background();
+
+    if let Err(error) = result {
+        tracing::error!(error = format!("{error:#}"), "dekaf crashed with error");
+        std::process::exit(1);
+    }
+}
+
+async fn async_main(cli: Cli) -> anyhow::Result<()> {
     let upstream_kafka_urls = cli.build_broker_urls()?;
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
