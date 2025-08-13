@@ -96,6 +96,10 @@ pub struct Cli {
     #[arg(long, env = "TASK_REFRESH_INTERVAL", value_parser = humantime::parse_duration, default_value = "30s")]
     task_refresh_interval: std::time::Duration,
 
+    /// Timeout for TLS handshake completion
+    #[arg(long, env = "TLS_HANDSHAKE_TIMEOUT", value_parser = humantime::parse_duration, default_value = "10s")]
+    tls_handshake_timeout: std::time::Duration,
+
     /// The fully-qualified domain name of the data plane that Dekaf is running inside of
     #[arg(
         long,
@@ -233,7 +237,8 @@ fn main() {
         }
     };
 
-    let result = runtime.block_on(async_main(cli));
+    let handle = runtime.spawn(async_main(cli));
+    let result = runtime.block_on(async { handle.await.unwrap() });
 
     // Explicitly shut down the runtime without waiting for blocking background tasks.
     // This prevents hangs from tasks that may be waiting on I/O that will never complete.
@@ -370,27 +375,27 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     };
 
     let mut backoff = None;
+    let backoff_duration = std::time::Duration::from_millis(100);
 
     // Accept and serve Kafka sessions until we're signaled to stop.
     loop {
+        if let Some(duration) = backoff {
+            tokio::time::sleep(duration).await;
+            backoff = None;
+        }
         tokio::select! {
             accept = kafka_listener.accept() => {
-                if let Some(sleep_until) = backoff {
-                    tokio::time::sleep_until(sleep_until).await;
-                    backoff = None;
-                }
                 let (socket, addr) = match accept {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::error!("Failed to accept connection: {e:?}");
-                        backoff = Some(tokio::time::Instant::now() + std::time::Duration::from_millis(100));
+                        backoff = Some(backoff_duration);
                         continue;
                     }
                 };
 
                 if let Err(e) = socket.set_nodelay(true) {
                     tracing::error!("Failed to set nodelay: {e:?}");
-                    backoff = Some(tokio::time::Instant::now() + std::time::Duration::from_millis(100));
                     continue;
                 }
 
@@ -420,6 +425,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                             tls_acceptor.clone(),
                             addr,
                             cli.idle_session_timeout,
+                            cli.tls_handshake_timeout,
                             task_cancellation,
                             connection_limit.clone()
                         )
@@ -449,6 +455,7 @@ async fn serve(
     tls_acceptor: Option<Arc<tokio_rustls::TlsAcceptor>>,
     addr: std::net::SocketAddr,
     idle_timeout: std::time::Duration,
+    tls_handshake_timeout: std::time::Duration,
     stop: tokio_util::sync::CancellationToken,
     connection_limit: Arc<tokio::sync::Semaphore>,
 ) -> anyhow::Result<()> {
@@ -465,9 +472,9 @@ async fn serve(
     // Optionally drive TLS handshake if needed
     let socket: Box<dyn Connection> = match tls_acceptor {
         Some(acceptor) => {
-            let tls_stream = acceptor
-                .accept(socket)
+            let tls_stream = tokio::time::timeout(tls_handshake_timeout, acceptor.accept(socket))
                 .await
+                .context("TLS handshake timed out")?
                 .context("TLS handshake failed")?;
             Box::new(tls_stream)
         }
