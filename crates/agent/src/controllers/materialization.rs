@@ -524,7 +524,10 @@ fn update_linked_materialization(
             resource: models::RawValue::from_value(&resource_spec),
             source: models::Source::Collection(collection_name.clone()),
             disable: false,
-            fields: Default::default(),
+            fields: models::MaterializationFields {
+                recommended: source_capture.to_normalized_def().fields_recommended,
+                ..Default::default()
+            },
             priority: Default::default(),
             backfill: 0,
             on_incompatible_schema_change: None,

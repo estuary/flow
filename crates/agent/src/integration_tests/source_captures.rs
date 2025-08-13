@@ -221,6 +221,7 @@ async fn test_source_captures_collection_name() {
                     "capture": "ducks/capture",
                     "targetSchema": "fromSourceName",
                     "deltaUpdates": true,
+                    "fieldsRecommended": 32,
                 },
                 "endpoint": {
                     "connector": {
@@ -260,6 +261,10 @@ async fn test_source_captures_collection_name() {
     assert_eq!(
         "ducks/pond/quacks",
         a_model.bindings[0].source.collection().as_str()
+    );
+    assert_eq!(
+        models::RecommendedDepth::Usize(32),
+        a_model.bindings[0].fields.recommended
     );
     assert_eq!(
         "pond",
