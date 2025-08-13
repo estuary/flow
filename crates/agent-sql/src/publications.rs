@@ -95,6 +95,7 @@ pub struct LiveSpecUpdate {
 pub async fn update_live_specs(
     pub_id: Id,
     build_id: Id,
+    control_ids: &[Id],
     catalog_names: &[String],
     spec_types: &[CatalogType],
     models: &[Option<Json<Box<RawValue>>>],
@@ -112,7 +113,7 @@ pub async fn update_live_specs(
     let fails = sqlx::query_as!(
         LiveSpecUpdate,
         r#"
-        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash) as (
+        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id) as (
             select * from unnest(
                 $3::text[],
                 $4::catalog_spec_type[],
@@ -125,10 +126,11 @@ pub async fn update_live_specs(
                 $11::text[],
                 $12::flowid[],
                 $13::boolean[],
-                $14::text[]
+                $14::text[],
+                $15::flowid[]
             )
         ),
-        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, last_build_id, next_pub_id, controller_task_id) as (
+        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id, last_build_id, next_pub_id, controller_task_id) as (
             select
                 inputs.catalog_name,
                 inputs.spec_type,
@@ -142,6 +144,7 @@ pub async fn update_live_specs(
                 inputs.data_plane_id,
                 inputs.is_touch,
                 inputs.dependency_hash,
+                inputs.id,
                 case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_build_id end as last_build_id,
                 case when inputs.is_touch then ls.last_pub_id else $1::flowid end as next_pub_id,
                 case when ls.controller_task_id is null then internal.id_generator() else ls.controller_task_id end as controller_task_id
@@ -193,7 +196,8 @@ pub async fn update_live_specs(
                 connector_image_tag,
                 data_plane_id,
                 dependency_hash,
-                controller_task_id
+                controller_task_id,
+                id
             ) select
                 catalog_name,
                 spec_type,
@@ -215,7 +219,8 @@ pub async fn update_live_specs(
                 image_tag,
                 data_plane_id,
                 dependency_hash,
-                controller_task_id
+                controller_task_id,
+                id
             from joined
             on conflict (catalog_name) do update set
                 updated_at = now(),
@@ -267,6 +272,7 @@ pub async fn update_live_specs(
     data_plane_ids as &[Id], // 12
     is_touches as &[bool], // 13
     dependency_hashes as &[Option<&str>], // 14
+    control_ids as &[Id], // 15
     )
     .fetch_all(txn)
     .await?;

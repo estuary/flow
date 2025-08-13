@@ -9,13 +9,13 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use tables::{utils, BuiltRow, DraftRow};
 
 pub async fn persist_updates(
-    uncommitted: &mut UncommittedBuild,
+    uncommitted: &UncommittedBuild,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<LockFailure>> {
     let UncommittedBuild {
         ref publication_id,
         ref build_id,
-        output,
+        ref output,
         ref user_id,
         ref detail,
         ..
@@ -137,11 +137,11 @@ async fn update_drafted_live_spec_flows(
 async fn update_live_specs(
     pub_id: Id,
     build_id: Id,
-    output: &mut build::Output,
+    output: &build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<LockFailure>> {
     let n_specs = output.built.spec_count();
-    let mut control_ids: BTreeMap<&str, &mut models::Id> = BTreeMap::new();
+    let mut control_ids = Vec::with_capacity(n_specs);
     let mut catalog_names = Vec::with_capacity(n_specs);
     let mut spec_types: Vec<agent_sql::CatalogType> = Vec::with_capacity(n_specs);
     let mut models = Vec::with_capacity(n_specs);
@@ -151,42 +151,43 @@ async fn update_live_specs(
     let mut writes_tos = Vec::with_capacity(n_specs);
     let mut images = Vec::with_capacity(n_specs);
     let mut image_tags = Vec::with_capacity(n_specs);
-    let mut data_plane_ids = Vec::with_capacity(n_specs);
+    let mut data_plane_ids: Vec<Id> = Vec::with_capacity(n_specs);
     let mut is_touches = Vec::with_capacity(n_specs);
     let mut dependency_hashes = Vec::with_capacity(n_specs);
 
     for r in output
         .built
         .built_captures
-        .iter_mut()
+        .iter()
         .filter(|r| !r.is_passthrough())
     {
+        control_ids.push(r.control_id);
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Capture);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_build_ids.push(r.expect_build_id().into());
+        expect_build_ids.push(r.expect_build_id());
         reads_froms.push(None);
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
-        data_plane_ids.push(r.data_plane_id.into());
+        data_plane_ids.push(r.data_plane_id);
         is_touches.push(r.is_touch());
-        control_ids.insert(&r.capture, &mut r.control_id);
         dependency_hashes.push(r.dependency_hash.as_deref());
     }
     for r in output
         .built
         .built_collections
-        .iter_mut()
+        .iter()
         .filter(|r| !r.is_passthrough())
     {
+        control_ids.push(r.control_id);
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Collection);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_build_ids.push(r.expect_build_id().into());
+        expect_build_ids.push(r.expect_build_id());
         reads_froms.push(get_dependencies(
             // reads_from should be null for regular collections
             r.model().filter(|m| m.derive.is_some()),
@@ -196,57 +197,57 @@ async fn update_live_specs(
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
-        data_plane_ids.push(r.data_plane_id.into());
+        data_plane_ids.push(r.data_plane_id);
         is_touches.push(r.is_touch());
-        control_ids.insert(&r.collection, &mut r.control_id);
         dependency_hashes.push(r.dependency_hash.as_deref());
     }
     for r in output
         .built
         .built_materializations
-        .iter_mut()
+        .iter()
         .filter(|r| !r.is_passthrough())
     {
+        control_ids.push(r.control_id);
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Materialization);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_build_ids.push(r.expect_build_id().into());
+        expect_build_ids.push(r.expect_build_id());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
         writes_tos.push(None);
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
-        data_plane_ids.push(r.data_plane_id.into());
+        data_plane_ids.push(r.data_plane_id);
         is_touches.push(r.is_touch());
-        control_ids.insert(&r.materialization, &mut r.control_id);
         dependency_hashes.push(r.dependency_hash.as_deref());
     }
     for r in output
         .built
         .built_tests
-        .iter_mut()
+        .iter()
         .filter(|r| !r.is_passthrough())
     {
+        control_ids.push(r.control_id);
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Test);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_build_ids.push(r.expect_build_id().into());
+        expect_build_ids.push(r.expect_build_id());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
-        data_plane_ids.push(models::Id::zero().into());
+        data_plane_ids.push(models::Id::zero());
         is_touches.push(r.is_touch());
-        control_ids.insert(&r.test, &mut r.control_id);
         dependency_hashes.push(r.dependency_hash.as_deref());
     }
 
     let updates = agent_sql::publications::update_live_specs(
-        pub_id.into(),
-        build_id.into(),
+        pub_id,
+        build_id,
+        &control_ids,
         &catalog_names,
         &spec_types,
         &models,
@@ -270,23 +271,8 @@ async fn update_live_specs(
             catalog_name,
             expect_build_id,
             last_build_id,
-            live_spec_id,
+            live_spec_id: _,
         } = update;
-
-        let control_id = control_ids
-            .remove(catalog_name.as_str())
-            .ok_or_else(|| anyhow::anyhow!("missing ids entry for {catalog_name:?} while processing LiveSpecUpdate for {live_spec_id}"))?;
-
-        if control_id.is_zero() {
-            *control_id = live_spec_id.into();
-        } else {
-            // Just a sanity check to ensure our handling of live spec ids is correct
-            assert_eq!(
-                *control_id,
-                live_spec_id.into(),
-                "live_specs.id changed mid-publication for {catalog_name:?}"
-            );
-        }
 
         if last_build_id != expect_build_id {
             lock_failures.push(LockFailure {
