@@ -108,7 +108,7 @@ async fn get_subject_latest(
         };
 
         let serialized_schema =
-            serde_json::to_value(schema).context("Cannot parse Schema from JSON")?;
+            serde_json::to_string(schema).context("Cannot parse Schema from JSON")?;
 
         Ok(serde_json::json!({
             "id": id,
