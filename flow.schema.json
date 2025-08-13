@@ -987,8 +987,7 @@
           }
         },
         "recommended": {
-          "title": "Desired depth of fields which should be automatically selected.",
-          "description": "0 = No fields, 1 = Top-level fields only, 2 = Second level fields, and so on.",
+          "title": "Mode for automatic field selection of this materialization binding.",
           "$ref": "#/definitions/RecommendedDepth"
         },
         "require": {
@@ -1104,6 +1103,7 @@
       ]
     },
     "RecommendedDepth": {
+      "description": "Available selection modes and their meanings: `false`/`0` = Only fields required by the user or the connector are materialized. `1` = Only top-level fields are selected. `2` = Second-level fields are selected, or top-level fields having no children. `3`, `4`, ... = Further levels of nesting are selected. `true` = Select nested fields regardless of their depth.",
       "anyOf": [
         {
           "type": "boolean"
@@ -1275,15 +1275,24 @@
       "type": "object",
       "properties": {
         "capture": {
-          "description": "Capture name",
+          "title": "Capture to source from",
+          "description": "The materialization will follow the bindings of the named capture as they change over time.",
           "$ref": "#/definitions/Capture"
         },
         "deltaUpdates": {
-          "description": "When adding new bindings from a source capture to a materialization, should the new bindings be marked as delta updates",
+          "title": "Delta-updates for new bindings",
+          "description": "New bindings will apply this as their delta-updates setting.",
+          "default": false,
           "type": "boolean"
         },
+        "fieldsRecommended": {
+          "title": "Mode for automatic field selection of new bindings",
+          "$ref": "#/definitions/RecommendedDepth"
+        },
         "targetNaming": {
-          "description": "When adding new bindings from a source capture to a materialization, how should the schema of the materialization binding be set",
+          "title": "Naming convention for new bindings",
+          "description": "New bindings will apply the naming convention to determine the target's name and schema within the endpoint.",
+          "default": "prefixNonDefaultSchema",
           "$ref": "#/definitions/TargetNaming"
         }
       },

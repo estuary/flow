@@ -256,6 +256,7 @@ mod test {
             capture: None,
             target_naming,
             delta_updates,
+            fields_recommended: Default::default(),
         });
         update_materialization_resource_spec(&sources, &mut existing, pointers, collection_name)?;
         Ok(existing)

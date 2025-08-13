@@ -50,22 +50,24 @@ impl Default for TargetNaming {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SourceDef {
-    /// Capture name
+    /// # Capture to source from
+    /// The materialization will follow the bindings of the named capture
+    /// as they change over time.
     pub capture: Option<Capture>,
-
-    /// When adding new bindings from a source capture to a materialization, how should the schema
-    /// of the materialization binding be set
-    #[serde(
-        default,
-        alias = "targetSchema",
-        skip_serializing_if = "super::is_default"
-    )]
+    /// # Naming convention for new bindings
+    /// New bindings will apply the naming convention to determine the
+    /// target's name and schema within the endpoint.
+    #[serde(default, alias = "targetSchema")]
     pub target_naming: TargetNaming,
-
-    /// When adding new bindings from a source capture to a materialization, should the new
-    /// bindings be marked as delta updates
-    #[serde(default, skip_serializing_if = "super::is_false")]
+    /// # Delta-updates for new bindings
+    /// New bindings will apply this as their delta-updates setting.
+    #[serde(default)]
     pub delta_updates: bool,
+    /// # Mode for automatic field selection of new bindings
+    // TODO(johnny): remove `skip_serializing_if` when released to `flowctl`
+    // and most users have updated.
+    #[serde(default, skip_serializing_if = "super::is_default")]
+    pub fields_recommended: crate::RecommendedDepth,
 }
 
 impl SourceDef {

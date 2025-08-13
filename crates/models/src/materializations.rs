@@ -129,17 +129,31 @@ pub struct MaterializationFields {
     /// This removes from recommended projections, where enabled.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<Field>,
-    /// # Desired depth of fields which should be automatically selected.
-    /// 0 = No fields, 1 = Top-level fields only, 2 = Second level fields, and so on.
-    #[serde(alias = "depth")]
+    /// # Mode for automatic field selection of this materialization binding.
     pub recommended: RecommendedDepth,
 }
 
+/// Available selection modes and their meanings:
+///  `false`/`0` = Only fields required by the user or the connector are materialized.
+///  `1` = Only top-level fields are selected.
+///  `2` = Second-level fields are selected, or top-level fields having no children.
+///  `3`, `4`, ... = Further levels of nesting are selected.
+///  `true` = Select nested fields regardless of their depth.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(untagged)]
 pub enum RecommendedDepth {
     Bool(bool),
     Usize(usize),
+}
+
+impl Default for RecommendedDepth {
+    fn default() -> Self {
+        // TODO(johnny): We want this to be RecommendedDepth::Usize(1) in the future.
+        // First we must re-publish all extant specs with an explicit representation
+        // of the legacy value. The UI is separately using `1` for new-task creation
+        // in the meantime.
+        RecommendedDepth::Bool(true)
+    }
 }
 
 impl MaterializationDef {
