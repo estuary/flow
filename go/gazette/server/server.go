@@ -108,6 +108,15 @@ func New(
 			grpc.MaxRecvMsgSize(int(maxGRPCRecvSize)),
 		),
 	}
+
+	// gRPC v1.67+ requires that we advertise "h2" via ALPN.
+	// However we only offer HTTP/2 for gRPC connections,
+	// so pick it only if "http/1.1" isn't offered
+	// (which is true only of gRPC clients).
+	if serverTLS != nil {
+		serverTLS.NextProtos = []string{"http/1.1", "h2"}
+	}
+
 	if wrapListener != nil {
 		if listener, err = wrapListener(listener, serverTLS); err != nil {
 			return nil, fmt.Errorf("failed to wrap listener: %w", err)
