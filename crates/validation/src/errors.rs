@@ -200,13 +200,6 @@ pub enum Error {
         lhs_index: usize,
         rhs_index: usize,
     },
-    #[error("`backfill` counters may only increase, but the draft {entity} for {resource:?} has a value of {draft}, which is less than the last value {last}")]
-    BindingBackfillDecrease {
-        entity: &'static str,
-        resource: String,
-        draft: u32,
-        last: u32,
-    },
     #[error("connector returned an invalid empty resource path for this {entity} binding")]
     BindingMissingResourcePath { entity: &'static str },
     #[error(transparent)]
