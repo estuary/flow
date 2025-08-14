@@ -327,6 +327,7 @@ driver:
       deltaUpdates: false
       bindings:
         - constraints:
+            int: { type: 4, reason: "optional" }
             flow_document: { type: 2, reason: "location required" }
           resourcePath: [view]
 

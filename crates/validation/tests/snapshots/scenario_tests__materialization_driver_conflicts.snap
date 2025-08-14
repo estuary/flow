@@ -5,22 +5,18 @@ expression: errors
 [
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field bit is not satisfiable (selector excludes field, but connector requires it with reason: field required),
+        error: conflict for field "Unknown": field is required by the connector (whoops) but field does not exist within the source collection,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field str is not satisfiable (selector includes field, but connector forbids it with reason: field forbidden),
+        error: conflict for field "bit": field is required by the connector (field required) but field is excluded by the user's field selection,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field int is not satisfiable (connector reports as incompatible with reason: field incompatible),
+        error: conflict for field "int": field is part of the materialization group-by key but field is forbidden by the connector (field forbidden),
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: connector sent constraint for unknown field Unknown,
-    },
-    Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views has no acceptable field that satisfies required location /int,
+        error: conflict for field "str": field is required by the user's field selection but field is forbidden by the connector (field forbidden),
     },
 ]

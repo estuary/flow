@@ -185,18 +185,6 @@ pub enum Error {
     },
     #[error(transparent)]
     FieldConflict(#[from] crate::field_selection::Conflict),
-    // TODO(johnny): Remove this error, and use FieldConflict instead.
-    #[error("materialization {name} field {field} is not satisfiable ({reason})")]
-    FieldIncompatible {
-        name: String,
-        field: String,
-        reason: String,
-    },
-    // TODO(johnny): Remove this error, and use FieldConflict instead.
-    #[error(
-        "materialization {name} has no acceptable field that satisfies required location {location}"
-    )]
-    LocationUnsatisfiable { name: String, location: String },
     #[error("documents to verify are not in collection key order")]
     TestVerifyOrder,
     #[error("tests do not support `notBefore` and `notAfter`")]
@@ -273,14 +261,16 @@ pub enum Error {
     TouchModelIsCreate,
     #[error("draft model is a 'touch' operation but also a deletion , which is invalid")]
     TouchModelIsDelete,
+    #[error("this binding must backfill because its source collection {collection} was reset")]
+    SourceCollectionWasReset { collection: String },
 
-    // In the context of validation, collection resets are the only thing we
-    // currently respond to, though onIncompatibleSchemaChange applies in other
-    // scenarios outside of validation. This is why "was reset" is hard coded here.
-    #[error("{this_entity} specifies `onIncompatibleSchemaChange: abort` and the collection {source_collection} was reset")]
+    #[error(
+        "raising an error because {this_entity} specifies `onIncompatibleSchemaChange: abort`"
+    )]
     AbortOnIncompatibleSchemaChange {
         this_entity: String,
-        source_collection: String,
+        #[source]
+        inner: Box<Self>,
     },
 }
 

@@ -2128,6 +2128,7 @@ Outcome {
                                     "f_one",
                                 ],
                                 values: [
+                                    "F1",
                                     "f_two",
                                 ],
                                 document: "flow_document",

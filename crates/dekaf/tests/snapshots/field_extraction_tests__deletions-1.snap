@@ -1,6 +1,6 @@
 ---
-source: crates/dekaf/tests/dekaf_schema_test.rs
-expression: doc?
+source: crates/dekaf/tests/field_extraction_tests.rs
+expression: output?
 ---
 Record(
     [
@@ -8,28 +8,6 @@ Record(
             "key",
             String(
                 "second",
-            ),
-        ),
-        (
-            "_meta",
-            Record(
-                [
-                    (
-                        "op",
-                        Union(
-                            0,
-                            String(
-                                "d",
-                            ),
-                        ),
-                    ),
-                    (
-                        "_flow_extra",
-                        Map(
-                            {},
-                        ),
-                    ),
-                ],
             ),
         ),
         (

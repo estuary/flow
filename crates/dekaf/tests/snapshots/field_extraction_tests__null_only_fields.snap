@@ -3,5 +3,5 @@ source: crates/dekaf/tests/field_extraction_tests.rs
 expression: "roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await"
 ---
 Err(
-    "materialization test/materialization field null_only_field is not satisfiable (selector includes field, but connector forbids it with reason: Cannot materialize null-only location)",
+    "conflict for field \"null_only_field\": field is required by the user's field selection but field is forbidden by the connector (Cannot materialize null-only location)",
 )
