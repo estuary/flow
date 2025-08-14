@@ -1,0 +1,142 @@
+name: Dekaf CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/dekaf-ci.yaml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-dekaf:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-2404-large
+            target: x86_64-unknown-linux-gnu
+            platform: linux/amd64
+          - runner: ubuntu-2404-large-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux/arm64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: make extra-ci-runner-setup
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "dekaf-${{ matrix.target }}"
+          key: "${{ hashFiles('**/Cargo.lock') }}"
+
+      - name: Build Dekaf
+        run: |
+          cargo build --release --locked -p dekaf --target ${{ matrix.target }}
+          mkdir -p .build/dekaf-bin
+          cp target/${{ matrix.target }}/release/dekaf .build/dekaf-bin/dekaf
+
+      - name: Upload Dekaf binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dekaf-${{ matrix.target }}
+          path: .build/dekaf-bin/dekaf
+
+  docker-image:
+    needs: build-dekaf
+    runs-on: ubuntu-2404-large
+    if: github.ref == 'refs/heads/master' || github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Google Cloud Auth
+        if: github.ref == 'refs/heads/master'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: "${{ secrets.GCP_SA_KEY }}"
+
+      - name: Set up Google Cloud SDK
+        if: github.ref == 'refs/heads/master'
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Login to GitHub container registry
+        if: github.ref == 'refs/heads/master'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - name: Download x86_64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: dekaf-x86_64-unknown-linux-gnu
+          path: .build/dekaf-x86_64
+
+      - name: Download aarch64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: dekaf-aarch64-unknown-linux-gnu
+          path: .build/dekaf-aarch64
+
+      - name: Set permissions on binaries
+        run: |
+          chmod +x .build/dekaf-x86_64/dekaf
+          chmod +x .build/dekaf-aarch64/dekaf
+
+      - name: Determine version
+        id: determine-version
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            # Use the git SHA for master builds
+            VERSION=$(git rev-parse --short HEAD)
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/estuary/dekaf:${VERSION},ghcr.io/estuary/dekaf:dev" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
+          else
+            # For PRs, just build but don't push
+            VERSION=pr-${{ github.event.pull_request.number }}
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/estuary/dekaf:${VERSION}" >> $GITHUB_OUTPUT
+            echo "push=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push multi-arch Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./crates/dekaf/Dockerfile.multiarch
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.determine-version.outputs.push }}
+          tags: ${{ steps.determine-version.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
