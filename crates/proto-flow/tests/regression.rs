@@ -634,6 +634,7 @@ fn ex_materialize_response() -> materialize::Response {
         validated: Some(materialize::response::Validated {
             bindings: vec![materialize::response::validated::Binding {
                 resource_path: vec!["some".to_string(), "path".to_string()],
+                case_insensitive_fields: true,
                 constraints: [
                     (
                         "req_field".to_string(),

@@ -116,12 +116,14 @@ mod test {
         let resp = proto_flow::materialize::response::Validated {
             bindings: vec![
                 validated::Binding {
+                    case_insensitive_fields: false,
                     constraints: test_constraints(constraint::Type::LocationRecommended),
                     resource_path: vec!["nice".to_string()],
                     delta_updates: false,
                     ser_policy: None,
                 },
                 validated::Binding {
+                    case_insensitive_fields: false,
                     constraints: test_constraints(constraint::Type::Incompatible),
                     resource_path: vec!["naughty".to_string()],
                     delta_updates: false,

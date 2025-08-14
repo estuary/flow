@@ -1755,6 +1755,7 @@ Outcome {
             validated: Validated {
                 bindings: [
                     Binding {
+                        case_insensitive_fields: false,
                         constraints: {
                             "F1": Constraint {
                                 r#type: FieldOptional,

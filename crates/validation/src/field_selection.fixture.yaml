@@ -144,6 +144,7 @@ model:
     nested: { cfg: 42 }
   exclude:
     - an_extra
+case_insensitive: false
 validated:
   ABool: { type: FIELD_OPTIONAL }
   ADateTime: { type: FIELD_OPTIONAL }
