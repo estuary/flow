@@ -1,0 +1,109 @@
+name: Dekaf CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/dekaf-ci.yaml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-dekaf:
+    runs-on: ubuntu-2404-large
+
+    permissions:
+      contents: read
+      packages: write # Required for pushing to the container registry
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: true
+      - name: Get git describe version
+        id: git-describe
+        run: |
+          VERSION=$(git describe --dirty --tags)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Disable man-db auto-update to speed up apt installs
+        run: |
+          sudo rm -f /var/lib/man-db/auto-update
+
+      - run: make extra-ci-runner-setup
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.21"
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          prefix-key: "dekaf-x86_64"
+      - name: Build Dekaf and dependencies
+        run: |
+          cargo build --release --locked -p dekaf
+          mkdir -p .build/dekaf-bin
+          cp target/release/dekaf .build/dekaf-bin/dekaf
+          chmod +x .build/dekaf-bin/dekaf
+          # Build sops using Go
+          go install github.com/getsops/sops/v3/cmd/sops@v3.10.2
+          cp $(go env GOPATH)/bin/sops .build/dekaf-bin/sops
+          chmod +x .build/dekaf-bin/sops
+
+      - name: Test Dekaf
+        run: cargo test --release --locked -p dekaf
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/estuary/dekaf
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=${{ steps.git-describe.outputs.version }}
+            type=sha
+            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/master' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .build/dekaf-bin
+          file: ./crates/dekaf/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
