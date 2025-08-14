@@ -156,9 +156,10 @@ where
 
                         Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
                             validated::Binding {
+                                case_insensitive_fields: false,
                                 constraints,
+                                delta_updates: true,
                                 resource_path: vec![resource_config.topic_name],
-                                delta_updates: false,
                                 ser_policy: None,
                             },
                         )

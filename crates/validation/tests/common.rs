@@ -590,6 +590,8 @@ struct MockMaterializationValidateCall {
 struct MockDriverBinding {
     resource_path: Vec<String>,
     #[serde(default)]
+    case_insensitive_fields: bool,
+    #[serde(default)]
     constraints: BTreeMap<String, materialize::response::validated::Constraint>,
     // type_override overrides the parsed constraints[].type for
     // each constraint. It supports test cases which want to deliberately
@@ -888,6 +890,7 @@ impl validation::Connectors for MockDriverCalls {
                     .take(validate.bindings.len())
                     .map(|b| {
                         let mut out = materialize::response::validated::Binding {
+                            case_insensitive_fields: b.case_insensitive_fields,
                             constraints: b.constraints.clone(),
                             delta_updates: call.delta_updates,
                             resource_path: b.resource_path.clone(),

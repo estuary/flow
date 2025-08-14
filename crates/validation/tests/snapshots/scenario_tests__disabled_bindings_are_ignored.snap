@@ -1833,6 +1833,7 @@ Outcome {
             validated: Validated {
                 bindings: [
                     Binding {
+                        case_insensitive_fields: false,
                         constraints: {
                             "flow_document": Constraint {
                                 r#type: LocationRequired,

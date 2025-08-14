@@ -275,11 +275,13 @@ Snap {
         "a_num1": Right(
             DuplicateFold {
                 folded_field: "NUM",
+                other_field: "ANumberOne",
             },
         ),
         "a_num2": Right(
             DuplicateFold {
                 folded_field: "NUM",
+                other_field: "ANumberOne",
             },
         ),
         "an_array": Right(

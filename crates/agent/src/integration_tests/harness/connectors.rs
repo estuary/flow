@@ -229,6 +229,7 @@ impl Connectors for TestConnectors {
                                 .collect();
                             let resource_path = mock_resource_path(&resource_config);
                             materialize::response::validated::Binding {
+                                case_insensitive_fields: false,
                                 constraints,
                                 resource_path,
                                 delta_updates,

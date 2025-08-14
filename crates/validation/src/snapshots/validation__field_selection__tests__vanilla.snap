@@ -217,6 +217,7 @@ Snap {
         "ANumberOne": Right(
             DuplicateFold {
                 folded_field: "NUM",
+                other_field: "a_num1",
             },
         ),
         "AnArray": Left(
@@ -320,6 +321,7 @@ Snap {
         "a_num2": Right(
             DuplicateFold {
                 folded_field: "NUM",
+                other_field: "a_num1",
             },
         ),
         "an_array": Left(
