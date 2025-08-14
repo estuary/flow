@@ -71,6 +71,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Criteo
   - [Configuration](./criteo.md)
   - Package - ghcr.io/estuary/source-criteo:dev
+- Datadog
+  - [Configuration](./datadog.md)
+  - Package - ghcr.io/estuary/source-datadog:dev
 - Dropbox
   - [Configuration](./dropbox.md)
   - Package - ghcr.io/estuary/source-dropbox:dev
