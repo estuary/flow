@@ -25,6 +25,7 @@ enable discovery of collection keys if the message key has an associated schema.
   - The endpoint to use for connecting to the schema registry
   - Username for authentication
   - Password for authentication
+- Flat schemas, i.e. no use of schema references (`import`, `$ref`), as these are not currently supported
 
 :::tip
 If you are using the Confluent Cloud Schema Registry, your schema registry
