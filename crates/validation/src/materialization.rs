@@ -1,6 +1,6 @@
 use super::{
-    Connectors, Error, NoOpConnectors, Scope, collection, field_selection, indexed, reference,
-    storage_mapping, walk_transition,
+    collection, field_selection, indexed, reference, storage_mapping, walk_transition, Connectors,
+    Error, NoOpConnectors, Scope,
 };
 use futures::SinkExt;
 use itertools::Itertools;
@@ -404,13 +404,11 @@ async fn walk_materialization<C: Connectors>(
 
         if let Some(live_spec) = live_spec {
             if model.backfill < live_spec.backfill {
-                Error::BindingBackfillDecrease {
-                    entity: "materialization binding",
-                    resource: path.iter().join("."),
-                    draft: model.backfill,
-                    last: live_spec.backfill,
-                }
-                .push(scope, errors);
+                model_fixes.push(format!(
+                    "restored `backfill` of resource {:?}",
+                    path.iter().join(".")
+                ));
+                model.backfill = live_spec.backfill;
             }
         }
 
