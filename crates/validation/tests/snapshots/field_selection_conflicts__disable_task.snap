@@ -1,0 +1,64 @@
+---
+source: crates/validation/tests/field_selection_conflicts.rs
+expression: "(selections, errors)"
+---
+(
+    [
+        (
+            [],
+            Some(
+                MaterializationDef {
+                    source: None,
+                    on_incompatible_schema_change: DisableTask,
+                    endpoint: Connector(
+                        ConnectorConfig {
+                            image: "an/image:test",
+                            config: RawValue(
+                                {},
+                            ),
+                        },
+                    ),
+                    bindings: [
+                        MaterializationBinding {
+                            resource: RawValue(
+                                {"_meta":{"path":["a"]},"table":"a"},
+                            ),
+                            source: Collection(
+                                Collection(
+                                    "the/collection",
+                                ),
+                            ),
+                            disable: false,
+                            priority: 0,
+                            fields: MaterializationFields {
+                                group_by: [],
+                                require: {},
+                                exclude: [],
+                                recommended: Usize(
+                                    1,
+                                ),
+                            },
+                            backfill: 0,
+                            on_incompatible_schema_change: None,
+                        },
+                    ],
+                    shards: ShardTemplate {
+                        disable: true,
+                        min_txn_duration: None,
+                        max_txn_duration: None,
+                        hot_standbys: None,
+                        ring_buffer_size: None,
+                        read_channel_size: None,
+                        log_level: None,
+                    },
+                    expect_pub_id: None,
+                    delete: false,
+                },
+            ),
+            [
+                "disabling materialization due to incompatible field selection of binding \"a\" (onIncompatibleSchemaChange: disableTask)",
+            ],
+        ),
+    ],
+    [],
+)

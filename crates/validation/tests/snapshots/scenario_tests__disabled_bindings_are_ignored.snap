@@ -1840,6 +1840,11 @@ Outcome {
                                 reason: "location required",
                                 folded_field: "",
                             },
+                            "id": Constraint {
+                                r#type: FieldOptional,
+                                reason: "optional",
+                                folded_field: "",
+                            },
                         },
                         resource_path: [
                             "enabled-stream",
@@ -2058,7 +2063,9 @@ Outcome {
                         priority: 0,
                         field_selection: Some(
                             FieldSelection {
-                                keys: [],
+                                keys: [
+                                    "id",
+                                ],
                                 values: [],
                                 document: "flow_document",
                                 field_config_json_map: {},
