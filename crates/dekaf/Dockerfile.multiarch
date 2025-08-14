@@ -1,0 +1,55 @@
+# Multi-architecture Dockerfile for Dekaf
+# This expects pre-built binaries to be available in the build context
+FROM --platform=$TARGETPLATFORM debian:trixie-slim
+
+# Install runtime dependencies including sops and jq for config decryption
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && apt-get install -y \
+    libssl3 \
+    ca-certificates \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install sops (multi-arch binary from GitHub releases)
+ARG TARGETPLATFORM
+RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+      SOPS_ARCH="amd64"; \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+      SOPS_ARCH="arm64"; \
+    else \
+      echo "Unsupported platform: $TARGETPLATFORM" && exit 1; \
+    fi && \
+    SOPS_VERSION="3.8.1" && \
+    curl -L -o /usr/local/bin/sops \
+      "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.${SOPS_ARCH}" && \
+    chmod +x /usr/local/bin/sops
+
+# Set up the working directory
+WORKDIR /app
+
+# Copy the appropriate binary based on the target platform
+# The binaries should be in the build context at:
+# - dekaf-x86_64 for amd64
+# - dekaf-aarch64 for arm64
+ARG TARGETPLATFORM
+COPY dekaf-* /tmp/
+
+# Select and install the correct binary for the platform
+RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+      mv /tmp/dekaf-x86_64 /usr/local/bin/dekaf; \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+      mv /tmp/dekaf-aarch64 /usr/local/bin/dekaf; \
+    else \
+      echo "Unsupported platform: $TARGETPLATFORM" && exit 1; \
+    fi && \
+    rm -f /tmp/dekaf-* && \
+    chmod +x /usr/local/bin/dekaf
+
+# Run as non-root user for security
+RUN useradd -m -u 1000 dekaf && chown -R dekaf:dekaf /app
+USER dekaf
+
+# Default command
+CMD ["dekaf"]
