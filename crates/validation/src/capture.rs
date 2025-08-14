@@ -316,7 +316,7 @@ async fn walk_capture<C: Connectors>(
         let capture::request::validate::Binding {
             resource_config_json,
             collection,
-            backfill,
+            backfill: _, // Same as `model.backfill`.
         } = validate;
 
         let capture::response::validated::Binding {
@@ -331,27 +331,28 @@ async fn walk_capture<C: Connectors>(
             n_meta_updated += 1;
         }
 
-        // Compare backfill now that we have a validated resource path.
-        if let Some(last) = live_bindings_spec.get(path.as_slice()) {
-            if backfill < last.backfill {
-                Error::BindingBackfillDecrease {
-                    entity: "capture binding",
-                    resource: path.iter().join("."),
-                    draft: backfill,
-                    last: last.backfill,
-                }
-                .push(scope, errors);
+        // Map to the live binding now that we have a validated resource path.
+        let live_spec: Option<&flow::capture_spec::Binding> =
+            live_bindings_spec.get(path.as_slice()).cloned();
+
+        if let Some(live_spec) = live_spec {
+            if model.backfill < live_spec.backfill {
+                model_fixes.push(format!(
+                    "restored `backfill` of resource {:?}",
+                    path.iter().join(".")
+                ));
+                model.backfill = live_spec.backfill;
             }
         }
 
         // Build a state key using the validated resource path.
-        let state_key = assemble::encode_state_key(&path, backfill);
+        let state_key = assemble::encode_state_key(&path, model.backfill);
 
         let spec = flow::capture_spec::Binding {
             resource_config_json,
             resource_path: path.clone(),
             collection,
-            backfill,
+            backfill: model.backfill,
             state_key,
         };
 
