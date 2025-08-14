@@ -8,6 +8,12 @@ import (
 	"go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v2"
+
+	"go.gazette.dev/core/broker/stores"
+	"go.gazette.dev/core/broker/stores/azure"
+	"go.gazette.dev/core/broker/stores/fs"
+	"go.gazette.dev/core/broker/stores/gcs"
+	"go.gazette.dev/core/broker/stores/s3"
 )
 
 const (
@@ -94,4 +100,12 @@ func startup(baseConfig BaseConfig) {
 	mbp.InitLog(baseConfig.Log)
 	protocol.RegisterGRPCDispatcher(baseConfig.Zone)
 
+	// Register all available store providers
+	stores.RegisterProviders(map[string]stores.Constructor{
+		"azure":    azure.NewAccount,
+		"azure-ad": azure.NewAD,
+		"file":     fs.New,
+		"gs":       gcs.New,
+		"s3":       s3.New,
+	})
 }
