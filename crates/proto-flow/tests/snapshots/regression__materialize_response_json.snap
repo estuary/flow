@@ -36,6 +36,7 @@ expression: json_test(msg)
   "validated": {
     "bindings": [
       {
+        "caseInsensitiveFields": true,
         "constraints": {
           "opt_field": {
             "type": "FIELD_OPTIONAL",

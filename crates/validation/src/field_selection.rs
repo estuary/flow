@@ -61,8 +61,11 @@ pub enum Reject {
     ExcludedParent,
     #[error("field's location is already materialized by another selected field")]
     DuplicateLocation,
-    #[error("field is represented by the endpoint as {folded_field:?}, which is ambiguous with another selected field")]
-    DuplicateFold { folded_field: String },
+    #[error("field is represented by the endpoint as {folded_field:?}, which is ambiguous with selected field {other_field:?}")]
+    DuplicateFold {
+        folded_field: String,
+        other_field: String,
+    },
     #[error("connector didn't return a constraint for this field")]
     ConnectorOmits,
     #[error("field does not exist within the source collection")]
@@ -88,6 +91,7 @@ pub struct Conflict {
 /// and any conflicts. If all conflicts are Reject::ConnectorIncompatible,
 /// then the returned FieldSelection is valid if a back-fill is also performed.
 pub fn evaluate(
+    case_insensitive: bool,
     collection_projections: &[flow::Projection],
     group_by: Vec<String>,
     live_spec: Option<&flow::materialization_spec::Binding>,
@@ -117,6 +121,7 @@ pub fn evaluate(
         validated_constraints,
     );
     let (document_field, field_outcomes) = group_outcomes(
+        case_insensitive,
         collection_projections,
         rejects,
         selects,
@@ -305,6 +310,7 @@ pub fn extract_constraints<'a>(
 /// Group Select and Reject outcomes by field name and apply depth and field-fold
 /// constraints, returning a selected document field and per-field outcomes.
 pub fn group_outcomes(
+    case_insensitive: bool,
     collection_projections: &[flow::Projection],
     rejects: Vec<(&str, Reject)>,
     selects: Vec<(&str, Select)>,
@@ -343,7 +349,7 @@ pub fn group_outcomes(
         EOB::Right(projection) => (projection.field.as_str(), None, None, Some(projection)),
     });
 
-    // Finally, outer join with connector constraints.
+    // Next, outer join with connector constraints.
     let grouped = itertools::merge_join_by(
         grouped,
         validated_constraints.iter(),
@@ -357,20 +363,50 @@ pub fn group_outcomes(
         EOB::Right((field, constraint)) => (field.as_str(), None, None, None, Some(constraint)),
     });
 
+    // Next, map constraints into folded and folded & lowercased field names.
+    let grouped = grouped.map(|(field, select, mut reject, projection, constraint)| {
+        let folded_field: &str = if let Some(constraint) = constraint {
+            if !constraint.folded_field.is_empty() {
+                constraint.folded_field.as_str()
+            } else {
+                field
+            }
+        } else {
+            reject = reject.max(Some(Reject::ConnectorOmits));
+            field
+        };
+
+        let folded_field_uncased: std::borrow::Cow<str> = if case_insensitive {
+            folded_field.to_lowercase().into() // Unicode case folding.
+        } else {
+            folded_field.into()
+        };
+
+        (
+            field,
+            folded_field,
+            folded_field_uncased,
+            select,
+            reject,
+            projection,
+        )
+    });
+
     // Re-order on descending Select priority, and materialize to a Vec.
     let grouped: Vec<(
-        &str, // Field name.
+        &str,                  // Field name.
+        &str,                  // Folded field name.
+        std::borrow::Cow<str>, // Case-invariant folded field name (iff case_insensitive).
         Option<Select>,
         Option<Reject>,
         Option<&flow::Projection>,
-        Option<&materialize::response::validated::Constraint>,
     )> = grouped
-        .sorted_by(|(_, l, _, _, _), (_, r, _, _, _)| l.cmp(r).reverse())
+        .sorted_by(|(_, _, _, l, _, _), (_, _, _, r, _, _)| l.cmp(r).reverse())
         .collect();
 
     // Pre-scan to find user-excluded canonical projections.
     let mut excluded_canonical_ptrs: Vec<&str> = Vec::new();
-    for (field, _, reject, projection, _) in &grouped {
+    for (field, _, _, _, reject, projection) in &grouped {
         if matches!(reject, Some(Reject::UserExcludes)) {
             if let Some(projection) = projection {
                 // Check if this is a canonical projection (field matches ptr without leading '/').
@@ -383,10 +419,10 @@ pub fn group_outcomes(
 
     let mut document_field: Option<String> = None;
     let mut outcomes: BTreeMap<String, EOB<Select, Reject>> = BTreeMap::new();
-    let mut selected_folds: Vec<&str> = Vec::new();
+    let mut selected_folds: BTreeMap<std::borrow::Cow<str>, &str> = BTreeMap::new();
     let mut selected_ptrs: Vec<&str> = Vec::new();
 
-    for (field, mut select, mut reject, projection, constraint) in grouped {
+    for (field, folded_field, folded_field_uncased, mut select, mut reject, projection) in grouped {
         // Unwrap `projection` to its JSON pointer location.
         let field_ptr = if let Some(projection) = projection {
             projection.ptr.as_str()
@@ -395,22 +431,11 @@ pub fn group_outcomes(
             ""
         };
 
-        // Unwrap `constraint` to its folded field, or the original field if not provided.
-        let folded_field = if let Some(constraint) = constraint {
-            if constraint.folded_field.is_empty() {
-                field
-            } else {
-                constraint.folded_field.as_str()
-            }
-        } else {
-            reject = reject.max(Some(Reject::ConnectorOmits));
-            field
-        };
-
         // Does the field fold collide with an already-selected value?
-        if selected_folds.contains(&folded_field) {
+        if let Some(other) = selected_folds.get(&folded_field_uncased) {
             reject = reject.max(Some(Reject::DuplicateFold {
                 folded_field: folded_field.to_string(),
+                other_field: other.to_string(),
             }));
         }
 
@@ -483,7 +508,7 @@ pub fn group_outcomes(
             else if document_field.is_none() {
                 document_field = Some(field.to_string());
             }
-            selected_folds.push(folded_field);
+            selected_folds.insert(folded_field_uncased, field);
         }
 
         outcomes.insert(field.to_string(), outcome);
@@ -567,6 +592,7 @@ mod tests {
     struct Fixture {
         collection: models::CollectionDef,
         model: models::MaterializationFields,
+        case_insensitive: bool,
         validated: BTreeMap<String, materialize::response::validated::Constraint>,
         live: Option<flow::FieldSelection>,
     }
@@ -882,6 +908,37 @@ model:
         "###);
     }
 
+    #[test]
+    fn test_case_collisions() {
+        let snap = run_test(
+            r##"
+collection:
+  key: [/foo_id]
+  projections:
+    Foo_Id: /foo_id
+  schema:
+    type: object
+    properties:
+      foo_id: {type: integer}
+      foo:
+        type: object
+        properties:
+          id: {type: string}
+model:
+  recommended: 2
+  groupBy: [foo_id]
+case_insensitive: true
+validated:
+  Foo_Id: { type: FIELD_OPTIONAL }
+  foo_id: { type: FIELD_OPTIONAL }
+  foo/id: { type: FIELD_OPTIONAL, folded_field: "FOO_ID" }
+live: null
+"##,
+            "{}",
+        );
+        insta::assert_debug_snapshot!(snap);
+    }
+
     fn run_test(fixture_yaml: &str, patch_yaml: &str) -> Snap {
         let mut fixture: serde_json::Value = serde_yaml::from_str(fixture_yaml).unwrap();
         let patch: serde_json::Value = serde_yaml::from_str(patch_yaml).unwrap();
@@ -890,6 +947,7 @@ model:
         let Fixture {
             collection,
             model: model_fields,
+            case_insensitive,
             validated: validated_constraints,
             live: live_field_selection,
         }: Fixture = serde_json::from_value(fixture).unwrap();
@@ -930,6 +988,7 @@ model:
             .collect();
 
         let (document_field, field_outcomes) = group_outcomes(
+            case_insensitive,
             &collection_projections,
             rejects,
             selects,

@@ -6,7 +6,7 @@
 
 use proto_flow::{flow, materialize};
 use serde::{Deserialize, Serialize};
-use validation::field_selection::{self, Select, Reject};
+use validation::field_selection::{self, Reject, Select};
 use wasm_bindgen::prelude::*;
 
 /// Wrapper for Select with both structured and rendered data.
@@ -123,8 +123,9 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
     } = model;
 
     let materialize::response::validated::Binding {
-        resource_path: validated_resource_path,
+        case_insensitive_fields,
         constraints: validated_constraints,
+        resource_path: validated_resource_path,
         ..
     } = validated;
 
@@ -162,6 +163,7 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
         &validated_constraints,
     );
     let (document_field, field_outcomes) = field_selection::group_outcomes(
+        case_insensitive_fields,
         &collection_projections,
         rejects,
         selects,
@@ -184,17 +186,15 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
                 validation::field_selection::Reject::ConnectorIncompatible { .. },
             )
         );
-        
         let select = outcome.as_ref().left().map(|s| SelectOutput {
             detail: format!("{s}"),
             reason: s.clone(),
         });
-        
         let reject = outcome.as_ref().right().map(|r| RejectOutput {
             detail: format!("{r}"),
             reason: r.clone(),
         });
-        
+
         outcomes.push(FieldOutcome {
             field,
             select,

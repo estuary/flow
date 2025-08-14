@@ -319,6 +319,14 @@ message Response {
     // Validation responses for each binding of the request, and matching the
     // request ordering. Each Binding must have a unique resource_path.
     message Binding {
+      // When true, fields are case-insensitive within the materialized resource.
+      // Fields that differ only in Unicode capitalization will conflict and the
+      // control plane must ensure they are not co-selected.
+      //
+      // Many database systems are case-aware in their information schema, so we
+      // want to preserve natural casing of fields, but they will still prohibit
+      // (for example) "myField" and "MyField" from co-existing within a table.
+      bool case_insensitive_fields = 5;
       // Constraints imposed by the connector, keyed by field name.
       // Projections of the CollectionSpec which are missing from
       // constraints are implicitly forbidden.
@@ -347,6 +355,8 @@ message Response {
       bool delta_updates = 3;
       // Serialization policy to use for this binding.
       flow.SerPolicy ser_policy = 4;
+
+      // Next tag: 6
     }
     repeated Binding bindings = 1;
   }

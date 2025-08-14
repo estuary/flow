@@ -5849,6 +5849,7 @@ Outcome {
             validated: Validated {
                 bindings: [
                     Binding {
+                        case_insensitive_fields: false,
                         constraints: {
                             "flow_document": Constraint {
                                 r#type: LocationRequired,
@@ -6360,6 +6361,7 @@ Outcome {
             validated: Validated {
                 bindings: [
                     Binding {
+                        case_insensitive_fields: false,
                         constraints: {
                             "Int": Constraint {
                                 r#type: LocationRecommended,
@@ -6395,6 +6397,7 @@ Outcome {
                         ser_policy: None,
                     },
                     Binding {
+                        case_insensitive_fields: false,
                         constraints: {
                             "Extra": Constraint {
                                 r#type: LocationRequired,

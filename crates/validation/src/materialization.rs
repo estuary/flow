@@ -370,6 +370,7 @@ async fn walk_materialization<C: Connectors>(
         let collection = collection.unwrap();
 
         let materialize::response::validated::Binding {
+            case_insensitive_fields,
             constraints,
             delta_updates,
             resource_path: validated_path,
@@ -429,6 +430,7 @@ async fn walk_materialization<C: Connectors>(
         // which is compared and logged but not used while we validate its correctness.
         {
             let ((shadow_selection, conflicts), outcomes) = field_selection::evaluate(
+                *case_insensitive_fields,
                 &collection.projections,
                 group_by,
                 live_spec,

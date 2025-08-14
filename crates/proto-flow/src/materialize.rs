@@ -434,6 +434,15 @@ pub mod response {
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
+            /// When true, fields are case-insensitive within the materialized resource.
+            /// Fields that differ only in Unicode capitalization will conflict and the
+            /// control plane must ensure they are not co-selected.
+            ///
+            /// Many database systems are case-aware in their information schema, so we
+            /// want to preserve natural casing of fields, but they will still prohibit
+            /// (for example) "myField" and "MyField" from co-existing within a table.
+            #[prost(bool, tag = "5")]
+            pub case_insensitive_fields: bool,
             /// Constraints imposed by the connector, keyed by field name.
             /// Projections of the CollectionSpec which are missing from
             /// constraints are implicitly forbidden.
