@@ -1,5 +1,5 @@
 
-# Klaviyo
+# Klaviyo (deprecated)
 
 This connector captures data from Klaviyo into Flow collections.
 
