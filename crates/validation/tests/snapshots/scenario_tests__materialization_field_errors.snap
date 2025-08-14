@@ -4,6 +4,10 @@ expression: errors
 ---
 [
     Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        error: conflict for field "str": field is required by the user's field selection but field is excluded by the user's field selection,
+    },
+    Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/require/biT,
         error: required projection biT does not exist in collection testing/int-halve,
     },
@@ -14,9 +18,5 @@ expression: errors
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/exclude/1,
         error: exclude projection WildlyOffName does not exist in collection testing/int-halve,
-    },
-    Error {
-        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1/fields/exclude/2,
-        error: materialization testing/webhook/deliveries field int is not satisfiable (field is both included and excluded by selector),
     },
 ]

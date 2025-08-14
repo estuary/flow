@@ -239,7 +239,7 @@ async fn test_publication_spec_updates() {
         .errors;
     assert_eq!(1, pub_errors.len());
     assert!(
-        pub_errors[0].detail.contains("moths/abort specifies `onIncompatibleSchemaChange: abort` and the collection caterpillars/leaves was reset"),
+        pub_errors[0].detail.contains("raising an error because moths/abort specifies `onIncompatibleSchemaChange: abort`: this binding must backfill because its source collection caterpillars/leaves was reset"),
         "unexpected error: {}",
         pub_errors[0].detail
     );

@@ -426,7 +426,7 @@ Outcome {
     errors: [
         Error {
             scope: test://example/catalog.yaml#/materializations/testing~1materialize/bindings/1,
-            error: testing/materialize specifies `onIncompatibleSchemaChange: abort` and the collection testing/reset/b was reset,
+            error: raising an error because testing/materialize specifies `onIncompatibleSchemaChange: abort`: this binding must backfill because its source collection testing/reset/b was reset,
         },
     ],
     errors_draft: [],

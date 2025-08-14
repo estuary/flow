@@ -1,9 +1,15 @@
 ---
-source: crates/dekaf/tests/dekaf_schema_test.rs
+source: crates/dekaf/tests/field_extraction_tests.rs
 expression: output?
 ---
 Record(
     [
+        (
+            "key",
+            String(
+                "first",
+            ),
+        ),
         (
             "field_a",
             String(

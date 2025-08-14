@@ -9,7 +9,11 @@ expression: errors
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
-        error: materialization testing/webhook/deliveries field str is not satisfiable (selector includes field, but connector forbids it with reason: ),
+        error: conflict for field "Int": field is part of the materialization group-by key but connector didn't return a constraint for this field,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
+        error: conflict for field "str": field is required by the user's field selection but connector didn't return a constraint for this field,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
@@ -17,6 +21,10 @@ expression: errors
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
-        error: materialization testing/webhook/deliveries field Len is not satisfiable (selector includes field, but connector forbids it with reason: ),
+        error: conflict for field "Len": field is required by the user's field selection but connector didn't return a constraint for this field,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
+        error: conflict for field "int": field is part of the materialization group-by key but connector didn't return a constraint for this field,
     },
 ]
