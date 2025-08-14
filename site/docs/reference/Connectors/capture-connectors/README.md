@@ -146,9 +146,12 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Jira
   - [Configuration](./jira-native.md)
   - Package - ghcr.io/estuary/source-jira-native:dev
-- Klaviyo
+- Klaviyo (deprecated)
   - [Configuration](./klaviyo.md)
   - Package - ghcr.io/estuary/source-klaviyo:dev
+- Klaviyo
+  - [Configuration](./klaviyo-native.md)
+  - Package - ghcr.io/estuary/source-klaviyo-native:dev
 - LinkedIn Pages
   - [Configuration](./linkedin-pages.md)
   - Package - ghcr.io/estuary/source-linkedin-pages:dev
