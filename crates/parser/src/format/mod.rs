@@ -1,9 +1,9 @@
 pub mod avro;
 pub mod character_separated;
 pub mod json;
+pub mod parquet;
 pub mod protobuf;
 pub mod sanitize;
-pub mod parquet;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -148,8 +148,12 @@ pub fn parse(
                         // along with all other entries created by this loop, are dropped before archive
                         // is dropped. The parse function that uses the transmuted entry is entirely
                         // synchronous so we don't need to pin anything.
-                        let entry =
-                            unsafe { std::mem::transmute::<ZipFile<'_>, ZipFile<'static>>(entry) };
+                        let entry = unsafe {
+                            std::mem::transmute::<
+                                ZipFile<'_, std::fs::File>,
+                                ZipFile<'static, std::fs::File>,
+                            >(entry)
+                        };
 
                         let input = Input::Stream(Box::new(entry));
                         row_count += parse_file(&parser, config, input, dest, row_count)?;
@@ -398,7 +402,7 @@ fn zip_into_io_err(zip_err: ZipError) -> io::Error {
     }
 }
 
-fn should_include_archive_member(entry: &ZipFile) -> bool {
+fn should_include_archive_member<R: std::io::Read>(entry: &ZipFile<'_, R>) -> bool {
     // OSX users will often end up with extra hidden files in their archives. An example is the
     // `.DS_Store` files that apple puts everywhere, but we've also seen `__MACOSX/.*`. So we
     // filter out any hidden files (those whose name begins with a '.').

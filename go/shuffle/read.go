@@ -2,6 +2,7 @@ package shuffle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/pprof"
 	"sort"
@@ -336,7 +337,7 @@ func (r *read) start(
 		MayProxy: true,
 	})
 	if err == nil && resolution.Status != pc.Status_OK {
-		err = fmt.Errorf(resolution.Status.String())
+		err = errors.New(resolution.Status.String())
 	}
 	if err != nil {
 		r.sendReadResult(nil, fmt.Errorf("resolving coordinator: %w", err), wakeCh)

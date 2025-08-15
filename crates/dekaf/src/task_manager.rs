@@ -210,7 +210,7 @@ impl TaskManager {
     ) -> anyhow::Result<()> {
         // Start the loop at some random point between now and the interval duration
         let jittered_start = Duration::from_millis(
-            rand::thread_rng().gen_range(0..self.interval.as_millis() as u64),
+            rand::rng().random_range(0..self.interval.as_millis() as u64),
         );
         let mut interval =
             tokio::time::interval_at(tokio::time::Instant::now() + jittered_start, self.interval);

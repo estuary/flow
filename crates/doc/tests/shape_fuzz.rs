@@ -95,7 +95,7 @@ fn fuzz_roundtrip() {
     }
 
     QuickCheck::new()
-        .gen(Gen::new(100))
+        .r#gen(Gen::new(100))
         .quickcheck(inner_test as fn(Vec<ArbitraryValue>) -> bool);
 }
 
@@ -110,7 +110,7 @@ fn fuzz_limiting() {
     }
 
     QuickCheck::new()
-        .gen(Gen::new(100))
+        .r#gen(Gen::new(100))
         .tests(1000)
         .quickcheck(inner_test as fn(Vec<ArbitraryValue>, usize, usize) -> TestResult);
 }

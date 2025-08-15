@@ -61,7 +61,7 @@ fn is_one(i: &u32) -> bool {
     *i == 1
 }
 
-fn count_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn count_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": "integer",
         "minimum": 1,

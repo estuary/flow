@@ -536,7 +536,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         data_plane_id: models::Id,
     ) -> anyhow::Result<DiscoverOutput> {
         let PGControlPlane {
-            ref pool,
+            pool,
             discovers_handler,
             system_user_id,
             ..

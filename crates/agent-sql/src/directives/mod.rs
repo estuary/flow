@@ -48,7 +48,7 @@ pub async fn fetch_directive(
         "#,
         task_id as Id,
     )
-    .fetch_one(txn)
+    .fetch_one(&mut **txn)
     .await
 }
 
@@ -70,7 +70,7 @@ where
         id as Id,
         TextJson(status) as TextJson<S>,
     )
-    .fetch_one(txn)
+    .fetch_one(&mut **txn)
     .await?;
 
     Ok(())

@@ -6,7 +6,7 @@ use serde_json::{from_value, json};
 /// Test the behavior of reductions and derivations, through a sequence of test steps.
 #[derive(Serialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "TestDef::example")]
+#[schemars(example = TestDef::example())]
 pub struct TestDef {
     /// # Description of this test.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -17,6 +17,7 @@ pub struct TestDef {
     /// When present, a publication of the test will fail if the
     /// last publication ID in the control plane doesn't match this value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
     /// # Delete this test within the control plane.
     /// When true, a publication will delete this test.
@@ -38,8 +39,8 @@ impl TestDef {
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
-#[schemars(example = "TestDocuments::example_relative")]
-#[schemars(example = "TestDocuments::example_inline")]
+#[schemars(example = TestDocuments::example_relative())]
+#[schemars(example = TestDocuments::example_inline())]
 pub struct TestDocuments(RawValue);
 
 impl std::ops::Deref for TestDocuments {
@@ -72,8 +73,8 @@ impl TestDocuments {
 /// collection, or a "verify" of expected document fixtures from a collection.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "TestStep::example_ingest")]
-#[schemars(example = "TestStep::example_verify")]
+#[schemars(example = TestStep::example_ingest())]
+#[schemars(example = TestStep::example_verify())]
 pub enum TestStep {
     /// Ingest document fixtures into a collection.
     Ingest(TestStepIngest),
@@ -94,7 +95,7 @@ impl TestStep {
 /// collection.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "TestStepIngest::example")]
+#[schemars(example = TestStepIngest::example())]
 pub struct TestStepIngest {
     /// # Description of this test ingestion.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -121,7 +122,7 @@ impl TestStepIngest {
 /// preceding ingestion test steps.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "TestStepVerify::example")]
+#[schemars(example = TestStepVerify::example())]
 pub struct TestStepVerify {
     /// # Description of this test verification.
     #[serde(default, skip_serializing_if = "String::is_empty")]

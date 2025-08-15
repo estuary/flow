@@ -1,8 +1,4 @@
-use schemars::{
-    gen::SchemaGenerator,
-    schema::{InstanceType, Schema, SchemaObject},
-    JsonSchema,
-};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
@@ -18,13 +14,8 @@ pub struct ProtobufConfig {
 }
 
 fn proto_file_schema(_gen: &mut SchemaGenerator) -> Schema {
-    let mut extra = schemars::Map::new();
-    extra.insert("multiline".to_string(), serde_json::Value::Bool(true));
-    let obj = SchemaObject {
-        instance_type: Some(InstanceType::String.into()),
-        extensions: extra,
-        ..Default::default()
-    };
-
-    Schema::Object(obj)
+    schemars::json_schema!({
+        "type": "string",
+        "multiline": true
+    })
 }

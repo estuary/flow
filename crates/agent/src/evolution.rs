@@ -370,7 +370,7 @@ fn with_cap_binding<'a, 'b>(
     &'b mut models::CaptureDef,
     &'b mut bool,
 )> {
-    let tables::DraftCapture {
+    let &mut tables::DraftCapture {
         ref capture,
         ref mut model,
         ref mut is_touch,
@@ -392,7 +392,7 @@ fn with_mat_binding<'a, 'b>(
     &'b mut models::MaterializationDef,
     &'b mut bool,
 )> {
-    let tables::DraftMaterialization {
+    let &mut tables::DraftMaterialization {
         ref materialization,
         ref mut model,
         ref mut is_touch,

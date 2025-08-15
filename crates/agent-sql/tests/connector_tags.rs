@@ -22,7 +22,7 @@ async fn resource_path_pointers_cannot_be_changed() {
       insert into connector_tags (connector_id, image_tag) select id, ':test' as image_tag from setup_connectors
       returning id as "id: Id"
       "#
-	).fetch_one(&mut txn).await.unwrap();
+	).fetch_one(&mut *txn).await.unwrap();
 
     let id = row.id;
 
@@ -39,7 +39,7 @@ async fn resource_path_pointers_cannot_be_changed() {
         protocol.clone(),
         resource_schema.clone(),
         resource_path_pointers.clone(),
-        &mut txn,
+        &mut *txn,
     )
     .await
     .unwrap();
@@ -52,7 +52,7 @@ async fn resource_path_pointers_cannot_be_changed() {
     let new_row = sqlx::query!(
         r#"select resource_path_pointers as "resource_path_pointers!: Vec<String>" from connector_tags where id = $1"#,
         id as Id,
-    ).fetch_one(&mut txn).await.unwrap();
+    ).fetch_one(&mut *txn).await.unwrap();
     assert_eq!(resource_path_pointers, new_row.resource_path_pointers);
 
     let result_two = agent_sql::connector_tags::update_tag_fields(
@@ -62,7 +62,7 @@ async fn resource_path_pointers_cannot_be_changed() {
         protocol,
         resource_schema,
         vec!["/new_pointer".to_string()],
-        &mut txn,
+        &mut *txn,
     )
     .await
     .expect("update_tag_fields succeeds");
@@ -72,6 +72,6 @@ async fn resource_path_pointers_cannot_be_changed() {
     let new_row = sqlx::query!(
         r#"select resource_path_pointers as "resource_path_pointers!: Vec<String>" from connector_tags where id = $1"#,
         id as Id,
-    ).fetch_one(&mut txn).await.unwrap();
+    ).fetch_one(&mut *txn).await.unwrap();
     assert_eq!(resource_path_pointers, new_row.resource_path_pointers);
 }

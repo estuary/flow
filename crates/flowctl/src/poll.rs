@@ -22,20 +22,18 @@ pub async fn poll_table(
     id: models::Id,
 ) -> anyhow::Result<String> {
     let outcome = loop {
-        let resp = client
-            .from(table)
-            .select("job_status->>type")
-            .eq("id", id.to_string())
-            .single()
-            .execute()
-            .await?
-            .error_for_status()?;
-
         #[derive(Deserialize, Debug)]
         struct PollResponse {
             r#type: String,
         }
-        let PollResponse { r#type: job_status } = resp.json().await?;
+        let PollResponse { r#type: job_status } = crate::api_exec::<PollResponse>(
+            client
+                .from(table)
+                .select("job_status->>type")
+                .eq("id", id.to_string())
+                .single(),
+        )
+        .await?;
         tracing::trace!(%job_status, %id, %table, "polled job");
 
         if job_status != "queued" {
@@ -55,26 +53,23 @@ pub async fn stream_logs(
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        let resp = client
-            .rpc(
-                "view_logs",
-                serde_json::json!({
-                    "bearer_token": logs_token,
-                    "last_logged_at": last_logged_at,
-                })
-                .to_string(),
-            )
-            .execute()
-            .await?
-            .error_for_status()?;
-
         #[derive(Deserialize, Debug)]
         struct Log {
             log_line: String,
             logged_at: crate::Timestamp,
             stream: String,
         }
-        let logs: Vec<Log> = resp.json().await?;
+        let logs: Vec<Log> = super::api_exec::<Vec<Log>>(
+            client.rpc(
+                "view_logs",
+                serde_json::json!({
+                    "bearer_token": logs_token,
+                    "last_logged_at": last_logged_at,
+                })
+                .to_string(),
+            ),
+        )
+        .await?;
 
         if let Some(last) = logs.last() {
             last_logged_at = Some(last.logged_at.clone());

@@ -68,7 +68,7 @@ pub struct TaskAuthorization {
 #[serde(rename_all = "camelCase")]
 pub struct UserCollectionAuthorizationRequest {
     /// # Collection name to be authorized.
-    #[validate]
+    #[validate(nested)]
     pub collection: crate::Collection,
     /// # Requested capability level of the authorization.
     #[serde(default = "capability_read")]
@@ -114,10 +114,10 @@ pub struct UserCollectionAuthorization {
 #[serde(rename_all = "camelCase")]
 pub struct UserPrefixAuthorizationRequest {
     /// # Prefix to be authorized.
-    #[validate]
+    #[validate(nested)]
     pub prefix: crate::Prefix,
     /// # Name of the data-plane to be authorized.
-    #[validate]
+    #[validate(nested)]
     pub data_plane: crate::Name,
     /// # Requested capability level of the authorization.
     #[serde(default = "capability_read")]
@@ -161,7 +161,7 @@ pub struct UserPrefixAuthorization {
 #[serde(rename_all = "camelCase")]
 pub struct UserTaskAuthorizationRequest {
     /// # Task name to be authorized.
-    #[validate]
+    #[validate(nested)]
     pub task: crate::Name,
     /// # Requested capability level of the authorization.
     #[serde(default = "capability_read")]

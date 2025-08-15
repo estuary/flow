@@ -168,7 +168,7 @@ pub async fn resolve_specs(
         draft_id as Id,
         user_id as Uuid,
         collection_names as Vec<String>,
-    ).fetch_all(txn)
+    ).fetch_all(&mut **txn)
     .await
 }
 
@@ -192,7 +192,7 @@ pub async fn fetch_resource_spec_schema(
         image_name,
         image_tag
     )
-    .fetch_optional(txn)
+    .fetch_optional(&mut **txn)
     .await?;
 
     Ok(res.and_then(|r| r.resource_spec_schema))

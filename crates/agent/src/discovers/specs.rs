@@ -281,7 +281,7 @@ pub fn merge_collections(
             }
         });
 
-        let DraftCollection {
+        let &mut DraftCollection {
             ref collection,
             ref mut is_touch,
             ref mut model,
@@ -402,10 +402,8 @@ fn normalize_recommended_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use doc::AsNode;
     use proto_flow::capture::{self, response::discovered};
     use serde_json::json;
-    use tables::DraftRow;
 
     #[test]
     fn test_response_parsing() {

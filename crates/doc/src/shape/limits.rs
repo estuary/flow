@@ -179,7 +179,6 @@ pub const DEFAULT_SCHEMA_DEPTH_LIMIT: usize = 12;
 mod test {
     use super::*;
     use itertools::Itertools;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     fn widening_snapshot_helper(

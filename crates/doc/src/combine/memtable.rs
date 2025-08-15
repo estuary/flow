@@ -77,7 +77,7 @@ impl Entries {
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
             let (lhs, rhs) = (&next[index - 1], &next[index]);
-            let (validator, ref schema) = &mut validators[lhs.meta.binding()];
+            let &mut (ref mut validator, ref schema) = &mut validators[lhs.meta.binding()];
 
             let rhs_valid = validator
                 .validate(schema.as_ref(), &rhs.root)
@@ -309,7 +309,7 @@ impl MemTable {
         // we'll validate the document upon drain.
         for doc in sorted.iter() {
             if !doc.meta.front() {
-                let (validator, ref schema) = &mut spec.validators[doc.meta.binding()];
+                let &mut (ref mut validator, ref schema) = &mut spec.validators[doc.meta.binding()];
                 validator
                     .validate(schema.as_ref(), &doc.root)?
                     .ok()
@@ -352,7 +352,7 @@ impl MemDrainer {
         };
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
@@ -1005,17 +1005,16 @@ mod test {
         let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
         let (spill, ranges) = spill.into_parts();
-        assert_eq!(ranges, vec![0..116]);
+        assert_eq!(ranges, vec![0..107]);
         insta::assert_snapshot!(to_hex(spill.get_ref()), @r###"
-        |6c000000 d8000000 b0000000 00400000| l............@.. 00000000
-        |006b6579 0b008103 08000000 6161610c| .key........aaa. 00000010
-        |00000500 10760500 30000001 18008067| .....v..0......g 00000020
-        |6f6f6400 00000411 00900600 0000ccff| ood............. 00000030
-        |ffff020d 00020200 1c804800 30626262| ..........H.0bbb 00000040
-        |1a001003 05000f48 00293063 63634300| .......H.)0cccC. 00000050
-        |0d480020 62618f00 02a80007 90005000| .H. ba........P. 00000060
-        |00000000|                            ....             00000070
-                                                               00000074
+        |63000000 d8000000 c0000000 00400000| c............@.. 00000000
+        |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
+        |0010ff1c 0011760a 00021800 40676f6f| ......v.....@goo 00000020
+        |640c0000 18009006 000000cc ffffff02| d............... 00000030
+        |0d000202 001c8048 00306262 622f000f| .......H.0bbb/.. 00000040
+        |48002e3f 63636348 00022162 618f0001| H..?cccH..!ba... 00000050
+        |60000790 00500000 000000|            `....P.....      00000060
+                                                               0000006b
         "###);
 
         // New MemTable. This time we attempt to spill an invalid, non-reduced document.

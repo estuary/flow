@@ -285,7 +285,7 @@ impl ModelDef for AnySpec {
     }
 }
 
-fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn duration_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "pattern": "^\\d+(s|m|h|d)$"
@@ -293,7 +293,7 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     .unwrap()
 }
 
-fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn datetime_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string"],
         "format": "date-time",
@@ -301,7 +301,7 @@ fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     .unwrap()
 }
 
-fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn option_datetime_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "format": "date-time",

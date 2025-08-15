@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use super::{PublicationResult, UncommittedBuild};
+use super::UncommittedBuild;
 use models::publications::JobStatus;
 use models::Id;
 

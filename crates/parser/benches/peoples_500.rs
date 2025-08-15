@@ -1,6 +1,6 @@
 #[path="../tests/testutil.rs"] mod testutil;
 
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use criterion::{criterion_group, criterion_main, Criterion};
 
 use parser::ParseConfig;
 use testutil::{input_for_file, run_parser};

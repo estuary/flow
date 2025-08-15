@@ -10,366 +10,365 @@ expression: schema
   "properties": {
     "compression": {
       "title": "Compression",
-      "description": "Determines how to decompress the contents. The default, 'Auto', will try to determine the compression automatically.",
+      "description": "Determines how to decompress the contents. The default, 'Auto', will try to determine the\ncompression automatically.",
       "default": null,
       "oneOf": [
         {
           "title": "GZip",
-          "default": "gzip",
-          "const": "gzip"
+          "const": "gzip",
+          "default": "gzip"
         },
         {
           "title": "Zip Archive",
-          "default": "zip",
-          "const": "zip"
+          "const": "zip",
+          "default": "zip"
         },
         {
           "title": "Zstandard",
-          "default": "zstd",
-          "const": "zstd"
+          "const": "zstd",
+          "default": "zstd"
         },
         {
           "title": "None",
-          "default": "none",
-          "const": "none"
+          "const": "none",
+          "default": "none"
         },
         {
           "title": "Auto",
-          "default": null,
-          "const": null
+          "const": null,
+          "default": null
         }
       ]
     },
     "defaultOffset": {
-      "description": "The default timezone to use when parsing timestamps that do not have a timezone. Timezones must be specified as an +/-HH:MM offset, defaults to +00:00.",
-      "default": "+00:00",
-      "type": "string"
+      "description": "The default timezone to use when parsing timestamps that do not have a timezone. Timezones\nmust be specified as an +/-HH:MM offset, defaults to +00:00.",
+      "type": "string",
+      "default": "+00:00"
     },
     "format": {
-      "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
+      "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format\nautomatically based on the file extension or MIME type, if available.",
+      "type": "object",
       "default": {
         "type": "auto"
       },
-      "type": "object",
+      "discriminator": {
+        "propertyName": "type"
+      },
       "oneOf": [
         {
           "title": "Auto",
-          "description": "Attempt to determine the format automatically, based on the file extension or associated content-type.",
+          "description": "Attempt to determine the format automatically, based on the file extension or associated\ncontent-type.",
           "type": "object",
-          "required": [
-            "type"
-          ],
           "properties": {
             "type": {
-              "default": "auto",
               "type": "string",
-              "const": "auto"
+              "const": "auto",
+              "default": "auto"
             }
-          }
+          },
+          "required": [
+            "type"
+          ]
         },
         {
           "title": "Avro",
           "description": "Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)",
           "type": "object",
-          "required": [
-            "type"
-          ],
           "properties": {
             "type": {
-              "default": "avro",
               "type": "string",
-              "const": "avro"
+              "const": "avro",
+              "default": "avro"
             }
-          }
+          },
+          "required": [
+            "type"
+          ]
         },
         {
           "title": "JSON",
-          "description": "JSON objects separated by whitespace, typically a single newline. This format works for JSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have at least one character of whitespace between them.",
+          "description": "JSON objects separated by whitespace, typically a single newline. This format works for\nJSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have\nat least one character of whitespace between them.",
           "type": "object",
-          "required": [
-            "type"
-          ],
           "properties": {
             "type": {
-              "default": "json",
               "type": "string",
-              "const": "json"
+              "const": "json",
+              "default": "json"
             }
-          }
+          },
+          "required": [
+            "type"
+          ]
         },
         {
           "title": "CSV",
           "description": "Character Separated Values, such as comma-separated, tab-separated, etc.",
           "type": "object",
-          "required": [
-            "config",
-            "type"
-          ],
           "properties": {
             "config": {
               "type": "object",
               "properties": {
                 "delimiter": {
                   "title": "Delimiter",
-                  "description": "The delimiter that separates values within each row. Only single-byte delimiters are supported.",
+                  "description": "The delimiter that separates values within each row. Only single-byte delimiters are\nsupported.",
                   "default": null,
                   "oneOf": [
                     {
                       "title": "Comma (,)",
-                      "default": ",",
-                      "const": ","
+                      "const": ",",
+                      "default": ","
                     },
                     {
                       "title": "Pipe (|)",
-                      "default": "|",
-                      "const": "|"
+                      "const": "|",
+                      "default": "|"
                     },
                     {
                       "title": "Space (0x20)",
-                      "default": " ",
-                      "const": " "
+                      "const": " ",
+                      "default": " "
                     },
                     {
                       "title": "Semicolon (;)",
-                      "default": ";",
-                      "const": ";"
+                      "const": ";",
+                      "default": ";"
                     },
                     {
                       "title": "Tab (0x09)",
-                      "default": "\t",
-                      "const": "\t"
+                      "const": "\t",
+                      "default": "\t"
                     },
                     {
                       "title": "Vertical Tab (0x0B)",
-                      "default": "\u000b",
-                      "const": "\u000b"
+                      "const": "\u000b",
+                      "default": "\u000b"
                     },
                     {
                       "title": "Unit Separator (0x1F)",
-                      "default": "\u001f",
-                      "const": "\u001f"
+                      "const": "\u001f",
+                      "default": "\u001f"
                     },
                     {
                       "title": "SOH (0x01)",
-                      "default": "\u0001",
-                      "const": "\u0001"
+                      "const": "\u0001",
+                      "default": "\u0001"
                     },
                     {
                       "title": "Auto",
-                      "default": null,
-                      "const": null
+                      "const": null,
+                      "default": null
                     }
                   ]
                 },
                 "encoding": {
                   "title": "Encoding",
-                  "description": "The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label.",
+                  "description": "The character encoding of the source file. If unspecified, then the parser will make a\nbest-effort guess based on peeking at a small portion of the beginning of the file. If\nknown, it is best to specify. Encodings are specified by their WHATWG label.",
                   "default": null,
                   "oneOf": [
                     {
                       "title": "UTF-8",
-                      "default": "UTF-8",
-                      "const": "UTF-8"
+                      "const": "UTF-8",
+                      "default": "UTF-8"
                     },
                     {
                       "title": "UTF-16LE",
-                      "default": "UTF-16LE",
-                      "const": "UTF-16LE"
+                      "const": "UTF-16LE",
+                      "default": "UTF-16LE"
                     },
                     {
                       "title": "UTF-16BE",
-                      "default": "UTF-16BE",
-                      "const": "UTF-16BE"
+                      "const": "UTF-16BE",
+                      "default": "UTF-16BE"
                     },
                     {
                       "title": "IBM866",
-                      "default": "IBM866",
-                      "const": "IBM866"
+                      "const": "IBM866",
+                      "default": "IBM866"
                     },
                     {
                       "title": "ISO-8859-2",
-                      "default": "ISO-8859-2",
-                      "const": "ISO-8859-2"
+                      "const": "ISO-8859-2",
+                      "default": "ISO-8859-2"
                     },
                     {
                       "title": "ISO-8859-3",
-                      "default": "ISO-8859-3",
-                      "const": "ISO-8859-3"
+                      "const": "ISO-8859-3",
+                      "default": "ISO-8859-3"
                     },
                     {
                       "title": "ISO-8859-4",
-                      "default": "ISO-8859-4",
-                      "const": "ISO-8859-4"
+                      "const": "ISO-8859-4",
+                      "default": "ISO-8859-4"
                     },
                     {
                       "title": "ISO-8859-5",
-                      "default": "ISO-8859-5",
-                      "const": "ISO-8859-5"
+                      "const": "ISO-8859-5",
+                      "default": "ISO-8859-5"
                     },
                     {
                       "title": "ISO-8859-6",
-                      "default": "ISO-8859-6",
-                      "const": "ISO-8859-6"
+                      "const": "ISO-8859-6",
+                      "default": "ISO-8859-6"
                     },
                     {
                       "title": "ISO-8859-7",
-                      "default": "ISO-8859-7",
-                      "const": "ISO-8859-7"
+                      "const": "ISO-8859-7",
+                      "default": "ISO-8859-7"
                     },
                     {
                       "title": "ISO-8859-8",
-                      "default": "ISO-8859-8",
-                      "const": "ISO-8859-8"
+                      "const": "ISO-8859-8",
+                      "default": "ISO-8859-8"
                     },
                     {
                       "title": "ISO-8859-8-I",
-                      "default": "ISO-8859-8-I",
-                      "const": "ISO-8859-8-I"
+                      "const": "ISO-8859-8-I",
+                      "default": "ISO-8859-8-I"
                     },
                     {
                       "title": "ISO-8859-10",
-                      "default": "ISO-8859-10",
-                      "const": "ISO-8859-10"
+                      "const": "ISO-8859-10",
+                      "default": "ISO-8859-10"
                     },
                     {
                       "title": "ISO-8859-13",
-                      "default": "ISO-8859-13",
-                      "const": "ISO-8859-13"
+                      "const": "ISO-8859-13",
+                      "default": "ISO-8859-13"
                     },
                     {
                       "title": "ISO-8859-14",
-                      "default": "ISO-8859-14",
-                      "const": "ISO-8859-14"
+                      "const": "ISO-8859-14",
+                      "default": "ISO-8859-14"
                     },
                     {
                       "title": "ISO-8859-15",
-                      "default": "ISO-8859-15",
-                      "const": "ISO-8859-15"
+                      "const": "ISO-8859-15",
+                      "default": "ISO-8859-15"
                     },
                     {
                       "title": "ISO-8859-16",
-                      "default": "ISO-8859-16",
-                      "const": "ISO-8859-16"
+                      "const": "ISO-8859-16",
+                      "default": "ISO-8859-16"
                     },
                     {
                       "title": "KOI8-R",
-                      "default": "KOI8-R",
-                      "const": "KOI8-R"
+                      "const": "KOI8-R",
+                      "default": "KOI8-R"
                     },
                     {
                       "title": "KOI8-U",
-                      "default": "KOI8-U",
-                      "const": "KOI8-U"
+                      "const": "KOI8-U",
+                      "default": "KOI8-U"
                     },
                     {
                       "title": "macintosh",
-                      "default": "macintosh",
-                      "const": "macintosh"
+                      "const": "macintosh",
+                      "default": "macintosh"
                     },
                     {
                       "title": "windows-874",
-                      "default": "windows-874",
-                      "const": "windows-874"
+                      "const": "windows-874",
+                      "default": "windows-874"
                     },
                     {
                       "title": "windows-1250",
-                      "default": "windows-1250",
-                      "const": "windows-1250"
+                      "const": "windows-1250",
+                      "default": "windows-1250"
                     },
                     {
                       "title": "windows-1251",
-                      "default": "windows-1251",
-                      "const": "windows-1251"
+                      "const": "windows-1251",
+                      "default": "windows-1251"
                     },
                     {
                       "title": "windows-1252",
-                      "default": "windows-1252",
-                      "const": "windows-1252"
+                      "const": "windows-1252",
+                      "default": "windows-1252"
                     },
                     {
                       "title": "windows-1253",
-                      "default": "windows-1253",
-                      "const": "windows-1253"
+                      "const": "windows-1253",
+                      "default": "windows-1253"
                     },
                     {
                       "title": "windows-1254",
-                      "default": "windows-1254",
-                      "const": "windows-1254"
+                      "const": "windows-1254",
+                      "default": "windows-1254"
                     },
                     {
                       "title": "windows-1255",
-                      "default": "windows-1255",
-                      "const": "windows-1255"
+                      "const": "windows-1255",
+                      "default": "windows-1255"
                     },
                     {
                       "title": "windows-1256",
-                      "default": "windows-1256",
-                      "const": "windows-1256"
+                      "const": "windows-1256",
+                      "default": "windows-1256"
                     },
                     {
                       "title": "windows-1257",
-                      "default": "windows-1257",
-                      "const": "windows-1257"
+                      "const": "windows-1257",
+                      "default": "windows-1257"
                     },
                     {
                       "title": "windows-1258",
-                      "default": "windows-1258",
-                      "const": "windows-1258"
+                      "const": "windows-1258",
+                      "default": "windows-1258"
                     },
                     {
                       "title": "x-mac-cyrillic",
-                      "default": "x-mac-cyrillic",
-                      "const": "x-mac-cyrillic"
+                      "const": "x-mac-cyrillic",
+                      "default": "x-mac-cyrillic"
                     },
                     {
                       "title": "GBK",
-                      "default": "GBK",
-                      "const": "GBK"
+                      "const": "GBK",
+                      "default": "GBK"
                     },
                     {
                       "title": "gb18030",
-                      "default": "gb18030",
-                      "const": "gb18030"
+                      "const": "gb18030",
+                      "default": "gb18030"
                     },
                     {
                       "title": "Big5",
-                      "default": "Big5",
-                      "const": "Big5"
+                      "const": "Big5",
+                      "default": "Big5"
                     },
                     {
                       "title": "EUC-JP",
-                      "default": "EUC-JP",
-                      "const": "EUC-JP"
+                      "const": "EUC-JP",
+                      "default": "EUC-JP"
                     },
                     {
                       "title": "ISO-2022-JP",
-                      "default": "ISO-2022-JP",
-                      "const": "ISO-2022-JP"
+                      "const": "ISO-2022-JP",
+                      "default": "ISO-2022-JP"
                     },
                     {
                       "title": "Shift_JIS",
-                      "default": "Shift_JIS",
-                      "const": "Shift_JIS"
+                      "const": "Shift_JIS",
+                      "default": "Shift_JIS"
                     },
                     {
                       "title": "EUC-KR",
-                      "default": "EUC-KR",
-                      "const": "EUC-KR"
+                      "const": "EUC-KR",
+                      "default": "EUC-KR"
                     },
                     {
                       "title": "Auto",
-                      "default": null,
-                      "const": null
+                      "const": null,
+                      "default": null
                     }
                   ]
                 },
                 "errorThreshold": {
                   "title": "Error Threshold",
-                  "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
-                  "default": 0,
+                  "description": "Allows a percentage of errors to be ignored without failing the entire\nparsing process. When this limit is exceeded, parsing halts.",
                   "type": "integer",
-                  "maximum": 100.0,
-                  "minimum": 0.0
+                  "default": 0,
+                  "maximum": 100,
+                  "minimum": 0
                 },
                 "escape": {
                   "title": "Escape Character",
@@ -378,58 +377,58 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "Backslash (\\)",
-                      "default": "\\",
-                      "const": "\\"
+                      "const": "\\",
+                      "default": "\\"
                     },
                     {
                       "title": "Disable Escapes",
-                      "default": "",
-                      "const": ""
+                      "const": "",
+                      "default": ""
                     },
                     {
                       "title": "Auto",
-                      "default": null,
-                      "const": null
+                      "const": null,
+                      "default": null
                     }
                   ]
                 },
                 "headers": {
-                  "description": "Manually specified headers, which can be used in cases where the file itself doesn't contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here.",
-                  "default": [],
+                  "description": "Manually specified headers, which can be used in cases where the file itself doesn't\ncontain a header row. If specified, then the parser will assume that the first row is data,\nnot column names, and the column names given here will be used. The column names will be\nmatched with the columns in the file by the order in which they appear here.",
                   "type": "array",
+                  "default": [],
                   "items": {
                     "type": "string"
                   }
                 },
                 "lineEnding": {
                   "title": "Line Ending",
-                  "description": "The value that terminates a line. Only single-byte values are supported, with the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by either a carriage return, a newline, or both.",
+                  "description": "The value that terminates a line. Only single-byte values are supported, with the\nexception of \"\\r\\n\" (CRLF), which will accept lines terminated by\neither a carriage return, a newline, or both.",
                   "default": null,
                   "oneOf": [
                     {
                       "title": "CRLF (\\r\\n) (Windows)",
-                      "default": "\r\n",
-                      "const": "\r\n"
+                      "const": "\r\n",
+                      "default": "\r\n"
                     },
                     {
                       "title": "CR (\\r)",
-                      "default": "\r",
-                      "const": "\r"
+                      "const": "\r",
+                      "default": "\r"
                     },
                     {
                       "title": "LF (\\n)",
-                      "default": "\n",
-                      "const": "\n"
+                      "const": "\n",
+                      "default": "\n"
                     },
                     {
                       "title": "Record Separator (0x1E)",
-                      "default": "\u001e",
-                      "const": "\u001e"
+                      "const": "\u001e",
+                      "default": "\u001e"
                     },
                     {
                       "title": "Auto",
-                      "default": null,
-                      "const": null
+                      "const": null,
+                      "default": null
                     }
                   ]
                 },
@@ -440,59 +439,55 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "Double Quote (\")",
-                      "default": "\"",
-                      "const": "\""
+                      "const": "\"",
+                      "default": "\""
                     },
                     {
                       "title": "Single Quote (')",
-                      "default": "'",
-                      "const": "'"
+                      "const": "'",
+                      "default": "'"
                     },
                     {
                       "title": "Disable Quoting",
-                      "default": "",
-                      "const": ""
+                      "const": "",
+                      "default": ""
                     },
                     {
                       "title": "Auto",
-                      "default": null,
-                      "const": null
+                      "const": null,
+                      "default": null
                     }
                   ]
                 },
                 "skipLines": {
-                  "description": "Skip a number of lines at the beginning of the file before parsing begins. This is useful for skipping over metadata that is sometimes added to the top of files.",
+                  "description": "Skip a number of lines at the beginning of the file before parsing begins.\nThis is useful for skipping over metadata that is sometimes added to the top of files.",
                   "type": "integer",
                   "format": "uint",
-                  "minimum": 0.0
+                  "minimum": 0
                 }
               }
             },
             "type": {
-              "default": "csv",
               "type": "string",
-              "const": "csv"
+              "const": "csv",
+              "default": "csv"
             }
-          }
+          },
+          "required": [
+            "type",
+            "config"
+          ]
         },
         {
           "title": "Protobuf",
           "description": "Parses a single protobuf message, using the given .proto file in the configuration.",
           "type": "object",
-          "required": [
-            "config",
-            "type"
-          ],
           "properties": {
             "config": {
               "type": "object",
-              "required": [
-                "message",
-                "protoFile"
-              ],
               "properties": {
                 "message": {
-                  "description": "The name of the protobuf Message to deserialize as. Must be defined within the given proto file.",
+                  "description": "The name of the protobuf Message to deserialize as. Must be defined within the given proto\nfile.",
                   "type": "string"
                 },
                 "protoFile": {
@@ -501,51 +496,56 @@ expression: schema
                   "type": "string",
                   "multiline": true
                 }
-              }
+              },
+              "required": [
+                "protoFile",
+                "message"
+              ]
             },
             "type": {
-              "default": "protobuf",
               "type": "string",
-              "const": "protobuf"
+              "const": "protobuf",
+              "default": "protobuf"
             }
-          }
+          },
+          "required": [
+            "type",
+            "config"
+          ]
         },
         {
           "title": "W3C Extended Log",
-          "description": "A W3C Extended Log file, as defined by the working group draft at: https://www.w3.org/TR/WD-logfile.html",
+          "description": "A W3C Extended Log file, as defined by the working group draft at:\nhttps://www.w3.org/TR/WD-logfile.html",
           "type": "object",
-          "required": [
-            "type"
-          ],
           "properties": {
             "type": {
-              "default": "w3cExtendedLog",
               "type": "string",
-              "const": "w3cExtendedLog"
+              "const": "w3cExtendedLog",
+              "default": "w3cExtendedLog"
             }
-          }
+          },
+          "required": [
+            "type"
+          ]
         },
         {
           "title": "Parquet",
           "type": "object",
-          "required": [
-            "type"
-          ],
           "properties": {
             "type": {
-              "default": "parquet",
               "type": "string",
-              "const": "parquet"
+              "const": "parquet",
+              "default": "parquet"
             }
-          }
+          },
+          "required": [
+            "type"
+          ]
         }
       ],
       "required": [
         "type"
-      ],
-      "discriminator": {
-        "propertyName": "type"
-      }
+      ]
     }
   }
 }

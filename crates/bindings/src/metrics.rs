@@ -41,8 +41,8 @@ impl From<allocator::JemallocGlobalStats> for GlobalMemoryStats {
     }
 }
 
-/// Returns general statistics on memory allocations perfomed from within libbindings.
-#[no_mangle]
+/// Returns general statistics on memory allocations performed from within libbindings.
+#[unsafe(no_mangle)]
 pub extern "C" fn get_memory_stats() -> GlobalMemoryStats {
     current_mem_stats().into()
 }

@@ -1,5 +1,4 @@
 use super::{heap, AsNode, BumpStr, BumpVec, Field, Fields, HeapNode, Node};
-use rkyv::ser::Serializer;
 
 // `rkyv` generates types that mirror the 'alloc lifetime parameter,
 // but this lifetime has no meaning (as far as I can tell).
@@ -12,10 +11,8 @@ impl<'alloc> HeapNode<'alloc> {
     /// to_archive serializes a HeapNode into an aligned, heap-allocated buffer.
     /// This function is a convenience for the common "just serialize it, please?" case.
     /// Feel free to use your own rkyv::Serializer and view this implementation as mere guidance.
-    pub fn to_archive(&self) -> rkyv::AlignedVec {
-        let mut serializer = rkyv::ser::serializers::AllocSerializer::<4096>::default();
-        serializer.serialize_value(self).unwrap();
-        serializer.into_serializer().into_inner()
+    pub fn to_archive(&self) -> rkyv::util::AlignedVec<16> {
+        rkyv::to_bytes::<rkyv::rancor::Error>(self).unwrap()
     }
 }
 
@@ -31,7 +28,7 @@ impl ArchivedNode {
             "from_buffer requires that buffers be aligned to {}",
             EXPECT_ALIGN
         );
-        unsafe { rkyv::archived_root::<HeapNode>(buf) }
+        unsafe { rkyv::access_unchecked::<ArchivedNode>(buf) }
     }
 }
 
@@ -39,17 +36,21 @@ impl<'alloc> rkyv::Archive for BumpStr<'alloc> {
     type Archived = rkyv::string::ArchivedString;
     type Resolver = rkyv::string::StringResolver;
 
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        Self::Archived::resolve_from_str(self, pos, resolver, out);
+    fn resolve(&self, resolver: Self::Resolver, out: rkyv::Place<Self::Archived>) {
+        Self::Archived::resolve_from_str(self, resolver, out);
     }
 }
 
 impl<'alloc, S> rkyv::Serialize<S> for BumpStr<'alloc>
 where
-    S: rkyv::ser::Serializer + ?Sized,
+    S: rkyv::ser::Allocator + rkyv::ser::Writer + rkyv::rancor::Fallible + ?Sized,
+    <S as rkyv::rancor::Fallible>::Error: rkyv::rancor::Source,
 {
     #[inline]
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, <S as rkyv::rancor::Fallible>::Error> {
         Self::Archived::serialize_from_str(self, serializer)
     }
 }
@@ -62,18 +63,22 @@ where
     type Resolver = rkyv::vec::VecResolver;
 
     #[inline]
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        Self::Archived::resolve_from_slice(self, pos, resolver, out);
+    fn resolve(&self, resolver: Self::Resolver, out: rkyv::Place<Self::Archived>) {
+        Self::Archived::resolve_from_slice(self, resolver, out);
     }
 }
 
 impl<'alloc, S, T> rkyv::Serialize<S> for BumpVec<'alloc, T>
 where
-    S: rkyv::ser::Serializer + rkyv::ser::ScratchSpace + ?Sized,
+    S: rkyv::ser::Allocator + rkyv::ser::Writer + rkyv::rancor::Fallible + ?Sized,
+    <S as rkyv::rancor::Fallible>::Error: rkyv::rancor::Source,
     T: rkyv::Serialize<S> + std::fmt::Debug,
 {
     #[inline]
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, <S as rkyv::rancor::Fallible>::Error> {
         Self::Archived::serialize_from_slice(self, serializer)
     }
 }
@@ -90,11 +95,11 @@ impl AsNode for ArchivedNode {
             ArchivedNode::Array(a) => Node::Array(a.as_slice()),
             ArchivedNode::Bool(b) => Node::Bool(*b),
             ArchivedNode::Bytes(b) => Node::Bytes(b),
-            ArchivedNode::Float(n) => Node::Float(n.value()),
-            ArchivedNode::NegInt(n) => Node::NegInt(n.value()),
+            ArchivedNode::Float(n) => Node::Float(n.to_native()),
+            ArchivedNode::NegInt(n) => Node::NegInt(n.to_native()),
             ArchivedNode::Null => Node::Null,
             ArchivedNode::Object(o) => Node::Object(o.as_slice()),
-            ArchivedNode::PosInt(n) => Node::PosInt(n.value()),
+            ArchivedNode::PosInt(n) => Node::PosInt(n.to_native()),
             ArchivedNode::String(s) => Node::String(s),
         }
     }

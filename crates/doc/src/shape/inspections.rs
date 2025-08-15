@@ -171,7 +171,6 @@ impl Shape {
 mod test {
     use super::{shape_from, Error};
     use json::schema::types;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_error_collection() {

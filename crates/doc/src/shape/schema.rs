@@ -1,16 +1,12 @@
 // This module maps a Shape into a representative JSON Schema.
 use super::*;
 use json::schema::{keywords, types};
-use schemars::schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec};
+use schemars::Schema;
 
-// TODO(johnny): This *probably* should be an impl Shape { into_schema(self) -> RootSchema }
+// TODO(johnny): This *probably* should be an impl Shape { into_schema(self) -> Schema }
 // Consider refactoring as such if we're happy with this interface.
-pub fn to_schema(shape: Shape) -> RootSchema {
-    RootSchema {
-        schema: to_sub_schema(shape).into_object(),
-        meta_schema: schemars::gen::SchemaSettings::draft2019_09().meta_schema,
-        ..Default::default()
-    }
+pub fn to_schema(shape: Shape) -> Schema {
+    to_sub_schema(shape)
 }
 
 fn to_sub_schema(shape: Shape) -> Schema {
@@ -30,25 +26,32 @@ fn to_sub_schema(shape: Shape) -> Schema {
         string,
     } = shape;
 
-    let mut out = SchemaObject::default();
+    let mut out = serde_json::Map::new();
 
     if type_ == types::INVALID {
-        return Schema::Bool(false);
+        return Schema::from(false);
     } else if type_ == types::ANY {
         // Don't set instance_type.
     } else {
-        out.instance_type = Some(shape_type_to_schema_type(type_));
+        out.insert("type".to_string(), shape_type_to_schema_type(type_));
     }
 
-    out.enum_values = enum_;
+    if let Some(enum_values) = enum_ {
+        out.insert(
+            "enum".to_string(),
+            serde_json::Value::Array(enum_values.into_iter().map(|v| v).collect()),
+        );
+    }
 
     // Metadata keywords.
-    {
-        let out = out.metadata();
-
-        out.title = title.map(Into::into);
-        out.description = description.map(Into::into);
-        out.default = default.map(|d| d.0);
+    if let Some(t) = title {
+        out.insert("title".to_string(), serde_json::json!(t));
+    }
+    if let Some(d) = description {
+        out.insert("description".to_string(), serde_json::json!(d));
+    }
+    if let Some(d) = default {
+        out.insert("default".to_string(), d.0);
     }
 
     // Object keywords.
@@ -59,7 +62,8 @@ fn to_sub_schema(shape: Shape) -> Schema {
             additional_properties,
         } = object;
 
-        let out = out.object();
+        let mut required = Vec::new();
+        let mut properties_map = serde_json::Map::new();
 
         for ObjProperty {
             name,
@@ -68,17 +72,35 @@ fn to_sub_schema(shape: Shape) -> Schema {
         } in properties
         {
             if is_required {
-                out.required.insert(name.clone().into());
+                required.push(serde_json::json!(name.clone()));
             }
-            out.properties.insert(name.into(), to_sub_schema(shape));
+            properties_map.insert(name.into(), to_sub_schema(shape).into());
         }
 
-        for ObjPattern { re, shape } in patterns {
-            out.pattern_properties
-                .insert(re.as_str().to_owned(), to_sub_schema(shape));
+        if !properties_map.is_empty() {
+            out.insert("properties".to_string(), serde_json::json!(properties_map));
+        }
+        if !required.is_empty() {
+            out.insert("required".to_string(), serde_json::json!(required));
         }
 
-        out.additional_properties = additional_properties.map(|s| Box::new(to_sub_schema(*s)));
+        if !patterns.is_empty() {
+            let mut pattern_properties = serde_json::Map::new();
+            for ObjPattern { re, shape } in patterns {
+                pattern_properties.insert(re.as_str().to_owned(), to_sub_schema(shape).into());
+            }
+            out.insert(
+                "patternProperties".to_string(),
+                serde_json::json!(pattern_properties),
+            );
+        }
+
+        if let Some(addl_props) = additional_properties {
+            out.insert(
+                "additionalProperties".to_string(),
+                to_sub_schema(*addl_props).into(),
+            );
+        }
     }
 
     // Array keywords.
@@ -90,22 +112,23 @@ fn to_sub_schema(shape: Shape) -> Schema {
             additional_items,
         } = array;
 
-        let out = out.array();
-
-        out.min_items = if min_items != 0 {
-            Some(min_items)
-        } else {
-            None
-        };
-        out.max_items = max_items;
+        if min_items != 0 {
+            out.insert("minItems".to_string(), serde_json::json!(min_items));
+        }
+        if let Some(max) = max_items {
+            out.insert("maxItems".to_string(), serde_json::json!(max));
+        }
 
         if !tuple.is_empty() {
-            out.items = Some(SingleOrVec::Vec(
-                tuple.into_iter().map(to_sub_schema).collect(),
-            ));
-            out.additional_items = additional_items.map(|s| Box::new(to_sub_schema(*s)));
+            let items: Vec<serde_json::Value> =
+                tuple.into_iter().map(|s| to_sub_schema(s).into()).collect();
+            out.insert("items".to_string(), serde_json::json!(items));
+
+            if let Some(addl) = additional_items {
+                out.insert("additionalItems".to_string(), to_sub_schema(*addl).into());
+            }
         } else if let Some(addl) = additional_items {
-            out.items = Some(SingleOrVec::Single(Box::new(to_sub_schema(*addl))));
+            out.insert("items".to_string(), to_sub_schema(*addl).into());
         }
     }
 
@@ -120,92 +143,72 @@ fn to_sub_schema(shape: Shape) -> Schema {
         } = string;
 
         if let Some(encoding) = content_encoding {
-            out.extensions.insert(
+            out.insert(
                 keywords::CONTENT_ENCODING.to_string(),
                 serde_json::json!(encoding),
             );
         }
         if let Some(content_type) = content_type {
-            out.extensions.insert(
+            out.insert(
                 keywords::CONTENT_MEDIA_TYPE.to_string(),
                 serde_json::json!(content_type),
             );
         }
-        out.format = format.map(|f| f.to_string());
-
-        let out = out.string();
-
-        out.min_length = if min_length != 0 {
-            Some(min_length)
-        } else {
-            None
-        };
-        out.max_length = max_length;
+        if let Some(f) = format {
+            out.insert("format".to_string(), serde_json::json!(f.to_string()));
+        }
+        if min_length != 0 {
+            out.insert("minLength".to_string(), serde_json::json!(min_length));
+        }
+        if let Some(max) = max_length {
+            out.insert("maxLength".to_string(), serde_json::json!(max));
+        }
     }
 
     // Numeric keywords.
     if type_.overlaps(types::INT_OR_FRAC) {
         let NumericShape { minimum, maximum } = numeric;
 
-        // The schemars::SchemaObject::number() sub-type has minimum / maximum
-        // fields, but they're f64. Use it's extension mechanism to pass-through
-        // without loss.
-
         if let Some(num) = minimum {
-            out.extensions
-                .insert(keywords::MINIMUM.to_string(), num_to_value(num));
+            out.insert(keywords::MINIMUM.to_string(), num_to_value(num));
         }
         if let Some(num) = maximum {
-            out.extensions
-                .insert(keywords::MAXIMUM.to_string(), num_to_value(num));
+            out.insert(keywords::MAXIMUM.to_string(), num_to_value(num));
         }
     }
 
     // Extensions.
     {
         if let Some(true) = secret {
-            out.extensions
-                .insert("secret".to_string(), serde_json::json!(true));
+            out.insert("secret".to_string(), serde_json::json!(true));
         }
 
         match reduction {
             Reduction::Unset | Reduction::Multiple => {}
             Reduction::Strategy(strategy) => {
-                out.extensions
-                    .insert("reduce".to_string(), serde_json::json!(strategy));
+                out.insert("reduce".to_string(), serde_json::json!(strategy));
             }
         }
 
-        out.extensions.extend(annotations.into_iter());
+        out.extend(annotations.into_iter());
     }
 
-    Schema::Object(out)
+    Schema::from(out)
 }
 
-fn shape_type_to_schema_type(type_set: types::Set) -> SingleOrVec<InstanceType> {
-    let mut v = type_set
+fn shape_type_to_schema_type(type_set: types::Set) -> serde_json::Value {
+    let v: Vec<&str> = type_set
         .iter()
-        .map(parse_instance_type)
-        .collect::<Vec<InstanceType>>();
+        .map(|t| match t {
+            "fractional" => "number",
+            other => other,
+        })
+        .collect();
 
     if v.len() == 1 {
-        SingleOrVec::Single(Box::new(v.pop().unwrap()))
+        serde_json::json!(v[0])
     } else {
-        SingleOrVec::Vec(v)
-    }
-}
-
-fn parse_instance_type(input: &str) -> InstanceType {
-    match input {
-        "array" => InstanceType::Array,
-        "boolean" => InstanceType::Boolean,
-        "fractional" => InstanceType::Number,
-        "integer" => InstanceType::Integer,
-        "null" => InstanceType::Null,
-        "number" => InstanceType::Number,
-        "object" => InstanceType::Object,
-        "string" => InstanceType::String,
-        other => panic!("unexpected type: {}", other),
+        serde_json::json!(v)
     }
 }
 
@@ -224,20 +227,20 @@ mod tests {
 
     #[test]
     fn simple_type_conversions() {
-        fn assert_equiv(expected: InstanceType, actual: types::Set) {
+        fn assert_equiv(expected: &str, actual: types::Set) {
             assert_eq!(
-                SingleOrVec::Single(Box::new(expected)),
+                serde_json::json!(expected),
                 shape_type_to_schema_type(actual)
             );
         }
 
-        assert_equiv(InstanceType::Array, types::ARRAY);
-        assert_equiv(InstanceType::Boolean, types::BOOLEAN);
-        assert_equiv(InstanceType::Integer, types::INTEGER);
-        assert_equiv(InstanceType::Null, types::NULL);
-        assert_equiv(InstanceType::Number, types::INT_OR_FRAC);
-        assert_equiv(InstanceType::Object, types::OBJECT);
-        assert_equiv(InstanceType::String, types::STRING);
+        assert_equiv("array", types::ARRAY);
+        assert_equiv("boolean", types::BOOLEAN);
+        assert_equiv("integer", types::INTEGER);
+        assert_equiv("null", types::NULL);
+        assert_equiv("number", types::INT_OR_FRAC);
+        assert_equiv("object", types::OBJECT);
+        assert_equiv("string", types::STRING);
     }
 
     #[test]
@@ -319,6 +322,14 @@ mod tests {
         let shape = crate::Shape::infer(&validator.schemas()[0], validator.schema_index());
         let output = serde_json::to_value(to_schema(shape)).unwrap();
 
-        assert_eq!(fixture, output);
+        // Remove the $schema field from the fixture for comparison
+        // since to_schema now returns Schema instead of RootSchema
+        let mut fixture_without_schema = fixture.clone();
+        fixture_without_schema
+            .as_object_mut()
+            .unwrap()
+            .remove("$schema");
+
+        assert_eq!(fixture_without_schema, output);
     }
 }

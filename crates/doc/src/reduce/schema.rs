@@ -146,7 +146,6 @@ mod test {
                         "maxLength": 10
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "minLength": 5,
                         "maxLength": 10,
@@ -185,7 +184,6 @@ mod test {
                         "minimum": 4.0
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "integer",
                         "maximum": 5.0,
                         "minimum": 4.0
@@ -199,7 +197,6 @@ mod test {
                         "minimum": 4
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "integer",
                         "maximum": 5.0,
                         "minimum": 4.0
@@ -213,7 +210,6 @@ mod test {
                         "minimum": 3
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "integer",
                         "maximum": 6,
                         "minimum": 3
@@ -250,7 +246,6 @@ mod test {
                         "x-collection-generation-id": "0011223344556677",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 6,
                         "minLength": 5,
@@ -266,7 +261,6 @@ mod test {
                         "x-collection-generation-id": "0011223344556677",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 6,
                         "minLength": 4,
@@ -282,7 +276,6 @@ mod test {
                         "x-collection-generation-id": "1122334455667788",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 10,
                         "minLength": 10,
@@ -298,7 +291,6 @@ mod test {
                         "x-collection-generation-id": "0011223344556677",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 10,
                         "minLength": 10,
@@ -314,7 +306,6 @@ mod test {
                         "x-collection-generation-id": "1122334455667788",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 10,
                         "minLength": 5,
@@ -330,7 +321,6 @@ mod test {
                         "x-collection-generation-id": "2233445566778899",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 100,
                         "minLength": 100,
@@ -345,7 +335,6 @@ mod test {
                         "minLength": 200,
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 200,
                         "minLength": 100,
@@ -361,7 +350,6 @@ mod test {
                         "x-collection-generation-id": null,
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 200,
                         "minLength": 50,

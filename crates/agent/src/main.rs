@@ -142,8 +142,11 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         .as_str()
         .parse::<sqlx::postgres::PgConnectOptions>()
         .context("parsing database URL")?
-        .application_name(&application_name);
-    pg_options.log_slow_statements(log::LevelFilter::Warn, std::time::Duration::from_secs(10));
+        .application_name(&application_name)
+        .log_slow_statements(
+            tracing::log::LevelFilter::Warn,
+            std::time::Duration::from_secs(10),
+        );
 
     // If a database CA was provided, require that we use TLS with full cert verification.
     if let Some(ca) = &args.database_ca {
@@ -211,7 +214,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
-    let id_gen_shard = rand::thread_rng().gen_range(1u16..1024u16);
+    let id_gen_shard = rand::rng().random_range(1u16..1024u16);
     let id_gen = models::IdGenerator::new(id_gen_shard);
     let publisher = Publisher::new(
         &bindir,

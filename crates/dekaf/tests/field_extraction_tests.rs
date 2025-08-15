@@ -287,7 +287,7 @@ async fn test_old_style_deletions() -> anyhow::Result<()> {
     )?;
 
     let (avro_schema, extractors) =
-        dekaf::utils::build_LEGACY_field_extractors(shape, DeletionMode::CDC)?;
+        dekaf::utils::build_legacy_field_extractors(shape, DeletionMode::CDC)?;
 
     let decoded = extract_and_decode(
         serde_to_jsonl(vec![

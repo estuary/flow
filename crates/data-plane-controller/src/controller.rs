@@ -762,7 +762,7 @@ impl Controller {
             &checkout
                 .path()
                 .join(format!("Pulumi.{}.yaml", state.stack_name)),
-            serde_yaml::to_vec(&state.stack).context("failed to encode stack as YAML")?,
+            serde_yaml::to_string(&state.stack).context("failed to encode stack as YAML")?,
         )
         .context("failed to write stack YAML")?;
 
@@ -1068,7 +1068,7 @@ impl automations::Outcome for Outcome {
                 self.task_id as models::Id,
                 aws_iam_user_arn,
                 &aws_link_endpoints,
-                &cidr_blocks,
+                cidr_blocks.as_slice(),
                 gcp_service_account_email,
                 &hmac_keys,
                 &encrypted_hmac_keys,

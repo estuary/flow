@@ -37,8 +37,6 @@ base64 = { workspace = true }
 bumpalo = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
-crypto-common = { workspace = true }
-deadpool = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 hexdump = { workspace = true }
@@ -79,7 +77,6 @@ aws-msk-iam-sasl-signer = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-typestate = { workspace = true }
 url = { workspace = true }
 webpki = { workspace = true }
 apache-avro = { workspace = true }

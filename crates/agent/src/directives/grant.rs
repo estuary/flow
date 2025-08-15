@@ -7,7 +7,7 @@ use validator::Validate;
 #[derive(Debug, Deserialize, Serialize, Validate, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Directive {
-    #[validate]
+    #[validate(nested)]
     granted_prefix: models::Prefix,
     capability: agent_sql::Capability,
 }
@@ -15,7 +15,7 @@ pub struct Directive {
 #[derive(Deserialize, Validate, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Claims {
-    #[validate]
+    #[validate(nested)]
     requested_prefix: Option<models::Prefix>,
 }
 

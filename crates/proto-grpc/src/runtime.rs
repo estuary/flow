@@ -2,7 +2,13 @@
 /// Generated client implementations.
 #[cfg(feature = "runtime_client")]
 pub mod shuffler_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -22,10 +28,10 @@ pub mod shuffler_client {
     }
     impl<T> ShufflerClient<T>
     where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T: tonic::client::GrpcService<tonic::body::Body>,
         T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -43,14 +49,14 @@ pub mod shuffler_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
                 Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
                 >,
             >,
             <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                http::Request<tonic::body::Body>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ShufflerClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -98,8 +104,7 @@ pub mod shuffler_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -114,7 +119,13 @@ pub mod shuffler_client {
 /// Generated client implementations.
 #[cfg(feature = "runtime_client")]
 pub mod combiner_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -134,10 +145,10 @@ pub mod combiner_client {
     }
     impl<T> CombinerClient<T>
     where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T: tonic::client::GrpcService<tonic::body::Body>,
         T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -155,14 +166,14 @@ pub mod combiner_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
                 Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
                 >,
             >,
             <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                http::Request<tonic::body::Body>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             CombinerClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -212,8 +223,7 @@ pub mod combiner_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -228,7 +238,13 @@ pub mod combiner_client {
 /// Generated client implementations.
 #[cfg(feature = "runtime_client")]
 pub mod connector_proxy_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -248,10 +264,10 @@ pub mod connector_proxy_client {
     }
     impl<T> ConnectorProxyClient<T>
     where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T: tonic::client::GrpcService<tonic::body::Body>,
         T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -269,14 +285,14 @@ pub mod connector_proxy_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
                 Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
                 >,
             >,
             <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                http::Request<tonic::body::Body>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ConnectorProxyClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -326,8 +342,7 @@ pub mod connector_proxy_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -345,11 +360,17 @@ pub mod connector_proxy_client {
 /// Generated server implementations.
 #[cfg(feature = "runtime_server")]
 pub mod shuffler_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ShufflerServer.
     #[async_trait]
-    pub trait Shuffler: Send + Sync + 'static {
+    pub trait Shuffler: std::marker::Send + std::marker::Sync + 'static {
         /// Server streaming response type for the Shuffle method.
         type ShuffleStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
@@ -357,7 +378,7 @@ pub mod shuffler_server {
                     tonic::Status,
                 >,
             >
-            + Send
+            + std::marker::Send
             + 'static;
         async fn shuffle(
             &self,
@@ -365,14 +386,14 @@ pub mod shuffler_server {
         ) -> std::result::Result<tonic::Response<Self::ShuffleStream>, tonic::Status>;
     }
     #[derive(Debug)]
-    pub struct ShufflerServer<T: Shuffler> {
+    pub struct ShufflerServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T: Shuffler> ShufflerServer<T> {
+    impl<T> ShufflerServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -426,10 +447,10 @@ pub mod shuffler_server {
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ShufflerServer<T>
     where
         T: Shuffler,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
     {
-        type Response = http::Response<tonic::body::BoxBody>;
+        type Response = http::Response<tonic::body::Body>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
         fn poll_ready(
@@ -491,23 +512,27 @@ pub mod shuffler_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", tonic::Code::Unimplemented as i32)
-                                .header(
-                                    http::header::CONTENT_TYPE,
-                                    tonic::metadata::GRPC_CONTENT_TYPE,
-                                )
-                                .body(empty_body())
-                                .unwrap(),
-                        )
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
                     })
                 }
             }
         }
     }
-    impl<T: Shuffler> Clone for ShufflerServer<T> {
+    impl<T> Clone for ShufflerServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -519,18 +544,26 @@ pub mod shuffler_server {
             }
         }
     }
-    impl<T: Shuffler> tonic::server::NamedService for ShufflerServer<T> {
-        const NAME: &'static str = "runtime.Shuffler";
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "runtime.Shuffler";
+    impl<T> tonic::server::NamedService for ShufflerServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
     }
 }
 /// Generated server implementations.
 #[cfg(feature = "runtime_server")]
 pub mod combiner_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with CombinerServer.
     #[async_trait]
-    pub trait Combiner: Send + Sync + 'static {
+    pub trait Combiner: std::marker::Send + std::marker::Sync + 'static {
         /// Server streaming response type for the Combine method.
         type CombineStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
@@ -538,7 +571,7 @@ pub mod combiner_server {
                     tonic::Status,
                 >,
             >
-            + Send
+            + std::marker::Send
             + 'static;
         async fn combine(
             &self,
@@ -548,14 +581,14 @@ pub mod combiner_server {
         ) -> std::result::Result<tonic::Response<Self::CombineStream>, tonic::Status>;
     }
     #[derive(Debug)]
-    pub struct CombinerServer<T: Combiner> {
+    pub struct CombinerServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T: Combiner> CombinerServer<T> {
+    impl<T> CombinerServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -609,10 +642,10 @@ pub mod combiner_server {
     impl<T, B> tonic::codegen::Service<http::Request<B>> for CombinerServer<T>
     where
         T: Combiner,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
     {
-        type Response = http::Response<tonic::body::BoxBody>;
+        type Response = http::Response<tonic::body::Body>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
         fn poll_ready(
@@ -674,23 +707,27 @@ pub mod combiner_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", tonic::Code::Unimplemented as i32)
-                                .header(
-                                    http::header::CONTENT_TYPE,
-                                    tonic::metadata::GRPC_CONTENT_TYPE,
-                                )
-                                .body(empty_body())
-                                .unwrap(),
-                        )
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
                     })
                 }
             }
         }
     }
-    impl<T: Combiner> Clone for CombinerServer<T> {
+    impl<T> Clone for CombinerServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -702,18 +739,26 @@ pub mod combiner_server {
             }
         }
     }
-    impl<T: Combiner> tonic::server::NamedService for CombinerServer<T> {
-        const NAME: &'static str = "runtime.Combiner";
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "runtime.Combiner";
+    impl<T> tonic::server::NamedService for CombinerServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
     }
 }
 /// Generated server implementations.
 #[cfg(feature = "runtime_server")]
 pub mod connector_proxy_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ConnectorProxyServer.
     #[async_trait]
-    pub trait ConnectorProxy: Send + Sync + 'static {
+    pub trait ConnectorProxy: std::marker::Send + std::marker::Sync + 'static {
         /// Server streaming response type for the ProxyConnectors method.
         type ProxyConnectorsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
@@ -721,7 +766,7 @@ pub mod connector_proxy_server {
                     tonic::Status,
                 >,
             >
-            + Send
+            + std::marker::Send
             + 'static;
         async fn proxy_connectors(
             &self,
@@ -734,14 +779,14 @@ pub mod connector_proxy_server {
         >;
     }
     #[derive(Debug)]
-    pub struct ConnectorProxyServer<T: ConnectorProxy> {
+    pub struct ConnectorProxyServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T: ConnectorProxy> ConnectorProxyServer<T> {
+    impl<T> ConnectorProxyServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -795,10 +840,10 @@ pub mod connector_proxy_server {
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ConnectorProxyServer<T>
     where
         T: ConnectorProxy,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
     {
-        type Response = http::Response<tonic::body::BoxBody>;
+        type Response = http::Response<tonic::body::Body>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
         fn poll_ready(
@@ -863,23 +908,27 @@ pub mod connector_proxy_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", tonic::Code::Unimplemented as i32)
-                                .header(
-                                    http::header::CONTENT_TYPE,
-                                    tonic::metadata::GRPC_CONTENT_TYPE,
-                                )
-                                .body(empty_body())
-                                .unwrap(),
-                        )
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
                     })
                 }
             }
         }
     }
-    impl<T: ConnectorProxy> Clone for ConnectorProxyServer<T> {
+    impl<T> Clone for ConnectorProxyServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -891,7 +940,9 @@ pub mod connector_proxy_server {
             }
         }
     }
-    impl<T: ConnectorProxy> tonic::server::NamedService for ConnectorProxyServer<T> {
-        const NAME: &'static str = "runtime.ConnectorProxy";
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "runtime.ConnectorProxy";
+    impl<T> tonic::server::NamedService for ConnectorProxyServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
     }
 }

@@ -40,7 +40,7 @@ async fn test_tenant_usage_quotas() {
           select 1;
         "#,
     )
-    .execute(&mut txn)
+    .execute(&mut *txn)
     .await
     .unwrap();
 
@@ -97,7 +97,7 @@ async fn test_text_json_round_trip() {
         "#,
         &Some(TextJson(raw.clone())) as &Option<TextJson<Box<RawValue>>>,
     )
-    .fetch_one(&mut txn)
+    .fetch_one(&mut *txn)
     .await
     .unwrap();
 

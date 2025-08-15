@@ -55,8 +55,8 @@ pub fn widen_perf() {
     let begin = Instant::now();
 
     for _round in 0..TOTAL_ROUNDS {
-        shape.widen(&ride_docs[rng.gen::<usize>() % ride_docs.len()]);
-        shape.widen(&github_docs[rng.gen::<usize>() % github_docs.len()]);
+        shape.widen(&ride_docs[(rng.random::<f64>() * ride_docs.len() as f64) as usize]);
+        shape.widen(&github_docs[(rng.random::<f64>() * github_docs.len() as f64) as usize]);
     }
 
     let duration = begin.elapsed();

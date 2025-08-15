@@ -155,19 +155,19 @@ impl FlowAllocator {
 unsafe impl GlobalAlloc for FlowAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOCS_COUNT.fetch_add(1, Ordering::SeqCst);
-        Jemalloc.alloc(layout)
+        unsafe { Jemalloc.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         ALLOCS_COUNT.fetch_add(1, Ordering::SeqCst);
-        Jemalloc.alloc_zeroed(layout)
+        unsafe { Jemalloc.alloc_zeroed(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         DEALLOCS_COUNT.fetch_add(1, Ordering::SeqCst);
-        Jemalloc.dealloc(ptr, layout)
+        unsafe { Jemalloc.dealloc(ptr, layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         REALLOCS_COUNT.fetch_add(1, Ordering::SeqCst);
-        Jemalloc.realloc(ptr, layout, new_size)
+        unsafe { Jemalloc.realloc(ptr, layout, new_size) }
     }
 }
 

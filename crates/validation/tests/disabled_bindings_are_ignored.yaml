@@ -40,10 +40,12 @@ test://example/catalog.yaml:
         transforms:
           - name: disabledTransformA
             source: { name: testing/collection }
+            shuffle: any
             lambda: select $id, 1 as count;
             disable: true
           - name: disabledTransformB
             source: { name: testing/collection }
+            shuffle: any
             lambda: select $id, 2 as count;
             disable: true
 
