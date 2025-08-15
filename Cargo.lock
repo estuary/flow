@@ -2886,6 +2886,7 @@ dependencies = [
  "ops",
  "page-turner",
  "pbjson-types",
+ "percent-encoding",
  "portpicker",
  "postgrest",
  "prost",
