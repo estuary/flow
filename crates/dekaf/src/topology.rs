@@ -175,8 +175,16 @@ impl Collection {
 
                 let partitions = match state {
                     TaskState::Authorized { partitions, .. } => partitions,
-                    TaskState::Redirect { .. } => {
-                        bail!("cannot fetch partitions in redirected task session");
+                    TaskState::Redirect {
+                        target_dataplane_fqdn,
+                        spec,
+                        ..
+                    } => {
+                        return Err(
+                            crate::DekafError::from_redirect(target_dataplane_fqdn, spec)
+                                .await?
+                                .into(),
+                        );
                     }
                 };
 
@@ -189,8 +197,18 @@ impl Collection {
                     .map(|(client, _, parts)| (client, parts))
                     .map_err(|e| anyhow::Error::from(e))?
             }
-            SessionAuthentication::Redirect { .. } => {
-                bail!("cannot fetch partitions in redirected session");
+            SessionAuthentication::Redirect {
+                target_dataplane_fqdn,
+                spec,
+                config,
+                ..
+            } => {
+                return Err(crate::DekafError::TaskRedirected {
+                    target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+                    spec: spec.clone(),
+                    config: config.clone(),
+                }
+                .into());
             }
         };
 
