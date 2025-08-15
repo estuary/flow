@@ -318,10 +318,13 @@ async fn update_shard_health<C: ControlPlane>(
         anyhow::bail!("internal controller error: attempted to health check a catalog test");
     };
 
-    let list_response = control_plane
-        .list_task_shards(state.data_plane_id, task_type, state.catalog_name.clone())
-        .await
-        .context("listing task shards")?;
+    let list_response = crate::timeout(
+        std::time::Duration::from_secs(30),
+        control_plane.list_task_shards(state.data_plane_id, task_type, state.catalog_name.clone()),
+        || "timed out listing shards",
+    )
+    .await
+    .context("listing task shards")?;
 
     // Determine aggregate status from list response
     let new_status = aggregate_shard_status(state.last_build_id, &list_response.shards);
