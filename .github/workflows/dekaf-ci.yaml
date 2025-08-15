@@ -1,0 +1,136 @@
+name: Dekaf CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/dekaf-ci.yaml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-dekaf:
+    runs-on: ubuntu-2404-large
+    
+    permissions:
+      contents: read  # Explicit permissions for this job
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Disable man-db auto-update to speed up apt installs
+        run: |
+          sudo rm -f /var/lib/man-db/auto-update
+
+      - run: make extra-ci-runner-setup
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.21"
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "dekaf-x86_64"
+          key: "${{ hashFiles('**/Cargo.lock') }}"
+
+      - name: Test Dekaf
+        run: cargo test --release --locked -p dekaf
+
+      - name: Build Dekaf and dependencies
+        run: |
+          cargo build --release --locked -p dekaf
+          mkdir -p .build/dekaf-bin
+          cp target/release/dekaf .build/dekaf-bin/dekaf
+          # Build sops using Go
+          go install github.com/getsops/sops/v3/cmd/sops@v3.10.2
+          cp $(go env GOPATH)/bin/sops .build/dekaf-bin/sops
+
+      - name: Upload Dekaf artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dekaf-binary
+          path: .build/dekaf-bin/
+
+  docker-image:
+    needs: build-dekaf
+    runs-on: ubuntu-2404-large
+    if: github.ref == 'refs/heads/master' || github.event_name == 'pull_request'
+    
+    permissions:
+      contents: read
+      packages: write  # Required for pushing to GitHub Container Registry
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub container registry
+        if: github.ref == 'refs/heads/master'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - name: Download Dekaf artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dekaf-binary
+          path: .build/dekaf-bin
+
+      - name: Set permissions on binaries
+        run: |
+          chmod +x .build/dekaf-bin/dekaf
+          chmod +x .build/dekaf-bin/sops
+
+      - name: Determine version
+        id: determine-version
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            # Use the git SHA for master builds
+            VERSION=$(git rev-parse --short HEAD)
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/estuary/dekaf:${VERSION},ghcr.io/estuary/dekaf:dev" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
+          else
+            # For PRs, just build but don't push
+            VERSION=pr-${{ github.event.pull_request.number }}
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/estuary/dekaf:${VERSION}" >> $GITHUB_OUTPUT
+            echo "push=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .build/dekaf-bin
+          file: ./crates/dekaf/Dockerfile
+          platforms: linux/amd64
+          push: ${{ steps.determine-version.outputs.push }}
+          tags: ${{ steps.determine-version.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
