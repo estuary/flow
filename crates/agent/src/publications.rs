@@ -204,7 +204,7 @@ impl UncommittedBuild {
             output,
             test_errors,
             incompatible_collections,
-            build_id,
+            build_id: _,
             retry_count,
         } = self;
         debug_assert!(
@@ -337,8 +337,8 @@ impl<MC: MakeConnectors> Publisher<MC> {
     }
 
     fn next_id(&self) -> models::Id {
-        let mut gen = self.id_gen.lock().unwrap();
-        gen.next()
+        let mut id_gen = self.id_gen.lock().unwrap();
+        id_gen.next()
     }
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
@@ -566,7 +566,7 @@ impl<MC: MakeConnectors> Publisher<MC> {
                     return Ok(uncommitted.into_result(completed_at, JobStatus::Success));
                 }
                 Err(err) if is_transaction_serialization_error(&err) => {
-                    let jitter = rand::thread_rng().gen_range(0..500);
+                    let jitter = rand::rng().random_range(0..500);
                     tracing::debug!(
                         attempt,
                         backoff_ms = jitter,

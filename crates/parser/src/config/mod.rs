@@ -2,11 +2,7 @@ pub mod character_separated;
 pub mod protobuf;
 
 use encoding_rs::Encoding;
-use schemars::{
-    gen,
-    schema::{self as schemagen, InstanceType},
-    JsonSchema,
-};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{
     de::{self, DeserializeOwned},
     Deserialize, Serialize,
@@ -75,11 +71,11 @@ impl<T> Default for DefaultNullIsAutomatic<T> {
 }
 
 impl<T: EnumSelection> JsonSchema for DefaultNullIsAutomatic<T> {
-    fn schema_name() -> String {
-        Self::schema_title().to_string()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        Self::schema_title().into()
     }
 
-    fn json_schema(_gen: &mut gen::SchemaGenerator) -> schemagen::Schema {
+    fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
         let mut variants: Vec<serde_json::Value> = T::possible_values()
             .into_iter()
             .map(|variant| {
@@ -159,10 +155,10 @@ impl fmt::Display for EncodingRef {
 }
 
 impl schemars::JsonSchema for EncodingRef {
-    fn schema_name() -> String {
-        "encoding".to_string()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "encoding".into()
     }
-    fn json_schema(_gen: &mut gen::SchemaGenerator) -> schemagen::Schema {
+    fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
         serde_json::from_value(serde_json::json!({
             "title": "encoding",
             "description": "An encoding scheme, identified by WHATWG label. The list of allowable values is available at: https://encoding.spec.whatwg.org/#names-and-labels",
@@ -254,7 +250,7 @@ impl From<&'static Encoding> for EncodingRef {
 #[derive(
     Eq, PartialEq, Hash, PartialOrd, Ord, Clone, Debug, schemars::JsonSchema, Serialize, Deserialize,
 )]
-#[schemars(example = "JsonPointer::example")]
+#[schemars(example = JsonPointer::example())]
 pub struct JsonPointer(#[schemars(schema_with = "JsonPointer::schema")] pub String);
 
 impl AsRef<str> for JsonPointer {
@@ -273,7 +269,7 @@ impl JsonPointer {
     pub fn example() -> Self {
         JsonPointer("/json/pointer".to_string())
     }
-    fn schema(_: &mut gen::SchemaGenerator) -> schemagen::Schema {
+    fn schema(_: &mut SchemaGenerator) -> Schema {
         serde_json::from_value(serde_json::json!({
             "type": "string",
             "pattern": "^(/[^/]+)*$",
@@ -319,7 +315,7 @@ pub enum Format {
     #[schemars(title = "W3C Extended Log")]
     W3cExtendedLog,
 
-    #[serde(rename="parquet")]
+    #[serde(rename = "parquet")]
     #[schemars(title = "Parquet")]
     Parquet,
 
@@ -373,52 +369,25 @@ impl Format {
     /// Customizes the generated schema for Format to make it work better in the UI.
     /// Format still derives `JsonSchema`, and this function delegates to that impl.
     /// This function is used by setting `schema_with` on the property in ParseConfig.
-    fn schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        let mut schema = gen.subschema_for::<Format>().into_object();
-        schema.object().required.insert("type".to_string());
-        schema.extensions.insert(
+    fn schema(generator: &mut SchemaGenerator) -> Schema {
+        let mut schema = generator.subschema_for::<Format>();
+
+        let obj = schema.as_object_mut().unwrap();
+
+        obj.insert("type".to_string(), serde_json::json!("object"));
+
+        obj.entry("required")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::Value::String("type".to_string()));
+
+        obj.insert(
             "discriminator".to_string(),
             serde_json::json!({"propertyName": "type"}),
         );
-        schema.instance_type = Some(InstanceType::Object.into());
 
-        schema.into()
-    }
-}
-
-/// This value is always an empty JSON object.
-#[derive(Default, PartialEq, Clone, Debug)]
-pub struct EmptyConfig;
-impl JsonSchema for EmptyConfig {
-    fn schema_name() -> String {
-        String::from("empty object")
-    }
-
-    fn json_schema(_gen: &mut gen::SchemaGenerator) -> schemagen::Schema {
-        serde_json::from_value(serde_json::json!({"type": "object", "default": {}})).unwrap()
-    }
-}
-
-impl<'de> de::Deserialize<'de> for EmptyConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        // ignore any properties that happen to be there.
-        let _ = serde_json::value::Map::<String, serde_json::Value>::deserialize(deserializer)?;
-        Ok(EmptyConfig)
-    }
-}
-
-impl Serialize for EmptyConfig {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-
-        let s = serializer.serialize_map(Some(0))?;
-        s.end()
+        schema
     }
 }
 
@@ -529,18 +498,17 @@ impl<'de> Deserialize<'de> for ErrorThreshold {
 }
 
 impl schemars::JsonSchema for ErrorThreshold {
-    fn schema_name() -> String {
-        "errorThreshold".to_string()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "errorThreshold".into()
     }
-    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        serde_json::from_value(serde_json::json!({
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        schemars::json_schema!({
             "type": "integer",
             "title": "Error Threshold",
             "default": 0,
             "minimum": 0,
             "maximum": 100,
-        }))
-        .unwrap()
+        })
     }
 }
 
@@ -639,37 +607,41 @@ pub enum ConfigError {
 /// by the estuary UI in order to render properly.
 #[derive(Debug, Clone)]
 struct ConstDefaultSchemaVisitor;
-impl schemars::visit::Visitor for ConstDefaultSchemaVisitor {
-    fn visit_schema_object(&mut self, schema: &mut schemagen::SchemaObject) {
-        schemars::visit::visit_schema_object(self, schema);
+impl schemars::transform::Transform for ConstDefaultSchemaVisitor {
+    fn transform(&mut self, schema: &mut Schema) {
+        // Apply transformations recursively
+        schemars::transform::transform_subschemas(self, schema);
 
-        if schema.enum_values.as_ref().map(|v| v.len()) == Some(1) {
-            let value = schema.enum_values.take().unwrap().pop().unwrap();
-            schema.const_value = Some(value);
-        }
+        let Some(obj) = schema.as_object_mut() else {
+            return;
+        };
 
-        if let Some(const_val) = schema.const_value.as_ref() {
-            if schema.metadata.is_none() {
-                schema.metadata = Some(Default::default());
-            }
-            if let Some(md) = schema.metadata.as_mut() {
-                if md.default.is_none() {
-                    md.default = Some(const_val.clone());
+        // If there's an enum with a single value, convert it to const
+        if let Some(serde_json::Value::Array(enum_values)) = obj.get("enum") {
+            if enum_values.len() == 1 {
+                if let Some(serde_json::Value::Array(mut arr)) = obj.remove("enum") {
+                    if let Some(value) = arr.pop() {
+                        obj.insert("const".to_string(), value);
+                    }
                 }
             }
+        }
+
+        // If there's a const value, set it as the default too
+        if let Some(const_val) = obj.get("const").cloned() {
+            obj.entry("default".to_string()).or_insert(const_val);
         }
     }
 }
 
 impl ParseConfig {
     /// Returns the generated json schema for the configuration file.
-    pub fn json_schema() -> schemars::schema::RootSchema {
-        let mut settings = schemars::gen::SchemaSettings::draft07();
-        settings.option_add_null_type = false;
+    pub fn json_schema() -> Schema {
+        let mut settings = schemars::generate::SchemaSettings::draft07();
         settings.inline_subschemas = true;
-        settings = settings.with_visitor(ConstDefaultSchemaVisitor);
-        let generator = schemars::gen::SchemaGenerator::new(settings);
-        generator.into_root_schema_for::<ParseConfig>()
+        settings = settings.with_transform(ConstDefaultSchemaVisitor);
+        let mut generator = SchemaGenerator::new(settings);
+        generator.root_schema_for::<ParseConfig>()
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<ParseConfig, ConfigError> {

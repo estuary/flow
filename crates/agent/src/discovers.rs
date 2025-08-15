@@ -103,7 +103,7 @@ impl DiscoverOutput {
             pruned_count = self.draft.spec_count();
             self.draft = tables::DraftCatalog::default();
         } else {
-            let DiscoverOutput {
+            let &mut DiscoverOutput {
                 ref mut draft,
                 ref added,
                 ref modified,
@@ -265,11 +265,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             ref mut captures,
             ref mut collections,
             ..
-        } = &mut draft;
+        } = draft;
         let Some(drafted_capture) = captures.get_mut_by_key(&capture_name) else {
             anyhow::bail!("expected capture '{}' to exist in draft", capture_name);
         };
-        let tables::DraftCapture {
+        let &mut tables::DraftCapture {
             model: Some(ref mut capture_model),
             ref mut is_touch,
             ..

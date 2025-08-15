@@ -25,7 +25,7 @@ macro_rules! sqlx_json {
 
         #[cfg(feature = "sqlx-support")]
         impl<'q> sqlx::Encode<'q, sqlx::postgres::Postgres> for $rust_type {
-            fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+            fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
                 <sqlx::types::Json<&Self> as sqlx::Encode<'q, sqlx::postgres::Postgres>>::encode(
                     sqlx::types::Json(self),
                     buf,
