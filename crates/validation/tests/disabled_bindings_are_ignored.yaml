@@ -128,6 +128,7 @@ driver:
       bindings:
         - resourcePath: [enabled-stream]
           constraints:
+            id: { type: 4, reason: "optional" }
             flow_document: { type: 2, reason: "location required" }
 
     testing/fully-disabled-materialization:

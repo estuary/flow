@@ -97,10 +97,7 @@ pub fn evaluate(
     live_spec: Option<&flow::materialization_spec::Binding>,
     model: &models::MaterializationBinding,
     validated_constraints: &BTreeMap<String, materialize::response::validated::Constraint>,
-) -> (
-    (flow::FieldSelection, Vec<Conflict>),
-    BTreeMap<String, EOB<Select, Reject>>,
-) {
+) -> (flow::FieldSelection, Vec<Conflict>) {
     let models::MaterializationBinding {
         fields: model_fields,
         backfill: model_backfill,
@@ -128,17 +125,7 @@ pub fn evaluate(
         validated_constraints,
     );
 
-    // TODO(johnny): `field_outcomes` isn't intended to be part of the function return,
-    // but is here for now in support of validation via shadow difference logging.
-    (
-        build_selection(
-            group_by,
-            document_field,
-            field_config,
-            field_outcomes.clone(),
-        ),
-        field_outcomes,
-    )
+    build_selection(group_by, document_field, field_config, field_outcomes)
 }
 
 /// Map all applicable sources of field selection constraints into Select and Reject.

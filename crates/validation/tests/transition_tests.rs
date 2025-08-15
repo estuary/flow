@@ -34,7 +34,13 @@ test://example/catalog.yaml:
 
 #[test]
 fn test_updates_with_clobbered_backfill_counter() {
-    let outcome = common::run_errors(
+    let common::Outcome {
+        built_captures,
+        built_collections,
+        built_materializations,
+        errors,
+        ..
+    } = common::run(
         MODEL_YAML,
         r#"
 
@@ -70,7 +76,28 @@ driver:
           backfill: 789
     "#,
     );
-    insta::assert_debug_snapshot!(outcome);
+
+    let captures = built_captures
+        .into_iter()
+        .map(|row| serde_json::json!([&row.model, row.model_fixes]));
+
+    let collections = built_collections
+        .into_iter()
+        .map(|row| serde_json::json!([&row.model, row.model_fixes]));
+
+    let materializations = built_materializations
+        .into_iter()
+        .map(|row| serde_json::json!([&row.model, row.model_fixes]));
+
+    let errors = errors
+        .into_iter()
+        .map(|err| serde_json::json!(format!("{:?}", err.error)));
+
+    insta::assert_json_snapshot!(captures
+        .chain(collections)
+        .chain(materializations)
+        .chain(errors)
+        .collect::<Vec<_>>());
 }
 
 #[test]

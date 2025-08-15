@@ -2140,9 +2140,10 @@ Outcome {
                         field_selection: Some(
                             FieldSelection {
                                 keys: [
-                                    "F1",
+                                    "f_one",
                                 ],
                                 values: [
+                                    "F1",
                                     "f_two",
                                 ],
                                 document: "flow_document",

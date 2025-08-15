@@ -31,4 +31,6 @@ materializations:
         fields:
           include:
             field_a: {}
+          exclude:
+            - flow_document
           recommended: false

@@ -1,18 +1,146 @@
 ---
 source: crates/validation/tests/transition_tests.rs
-expression: outcome
+expression: "captures.chain(collections).chain(materializations).chain(errors).collect::<Vec<_>>()"
 ---
 [
-    Error {
-        scope: test://example/catalog.yaml#/captures/the~1capture/bindings/0,
-        error: `backfill` counters may only increase, but the draft capture binding for "capture.path" has a value of 0, which is less than the last value 123,
+  [
+    {
+      "bindings": [
+        {
+          "backfill": 123,
+          "resource": {
+            "_meta": {
+              "path": [
+                "capture",
+                "path"
+              ]
+            },
+            "table": "foo"
+          },
+          "target": "the/collection"
+        }
+      ],
+      "endpoint": {
+        "connector": {
+          "config": {
+            "a": "config"
+          },
+          "image": "an/image"
+        }
+      }
     },
-    Error {
-        scope: test://example/catalog.yaml#/collections/the~1derivation/derive/transforms/0,
-        error: `backfill` counters may only increase, but the draft derivation transform for "fromCollection" has a value of 0, which is less than the last value 456,
+    [
+      "restored `backfill` of resource \"capture.path\""
+    ]
+  ],
+  [
+    {
+      "key": [
+        "/f_one"
+      ],
+      "projections": {
+        "F1": "/f_one",
+        "F2": "/f_two",
+        "FX": "/f_x"
+      },
+      "schema": {
+        "$id": "test://example/catalog.yaml?ptr=/collections/the~1collection/schema",
+        "properties": {
+          "f_one": {
+            "type": "integer"
+          },
+          "f_two": {
+            "type": "string"
+          },
+          "f_x": false
+        },
+        "required": [
+          "f_one",
+          "f_two"
+        ],
+        "type": "object"
+      }
     },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
-        error: `backfill` counters may only increase, but the draft materialization binding for "table.path" has a value of 0, which is less than the last value 789,
+    [
+      "removed projection FY: /f_y, which is no longer in the schema"
+    ]
+  ],
+  [
+    {
+      "derive": {
+        "transforms": [
+          {
+            "backfill": 456,
+            "lambda": "select 123 as d_one, 'hello' as d_two;\n",
+            "name": "fromCollection",
+            "shuffle": {
+              "key": [
+                "/f_two"
+              ]
+            },
+            "source": {
+              "name": "the/collection"
+            }
+          }
+        ],
+        "using": {
+          "sqlite": {}
+        }
+      },
+      "key": [
+        "/d_one"
+      ],
+      "schema": {
+        "$id": "test://example/catalog.yaml?ptr=/collections/the~1derivation/schema",
+        "properties": {
+          "d_one": {
+            "type": "integer"
+          },
+          "d_two": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "d_one",
+          "d_two"
+        ],
+        "type": "object"
+      }
     },
+    [
+      "restored `backfill` of transform \"fromCollection\""
+    ]
+  ],
+  [
+    {
+      "bindings": [
+        {
+          "backfill": 789,
+          "fields": {
+            "recommended": true
+          },
+          "resource": {
+            "_meta": {
+              "path": [
+                "table",
+                "path"
+              ]
+            }
+          },
+          "source": "the/collection"
+        }
+      ],
+      "endpoint": {
+        "connector": {
+          "config": {
+            "a": "config"
+          },
+          "image": "other/image"
+        }
+      }
+    },
+    [
+      "restored `backfill` of resource \"table.path\""
+    ]
+  ]
 ]

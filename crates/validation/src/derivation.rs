@@ -773,15 +773,13 @@ fn walk_derive_transform<'a>(
     // We verify derivation backfill counters earlier in the validation flow
     // than captures or materializations, because we don't need to await a
     // validated resource path from the connector.
-    if let Some(last) = live_spec {
-        if model.backfill < last.backfill {
-            Error::BindingBackfillDecrease {
-                entity: "derivation transform",
-                resource: model.name.to_string(),
-                draft: model.backfill,
-                last: last.backfill,
-            }
-            .push(scope, errors);
+    if let Some(live_spec) = live_spec {
+        if model.backfill < live_spec.backfill {
+            model_fixes.push(format!(
+                "restored `backfill` of transform {:?}",
+                model.name.as_str()
+            ));
+            model.backfill = live_spec.backfill;
         }
     }
 

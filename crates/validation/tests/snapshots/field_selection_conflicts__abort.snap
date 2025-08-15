@@ -1,0 +1,80 @@
+---
+source: crates/validation/tests/field_selection_conflicts.rs
+expression: "(selections, errors)"
+---
+(
+    [
+        (
+            [
+                FieldSelection {
+                    keys: [
+                        "f_required",
+                    ],
+                    values: [
+                        "f_incompatible",
+                        "f_loc_required",
+                        "f_optional",
+                    ],
+                    document: "",
+                    field_config_json_map: {},
+                },
+            ],
+            Some(
+                MaterializationDef {
+                    source: None,
+                    on_incompatible_schema_change: Abort,
+                    endpoint: Connector(
+                        ConnectorConfig {
+                            image: "an/image:test",
+                            config: RawValue(
+                                {},
+                            ),
+                        },
+                    ),
+                    bindings: [
+                        MaterializationBinding {
+                            resource: RawValue(
+                                {"_meta":{"path":["a"]},"table":"a"},
+                            ),
+                            source: Collection(
+                                Collection(
+                                    "the/collection",
+                                ),
+                            ),
+                            disable: false,
+                            priority: 0,
+                            fields: MaterializationFields {
+                                group_by: [],
+                                require: {},
+                                exclude: [],
+                                recommended: Usize(
+                                    1,
+                                ),
+                            },
+                            backfill: 0,
+                            on_incompatible_schema_change: None,
+                        },
+                    ],
+                    shards: ShardTemplate {
+                        disable: false,
+                        min_txn_duration: None,
+                        max_txn_duration: None,
+                        hot_standbys: None,
+                        ring_buffer_size: None,
+                        read_channel_size: None,
+                        log_level: None,
+                    },
+                    expect_pub_id: None,
+                    delete: false,
+                },
+            ),
+            [],
+        ),
+    ],
+    [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
+            error: raising an error because the/materialization specifies `onIncompatibleSchemaChange: abort`: conflict for field "f_incompatible": field is within the desired depth but connector cannot support this field without a back-fill (I'm an incompatible field),
+        },
+    ],
+)
