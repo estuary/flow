@@ -38,7 +38,7 @@ disable the bindings for objects you don't want to capture.
 
 ### Authentication
 
-Authentication to Salesforce is done via OAuth and requires the following:
+There are two different ways to authenticate with Salesforce when capturing data into Flow: using OAuth or using username, password, and security token. Both require the following:
 
 * A Salesforce organization on the Enterprise tier, or with an equivalent [API request allocation](https://developer.salesforce.com/docs/atlas.en-us.salesforce_app_limits_cheatsheet.meta/salesforce_app_limits_cheatsheet/salesforce_app_limits_platform_api.htm).
 
@@ -56,7 +56,7 @@ This is useful if you have a large amount of data in your Salesforce organizatio
 2. [Edit the new profile's permissions](https://help.salesforce.com/s/articleView?id=sf.perm_sets_object_perms_edit.htm&type=5). Grant it read access to all the standard and custom objects you'd like to capture with Flow.
 
 3. [Create a new user](https://help.salesforce.com/s/articleView?id=sf.adding_new_users.htm&type=5), applying the profile you just created.
-You'll use this user's email address and password to authenticate Salesforce in Flow.
+You'll use this user's email address and password to authenticate Salesforce in Flow. If you're authenticating with username, password, and security token, you'll also need the user's security token.
 
 ## Configuration
 
@@ -71,11 +71,14 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 |---|---|---|---|---|
 | `/start_date` | Start Date | Start date in the format YYYY-MM-DD. Data added on and after this date will be captured. If left blank, the start date will be set to Salesforce's founding date. | string | 1999-02-03T00:00:00Z |
 | `/is_sandbox` | Sandbox | Whether you&#x27;re using a [Salesforce Sandbox](https://help.salesforce.com/s/articleView?id=sf.deploy_sandboxes_parent.htm&type=5). | boolean | `false` |
-| **`/credentials/credentials_title`** | Authentication Method | Set to `OAuth Credentials`. | string | Required |
-| **`/credentials/client_id`** | OAuth Client ID | The OAuth app's client ID. | string | Required |
-| **`/credentials/client_secret`** | OAuth Client Secret | The OAuth app's client secret. | string | Required |
-| **`/credentials/refresh_token`** | Refresh Token | The refresh token received from the OAuth app. | string | Required |
-| **`/credentials/instance_url`** | Instance URL | The URL for the instance of your Salesforce organization. | string | Required |
+| `/credentials/credentials_title` | Authentication Method | Set to `OAuth Credentials` or `Username, Password, & Security Token`. | string | Required |
+| `/credentials/client_id` | OAuth Client ID | The OAuth app's client ID. | string | Required for OAuth authentication |
+| `/credentials/client_secret` | OAuth Client Secret | The OAuth app's client secret. | string | Required for OAuth authentication |
+| `/credentials/refresh_token` | OAuth Refresh Token | The refresh token received from the OAuth app. | string | Required for OAuth authentication |
+| `/credentials/instance_url` | Instance URL | The URL for the instance of your Salesforce organization. | string | Required for OAuth authentication |
+| `/credentials/username` | Username | The user's username. | string | Required for Username, Password, & Security Token authentication |
+| `/credentials/password` | Password | The user's password. | string | Required for Username, Password, & Security Token authentication |
+| `/credentials/security_token` | Security Token | The user's security token. | string | Required for Username, Password, & Security Token authentication |
 | `/advanced/window_size` | Window size | The date window size in days to use when querying the Salesforce APIs. | integer | 18250 |
 
 #### Bindings
@@ -101,6 +104,7 @@ captures:
             credentials_title: "OAuth Credentials"
             client_id: <secret>
             client_secret: <secret>
+            instance_url: https://somedomain.my.salesforce.com
             refresh_token: <secret>
           is_sandbox: false
           start_date: "2025-03-19T12:00:00Z"
