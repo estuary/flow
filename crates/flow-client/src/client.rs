@@ -16,7 +16,7 @@ pub struct Client {
     // Base shard client which is cloned to build token-specific clients.
     shard_client: gazette::shard::Client,
     // Base journal client which is cloned to build token-specific clients.
-    journal_client: gazette::journal::Client,
+    pub journal_client: gazette::journal::Client,
     // Keep a single Postgrest and hand out clones of it in order to maintain
     // a single connection pool. The clones can have different headers while
     // still re-using the same connection pool, so this will work across refreshes.

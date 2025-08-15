@@ -7,6 +7,7 @@ use gazette::{
 };
 use itertools::Itertools;
 use labels::percent_encoding;
+use models::authorizations::UserPrefixAuthorizationRequest;
 use proto_gazette::broker;
 
 use crate::collection::CollectionJournalSelector;
@@ -53,14 +54,36 @@ impl CleanupOpsJournals {
         collection: &str,
         existing_tasks: &HashSet<String>,
     ) -> anyhow::Result<i32> {
-        let (journal_name_prefix, client) =
-            flow_client::fetch_user_collection_authorization(&ctx.client, collection, true).await?;
+        // let (journal_name_prefix, client) =
+        //     flow_client::fetch_user_collection_authorization(&ctx.client, collection, true).await?;
+        let started_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 30;
+        let auth = flow_client::fetch_user_prefix_authorization(
+            &ctx.client,
+            UserPrefixAuthorizationRequest {
+                prefix: models::Prefix::new("ops.us-central1.v1/"),
+                data_plane: models::Name::new("ops/dp/public/gcp-us-central1-c1"),
+                capability: models::Capability::Admin,
+                started_unix,
+            },
+        )
+        .await
+        .context("failed to fetch user prefix authorization")?;
+        let mut md = gazette::Metadata::default();
+        md.bearer_token(&auth.broker_token)?;
+        let client = ctx
+            .client
+            .journal_client
+            .with_endpoint_and_metadata(auth.broker_address, md);
 
         let selector = CollectionJournalSelector {
             collection: collection.to_string(),
             partitions: None,
         };
-        let label_selector = selector.build_label_selector(journal_name_prefix);
+        let label_selector = selector.build_label_selector(collection.to_string());
         let list_reps = client
             .list(broker::ListRequest {
                 selector: Some(label_selector),
@@ -124,13 +147,13 @@ impl CleanupOpsJournals {
             }
             batch.push(change);
             if batch.len() == batch_size || changes_iter.peek().is_none() {
-                tracing::info!(%total_deleted, "Sending apply request for batch");
+                tracing::warn!(%total_deleted, "Sending apply request for batch");
                 let changes = std::mem::replace(&mut batch, Vec::with_capacity(batch_size));
-                let _req = broker::ApplyRequest { changes };
+                let req = broker::ApplyRequest { changes };
                 /*
-                //client.apply(req).await.context("apply request failed")?;
                  */
-                tracing::info!(%total_deleted, "Finished batch");
+                client.apply(req).await.context("apply request failed")?;
+                tracing::warn!(%total_deleted, "Finished batch");
             }
         }
         tracing::warn!(%total_deleted, "Finished deleting {collection} journals");
