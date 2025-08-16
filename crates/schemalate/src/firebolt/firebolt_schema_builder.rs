@@ -40,11 +40,11 @@ pub struct Resource {
     pub table_type: String,
 }
 
-fn build_shape_from_schema(schema_str: &str) -> Result<Shape, Error> {
+fn build_shape_from_schema(schema: &[u8]) -> Result<Shape, Error> {
     let schema_uri =
         url::Url::parse("https://estuary.dev").expect("parse should not fail on hard-coded url");
 
-    let parsed_schema = serde_json::from_str(schema_str)?;
+    let parsed_schema = serde_json::from_slice(schema)?;
     let schema = schema::build::build_schema::<Annotation>(schema_uri, &parsed_schema)?;
 
     let mut index = schema::index::IndexBuilder::new();
@@ -121,10 +121,10 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
 pub fn build_firebolt_queries_bundle(
     spec: MaterializationSpec,
 ) -> Result<FireboltQueriesBundle, Error> {
-    let config: EndpointConfig = serde_json::from_str(&spec.config_json)?;
+    let config: EndpointConfig = serde_json::from_slice(&spec.config_json)?;
 
     let bindings : Result<Vec<BindingBundle>, Error> = spec.bindings.iter().map(|binding| {
-        let resource: Resource = serde_json::from_str(&binding.resource_config_json)?;
+        let resource: Resource = serde_json::from_slice(&binding.resource_config_json)?;
         let mut schema = build_firebolt_schema(binding)?;
 
         let external_table_name = format!("{}_external", resource.table);
@@ -255,14 +255,16 @@ mod tests {
             "s3_bucket": "my-bucket",
             "s3_prefix": "/test"
         })
-        .to_string();
+        .to_string()
+        .into();
 
         spec.bindings = vec![Binding {
             resource_config_json: json!({
                 "table": "test_table",
                 "table_type": "fact"
             })
-            .to_string(),
+            .to_string()
+            .into(),
             field_selection: Some(FieldSelection {
                 keys: vec!["test".to_string()],
                 ..Default::default()
@@ -275,7 +277,8 @@ mod tests {
                     "required": ["test"],
                     "type": "object"
                 })
-                .to_string(),
+                .to_string()
+                .into(),
                 projections: vec![Projection {
                     field: "test".to_string(),
                     ptr: "/test".to_string(),
@@ -319,7 +322,8 @@ mod tests {
                             "test": {"type": "string"},
                         }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -352,7 +356,8 @@ mod tests {
                             "test": {"type": "boolean"},
                         }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -385,7 +390,8 @@ mod tests {
                             "test": {"type": "integer"},
                         }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -418,7 +424,8 @@ mod tests {
                             "test": {"type": "number"},
                         }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -453,7 +460,8 @@ mod tests {
                         "required": ["test"],
                         "type": "object"
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -493,7 +501,8 @@ mod tests {
                         "required": ["test"],
                         "type": "object"
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -536,7 +545,8 @@ mod tests {
                         "type": "object",
                         "required": ["obj"]
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "obj".to_string(),
                         ptr: "/obj".to_string(),
@@ -569,7 +579,8 @@ mod tests {
                     "test": {}
                     }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -606,7 +617,8 @@ mod tests {
                         "test": {}
                     }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -643,7 +655,8 @@ mod tests {
                         "test": {}
                     }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -680,7 +693,8 @@ mod tests {
                         "test": {}
                     }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -717,7 +731,8 @@ mod tests {
                         "test": {}
                     }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),
@@ -755,7 +770,8 @@ mod tests {
                         "test": {"type": "boolean"},
                     }
                     })
-                    .to_string(),
+                    .to_string()
+                    .into(),
                     projections: vec![Projection {
                         field: "test".to_string(),
                         ptr: "/test".to_string(),

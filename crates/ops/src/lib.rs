@@ -115,7 +115,7 @@ pub fn tracing_log_handler(
             .map(|(k, v)| {
                 (
                     k.clone(),
-                    serde_json::value::RawValue::from_string(v.clone()).unwrap(),
+                    serde_json::from_slice::<&serde_json::value::RawValue>(v).unwrap(),
                 )
             })
             .collect::<BTreeMap<_, _>>(),
@@ -183,7 +183,7 @@ mod test {
             timestamp: Some(proto_flow::as_timestamp(std::time::UNIX_EPOCH)),
             level: LogLevel::Warn as i32,
             message: "hello world".to_string(),
-            fields_json_map: [("name".to_string(), json!("value").to_string())].into(),
+            fields_json_map: [("name".to_string(), json!("value").to_string().into())].into(),
             shard: None,
             spans: Vec::new(),
         };

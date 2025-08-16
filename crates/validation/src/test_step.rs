@@ -218,7 +218,10 @@ pub fn walk_test_step<'a>(
         step_index: step_index as u32,
         step_scope: scope.flatten().to_string(),
         collection: collection.to_string(),
-        docs_json_vec: documents.into_iter().map(|d| d.to_string()).collect(),
+        docs_json_vec: documents
+            .into_iter()
+            .map(|d| d.to_string().into())
+            .collect(),
         partitions: Some(assemble::journal_selector(&spec, selector)),
         description: description.clone(),
     })

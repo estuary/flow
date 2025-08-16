@@ -45,7 +45,7 @@ struct Binding {
     // Encoded resource path + backfill state key of this binding.
     state_key: String,
     // Write schema of the target collection.
-    write_schema_json: String,
+    write_schema_json: bytes::Bytes,
     // Inferred Shape of written documents.
     write_shape: doc::Shape,
 }

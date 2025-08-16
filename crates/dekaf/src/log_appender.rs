@@ -412,7 +412,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
                                     .find_map(|l| l.fields_json_map.get(&well_known.to_string()))
                                 {
                                     log.fields_json_map
-                                        .insert(well_known.to_string(), value.to_string());
+                                        .insert(well_known.to_string(), value.clone());
                                 }
                             }
                             pending_logs.push(log);
@@ -715,7 +715,7 @@ mod tests {
 
     fn gen_producer() -> Producer {
         // There's probably a neat bit-banging way to do this with i64 and masks, but I'm just not that fancy.
-        let mut producer_id = rand::thread_rng().gen::<[u8; 6]>();
+        let mut producer_id = rand::rng().random::<[u8; 6]>();
         producer_id[0] |= 0x01;
         gazette::uuid::Producer::from_bytes(producer_id)
     }

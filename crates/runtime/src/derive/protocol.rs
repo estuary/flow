@@ -2,6 +2,7 @@ use super::{Task, Transaction};
 use crate::rocksdb::{queue_connector_state_update, RocksDB};
 use crate::{verify, Accumulator};
 use anyhow::Context;
+use bytes::BufMut;
 use prost::Message;
 use proto_flow::derive::{request, response, Request, Response};
 use proto_flow::flow;
@@ -31,7 +32,7 @@ pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Resul
 
     open.state_json = db
         .load_connector_state(
-            models::RawValue::from_str(&open.state_json)
+            serde_json::from_slice::<models::RawValue>(&open.state_json)
                 .context("failed to parse initial open connector state")?,
         )
         .await?
@@ -123,7 +124,7 @@ pub fn recv_client_read_or_flush(
     if read.shuffle.is_none() {
         () = || -> anyhow::Result<()> {
             // TODO: use OwnedArchived or parse into HeapNode.
-            let doc: serde_json::Value = serde_json::from_str(&read.doc_json)?;
+            let doc: serde_json::Value = serde_json::from_slice(&read.doc_json)?;
             let _valid = validators[read.transform as usize]
                 .validate(None, &doc)?
                 .ok()?;
@@ -192,7 +193,7 @@ pub fn recv_connector_published_or_flushed(
     };
 
     let (memtable, alloc, mut doc) = accumulator
-        .doc_bytes_to_heap_node(doc_json.as_bytes())
+        .doc_bytes_to_heap_node(&doc_json)
         .context("couldn't parse derived document as JSON")?;
 
     let uuid_ptr = &task.document_uuid_ptr;
@@ -222,8 +223,10 @@ pub fn send_client_published(
     let key_packed = doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
     let partitions_packed =
         doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
-    let doc_json = serde_json::to_string(&task.ser_policy.on_owned(&root))
+
+    serde_json::to_writer(buf.writer(), &task.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");
+    let doc_json = buf.split().freeze();
 
     txn.combined_stats.docs_total += 1;
     txn.combined_stats.bytes_total += doc_json.len() as u64;

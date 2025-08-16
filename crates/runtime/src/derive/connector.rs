@@ -45,7 +45,7 @@ pub async fn start<L: LogHandler>(
             image,
             config: sealed_config,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
+            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
             connector_tx.try_send(initial).unwrap();
 
             crate::image_connector::serve(
@@ -76,7 +76,7 @@ pub async fn start<L: LogHandler>(
             env,
             protobuf,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
+            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
             connector_tx.try_send(initial).unwrap();
 
             crate::local_connector::serve(
@@ -101,7 +101,7 @@ pub async fn start<L: LogHandler>(
 
 fn extract_endpoint<'r>(
     request: &'r mut Request,
-) -> anyhow::Result<(models::DeriveUsing, &'r mut String)> {
+) -> anyhow::Result<(models::DeriveUsing, &'r mut bytes::Bytes)> {
     let (connector_type, config_json) = match request {
         Request {
             spec: Some(spec), ..
@@ -129,21 +129,21 @@ fn extract_endpoint<'r>(
     if connector_type == ConnectorType::Image as i32 {
         Ok((
             models::DeriveUsing::Connector(
-                serde_json::from_str(config_json).context("parsing connector config")?,
+                serde_json::from_slice(config_json).context("parsing connector config")?,
             ),
             config_json,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
             models::DeriveUsing::Local(
-                serde_json::from_str(config_json).context("parsing local config")?,
+                serde_json::from_slice(config_json).context("parsing local config")?,
             ),
             config_json,
         ))
     } else if connector_type == ConnectorType::Sqlite as i32 {
         Ok((
             models::DeriveUsing::Sqlite(
-                serde_json::from_str(config_json).context("parsing connector config")?,
+                serde_json::from_slice(config_json).context("parsing connector config")?,
             ),
             config_json,
         ))
@@ -151,7 +151,7 @@ fn extract_endpoint<'r>(
         Ok((
             models::DeriveUsing::Connector(models::ConnectorConfig {
                 image: "ghcr.io/estuary/derive-typescript:dev".to_string(),
-                config: models::RawValue::from_str(config_json)
+                config: serde_json::from_slice::<models::RawValue>(config_json)
                     .context("parsing connector config")?,
             }),
             config_json,

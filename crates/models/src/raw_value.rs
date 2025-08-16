@@ -1,6 +1,3 @@
-#[cfg(feature = "sqlx-support")]
-use sqlx::Decode;
-
 /// RawValue is like serde_json::value::RawValue, but removes newlines to ensure
 /// values can safely be used in newline-delimited contexts.
 ///
@@ -71,9 +68,19 @@ impl From<RawValue> for Box<serde_json::value::RawValue> {
     }
 }
 
+/*
 impl From<RawValue> for String {
     fn from(value: RawValue) -> Self {
         let s: Box<str> = value.0.into();
+        s.into()
+    }
+}
+*/
+
+impl From<RawValue> for bytes::Bytes {
+    fn from(value: RawValue) -> Self {
+        let s: Box<str> = value.0.into();
+        let s: String = s.into();
         s.into()
     }
 }
@@ -99,14 +106,11 @@ impl std::fmt::Debug for RawValue {
 }
 
 impl schemars::JsonSchema for RawValue {
-    fn schema_name() -> String {
-        "Value".to_string()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Value")
     }
-    fn is_referenceable() -> bool {
-        false
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        serde_json::Value::json_schema(gen)
+    fn json_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+        serde_json::Value::json_schema(generator)
     }
 }
 

@@ -106,11 +106,11 @@ async fn get_spec_response(
         let request = match &model.endpoint {
             models::CaptureEndpoint::Connector(config) => capture::request::Spec {
                 connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(&config).unwrap(),
+                config_json: serde_json::to_string(&config).unwrap().into(),
             },
             models::CaptureEndpoint::Local(config) => capture::request::Spec {
                 connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
         };
         let request = capture::Request {
@@ -146,19 +146,19 @@ async fn get_spec_response(
         let request = match &model.using {
             models::DeriveUsing::Connector(config) => derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(&config).unwrap(),
+                config_json: serde_json::to_string(&config).unwrap().into(),
             },
             models::DeriveUsing::Sqlite(config) => derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
-                config_json: serde_json::to_string(&config).unwrap(),
+                config_json: serde_json::to_string(&config).unwrap().into(),
             },
             models::DeriveUsing::Typescript(config) => derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Typescript as i32,
-                config_json: serde_json::to_string(&config).unwrap(),
+                config_json: serde_json::to_string(&config).unwrap().into(),
             },
             models::DeriveUsing::Local(config) => derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(&config).unwrap(),
+                config_json: serde_json::to_string(&config).unwrap().into(),
             },
         };
 
@@ -190,15 +190,15 @@ async fn get_spec_response(
         let request = match &model.endpoint {
             models::MaterializationEndpoint::Connector(config) => materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(&config).unwrap(),
+                config_json: serde_json::to_string(&config).unwrap().into(),
             },
             models::MaterializationEndpoint::Local(config) => materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             models::MaterializationEndpoint::Dekaf(config) => materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
         };
         let request = materialize::Request {

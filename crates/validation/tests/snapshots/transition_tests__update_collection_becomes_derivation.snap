@@ -27,15 +27,15 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "the/collection",
-                write_schema_json: "{\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"type\":\"object\",\"x-live\":\"pass-through\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"type\":\"object\",\"x-live\":\"pass-through\"}",
+                read_schema_json: b"",
                 key: [
                     "/f_one",
                 ],
                 uuid_ptr: "/_meta/uuid",
                 partition_fields: [],
                 projections: [],
-                ack_template_json: "",
+                ack_template_json: b"",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/collection/0000000000000001",
@@ -96,8 +96,8 @@ Outcome {
             },
             spec: CollectionSpec {
                 name: "the/derivation",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema\",\"properties\":{\"d_one\":{\"type\":\"integer\"},\"d_two\":{\"type\":\"string\"}},\"required\":[\"d_one\",\"d_two\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema\",\"properties\":{\"d_one\":{\"type\":\"integer\"},\"d_two\":{\"type\":\"string\"}},\"required\":[\"d_one\",\"d_two\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/d_one",
                 ],
@@ -118,7 +118,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -140,7 +140,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: Some(
@@ -176,7 +176,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -198,7 +198,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -227,7 +227,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -236,7 +236,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/derivation/0000000000000001",
@@ -298,22 +298,22 @@ Outcome {
                 derivation: Some(
                     Derivation {
                         connector_type: Sqlite,
-                        config_json: "{}",
+                        config_json: b"{}",
                         transforms: [
                             Transform {
                                 name: "fromCollection",
                                 collection: Some(
                                     CollectionSpec {
                                         name: "the/collection",
-                                        write_schema_json: "{\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"type\":\"object\",\"x-live\":\"pass-through\"}",
-                                        read_schema_json: "",
+                                        write_schema_json: b"{\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"type\":\"object\",\"x-live\":\"pass-through\"}",
+                                        read_schema_json: b"",
                                         key: [
                                             "/f_one",
                                         ],
                                         uuid_ptr: "/_meta/uuid",
                                         partition_fields: [],
                                         projections: [],
-                                        ack_template_json: "",
+                                        ack_template_json: b"",
                                         partition_template: Some(
                                             JournalSpec {
                                                 name: "the/collection/0000000000000001",
@@ -353,8 +353,8 @@ Outcome {
                                 shuffle_key: [
                                     "/f_two",
                                 ],
-                                shuffle_lambda_config_json: "",
-                                lambda_config_json: "\"select 123 as d_one, 'hello' as d_two;\\n\"",
+                                shuffle_lambda_config_json: b"",
+                                lambda_config_json: b"\"select 123 as d_one, 'hello' as d_two;\\n\"",
                                 read_only: true,
                                 journal_read_suffix: "derive/the/derivation/fromCollection",
                                 not_before: None,
@@ -492,15 +492,15 @@ Outcome {
             },
             previous_spec: CollectionSpec {
                 name: "the/derivation",
-                write_schema_json: "{\"x-live\":\"schema\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"x-live\":\"schema\"}",
+                read_schema_json: b"",
                 key: [
                     "/d_one",
                 ],
                 uuid_ptr: "/_meta/uuid",
                 partition_fields: [],
                 projections: [],
-                ack_template_json: "",
+                ack_template_json: b"",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/derivation/0000000000000001",

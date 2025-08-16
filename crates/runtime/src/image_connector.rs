@@ -1,5 +1,5 @@
 use super::container;
-use futures::{channel::mpsc, future::BoxFuture, Stream, TryStreamExt};
+use futures::{Stream, TryStreamExt, channel::mpsc, future::BoxFuture};
 
 /// Container is a description of a running Container instance.
 pub use proto_flow::runtime::Container;
@@ -10,11 +10,11 @@ pub type StartRpcFuture<Response> =
 
 /// Serve an image-based connector by starting a container, dialing connector-init,
 /// and then starting a gRPC request.
-pub async fn serve<Request, Response, StartRpc, Attach>(
+pub async fn serve<Request, Response, StartRpc, Attach, L: crate::LogHandler>(
     attach_container: Attach, // Attaches a Container description to a response.
     attach_offset: usize,     // Offset of response stream to which the container is attached.
     image: String,            // Container image to run.
-    log_handler: impl crate::LogHandler, // Handler for connector logs.
+    log_handler: L,           // Handler for connector logs.
     log_level: ops::LogLevel, // Log-level of the connector, if known.
     network: &str,            // Container network to use.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
@@ -22,7 +22,9 @@ pub async fn serve<Request, Response, StartRpc, Attach>(
     task_name: &str,          // Name of this task, used to label container.
     task_type: ops::TaskType, // Type of this task, for labeling container.
     publish_ports: bool,      // Whether to expose container ports. Must be true on mac/windoze.
-) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
+) -> anyhow::Result<
+    impl Stream<Item = anyhow::Result<Response>> + Send + use<Request, Response, StartRpc, Attach, L>,
+>
 where
     Request: serde::Serialize + Send + 'static,
     Response: Send + Sync + 'static,

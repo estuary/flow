@@ -25,7 +25,6 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-librocksdb-sys = { workspace = true }
 prost = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true }

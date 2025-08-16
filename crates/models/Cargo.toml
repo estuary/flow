@@ -12,6 +12,7 @@ license.workspace = true
 # NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
 
 anyhow = { workspace = true }
+bytes = { workspace = true }
 caseless = { workspace = true }
 chrono = { workspace = true }
 humantime-serde = { workspace = true }

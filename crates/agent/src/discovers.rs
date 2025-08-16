@@ -103,7 +103,7 @@ impl DiscoverOutput {
             pruned_count = self.draft.spec_count();
             self.draft = tables::DraftCatalog::default();
         } else {
-            let DiscoverOutput {
+            let &mut DiscoverOutput {
                 ref mut draft,
                 ref added,
                 ref modified,
@@ -192,12 +192,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .and_then(ops::LogLevel::from_str_name)
             .unwrap_or(ops::LogLevel::Info);
 
-        let config_json = serde_json::to_string(connector_cfg).unwrap();
         let request = capture::Request {
             discover: Some(capture::request::Discover {
                 name: capture_name.to_string(),
                 connector_type: capture_spec::ConnectorType::Image as i32,
-                config_json,
+                config_json: serde_json::to_string(connector_cfg).unwrap().into(),
             }),
             ..Default::default()
         }
@@ -266,11 +265,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             ref mut captures,
             ref mut collections,
             ..
-        } = &mut draft;
+        } = draft;
         let Some(drafted_capture) = captures.get_mut_by_key(&capture_name) else {
             anyhow::bail!("expected capture '{}' to exist in draft", capture_name);
         };
-        let tables::DraftCapture {
+        let &mut tables::DraftCapture {
             model: Some(ref mut capture_model),
             ref mut is_touch,
             ..

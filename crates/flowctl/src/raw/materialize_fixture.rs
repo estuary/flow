@@ -36,8 +36,8 @@ pub async fn do_materialize_fixture(
 
     // Unwrap the connector configuration before passing it on.
     let models::ConnectorConfig { image: _, config } =
-        serde_json::from_str(&spec.config_json).expect("materialization spec is a connector");
-    spec.config_json = config.to_string();
+        serde_json::from_slice(&spec.config_json).expect("materialization spec is a connector");
+    spec.config_json = config.to_string().into();
 
     let fixtures = std::fs::read(fixture).context("failed to read fixture")?;
     let Fixture {
@@ -57,7 +57,7 @@ pub async fn do_materialize_fixture(
             version: "test".to_string(),
             last_materialization: None,
             last_version: String::new(),
-            state_json: String::new(),
+            state_json: bytes::Bytes::new(),
         }),
         ..Default::default()
     });
@@ -70,7 +70,7 @@ pub async fn do_materialize_fixture(
                 r_clock_begin: 0,
                 r_clock_end: u32::MAX,
             }),
-            state_json: checkpoint.to_string(),
+            state_json: checkpoint.to_string().into(),
             version: "test".to_string(),
         }),
         ..Default::default()
@@ -128,7 +128,7 @@ pub async fn do_materialize_fixture(
                             binding: binding_index as u32,
                             key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
                             values_packed: doc::Extractor::extract_all(doc, &values_ex, buf),
-                            doc_json: doc.to_string(),
+                            doc_json: doc.to_string().into(),
                             exists: *exists && !delta_updates,
                             ..Default::default()
                         }),

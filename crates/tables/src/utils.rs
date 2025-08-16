@@ -93,7 +93,7 @@ pub fn update_materialization_resource_spec(
 pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPointers> {
     // While all known connector resource spec schemas are self-contained, we don't
     // actually do anything to guarantee that they are. This function may fail in that case.
-    let schema = doc::validation::build_bundle(schema_json)?;
+    let schema = doc::validation::build_bundle(schema_json.as_bytes())?;
     let mut builder = doc::SchemaIndexBuilder::new();
     builder.add(&schema)?;
     let index = builder.into_index();
@@ -102,7 +102,7 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
     let mut x_collection_name: Option<doc::Pointer> = None;
     let mut x_schema_name: Option<doc::Pointer> = None;
     let mut x_delta_updates: Option<doc::Pointer> = None;
-    
+
     for (ptr, _, prop_shape, _) in shape.locations() {
         if prop_shape.annotations.contains_key("x-collection-name") {
             x_collection_name = Some(ptr)
@@ -129,7 +129,6 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
 fn is_default_schema_name(schema_name: &str) -> bool {
     schema_name == "public" || schema_name == "dbo"
 }
-
 
 #[cfg(test)]
 mod test {

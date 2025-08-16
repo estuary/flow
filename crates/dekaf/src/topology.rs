@@ -1,4 +1,4 @@
-use crate::{connector, utils, SessionAuthentication, TaskAuth, TaskState, UserAuth};
+use crate::{connector, utils, SessionAuthentication, TaskState, UserAuth};
 use anyhow::{anyhow, bail, Context};
 use futures::{StreamExt, TryStreamExt};
 use gazette::{
@@ -227,7 +227,7 @@ impl Collection {
                 auth.deletions(),
             )?
         } else {
-            utils::build_LEGACY_field_extractors(collection_schema_shape.clone(), auth.deletions())?
+            utils::build_legacy_field_extractors(collection_schema_shape.clone(), auth.deletions())?
         };
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
@@ -467,7 +467,9 @@ async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
             resp.text().await?
         )
     } else {
-        Ok(resp.json().await?)
+        let bytes = resp.bytes().await?;
+        let result: T = serde_json::from_slice(&bytes)?;
+        Ok(result)
     }
 }
 
@@ -477,12 +479,12 @@ pub async fn extract_dekaf_config(
     if spec.connector_type != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32 {
         anyhow::bail!("Not a Dekaf materialization")
     }
-    let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
+    let config = serde_json::from_slice::<models::DekafConfig>(&spec.config_json)?;
 
     let decrypted_endpoint_config =
         unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
 
     let dekaf_config =
-        serde_json::from_str::<connector::DekafConfig>(&decrypted_endpoint_config.to_string())?;
+        serde_json::from_str::<connector::DekafConfig>(decrypted_endpoint_config.get())?;
     Ok(dekaf_config)
 }

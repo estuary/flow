@@ -134,7 +134,7 @@ impl<'de> serde::Deserialize<'de> for Log {
                 let mut timestamp__ = None;
                 let mut level__ = None;
                 let mut message__ = None;
-                let mut fields_json_map__ : Option<std::collections::BTreeMap<String, Box<serde_json::value::RawValue>>> = None;
+                let mut fields_json_map__ = None;
                 let mut spans__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -173,7 +173,8 @@ impl<'de> serde::Deserialize<'de> for Log {
                                 return Err(serde::de::Error::duplicate_field("fields"));
                             }
                             fields_json_map__ = Some(
-                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, crate::RawJSONDeserialize>>()?
+                                    .into_iter().map(|(k,v)| (k, v.0)).collect()
                             );
                         }
                         GeneratedField::Spans => {
@@ -190,7 +191,7 @@ impl<'de> serde::Deserialize<'de> for Log {
                     timestamp: timestamp__,
                     level: level__.unwrap_or_default(),
                     message: message__.unwrap_or_default(),
-                    fields_json_map: fields_json_map__.unwrap_or_default().into_iter().map(|(field, value)| (field, Box::<str>::from(value).into())).collect(),
+                    fields_json_map: fields_json_map__.unwrap_or_default(),
                     spans: spans__.unwrap_or_default(),
                 })
             }

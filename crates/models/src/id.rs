@@ -79,12 +79,12 @@ impl std::fmt::Debug for Id {
 }
 
 impl schemars::JsonSchema for Id {
-    fn schema_name() -> String {
-        String::from("Id")
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Id")
     }
 
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        String::json_schema(gen)
+    fn json_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
     }
 }
 
@@ -127,9 +127,9 @@ impl sqlx::postgres::PgHasArrayType for Id {
 
 #[cfg(feature = "sqlx-support")]
 impl sqlx::Encode<'_, sqlx::postgres::Postgres> for Id {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
         buf.extend_from_slice(&self.0);
-        sqlx::encode::IsNull::No
+        Ok(sqlx::encode::IsNull::No)
     }
 }
 
@@ -197,14 +197,14 @@ mod test {
 
     #[test]
     fn test_id_generation() {
-        let mut gen = IdGenerator::new(789);
+        let mut generator = IdGenerator::new(789);
 
-        let mut prev_id = gen.next();
+        let mut prev_id = generator.next();
         for i in 0..20000 {
-            let id = gen.next();
+            let id = generator.next();
             let (timestamp, seq, shard) = id.into_parts();
-            assert_eq!(gen.shard, shard, "shard mismatch");
-            assert_eq!(gen.last_timestamp, timestamp, "i: {i}, timestamp mismatch");
+            assert_eq!(generator.shard, shard, "shard mismatch");
+            assert_eq!(generator.last_timestamp, timestamp, "i: {i}, timestamp mismatch");
             assert!(
                 id > prev_id,
                 "i: {i}, ids must increase monotonically, prev: {prev_id}, next: {id}, prev_parts: {:?}, next_parts: {:?}",

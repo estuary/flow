@@ -7,7 +7,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use warp::{http::Response, Filter};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -89,11 +88,11 @@ pub async fn do_oauth(
     let spec_req = match &model.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&config).unwrap(),
+            config_json: serde_json::to_string(&config).unwrap().into(),
         },
         models::CaptureEndpoint::Local(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Local as i32,
-            config_json: serde_json::to_string(config).unwrap(),
+            config_json: serde_json::to_string(config).unwrap().into(),
         },
     };
     // Get the task spec's oauth field
@@ -127,7 +126,7 @@ pub async fn do_oauth(
     // schema emitted by the connector
     let curi = url::Url::parse("flow://fixture").unwrap();
     let mut parsed_schema: serde_json::Value =
-        serde_json::from_str(spec_response.config_schema_json.as_str()).unwrap();
+        serde_json::from_slice(&spec_response.config_schema_json).unwrap();
 
     // We have to remove the special "credentials" key from the list of required fields
     // because the whole point of this command is to generate it, so it's expected
@@ -277,23 +276,26 @@ where
     let (tx, rx) = tokio::sync::oneshot::channel::<HashMap<String, String>>();
     // All this because a oneshot Sender's `.send()` method consumes `self`
     let wrapped = Arc::new(Mutex::new(Some(tx)));
-    let service = warp::get()
-        .and(warp::query::<HashMap<String, String>>())
-        .map({
-            let tx = wrapped.clone();
-            move |query| {
-                let mut maybe_sender = tx.try_lock().unwrap();
-                if let Some(tx) = maybe_sender.take() {
-                    tx.send(query).unwrap();
-                    Response::builder().body("You may close this window now.")
-                } else {
-                    Response::builder().body("Something went wrong")
-                }
+
+    let app = axum::Router::new().route("/", axum::routing::get({
+        let tx = wrapped.clone();
+        move |axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>| async move {
+            let mut maybe_sender = tx.try_lock().unwrap();
+            if let Some(tx) = maybe_sender.take() {
+                tx.send(query).unwrap();
+                axum::response::Html("You may close this window now.")
+            } else {
+                axum::response::Html("Something went wrong")
             }
-        });
+        }
+    }));
+
+    let addr = std::net::SocketAddr::from(listen_addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tokio::select! {
-        _ = warp::serve(service).run(listen_addr) => {
+        result = axum::serve(listener, app) => {
+            result?;
             bail!("Server exited early")
         }
         _ = tokio::time::sleep(Duration::from_secs(90)) => {

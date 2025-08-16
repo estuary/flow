@@ -255,7 +255,7 @@ message CombineRequest {
       // Projections of the collection, which must include all `key` and `values` pointers.
       repeated flow.Projection projections = 3 [ (gogoproto.nullable) = false ];
       // Collection JSON-Schema to reduce over.
-      string schema_json = 4 [(gogoproto.casttype) = "encoding/json.RawMessage"];
+      bytes schema_json = 4 [(gogoproto.casttype) = "encoding/json.RawMessage"];
       // Optional SerPolicy to use for extracted fields and the document.
       flow.SerPolicy ser_policy = 5;
       // JSON pointer at which a UUID placeholder should be added on drain.
@@ -272,7 +272,7 @@ message CombineRequest {
     // Binding of the added document.
     uint32 binding = 1;
     // Document to add to the combiner.
-    string doc_json = 2 [(gogoproto.casttype) = "encoding/json.RawMessage"];
+    bytes doc_json = 2 [(gogoproto.casttype) = "encoding/json.RawMessage"];
     // Add document to the front (true), or back (false) of the combiner?
     bool front = 3;
   };
@@ -285,7 +285,7 @@ message CombineResponse {
   // Is this document marked as deleted?
   bool deleted = 2;
   // Full JSON document.
-  string doc_json = 3 [(gogoproto.casttype) = "encoding/json.RawMessage"];
+  bytes doc_json = 3 [(gogoproto.casttype) = "encoding/json.RawMessage"];
   // Was this document at the front, or back of the combiner?
   bool front = 4;
   // Packed key extracted from the captured document.

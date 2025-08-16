@@ -1,4 +1,5 @@
 use anyhow::Context;
+use base64::Engine;
 use bytes::{BufMut, Bytes};
 use kafka_protocol::{
     messages::{self, ApiKey, TopicName},
@@ -39,7 +40,6 @@ use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
 use std::{
-    any,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -359,7 +359,8 @@ impl App {
             logging::get_log_forwarder().map(|f| f.shutdown());
 
             let raw_token = String::from_utf8(
-                base64::decode(password)
+                base64::engine::general_purpose::STANDARD
+                    .decode(password)
                     .map_err(anyhow::Error::from)?
                     .to_vec(),
             )
@@ -426,7 +427,7 @@ pub async fn dispatch_request_frame(
 
         (api_key, version)
     } else {
-        (messages::ApiKey::SaslAuthenticateKey, 0)
+        (messages::ApiKey::SaslAuthenticate, 0)
     };
 
     /*
@@ -456,7 +457,7 @@ async fn handle_api(
     use messages::*;
     tracing::debug!(?api_key, v = version, "handling API request");
     let ret = match api_key {
-        ApiKey::ApiVersionsKey => {
+        ApiKey::ApiVersions => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
             if let Some(client_id) = &header.client_id {
@@ -466,7 +467,7 @@ async fn handle_api(
             }
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
-        ApiKey::SaslHandshakeKey => {
+        ApiKey::SaslHandshake => {
             let (header, request) = dec_request(frame, version)?;
             *raw_sasl_auth = header.request_api_version == 0;
             Ok(enc_resp(
@@ -475,7 +476,7 @@ async fn handle_api(
                 session.sasl_handshake(request).await?,
             ))
         }
-        ApiKey::SaslAuthenticateKey if *raw_sasl_auth => {
+        ApiKey::SaslAuthenticate if *raw_sasl_auth => {
             *raw_sasl_auth = false;
 
             let request =
@@ -486,7 +487,7 @@ async fn handle_api(
             out.extend(response.auth_bytes);
             Ok(())
         }
-        ApiKey::SaslAuthenticateKey => {
+        ApiKey::SaslAuthenticate => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -494,7 +495,7 @@ async fn handle_api(
                 session.sasl_authenticate(request).await?,
             ))
         }
-        ApiKey::MetadataKey => {
+        ApiKey::Metadata => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2417
             let (header, request) = dec_request(frame, version)?;
             let metadata_response =
@@ -503,7 +504,7 @@ async fn handle_api(
                     .context("metadata request timed out")??;
             Ok(enc_resp(out, &header, metadata_response))
         }
-        ApiKey::FindCoordinatorKey => {
+        ApiKey::FindCoordinator => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -511,17 +512,17 @@ async fn handle_api(
                 session.find_coordinator(request).await?,
             ))
         }
-        ApiKey::ListOffsetsKey => {
+        ApiKey::ListOffsets => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.list_offsets(request).await?))
         }
 
-        ApiKey::FetchKey => {
+        ApiKey::Fetch => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.fetch(request).await?))
         }
 
-        ApiKey::DescribeConfigsKey => {
+        ApiKey::DescribeConfigs => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -529,12 +530,12 @@ async fn handle_api(
                 session.describe_configs(request).await?,
             ))
         }
-        ApiKey::ProduceKey => {
+        ApiKey::Produce => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.produce(request).await?))
         }
 
-        ApiKey::JoinGroupKey => {
+        ApiKey::JoinGroup => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -542,7 +543,7 @@ async fn handle_api(
                 session.join_group(request, header).await?,
             ))
         }
-        ApiKey::LeaveGroupKey => {
+        ApiKey::LeaveGroup => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -550,7 +551,7 @@ async fn handle_api(
                 session.leave_group(request, header).await?,
             ))
         }
-        ApiKey::ListGroupsKey => {
+        ApiKey::ListGroups => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -558,7 +559,7 @@ async fn handle_api(
                 session.list_groups(request, header).await?,
             ))
         }
-        ApiKey::SyncGroupKey => {
+        ApiKey::SyncGroup => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -566,7 +567,7 @@ async fn handle_api(
                 session.sync_group(request, header).await?,
             ))
         }
-        ApiKey::DeleteGroupsKey => {
+        ApiKey::DeleteGroups => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -574,7 +575,7 @@ async fn handle_api(
                 session.delete_group(request, header).await?,
             ))
         }
-        ApiKey::HeartbeatKey => {
+        ApiKey::Heartbeat => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -582,7 +583,7 @@ async fn handle_api(
                 session.heartbeat(request, header).await?,
             ))
         }
-        ApiKey::OffsetFetchKey => {
+        ApiKey::OffsetFetch => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -590,7 +591,7 @@ async fn handle_api(
                 session.offset_fetch(request, header).await?,
             ))
         }
-        ApiKey::OffsetCommitKey => {
+        ApiKey::OffsetCommit => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
@@ -599,8 +600,8 @@ async fn handle_api(
             ))
         }
         /*
-        ApiKey::CreateTopicsKey => Ok(K::CreateTopicsRequest(CreateTopicsRequest::decode(b, v)?)),
-        ApiKey::ListGroupsKey => Ok(K::ListGroupsRequest(ListGroupsRequest::decode(b, v)?)),
+        ApiKey::CreateTopics => Ok(K::CreateTopicsRequest(CreateTopicsRequest::decode(b, v)?)),
+        ApiKey::ListGroups => Ok(K::ListGroupsRequest(ListGroupsRequest::decode(b, v)?)),
         */
         _ => anyhow::bail!("unsupported request type {api_key:?}"),
     };

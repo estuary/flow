@@ -11,17 +11,17 @@ pub fn rkyv_types() {
 
     insta::assert_snapshot!(to_snap(&strings), @r###"
     case: "":
-     |00000000 00000000|                   ........         00000000
+     |ffffffff ffffffff|                   ........         00000000
                                                             00000008
     case: "aaaaaaa":
-     |61616161 61616107|                   aaaaaaa.         00000000
+     |61616161 616161ff|                   aaaaaaa.         00000000
                                                             00000008
     case: "hello":
-     |68656c6c 6f000005|                   hello...         00000000
+     |68656c6c 6fffffff|                   hello...         00000000
                                                             00000008
     case: "big big big big big":
      |62696720 62696720 62696720 62696720| big big big big  00000000
-     |62696700 13000000 ecffffff|          big.........     00000010
+     |62696700 93000000 ecffffff|          big.........     00000010
                                                             0000001c
     "###);
 
@@ -46,23 +46,23 @@ pub fn rkyv_types() {
 
     insta::assert_snapshot!(to_snap(&fields), @r###"
     case: HeapField { property: "", value: Bool(true) }:
-     |00000000 00000000 01010000 00000000| ................ 00000000
+     |ffffffff ffffffff 01010000 00000000| ................ 00000000
      |00000000 00000000|                   ........         00000010
                                                             00000018
     case: HeapField { property: "aaaaaaa", value: Bool(true) }:
-     |61616161 61616107 01010000 00000000| aaaaaaa......... 00000000
+     |61616161 616161ff 01010000 00000000| aaaaaaa......... 00000000
      |00000000 00000000|                   ........         00000010
                                                             00000018
     case: HeapField { property: "big big big big big big big", value: Bool(true) }:
      |62696720 62696720 62696720 62696720| big big big big  00000000
      |62696720 62696720 62696700 00000000| big big big..... 00000010
-     |1b000000 e0ffffff 01010000 00000000| ................ 00000020
+     |9b000000 e0ffffff 01010000 00000000| ................ 00000020
      |00000000 00000000|                   ........         00000030
                                                             00000038
     case: HeapField { property: "aaaaaaaaa", value: String("bbbbbbbbb") }:
      |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
-     |62620000 00000000 09000000 e8ffffff| bb.............. 00000010
-     |08000000 09000000 e5ffffff 00000000| ................ 00000020
+     |62620000 00000000 89000000 e8ffffff| bb.............. 00000010
+     |08000000 89000000 e5ffffff 00000000| ................ 00000020
                                                             00000030
     "###);
 
@@ -141,8 +141,8 @@ pub fn rkyv_types() {
                                                             00000030
     case: Array([String("aaaaaaaaa"), String("bbbbbbbbb")]):
      |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
-     |62620000 00000000 08000000 09000000| bb.............. 00000010
-     |e4ffffff 00000000 08000000 09000000| ................ 00000020
+     |62620000 00000000 08000000 89000000| bb.............. 00000010
+     |e4ffffff 00000000 08000000 89000000| ................ 00000020
      |ddffffff 00000000 00000000 dcffffff| ................ 00000030
      |02000000 00000000|                   ........         00000040
                                                             00000048
@@ -184,17 +184,17 @@ pub fn rkyv_types() {
      |06000000 fcffffff 00000000 00000000| ................ 00000000
                                                             00000010
     case: Object([HeapField { property: "key", value: Bool(false) }, HeapField { property: "two", value: Bool(true) }]):
-     |6b657900 00000003 01000000 00000000| key............. 00000000
-     |00000000 00000000 74776f00 00000003| ........two..... 00000010
+     |6b6579ff ffffffff 01000000 00000000| key............. 00000000
+     |00000000 00000000 74776fff ffffffff| ........two..... 00000010
      |01010000 00000000 00000000 00000000| ................ 00000020
      |06000000 ccffffff 02000000 00000000| ................ 00000030
                                                             00000040
     case: Object([HeapField { property: "aaaaaaaaa", value: String("bbbbbbbbb") }, HeapField { property: "ccccccccc", value: String("ddddddddd") }]):
      |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
      |62626363 63636363 63636364 64646464| bbcccccccccddddd 00000010
-     |64646464 00000000 09000000 d8ffffff| dddd............ 00000020
-     |08000000 09000000 d5ffffff 00000000| ................ 00000030
-     |09000000 d2ffffff 08000000 09000000| ................ 00000040
+     |64646464 00000000 89000000 d8ffffff| dddd............ 00000020
+     |08000000 89000000 d5ffffff 00000000| ................ 00000030
+     |89000000 d2ffffff 08000000 89000000| ................ 00000040
      |cfffffff 00000000 06000000 ccffffff| ................ 00000050
      |02000000 00000000|                   ........         00000060
                                                             00000068
@@ -205,14 +205,14 @@ pub fn rkyv_types() {
      |07000000 00000000 ffffffff ffffffff| ................ 00000000
                                                             00000010
     case: String(""):
-     |08000000 00000000 00000000 00000000| ................ 00000000
+     |08000000 ffffffff ffffffff 00000000| ................ 00000000
                                                             00000010
     case: String("hello"):
-     |08000000 68656c6c 6f000005 00000000| ....hello....... 00000000
+     |08000000 68656c6c 6fffffff 00000000| ....hello....... 00000000
                                                             00000010
     case: String("big big big big big"):
      |62696720 62696720 62696720 62696720| big big big big  00000000
-     |62696700 00000000 08000000 13000000| big............. 00000010
+     |62696700 00000000 08000000 93000000| big............. 00000010
      |e4ffffff 00000000|                   ........         00000020
                                                             00000028
     "###);
@@ -220,13 +220,19 @@ pub fn rkyv_types() {
 
 fn to_snap<S>(things: &[S]) -> String
 where
-    S: rkyv::Serialize<rkyv::ser::serializers::AllocSerializer<256>> + std::fmt::Debug,
+    S: for<'a> rkyv::Serialize<
+            rkyv::api::high::HighSerializer<
+                rkyv::util::AlignedVec,
+                rkyv::ser::allocator::ArenaHandle<'a>,
+                rkyv::rancor::Error,
+            >,
+        > + std::fmt::Debug,
 {
     use std::fmt::Write;
     let mut out = String::new();
 
     for thing in things {
-        let b = rkyv::to_bytes::<_, 256>(thing).unwrap();
+        let b = rkyv::to_bytes::<rkyv::rancor::Error>(thing).unwrap();
         write!(&mut out, "case: {thing:?}:\n{}\n", super::to_hex(&b)).unwrap();
     }
 

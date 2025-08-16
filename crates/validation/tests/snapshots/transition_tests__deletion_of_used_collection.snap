@@ -35,7 +35,7 @@ Outcome {
             spec: CaptureSpec {
                 name: "the/capture",
                 connector_type: Image,
-                config_json: "{\"image\":\"an/image\",\"config\":{\"a\":\"config\"}}",
+                config_json: b"{\"image\":\"an/image\",\"config\":{\"a\":\"config\"}}",
                 bindings: [],
                 interval_seconds: 300,
                 shard_template: Some(
@@ -161,7 +161,7 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "capture",
                             "path",
@@ -169,13 +169,13 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "the/collection/0000000000000001",
@@ -198,10 +198,10 @@ Outcome {
             previous_spec: CaptureSpec {
                 name: "the/capture",
                 connector_type: Image,
-                config_json: "",
+                config_json: b"",
                 bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "capture",
                             "path",
@@ -209,13 +209,13 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "the/collection/0000000000000001",
@@ -284,15 +284,15 @@ Outcome {
             spec: NULL,
             previous_spec: CollectionSpec {
                 name: "the/collection",
-                write_schema_json: "{\"x-live\":\"schema\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"x-live\":\"schema\"}",
+                read_schema_json: b"",
                 key: [
                     "/f_one",
                 ],
                 uuid_ptr: "/_meta/uuid",
                 partition_fields: [],
                 projections: [],
-                ack_template_json: "",
+                ack_template_json: b"",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/collection/0000000000000001",
@@ -351,8 +351,8 @@ Outcome {
             },
             spec: CollectionSpec {
                 name: "the/derivation",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema\",\"properties\":{\"d_one\":{\"type\":\"integer\"},\"d_two\":{\"type\":\"string\"}},\"required\":[\"d_one\",\"d_two\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema\",\"properties\":{\"d_one\":{\"type\":\"integer\"},\"d_two\":{\"type\":\"string\"}},\"required\":[\"d_one\",\"d_two\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/d_one",
                 ],
@@ -373,7 +373,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -395,7 +395,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: Some(
@@ -431,7 +431,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -453,7 +453,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -482,7 +482,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -491,7 +491,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/derivation/0000000000000001",
@@ -553,7 +553,7 @@ Outcome {
                 derivation: Some(
                     Derivation {
                         connector_type: Sqlite,
-                        config_json: "{}",
+                        config_json: b"{}",
                         transforms: [],
                         shuffle_key_types: [],
                         shard_template: Some(
@@ -683,13 +683,13 @@ Outcome {
                                 collection: Some(
                                     CollectionSpec {
                                         name: "the/collection",
-                                        write_schema_json: "",
-                                        read_schema_json: "",
+                                        write_schema_json: b"",
+                                        read_schema_json: b"",
                                         key: [],
                                         uuid_ptr: "",
                                         partition_fields: [],
                                         projections: [],
-                                        ack_template_json: "",
+                                        ack_template_json: b"",
                                         partition_template: Some(
                                             JournalSpec {
                                                 name: "the/collection/0000000000000001",
@@ -708,8 +708,8 @@ Outcome {
                                 priority: 0,
                                 read_delay_seconds: 0,
                                 shuffle_key: [],
-                                shuffle_lambda_config_json: "",
-                                lambda_config_json: "",
+                                shuffle_lambda_config_json: b"",
+                                lambda_config_json: b"",
                                 read_only: false,
                                 journal_read_suffix: "",
                                 not_before: None,
@@ -722,15 +722,15 @@ Outcome {
             },
             previous_spec: CollectionSpec {
                 name: "the/derivation",
-                write_schema_json: "{\"x-live\":\"schema\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"x-live\":\"schema\"}",
+                read_schema_json: b"",
                 key: [
                     "/d_one",
                 ],
                 uuid_ptr: "/_meta/uuid",
                 partition_fields: [],
                 projections: [],
-                ack_template_json: "",
+                ack_template_json: b"",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/derivation/0000000000000001",
@@ -745,20 +745,20 @@ Outcome {
                 derivation: Some(
                     Derivation {
                         connector_type: Sqlite,
-                        config_json: "",
+                        config_json: b"",
                         transforms: [
                             Transform {
                                 name: "fromCollection",
                                 collection: Some(
                                     CollectionSpec {
                                         name: "the/collection",
-                                        write_schema_json: "",
-                                        read_schema_json: "",
+                                        write_schema_json: b"",
+                                        read_schema_json: b"",
                                         key: [],
                                         uuid_ptr: "",
                                         partition_fields: [],
                                         projections: [],
-                                        ack_template_json: "",
+                                        ack_template_json: b"",
                                         partition_template: Some(
                                             JournalSpec {
                                                 name: "the/collection/0000000000000001",
@@ -777,8 +777,8 @@ Outcome {
                                 priority: 0,
                                 read_delay_seconds: 0,
                                 shuffle_key: [],
-                                shuffle_lambda_config_json: "",
-                                lambda_config_json: "",
+                                shuffle_lambda_config_json: b"",
+                                lambda_config_json: b"",
                                 read_only: false,
                                 journal_read_suffix: "",
                                 not_before: None,
@@ -868,7 +868,7 @@ Outcome {
             spec: MaterializationSpec {
                 name: "the/materialization",
                 connector_type: Image,
-                config_json: "{\"image\":\"other/image\",\"config\":{\"a\":\"config\"}}",
+                config_json: b"{\"image\":\"other/image\",\"config\":{\"a\":\"config\"}}",
                 bindings: [],
                 shard_template: Some(
                     ShardSpec {
@@ -993,7 +993,7 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "table",
                             "path",
@@ -1001,13 +1001,13 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "the/collection/0000000000000001",
@@ -1039,10 +1039,10 @@ Outcome {
             previous_spec: MaterializationSpec {
                 name: "the/materialization",
                 connector_type: Image,
-                config_json: "",
+                config_json: b"",
                 bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "table",
                             "path",
@@ -1050,13 +1050,13 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "the/collection/0000000000000001",

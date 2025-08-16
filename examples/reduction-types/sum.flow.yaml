@@ -16,21 +16,25 @@ collections:
 
 tests:
   example/reductions/test/sum:
-    - ingest:
-        collection: example/reductions/sum
-        documents:
-          - { key: "key", value: 5 }
-          - { key: "key", value: -1.2 }
-    - verify:
-        collection: example/reductions/sum
-        documents:
-          - { key: "key", value: 3.8 }
-    - ingest:
-        collection: example/reductions/sum
-        documents:
-          - { key: "key", value: "2000000000000000000000" }
-          - { key: "key", value: "1000000000010000000000.00005" }
-    - verify:
-        collection: example/reductions/sum
-        documents:
-          - { key: "key", value: "3000000000010000000003.800050000000000" }
+    description: |
+      Verify that the sum reduction works correctly across native integers,
+      doubles, and arbitrary precision numbers.
+    steps:
+      - ingest:
+          collection: example/reductions/sum
+          documents:
+            - { key: "key", value: 5 }
+            - { key: "key", value: -1.25 }
+      - verify:
+          collection: example/reductions/sum
+          documents:
+            - { key: "key", value: 3.75 }
+      - ingest:
+          collection: example/reductions/sum
+          documents:
+            - { key: "key", value: "2000000000000000000000" }
+            - { key: "key", value: "1000000000010000000000.00005" }
+      - verify:
+          collection: example/reductions/sum
+          documents:
+            - { key: "key", value: "3000000000010000000003.75005" }

@@ -4,22 +4,22 @@ use crate::config::{ConnectorConfigWithCredentials, IAMAuthConfig};
 
 /// Extract IAM authentication configuration from connector config JSON if x-iam-auth is set under credentials
 pub fn extract_iam_auth_from_connector_config(
-    config_json: &str,
-    config_schema_json: &str,
+    config_json: &[u8],
+    config_schema_json: &[u8],
 ) -> anyhow::Result<Option<IAMAuthConfig>> {
     if !has_credentials_iam_auth_annotation(config_schema_json)? {
         return Ok(None);
     }
 
     Ok(
-        serde_json::from_str::<ConnectorConfigWithCredentials>(config_json)
+        serde_json::from_slice::<ConnectorConfigWithCredentials>(config_json)
             .ok()
             .map(|c| c.credentials),
     )
 }
 
 /// Check if schema has x-iam-auth: true under the credentials object
-pub fn has_credentials_iam_auth_annotation(schema_json: &str) -> anyhow::Result<bool> {
+pub fn has_credentials_iam_auth_annotation(schema_json: &[u8]) -> anyhow::Result<bool> {
     let built_schema =
         doc::validation::build_bundle(schema_json).context("failed to build schema bundle")?;
     let mut index = doc::SchemaIndexBuilder::new();
@@ -50,7 +50,7 @@ mod tests {
     use serde_json::json;
 
     // Example JSONSchema with oneOf for different credential providers
-    const SCHEMA_WITH_ONEOF_CREDENTIALS: &str = r#"{
+    const SCHEMA_WITH_ONEOF_CREDENTIALS: &[u8] = br#"{
         "type": "object",
         "properties": {
             "bucket": {
@@ -108,7 +108,7 @@ mod tests {
     }"#;
 
     // Simple schema with direct x-iam-auth under credentials (for backward compatibility)
-    const SIMPLE_SCHEMA_WITH_IAM_AUTH: &str = r#"{
+    const SIMPLE_SCHEMA_WITH_IAM_AUTH: &[u8] = br#"{
         "type": "object",
         "properties": {
             "credentials": {
@@ -127,7 +127,7 @@ mod tests {
     }"#;
 
     // Schema with credentials defined in an allOf pattern
-    const SCHEMA_WITH_ALLOF_CREDENTIALS: &str = r#"{
+    const SCHEMA_WITH_ALLOF_CREDENTIALS: &[u8] = br#"{
         "type": "object",
         "allOf": [
             {
@@ -162,7 +162,7 @@ mod tests {
     }"#;
 
     // Schema with nested allOf and credentials
-    const SCHEMA_WITH_NESTED_ALLOF_CREDENTIALS: &str = r#"{
+    const SCHEMA_WITH_NESTED_ALLOF_CREDENTIALS: &[u8] = br#"{
         "type": "object",
         "allOf": [
             {
@@ -219,7 +219,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            &config.to_string().as_bytes(),
             SCHEMA_WITH_ONEOF_CREDENTIALS,
         )
         .unwrap();
@@ -250,7 +250,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            config.to_string().as_bytes(),
             SCHEMA_WITH_ONEOF_CREDENTIALS,
         )
         .unwrap();
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_no_iam_auth_without_root_annotation() {
-        let schema_without_iam_auth = r#"{
+        let schema_without_iam_auth = br#"{
             "type": "object",
             "properties": {
                 "bucket": {
@@ -299,9 +299,11 @@ mod tests {
             }
         });
 
-        let result =
-            extract_iam_auth_from_connector_config(&config.to_string(), schema_without_iam_auth)
-                .unwrap();
+        let result = extract_iam_auth_from_connector_config(
+            config.to_string().as_bytes(),
+            schema_without_iam_auth,
+        )
+        .unwrap();
         // Should return None because schema doesn't have x-iam-auth: true under credentials
         assert!(result.is_none());
     }
@@ -315,7 +317,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            config.to_string().as_bytes(),
             SIMPLE_SCHEMA_WITH_IAM_AUTH,
         )
         .unwrap();
@@ -326,16 +328,17 @@ mod tests {
     #[test]
     fn test_invalid_schema() {
         let config = json!({"bucket": "test"});
-        let invalid_schema = "{ invalid json";
+        let invalid_schema = b"{ invalid json";
 
-        let result = extract_iam_auth_from_connector_config(&config.to_string(), invalid_schema);
+        let result =
+            extract_iam_auth_from_connector_config(config.to_string().as_bytes(), invalid_schema);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_schema_with_credentials_annotation() {
         // Test schema with x-iam-auth: true under credentials
-        let schema = r#"{
+        let schema = br#"{
             "type": "object",
             "properties": {
                 "bucket": {
@@ -368,7 +371,8 @@ mod tests {
             }
         });
 
-        let result = extract_iam_auth_from_connector_config(&config.to_string(), schema).unwrap();
+        let result =
+            extract_iam_auth_from_connector_config(config.to_string().as_bytes(), schema).unwrap();
 
         // Should successfully extract IAM config
         assert!(result.is_some());
@@ -399,7 +403,8 @@ mod tests {
 
         let schema = SCHEMA_WITH_ONEOF_CREDENTIALS;
 
-        let result = extract_iam_auth_from_connector_config(&config.to_string(), schema).unwrap();
+        let result =
+            extract_iam_auth_from_connector_config(config.to_string().as_bytes(), schema).unwrap();
         assert!(result.is_some());
 
         let iam_config = result.unwrap();
@@ -418,7 +423,7 @@ mod tests {
 
     #[test]
     fn test_has_credentials_iam_auth_annotation() {
-        let schema_with_annotation = r#"{
+        let schema_with_annotation = br#"{
             "type": "object",
             "properties": {
                 "credentials": {
@@ -431,7 +436,7 @@ mod tests {
         let result = has_credentials_iam_auth_annotation(schema_with_annotation).unwrap();
         assert!(result);
 
-        let schema_without_annotation = r#"{
+        let schema_without_annotation = br#"{
             "type": "object",
             "properties": {
                 "credentials": {
@@ -456,7 +461,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            config.to_string().as_bytes(),
             SCHEMA_WITH_ONEOF_CREDENTIALS,
         )
         .unwrap();
@@ -476,7 +481,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            config.to_string().as_bytes(),
             SIMPLE_SCHEMA_WITH_IAM_AUTH,
         )
         .unwrap();
@@ -537,7 +542,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            config.to_string().as_bytes(),
             SCHEMA_WITH_ALLOF_CREDENTIALS,
         )
         .unwrap();
@@ -570,7 +575,7 @@ mod tests {
         });
 
         let result = extract_iam_auth_from_connector_config(
-            &config.to_string(),
+            config.to_string().as_bytes(),
             SCHEMA_WITH_NESTED_ALLOF_CREDENTIALS,
         )
         .unwrap();

@@ -3,7 +3,6 @@
 /// JournalSpecs and BrokerSpecs. Labels may be used to provide identifying
 /// attributes which do not directly imply semantics to the core system, but
 /// are meaningful to users or for higher-level Gazette tools.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Label {
     /// Name of this label.
@@ -18,7 +17,6 @@ pub struct Label {
     pub prefix: bool,
 }
 /// LabelSet is a collection of labels and their values.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LabelSet {
     /// Labels of the set. Instances must be unique and sorted over (Name, Value).
@@ -26,7 +24,6 @@ pub struct LabelSet {
     pub labels: ::prost::alloc::vec::Vec<Label>,
 }
 /// LabelSelector defines a filter over LabelSets.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LabelSelector {
     /// Include is Labels which must be matched for a LabelSet to be selected. If
@@ -41,7 +38,6 @@ pub struct LabelSelector {
     pub exclude: ::core::option::Option<LabelSet>,
 }
 /// JournalSpec describes a Journal and its configuration.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalSpec {
     /// Name of the Journal.
@@ -75,7 +71,6 @@ pub struct JournalSpec {
 pub mod journal_spec {
     /// Fragment is JournalSpec configuration which pertains to the creation,
     /// persistence, and indexing of the Journal's Fragments.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fragment {
         /// Target content length of each Fragment. In normal operation after
@@ -157,7 +152,6 @@ pub mod journal_spec {
     /// suspends a journal or if auto-suspension is enabled. Operators should
     /// not set it directly. However when utilizing suspension, operators MUST
     /// take care to pass-through Suspend when applying updates to JournalSpecs.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct Suspend {
         #[prost(enumeration = "suspend::Level", tag = "1")]
@@ -204,9 +198,9 @@ pub mod journal_spec {
             /// (if the ProtoBuf definition does not change) and safe for programmatic use.
             pub fn as_str_name(&self) -> &'static str {
                 match self {
-                    Level::None => "NONE",
-                    Level::Partial => "PARTIAL",
-                    Level::Full => "FULL",
+                    Self::None => "NONE",
+                    Self::Partial => "PARTIAL",
+                    Self::Full => "FULL",
                 }
             }
             /// Creates an enum from field names used in the ProtoBuf definition.
@@ -253,10 +247,10 @@ pub mod journal_spec {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Flag::NotSpecified => "NOT_SPECIFIED",
-                Flag::ORdonly => "O_RDONLY",
-                Flag::OWronly => "O_WRONLY",
-                Flag::ORdwr => "O_RDWR",
+                Self::NotSpecified => "NOT_SPECIFIED",
+                Self::ORdonly => "O_RDONLY",
+                Self::OWronly => "O_WRONLY",
+                Self::ORdwr => "O_RDWR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -273,7 +267,6 @@ pub mod journal_spec {
 }
 /// ProcessSpec describes a uniquely identified process and its addressable
 /// endpoint.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProcessSpec {
     #[prost(message, optional, tag = "1")]
@@ -285,7 +278,6 @@ pub struct ProcessSpec {
 /// Nested message and enum types in `ProcessSpec`.
 pub mod process_spec {
     /// ID composes a zone and a suffix to uniquely identify a ProcessSpec.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Id {
         /// "Zone" in which the process is running. Zones may be AWS, Azure, or
@@ -304,7 +296,6 @@ pub mod process_spec {
     }
 }
 /// BrokerSpec describes a Gazette broker and its configuration.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BrokerSpec {
     /// ProcessSpec of the broker.
@@ -317,7 +308,6 @@ pub struct BrokerSpec {
 /// Fragment is a content-addressed description of a contiguous Journal span,
 /// defined by the [begin, end) offset range covered by the Fragment and the
 /// SHA1 sum of the corresponding Journal content.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Fragment {
     /// Journal of the Fragment.
@@ -350,7 +340,6 @@ pub struct Fragment {
     pub path_postfix: ::prost::alloc::string::String,
 }
 /// SHA1Sum is a 160-bit SHA1 digest.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Sha1Sum {
     #[prost(fixed64, tag = "1")]
@@ -361,7 +350,6 @@ pub struct Sha1Sum {
     pub part3: u32,
 }
 /// ReadRequest is the unary request message of the broker Read RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadRequest {
     /// Header is attached by a proxying broker peer.
@@ -414,7 +402,6 @@ pub struct ReadRequest {
 /// periods of time awaiting the next metadata message (eg, if the next offset
 /// hasn't yet committed). However once a metadata message is read, the reader
 /// is assured that its associated chunk messages are immediately forthcoming.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadResponse {
     /// Status of the Read RPC.
@@ -476,7 +463,6 @@ pub struct ReadResponse {
 /// only after all replicas acknowledge it, but a RPC which applies to some
 /// replicas but not all still moves the journal offset forward, and therefore
 /// updates journal registers.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AppendRequest {
     /// Header is attached by a proxying broker peer to the first AppendRequest
@@ -569,10 +555,10 @@ pub mod append_request {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Suspend::Resume => "SUSPEND_RESUME",
-                Suspend::NoResume => "SUSPEND_NO_RESUME",
-                Suspend::IfFlushed => "SUSPEND_IF_FLUSHED",
-                Suspend::Now => "SUSPEND_NOW",
+                Self::Resume => "SUSPEND_RESUME",
+                Self::NoResume => "SUSPEND_NO_RESUME",
+                Self::IfFlushed => "SUSPEND_IF_FLUSHED",
+                Self::Now => "SUSPEND_NOW",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -588,7 +574,6 @@ pub mod append_request {
     }
 }
 /// AppendResponse is the unary response message of the broker Append RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AppendResponse {
     /// Status of the Append RPC.
@@ -617,7 +602,6 @@ pub struct AppendResponse {
 /// ReplicateRequest is the streamed request message of the broker's internal
 /// Replicate RPC. Each message is either a pending content chunk or a
 /// "proposal" to commit (or roll back) content chunks previously sent.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplicateRequest {
     /// Header defines the primary broker, Route, and Etcd Revision under which
@@ -649,7 +633,6 @@ pub struct ReplicateRequest {
 /// ReplicateResponse is the streamed response message of the broker's internal
 /// Replicate RPC. Each message is a 1:1 response to a previously read "proposal"
 /// ReplicateRequest with |acknowledge| set.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplicateResponse {
     /// Status of the Replicate RPC.
@@ -670,7 +653,6 @@ pub struct ReplicateResponse {
     pub registers: ::core::option::Option<LabelSet>,
 }
 /// ListRequest is the unary request message of the broker List RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListRequest {
     /// Selector optionally refines the set of journals which will be enumerated.
@@ -692,7 +674,6 @@ pub struct ListRequest {
     pub watch_resume: ::core::option::Option<Header>,
 }
 /// ListResponse is the streamed response message of the broker List RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListResponse {
     /// Status of the List RPC.
@@ -707,7 +688,6 @@ pub struct ListResponse {
 /// Nested message and enum types in `ListResponse`.
 pub mod list_response {
     /// Journals of the response.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Journal {
         #[prost(message, optional, tag = "1")]
@@ -724,7 +704,6 @@ pub mod list_response {
     }
 }
 /// ApplyRequest is the unary request message of the broker Apply RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
     #[prost(message, repeated, tag = "1")]
@@ -734,7 +713,6 @@ pub struct ApplyRequest {
 pub mod apply_request {
     /// Change defines an insertion, update, or deletion to be applied to the set
     /// of JournalSpecs. Exactly one of |upsert| or |delete| must be set.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Change {
         /// Expected ModRevision of the current JournalSpec. If the Journal is being
@@ -751,7 +729,6 @@ pub mod apply_request {
     }
 }
 /// ApplyResponse is the unary response message of the broker Apply RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyResponse {
     /// Status of the Apply RPC.
@@ -763,7 +740,6 @@ pub struct ApplyResponse {
 }
 /// FragmentsRequest is the unary request message of the broker ListFragments
 /// RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FragmentsRequest {
     /// Header is attached by a proxying broker peer.
@@ -801,7 +777,6 @@ pub struct FragmentsRequest {
 }
 /// FragmentsResponse is the unary response message of the broker ListFragments
 /// RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FragmentsResponse {
     /// Status of the Apply RPC.
@@ -821,7 +796,6 @@ pub struct FragmentsResponse {
 /// Nested message and enum types in `FragmentsResponse`.
 pub mod fragments_response {
     /// Fragments of the Response.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fragment {
         #[prost(message, optional, tag = "1")]
@@ -834,7 +808,6 @@ pub mod fragments_response {
     }
 }
 /// Route captures the current topology of an item and the processes serving it.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {
     /// Members of the Route, ordered on ascending ProcessSpec.ID (zone, suffix).
@@ -851,7 +824,6 @@ pub struct Route {
 }
 /// Header captures metadata such as the process responsible for processing
 /// an RPC, and its effective Etcd state.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Header {
     /// ID of the process responsible for request processing. May be empty iff
@@ -876,7 +848,6 @@ pub mod header {
     /// for example, split-brain scenarios where different brokers are backed by
     /// different Etcd clusters). Etcd is kept in sync with
     /// etcdserverpb.ResponseHeader.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct Etcd {
         /// cluster_id is the ID of the cluster.
@@ -895,7 +866,6 @@ pub mod header {
     }
 }
 /// FragmentStoreHealthRequest is the unary request message of the broker FragmentStoreHealth RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FragmentStoreHealthRequest {
     /// Fragment store to check the health of.
@@ -903,7 +873,6 @@ pub struct FragmentStoreHealthRequest {
     pub fragment_store: ::prost::alloc::string::String,
 }
 /// FragmentStoreHealthResponse is the unary response message of the broker FragmentStoreHealth RPC.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FragmentStoreHealthResponse {
     /// Status of the HealthCheck RPC.
@@ -976,22 +945,22 @@ impl Status {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Status::Ok => "OK",
-            Status::JournalNotFound => "JOURNAL_NOT_FOUND",
-            Status::NoJournalPrimaryBroker => "NO_JOURNAL_PRIMARY_BROKER",
-            Status::NotJournalPrimaryBroker => "NOT_JOURNAL_PRIMARY_BROKER",
-            Status::NotJournalBroker => "NOT_JOURNAL_BROKER",
-            Status::InsufficientJournalBrokers => "INSUFFICIENT_JOURNAL_BROKERS",
-            Status::OffsetNotYetAvailable => "OFFSET_NOT_YET_AVAILABLE",
-            Status::WrongRoute => "WRONG_ROUTE",
-            Status::ProposalMismatch => "PROPOSAL_MISMATCH",
-            Status::EtcdTransactionFailed => "ETCD_TRANSACTION_FAILED",
-            Status::NotAllowed => "NOT_ALLOWED",
-            Status::WrongAppendOffset => "WRONG_APPEND_OFFSET",
-            Status::IndexHasGreaterOffset => "INDEX_HAS_GREATER_OFFSET",
-            Status::RegisterMismatch => "REGISTER_MISMATCH",
-            Status::Suspended => "SUSPENDED",
-            Status::FragmentStoreUnhealthy => "FRAGMENT_STORE_UNHEALTHY",
+            Self::Ok => "OK",
+            Self::JournalNotFound => "JOURNAL_NOT_FOUND",
+            Self::NoJournalPrimaryBroker => "NO_JOURNAL_PRIMARY_BROKER",
+            Self::NotJournalPrimaryBroker => "NOT_JOURNAL_PRIMARY_BROKER",
+            Self::NotJournalBroker => "NOT_JOURNAL_BROKER",
+            Self::InsufficientJournalBrokers => "INSUFFICIENT_JOURNAL_BROKERS",
+            Self::OffsetNotYetAvailable => "OFFSET_NOT_YET_AVAILABLE",
+            Self::WrongRoute => "WRONG_ROUTE",
+            Self::ProposalMismatch => "PROPOSAL_MISMATCH",
+            Self::EtcdTransactionFailed => "ETCD_TRANSACTION_FAILED",
+            Self::NotAllowed => "NOT_ALLOWED",
+            Self::WrongAppendOffset => "WRONG_APPEND_OFFSET",
+            Self::IndexHasGreaterOffset => "INDEX_HAS_GREATER_OFFSET",
+            Self::RegisterMismatch => "REGISTER_MISMATCH",
+            Self::Suspended => "SUSPENDED",
+            Self::FragmentStoreUnhealthy => "FRAGMENT_STORE_UNHEALTHY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1055,12 +1024,12 @@ impl CompressionCodec {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            CompressionCodec::Invalid => "INVALID",
-            CompressionCodec::None => "NONE",
-            CompressionCodec::Gzip => "GZIP",
-            CompressionCodec::Zstandard => "ZSTANDARD",
-            CompressionCodec::Snappy => "SNAPPY",
-            CompressionCodec::GzipOffloadDecompression => "GZIP_OFFLOAD_DECOMPRESSION",
+            Self::Invalid => "INVALID",
+            Self::None => "NONE",
+            Self::Gzip => "GZIP",
+            Self::Zstandard => "ZSTANDARD",
+            Self::Snappy => "SNAPPY",
+            Self::GzipOffloadDecompression => "GZIP_OFFLOAD_DECOMPRESSION",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.

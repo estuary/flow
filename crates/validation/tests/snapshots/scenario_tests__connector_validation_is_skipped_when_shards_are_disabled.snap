@@ -35,7 +35,7 @@ Outcome {
             spec: CaptureSpec {
                 name: "acmeCo/testCapture",
                 connector_type: Image,
-                config_json: "{\"image\":\"someSourceImage\",\"config\":{\"any\":\"thing\"}}",
+                config_json: b"{\"image\":\"someSourceImage\",\"config\":{\"any\":\"thing\"}}",
                 bindings: [],
                 interval_seconds: 300,
                 shard_template: Some(
@@ -184,8 +184,8 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "acmeCo/foo",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema\",\"properties\":{\"id\":{\"type\":\"integer\"},\"val\":{\"type\":\"string\"}},\"required\":[\"id\",\"val\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema\",\"properties\":{\"id\":{\"type\":\"integer\"},\"val\":{\"type\":\"string\"}},\"required\":[\"id\",\"val\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/id",
                 ],
@@ -206,7 +206,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -228,7 +228,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -257,7 +257,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -279,7 +279,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: Some(
@@ -315,7 +315,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -324,7 +324,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "acmeCo/foo/2020202020202020",
@@ -428,7 +428,7 @@ Outcome {
             spec: MaterializationSpec {
                 name: "acmeCo/testMaterialization",
                 connector_type: Image,
-                config_json: "{\"image\":\"someMaterializationImage\",\"config\":{\"any\":\"thing\"}}",
+                config_json: b"{\"image\":\"someMaterializationImage\",\"config\":{\"any\":\"thing\"}}",
                 bindings: [],
                 shard_template: Some(
                     ShardSpec {

@@ -201,10 +201,12 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
         Level::UndefinedLevel => ("UNDEFINED", red),
     };
 
+    // Using colored_json's yansi re-export
+    use colored_json::Paint;
     write!(
         &mut line,
         "{}: {: <30}", // Right-pad the message to 30 characters.
-        Style::new(level_color).dimmed().paint(level_txt),
+        level_txt.paint(level_color).dim(),
         log.message
     )
     .unwrap();
@@ -212,7 +214,7 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
     let f = ColoredFormatter::with_styler(
         CompactFormatter {},
         Styler {
-            key: Style::new(blue).italic(),
+            key: Style::new().fg(blue).italic(),
             string_value: Style::default(),
             string_include_quotation: false,
             ..Default::default()
@@ -220,12 +222,12 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
     );
 
     for (field, content_json) in &log.fields_json_map {
-        let content: serde_json::Value = serde_json::from_str(content_json).unwrap();
+        let content: serde_json::Value = serde_json::from_slice(content_json).unwrap();
 
         write!(
             &mut line,
             " {}={}",
-            Style::new(blue).italic().paint(field),
+            field.as_str().paint(blue).italic(),
             f.clone().to_colored_json(&content, ColorMode::On).unwrap(),
         )
         .unwrap();
@@ -251,7 +253,7 @@ mod test {
                 ("array", "[1,2,true,\"false\"]"),
             ]
             .into_iter()
-            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .map(|(key, value)| (key.to_string(), value.into()))
             .collect(),
             ..Default::default()
         };

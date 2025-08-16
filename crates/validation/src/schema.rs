@@ -18,7 +18,7 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn new(bundle: &str) -> Result<Self, Error> {
+    pub fn new(bundle: &[u8]) -> Result<Self, Error> {
         let schema = doc::validation::build_bundle(bundle)?;
         let validator = doc::Validator::new(schema)?;
         let shape = Shape::infer(&validator.schemas()[0], validator.schema_index());

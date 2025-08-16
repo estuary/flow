@@ -18,7 +18,7 @@ pub async fn create(
             returning id as "id: Id";"#,
         user_email,
         detail
-    ).fetch_one(txn)
+    ).fetch_one(&mut **txn)
     .await?;
     Ok(row.id)
 }
@@ -191,7 +191,7 @@ pub async fn delete_spec(
         r#"delete from draft_specs where id = $1 returning 1 as "must_exist";"#,
         draft_spec_id as Id,
     )
-    .fetch_one(txn)
+    .fetch_one(&mut **txn)
     .await?;
 
     Ok(())
@@ -223,6 +223,6 @@ pub async fn prune_unchanged_draft_specs(
         from prune_unchanged_draft_specs($1)"#,
         draft_id as Id,
     )
-    .fetch_all(txn)
+    .fetch_all(&mut **txn)
     .await
 }

@@ -22,8 +22,8 @@ impl Connectors for NoOpConnectors {
                 capture::Response {
                     spec: Some(capture::response::Spec {
                         resource_path_pointers: Vec::new(),
-                        config_schema_json: "true".to_string(),
-                        resource_config_schema_json: "true".to_string(),
+                        config_schema_json: "true".into(),
+                        resource_config_schema_json: "true".into(),
                         ..Default::default()
                     }),
                     ..Default::default()
@@ -53,8 +53,8 @@ impl Connectors for NoOpConnectors {
             let response = if let Some(_spec) = request.spec {
                 derive::Response {
                     spec: Some(derive::response::Spec {
-                        config_schema_json: "true".to_string(),
-                        resource_config_schema_json: "true".to_string(),
+                        config_schema_json: "true".into(),
+                        resource_config_schema_json: "true".into(),
                         ..Default::default()
                     }),
                     ..Default::default()
@@ -84,8 +84,8 @@ impl Connectors for NoOpConnectors {
             let response = if let Some(_spec) = request.spec {
                 materialize::Response {
                     spec: Some(materialize::response::Spec {
-                        config_schema_json: "true".to_string(),
-                        resource_config_schema_json: "true".to_string(),
+                        config_schema_json: "true".into(),
+                        resource_config_schema_json: "true".into(),
                         ..Default::default()
                     }),
                     ..Default::default()
