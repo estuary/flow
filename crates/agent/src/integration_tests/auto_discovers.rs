@@ -656,7 +656,7 @@ async fn test_auto_discovers_update_only() {
                 "key": ["/id"]
             },
             "pikas/moss": {
-                "schema": document_schema(1),
+                "schema": into_wrapped_connector_schema(document_schema(1)),
                 "key": ["/id"]
             },
             "pikas/lichen": {
@@ -1141,5 +1141,15 @@ fn document_schema(version: usize) -> serde_json::Value {
             "squeaks": { "type": "integer", "maximum": version },
         },
         "required": ["id", "squeaks"]
+    })
+}
+
+fn into_wrapped_connector_schema(mut fixture: serde_json::Value) -> serde_json::Value {
+    let object = fixture.as_object_mut().unwrap();
+    object.insert("$id".to_string(), serde_json::json!("flow://connector-schema"));
+
+    serde_json::json!({
+        "$defs": {"flow://connector-schema": fixture},
+        "$ref": "flow://connector-schema",
     })
 }

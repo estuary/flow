@@ -229,7 +229,7 @@ pub fn merge_collections(
     for binding in used_bindings {
         let Binding {
             target,
-            document_schema,
+            document_schema: connector_schema,
             collection_key,
             is_fallback_key,
             resource_path,
@@ -310,42 +310,34 @@ pub fn merge_collections(
             draft_model.key = discovered_key;
         }
 
-        if draft_model.read_schema.is_some() {
-            if is_schema_changed(&document_schema, draft_model.write_schema.as_ref()) {
-                tracing::debug!(
-                    %collection,
-                    "discovered writeSchema change"
-                );
-                modified = true;
-                draft_model.write_schema = Some(document_schema);
-            }
-        } else if let Some(initial_read_schema) = initializes_read_schema(&document_schema) {
-            modified = true;
-            draft_model.write_schema = Some(document_schema);
-            draft_model.schema = None;
-
+        // Does the connector schema imply we need to initialize the collection read schema?
+        let write_model = if draft_model.read_schema.is_some() {
+            // Already using separate read & write schemas. The read schema is
+            // already initialized and we do not modify it.
+            &mut draft_model.write_schema
+        } else if let Some(initial_read_schema) = initializes_read_schema(&connector_schema) {
+            // Migrate singular `schema` into separate read & write schemas.
+            draft_model.write_schema = draft_model.schema.take();
             draft_model.read_schema = Some(models::Schema::new(models::RawValue::from_value(
                 &initial_read_schema,
             )));
-        } else if uses_inferred_schema(&document_schema) {
-            tracing::debug!(
-                %collection,
-                "discovered new use of inferred schema, initializing readSchema with placeholder"
-            );
-            // This is either a new collection, or else discovery has just started asking for
-            // the inferred schema. In either case, we must initialize the read schema with the
-            // inferred schema placeholder.
             modified = true;
-            draft_model.read_schema = Some(models::Schema::default_inferred_read_schema());
-            draft_model.write_schema = Some(document_schema);
-            draft_model.schema = None;
-        } else if is_schema_changed(&document_schema, draft_model.schema.as_ref()) {
+            &mut draft_model.write_schema
+        } else {
+            // Uses single schema for read & write.
+            &mut draft_model.schema
+        };
+
+        // Does the connector's schema update the effective write schema?
+        if let Some(updated) = update_connector_schema(write_model.as_ref(), &connector_schema)
+            .context("failed to update write schema with connector schema")?
+        {
             tracing::debug!(
                 %collection,
                 "discovered schema change"
             );
+            *write_model = Some(updated);
             modified = true;
-            draft_model.schema = Some(document_schema);
         }
 
         if modified {
@@ -362,32 +354,20 @@ pub fn merge_collections(
     Ok(modified_collections)
 }
 
-fn uses_inferred_schema(schema: &models::Schema) -> bool {
-    matches!(
-        // Does the connector use schema inference?
-        schema.to_value().get(X_INFER_SCHEMA),
-        Some(serde_json::Value::Bool(true))
-    )
-}
-
 fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
-    match schema.to_value().get(X_INITIAL_READ_SCHEMA) {
-        // Does the connector specify an initial read schema
-        Some(extension @ serde_json::Value::Object(_)) => Some(extension.clone()),
-        _ => None,
+    // Does the connector specify an initial read schema?
+    if let Some(extension @ serde_json::Value::Object(_)) =
+        schema.to_value().get(X_INITIAL_READ_SCHEMA)
+    {
+        return Some(extension.clone());
     }
-}
 
-/// Returns whether the discovered schema is different from the current schema.
-/// This currently checks whether the schemas are byte-for-byte identical, which
-/// means that insignificant serialization differences will be treated as
-/// "changed". But it would probably also be correct, and potentially
-/// beneficial, to ignore insignificant serialization differences.
-fn is_schema_changed(discovered: &models::Schema, current: Option<&models::Schema>) -> bool {
-    let Some(current_schema) = current else {
-        return true;
-    };
-    return current_schema != discovered;
+    // Does the connector use the legacy schema inference extension?
+    if let Some(serde_json::Value::Bool(true)) = schema.to_value().get(X_INFER_SCHEMA) {
+        return Some(models::Schema::default_inferred_read_schema().to_value());
+    }
+
+    None
 }
 
 fn normalize_recommended_name(name: &str) -> String {
@@ -397,6 +377,36 @@ fn normalize_recommended_name(name: &str) -> String {
         .map(|m| models::collate::normalize(m.as_str().chars()).collect::<String>());
 
     parts.join("_")
+}
+
+/// Update a schema to use the connector schema pattern and update its definition.
+/// Returns Some(updated_schema) if the schema changed, None otherwise.
+fn update_connector_schema(
+    current: Option<&models::Schema>,
+    connector_schema: &models::Schema,
+) -> serde_json::Result<Option<models::Schema>> {
+    // Start with either the current schema (if it references connector schema)
+    // or a new schema that just references the connector schema.
+    let base_schema = match current {
+        Some(s) if s.references_connector_schema() => s.clone(),
+        _ => models::Schema::new(models::RawValue::from_value(&serde_json::json!({
+            "$ref": models::Schema::REF_CONNECTOR_SCHEMA_URL
+        }))),
+    };
+
+    // Update the connector schema definition
+    let updated = base_schema.add_defs(&[models::schemas::AddDef {
+        id: models::Schema::REF_CONNECTOR_SCHEMA_URL,
+        schema: connector_schema,
+        overwrite: true,
+    }])?;
+
+    // Return the updated schema only if it changed
+    if current != Some(&updated) {
+        Ok(Some(updated))
+    } else {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -630,7 +640,7 @@ mod tests {
                 scope: flow://collection/case/1,
                 expect_pub_id: "0000000000000000",
                 model: {
-                  "schema": {"const": 42},
+                  "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
                     "/foo",
                     "/bar"
@@ -643,7 +653,7 @@ mod tests {
                 scope: flow://collection/case/2,
                 expect_pub_id: NULL,
                 model: {
-                  "schema": {"const": 42},
+                  "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
                     "/foo",
                     "/bar"
@@ -670,7 +680,7 @@ mod tests {
                 scope: flow://collection/case/3,
                 expect_pub_id: NULL,
                 model: {
-                  "schema": {"const": 42},
+                  "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
                     "/one",
                     "/two"
@@ -683,7 +693,7 @@ mod tests {
                 scope: flow://collection/case/4,
                 expect_pub_id: NULL,
                 model: {
-                  "writeSchema": { "const": "write!", "x-infer-schema": true },
+                  "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
                   "readSchema": {"const":"read!"},
                   "key": [
                     "/foo",
@@ -697,7 +707,7 @@ mod tests {
                 scope: flow://collection/case/5,
                 expect_pub_id: "0000000000000000",
                 model: {
-                  "writeSchema": { "const": "write!", "x-infer-schema": true },
+                  "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
                   "readSchema": {"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
                   "key": [
                     "/key"
@@ -710,7 +720,7 @@ mod tests {
                 scope: flow://collection/case/6,
                 expect_pub_id: "0000000000000000",
                 model: {
-                  "writeSchema": { "const": "write!", "x-infer-schema": true },
+                  "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
                   "readSchema": {"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
                   "key": [
                     "/key"
@@ -723,7 +733,7 @@ mod tests {
                 scope: flow://collection/case/7,
                 expect_pub_id: NULL,
                 model: {
-                  "schema": {"const": 42},
+                  "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
                     "/chosen",
                     "/key"
@@ -736,7 +746,7 @@ mod tests {
                 scope: flow://collection/case/8,
                 expect_pub_id: "0000000000000000",
                 model: {
-                  "writeSchema": { "const": "write!", "x-initial-read-schema": {"type": "object", "properties": {"id": {"type": "string"}}} },
+                  "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-initial-read-schema":{"type": "object", "properties": {"id": {"type": "string"}}}}},"$ref":"flow://connector-schema"},
                   "readSchema": {"properties":{"id":{"type":"string"}},"type":"object"},
                   "key": [
                     "/id"
@@ -1073,5 +1083,123 @@ mod tests {
                 "test case: {name}"
             );
         }
+    }
+
+    #[test]
+    fn test_connector_schema_update() {
+        // Test that update_connector_schema correctly handles various cases
+        let connector_schema =
+            models::Schema::new(models::RawValue::from_value(&serde_json::json!({
+                "type": "object",
+                "properties": {"id": {"type": "string"}}
+            })));
+
+        // Case 1: No existing schema - should create new with connector schema reference
+        let updated = update_connector_schema(None, &connector_schema)
+            .unwrap()
+            .unwrap();
+        insta::assert_json_snapshot!(updated.to_value(), @r###"
+        {
+          "$defs": {
+            "flow://connector-schema": {
+              "$id": "flow://connector-schema",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "$ref": "flow://connector-schema"
+        }
+        "###);
+        assert!(updated.references_connector_schema());
+
+        // Case 2: Existing schema without connector reference - should replace with new structure
+        let existing = models::Schema::new(
+            models::RawValue::from_str(
+                r#"{"type": "object", "properties": {"old": {"type": "string"}}}"#,
+            )
+            .unwrap(),
+        );
+        let updated = update_connector_schema(Some(&existing), &connector_schema)
+            .unwrap()
+            .unwrap();
+        insta::assert_json_snapshot!(updated.to_value(), @r###"
+        {
+          "$defs": {
+            "flow://connector-schema": {
+              "$id": "flow://connector-schema",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "$ref": "flow://connector-schema"
+        }
+        "###);
+
+        // Case 3: Existing schema with connector reference - should preserve outer structure
+        let existing_with_ref = models::Schema::new(
+            models::RawValue::from_str(
+                r#"{
+                "$defs": {
+                    "flow://connector-schema": {
+                        "$id": "flow://connector-schema",
+                        "const": "old"
+                    }
+                },
+                "$ref": "flow://connector-schema",
+                "properties": {
+                    "userExtension": {"type": "string"}
+                }
+            }"#,
+            )
+            .unwrap(),
+        );
+        let updated = update_connector_schema(Some(&existing_with_ref), &connector_schema)
+            .unwrap()
+            .unwrap();
+        insta::assert_json_snapshot!(updated.to_value(), @r###"
+        {
+          "$defs": {
+            "flow://connector-schema": {
+              "$id": "flow://connector-schema",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "$ref": "flow://connector-schema",
+          "properties": {
+            "userExtension": {
+              "type": "string"
+            }
+          }
+        }
+        "###);
+
+        // Case 4: Existing schema already reflects connector schema
+        let existing_complete =
+            models::Schema::new(models::RawValue::from_value(&serde_json::json!({
+                "$ref": "flow://connector-schema",
+                "title": "Example user modification",
+                "$defs": {
+                    "flow://connector-schema": {
+                        "$id": "flow://connector-schema",
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}}
+                    }
+                }
+            })));
+        let result = update_connector_schema(Some(&existing_complete), &connector_schema).unwrap();
+        assert!(result.is_none());
     }
 }

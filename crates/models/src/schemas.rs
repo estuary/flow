@@ -53,6 +53,8 @@ impl Schema {
     pub const REF_WRITE_SCHEMA_URL: &'static str = "flow://write-schema";
     // URL for referencing the write schema of a collection, which may be used within a read schema.
     pub const REF_RELAXED_WRITE_SCHEMA_URL: &'static str = "flow://relaxed-write-schema";
+    // URL for referencing the connector schema of a collection, which may be used within a write schema.
+    pub const REF_CONNECTOR_SCHEMA_URL: &'static str = "flow://connector-schema";
 
     /// Returns true if this Schema references the canonical inferred schema URL.
     pub fn references_inferred_schema(&self) -> bool {
@@ -65,6 +67,10 @@ impl Schema {
     /// Returns true if this Schema references the canonical write schema URL.
     pub fn references_relaxed_write_schema(&self) -> bool {
         REF_RELAXED_WRITE_SCHEMA_RE.is_match(self.get())
+    }
+    /// Returns true if this Schema references the canonical connector schema URL.
+    pub fn references_connector_schema(&self) -> bool {
+        REF_CONNECTOR_SCHEMA_RE.is_match(self.get())
     }
 
     pub fn example_absolute() -> Self {
@@ -302,6 +308,9 @@ lazy_static::lazy_static! {
     static ref REF_RELAXED_WRITE_SCHEMA_RE: regex::Regex = regex::Regex::new(
         &[r#""\$ref"\p{Z}*:\p{Z}*""#, &regex::escape(Schema::REF_RELAXED_WRITE_SCHEMA_URL), "\""].concat()
     ).unwrap();
+    static ref REF_CONNECTOR_SCHEMA_RE: regex::Regex = regex::Regex::new(
+        &[r#""\$ref"\p{Z}*:\p{Z}*""#, &regex::escape(Schema::REF_CONNECTOR_SCHEMA_URL), "\""].concat()
+    ).unwrap();
 
     /// Placeholder used to resolve the `flow://inferred-schema` reference when the actual schema
     /// is not yet known.
@@ -351,6 +360,11 @@ mod test {
         assert!(fixture.references_inferred_schema());
         assert!(fixture.references_write_schema());
 
+        let connector_fixture = Schema::new(RawValue::from_value(&json!({
+            "$ref": Schema::REF_CONNECTOR_SCHEMA_URL
+        })));
+        assert!(connector_fixture.references_connector_schema());
+
         let fixture = Schema::new(RawValue::from_value(&json!({
             "does": "not match",
             "nested-quoted-string": fixture.get(),
@@ -358,6 +372,7 @@ mod test {
 
         assert!(!fixture.references_inferred_schema());
         assert!(!fixture.references_write_schema());
+        assert!(!fixture.references_connector_schema());
     }
 
     #[test]
