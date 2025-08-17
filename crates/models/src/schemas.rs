@@ -53,6 +53,8 @@ impl Schema {
     pub const REF_WRITE_SCHEMA_URL: &'static str = "flow://write-schema";
     // URL for referencing the write schema of a collection, which may be used within a read schema.
     pub const REF_RELAXED_WRITE_SCHEMA_URL: &'static str = "flow://relaxed-write-schema";
+    // URL for referencing the connector schema of a collection, which may be used within a write schema.
+    pub const REF_CONNECTOR_SCHEMA_URL: &'static str = "flow://connector-schema";
 
     /// Returns true if this Schema references the canonical inferred schema URL.
     pub fn references_inferred_schema(&self) -> bool {
@@ -84,18 +86,6 @@ impl Schema {
         .unwrap()
     }
 
-    /// Default collection `readSchema`,
-    /// used when schema inference is desired.
-    pub fn default_inferred_read_schema() -> Self {
-        let read_schema = serde_json::json!({
-            "allOf": [
-                {"$ref": Self::REF_RELAXED_WRITE_SCHEMA_URL},
-                {"$ref": Self::REF_INFERRED_SCHEMA_URL},
-            ],
-        });
-        Self(crate::RawValue::from_value(&read_schema))
-    }
-
     /// Placeholder definition for `flow://inferred-schema`,
     /// used when an actual inferred schema is not yet available.
     pub fn inferred_schema_placeholder() -> &'static Self {
@@ -112,67 +102,6 @@ impl Schema {
     pub fn to_relaxed_schema(&self) -> serde_json::Result<Self> {
         let relaxed = serde_json::from_str::<RelaxedSchema>(self.get())?;
         Ok(Self(serde_json::value::to_raw_value(&relaxed)?.into()))
-    }
-
-    /// TODO(johnny): This is deprecated and will be removed.
-    pub fn extend_read_bundle(
-        read_bundle: &Self,
-        write_bundle: Option<&Self>,
-        inferred_bundle: Option<&Self>,
-    ) -> Self {
-        let mut defs = Vec::new();
-
-        // Add a definition for the write schema if it's referenced.
-        // We cannot add it in all cases because the existing `read_bundle` and
-        // `write_bundle` may have a common sub-schema defined, and naively adding
-        // it would result in an indexing error due to the duplicate definition.
-        // So, we treat $ref: flow://write-schema as a user assertion that there is
-        // no such conflicting definition (and we may produce an indexing error
-        // later if they're wrong).
-        if let Some(write) = write_bundle.filter(|_| read_bundle.references_write_schema()) {
-            defs.push(AddDef {
-                id: Schema::REF_WRITE_SCHEMA_URL,
-                schema: write,
-                overwrite: true, // always overwrite the write schema definition
-            });
-        }
-
-        if read_bundle.references_inferred_schema() {
-            let inferred = inferred_bundle.unwrap_or(&INFERRED_SCHEMA_PLACEHOLDER);
-            defs.push(AddDef {
-                id: Schema::REF_INFERRED_SCHEMA_URL,
-                schema: inferred,
-                overwrite: true,
-            });
-        }
-
-        Schema::add_defs(read_bundle, &defs)
-            .ok()
-            .unwrap_or_else(|| read_bundle.clone())
-    }
-
-    /// TODO(johnny): This is deprecated and will be removed.
-    pub fn build_read_schema_bundle(read_schema: &Schema, write_schema: &Schema) -> Schema {
-        let mut defs = Vec::new();
-        if read_schema.references_write_schema() {
-            defs.push(AddDef {
-                id: Schema::REF_WRITE_SCHEMA_URL,
-                schema: write_schema,
-                overwrite: true, // always overwrite the write schema definition
-            });
-        }
-        if read_schema.references_inferred_schema() {
-            // The control plane will keep the inferred schema definition up to date,
-            // so we only ever add the placeholder here if it doesn't already exist.
-            defs.push(AddDef {
-                id: Schema::REF_INFERRED_SCHEMA_URL,
-                schema: &INFERRED_SCHEMA_PLACEHOLDER,
-                overwrite: false,
-            });
-        }
-        Schema::add_defs(read_schema, &defs)
-            .ok()
-            .unwrap_or_else(|| read_schema.clone())
     }
 
     /// Extend this Schema with added $defs definitions.
