@@ -14,8 +14,6 @@ _What problem are we solving? How are users affected today? What value do we see
 2. **Next Problem**: Description of the problem and its impact on users.
    - _Further user stories and acceptance criteria_
 
-## Technical Details
-
 ### Existing Components
 _Key types and functions within the codebase that are relevant to this project_
 
@@ -25,48 +23,22 @@ _Key types and functions within the codebase that are relevant to this project_
 - **Component 2:** Purpose and key responsibilities, and why it's relevant to this project
   - Implementation: [`another/file.ext`](another/file.ext)
 
-### Architecture
-_Overview of key changes to data structures / models required by this project. Descriptions of fundamental approach and high level changes._
+## Architecture
+_Very brief overview of fundamental approach and high level changes._
 
+### Data Model
+_Key supporting changes to data structures / models required by this project._
 
-## Implementation Plan
+### Control Flow
+_Details of how the data model integrates with existing or new processes and control flow within the platform.
+This tells the story of how the requirements are met / feature is delivered from beginning to end._
 
-### Phase 1: [Brief Description]
-- [ ] Description
-  - Subtask details
-  - [`path/to/file.ext`](path/to/file.ext)
-- [ ] Description
-  - Subtask details
+## Implementation Progress
+_As development progresses, add completed sub-tasks and supporting implementation notes. These are an AFTER THE FACT / "just in time" record of completed work. When writing plans, do NOT add these at the outset_
 
-### Phase 2: [Brief Description]
-- [ ] Description
-  - [`path/to/file.ext`](path/to/file.ext)
-- [ ] Description
+### [Description of a completed development step]
+- Achievement, with details / notes
+- Another achievement
 
-## Testing Plan
-
-### Unit & Integration Tests
-- [ ] Description of what should be tested
-
-### Manual Tests
-- [ ] Steps to test manually
-
-## Decision Records
-
-### Decision 1: [Decision Title]
-- **Date:** [YYYY-MM-DD]
-- **Context:** What led to this decision point
-- **Options Considered:**
-  - Option A: Pros and cons
-  - Option B: Pros and cons
-- **Decision:** What was chosen and why
-- **Consequences:** Expected outcomes of this decision
-
-### Decision 2: [Decision Title]
-- **Date:** [YYYY-MM-DD]
-- **Context:** What led to this decision point
-- **Options Considered:**
-  - Option A: Pros and cons
-  - Option B: Pros and cons
-- **Decision:** What was chosen and why
-- **Consequences:** Expected outcomes of this decision
+### [Description of a next development step]
+- Achievement
