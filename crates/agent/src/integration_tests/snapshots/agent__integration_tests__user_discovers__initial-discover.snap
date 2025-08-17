@@ -44,7 +44,7 @@ DraftCatalog {
             scope: flow://collection/squirrels/acorns,
             expect_pub_id: "0000000000000000",
             model: {
-              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"},
+              "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "key": [
                 "/id"
               ]
@@ -56,7 +56,7 @@ DraftCatalog {
             scope: flow://collection/squirrels/crab_apples,
             expect_pub_id: "0000000000000000",
             model: {
-              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"},
+              "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "key": [
                 "/id"
               ]
@@ -68,7 +68,7 @@ DraftCatalog {
             scope: flow://collection/squirrels/walnuts,
             expect_pub_id: "0000000000000000",
             model: {
-              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"},
+              "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "key": [
                 "/id"
               ]
