@@ -1,4 +1,5 @@
 mod alerts;
+pub mod id;
 mod live_specs;
 
 use async_graphql::{
@@ -184,7 +185,7 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
                   fetcher,
                   plugins,
                   defaultEditorToolsVisibility: true,
-                  // ---------- auth header customization ---------- 
+                  // ---------- auth header customization ----------
                   defaultHeaders : (()=>{
                     const access_token = new URLSearchParams(window.location.search).get('access_token');
 
@@ -195,7 +196,7 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
                         Authorization: bearerToken,
                     });
                   })()
-                  // ---------- auth header customization ---------- 
+                  // ---------- auth header customization ----------
                 });
               }
 

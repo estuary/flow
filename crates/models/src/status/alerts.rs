@@ -106,6 +106,13 @@ impl sqlx::Decode<'_, sqlx::postgres::Postgres> for AlertType {
     }
 }
 
+#[cfg(feature = "sqlx-support")]
+impl sqlx::postgres::PgHasArrayType for AlertType {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_alert_type")
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, schemars::JsonSchema)]
 pub enum AlertState {
     /// The alert is currently firing.
