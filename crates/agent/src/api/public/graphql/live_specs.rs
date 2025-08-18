@@ -25,7 +25,7 @@ use crate::api::{public::graphql::alerts, App, ControlClaims};
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
 pub struct LiveSpec {
-    pub id: Id,
+    pub live_spec_id: Id,
     pub catalog_name: String,
     pub spec_type: models::CatalogType,
     pub spec: async_graphql::Json<async_graphql::Value>,
@@ -76,7 +76,7 @@ pub async fn fetch_live_specs(
     let rows = sqlx::query!(
         r#"select
                 ls.catalog_name,
-                ls.id as "id: models::Id",
+                ls.id as "live_spec_id: models::Id",
                 ls.spec_type as "spec_type!: models::CatalogType",
                 case when $3 then ls.spec::text else null end as "spec: sqlx::types::Json<async_graphql::Value>",
                 ls.last_build_id as "last_build_id: models::Id",
@@ -101,7 +101,7 @@ pub async fn fetch_live_specs(
         .into_iter()
         .map(|row| LiveSpec {
             catalog_name: row.catalog_name,
-            id: row.id,
+            live_spec_id: row.live_spec_id,
             spec_type: row.spec_type,
             spec: async_graphql::Json(row.spec.map(|j| j.0).unwrap_or_default()),
             last_build_id: row.last_build_id,
