@@ -1,5 +1,5 @@
 use crate::{Error, Scope};
-use itertools::{EitherOrBoth, Itertools};
+use itertools::Itertools;
 use models::collate::collate;
 use regex::Regex;
 
@@ -37,56 +37,19 @@ where
     // Sort entity iterator by increasing, collated name.
     let i = i.sorted_by(|(_, lhs, _), (_, rhs, _)| collate(lhs.chars()).cmp(collate(rhs.chars())));
 
-    // Walk ordered 2-tuples of names & their scopes,
-    // looking for duplicates or prefixes.
+    // Walk ordered 2-tuples of names & their scopes, looking for exact duplicates.
     for ((lhs_entity, lhs, lhs_scope), (rhs_entity, rhs, rhs_scope)) in i.tuple_windows() {
-        // This loop is walking zipped characters of each name, and doing two things:
-        // 1) Identifying an exact match (iterator drains with no different characters).
-        // 2) Identifying hierarchical prefixes:
-        //     "foo/bar" is a prefix of "foo/bar/baz"
-        //     "foo/bar" is *not* a prefix of "foo/bark".
-        let l = collate(lhs.chars());
-        let r = collate(rhs.chars());
-        let mut it = l.zip_longest(r);
-
-        loop {
-            match it.next() {
-                Some(EitherOrBoth::Both(l, r)) if l == r => continue,
-                Some(EitherOrBoth::Both(_, _)) => {
-                    break; // Neither equal nor a prefix.
-                }
-                Some(EitherOrBoth::Left(_)) => unreachable!("prevented by sorting"),
-                Some(EitherOrBoth::Right(r)) if r == '/' => {
-                    // LHS finished *just* as we reached a '/',
-                    // as in "foo/bar" vs "foo/bar/".
-                    Error::NameCollision {
-                        error_class: "is a prohibited prefix of",
-                        lhs_entity,
-                        lhs_name: lhs.to_string(),
-                        rhs_entity,
-                        rhs_name: rhs.to_string(),
-                        rhs_scope: rhs_scope.flatten(),
-                    }
-                    .push(lhs_scope, errors);
-                }
-                Some(EitherOrBoth::Right(_)) => {
-                    // E.x. "foo/bar" vs "foo/bark". A prefix, but not a hierarchical one.
-                    break;
-                }
-                None => {
-                    // Iterator finished with no different characters.
-                    Error::NameCollision {
-                        error_class: "collides with",
-                        lhs_entity,
-                        lhs_name: lhs.to_string(),
-                        rhs_entity,
-                        rhs_name: rhs.to_string(),
-                        rhs_scope: rhs_scope.flatten(),
-                    }
-                    .push(lhs_scope, errors);
-                    break;
-                }
+        // Check if the collated names are exactly equal.
+        if collate(lhs.chars()).eq(collate(rhs.chars())) {
+            Error::NameCollision {
+                error_class: "collides with",
+                lhs_entity,
+                lhs_name: lhs.to_string(),
+                rhs_entity,
+                rhs_name: rhs.to_string(),
+                rhs_scope: rhs_scope.flatten(),
             }
+            .push(lhs_scope, errors);
         }
     }
 }

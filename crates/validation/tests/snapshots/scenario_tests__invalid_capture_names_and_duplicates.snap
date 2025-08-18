@@ -24,10 +24,6 @@ expression: errors
         error: bad/name/ cannot be used as name for capture ("/" is invalid),
     },
     Error {
-        scope: test://example/captures#/captures/testing,
-        error: capture testing is a prohibited prefix of capture testing/SoMe-source, defined at test://example/captures#/captures/testing~1SoMe-source,
-    },
-    Error {
         scope: test://example/captures#/captures/testing~1SoMe-source,
         error: capture testing/SoMe-source collides with capture testing/some-source, defined at test://example/captures#/captures/testing~1some-source,
     },
