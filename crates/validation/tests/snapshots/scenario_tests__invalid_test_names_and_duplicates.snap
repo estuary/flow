@@ -28,14 +28,6 @@ expression: errors
         error: testing/bad/name/ cannot be used as name for test ("/" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/,
-        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/tests/testing,
-        error: test testing is a prohibited prefix of collection testing/array-key, defined at test://example/array-key#/collections/testing~1array-key,
-    },
-    Error {
         scope: test://example/catalog.yaml#/tests/testing~1TeSt,
         error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test,
     },

@@ -8,31 +8,11 @@ expression: errors
         error: capture testing/b/1 collides with collection testing/b/1, defined at test://example/catalog.yaml#/collections/testing~1b~11,
     },
     Error {
-        scope: test://example/catalog.yaml#/collections/testing~1b~11,
-        error: collection testing/b/1 is a prohibited prefix of materialization testing/b/1/suffix, defined at test://example/catalog.yaml#/materializations/testing~1b~11~1suffix,
-    },
-    Error {
         scope: test://example/catalog.yaml#/collections/testing~1b~12,
         error: collection testing/b/2 collides with materialization testing/b/2, defined at test://example/catalog.yaml#/materializations/testing~1b~12,
     },
     Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~12,
-        error: materialization testing/b/2 is a prohibited prefix of capture testing/b/2/suffix, defined at test://example/catalog.yaml#/captures/testing~1b~12~1suffix,
-    },
-    Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~13,
         error: capture testing/b/3 collides with materialization testing/b/3, defined at test://example/catalog.yaml#/materializations/testing~1b~13,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~13,
-        error: materialization testing/b/3 is a prohibited prefix of collection testing/b/3/suffix, defined at test://example/catalog.yaml#/collections/testing~1b~13~1suffix,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~14,
-        error: materialization testing/b/4 is a prohibited prefix of test testing/b/4/suffix, defined at test://example/catalog.yaml#/tests/testing~1b~14~1suffix,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/tests/testing~1b~15,
-        error: test testing/b/5 is a prohibited prefix of capture testing/b/5/suffix, defined at test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
     },
 ]

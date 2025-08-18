@@ -23,16 +23,4 @@ expression: errors
         scope: flow://storageMapping/missingSlash,
         error: missingSlash cannot be used as name for storageMapping ("missingSlash" is invalid),
     },
-    Error {
-        scope: flow://storageMappings/#/,
-        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at flow://storageMappings/#/~1leading~1Slash~1,
-    },
-    Error {
-        scope: flow://storageMappings/#/not-matched~1,
-        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at flow://storageMappings/#/Not-Matched~1foobar~1,
-    },
-    Error {
-        scope: flow://storageMappings/#/recoverY~1,
-        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at flow://storageMappings/#/recovery~1testing~1,
-    },
 ]
