@@ -183,6 +183,7 @@ impl Shape {
                     Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
                     Annotation::Discriminator(_) => {}
+                    Annotation::Transform(_) => {} // Transform annotations are handled during combine
                 },
 
                 // Array constraints.

@@ -1,5 +1,5 @@
 use crate::{
-    reduce,
+    reduce, transform,
     validation::{FailedValidation, Validator},
     Extractor, HeapNode, OwnedNode,
 };
@@ -16,6 +16,8 @@ pub enum Error {
     SchemaError(#[from] json::schema::index::Error),
     #[error("spill file IO error")]
     SpillIO(#[from] io::Error),
+    #[error("failed to transform document")]
+    Transform(#[from] transform::Error),
 }
 
 /// Specification of how Combine operations are to be done

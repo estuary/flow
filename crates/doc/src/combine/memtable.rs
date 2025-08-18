@@ -1,5 +1,5 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{reduce, transform, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -285,7 +285,7 @@ impl MemTable {
         writer: &mut SpillWriter<F>,
         chunk_target_size: usize,
     ) -> Result<Spec, Error> {
-        let (sorted, mut spec, alloc) = self.try_into_parts()?;
+        let (mut sorted, mut spec, alloc) = self.try_into_parts()?;
 
         // Validate all !front() documents of the spilled segment.
         //
@@ -307,16 +307,31 @@ impl MemTable {
         // need to validate that reduced output anyway, so validation now is
         // wasted work. If it happens that there is no further reduction then
         // we'll validate the document upon drain.
-        for doc in sorted.iter() {
+        // 
+        // For !front() documents, we validate and may apply transforms.
+        let mut to_remove = Vec::new();
+        
+        for (index, doc) in sorted.iter_mut().enumerate() {
             if !doc.meta.front() {
                 let &mut (ref mut validator, ref schema) = &mut spec.validators[doc.meta.binding()];
-                validator
+                let valid = validator
                     .validate(schema.as_ref(), &doc.root)?
                     .ok()
                     .map_err(|err| {
                         Error::FailedValidation(spec.names[doc.meta.binding()].clone(), err)
                     })?;
+                
+                // Apply transforms to the validated document in-place
+                if !transform::transform(&mut doc.root, valid, &alloc)? {
+                    // Document was removed by transform
+                    to_remove.push(index);
+                }
             }
+        }
+        
+        // Remove documents in reverse order
+        for index in to_remove.into_iter().rev() {
+            sorted.remove(index);
         }
 
         let bytes = writer.write_segment(&sorted, chunk_target_size)?;
@@ -397,11 +412,17 @@ impl MemDrainer {
             }
         }
 
-        let _valid = validator
+        let valid = validator
             .validate(schema.as_ref(), &root)
             .map_err(Error::SchemaError)?
             .ok()
             .map_err(|err| Error::FailedValidation(self.spec.names[meta.binding()].clone(), err))?;
+
+        // Apply transformations if any are present
+        if !transform::transform(&mut root, valid, &self.zz_alloc)? {
+            // Entire document was removed by transform
+            return Ok(None);
+        }
 
         // Safety: `root` was allocated from `self.zz_alloc`.
         let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };

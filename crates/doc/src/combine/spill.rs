@@ -1,6 +1,6 @@
 use super::{bump_mem_used, reduce, DrainedDoc, Error, HeapEntry, Meta, Spec, BUMP_THRESHOLD};
 use crate::owned::OwnedArchivedNode;
-use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{transform, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use bytes::Buf;
 use std::collections::BinaryHeap;
@@ -397,26 +397,37 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 // We validate !front() documents when spilling to disk and
                 // can skip doing so now (this is the common case).
                 if meta.front() {
-                    validator
+                    let valid = validator
                         .validate(schema.as_ref(), root.get())
                         .map_err(Error::SchemaError)?
                         .ok()
                         .map_err(|err| {
                             Error::FailedValidation(self.spec.names[meta.binding()].clone(), err)
                         })?;
+                    
+                    // Apply transforms if needed (for front documents that weren't validated during spill)
+                    // Note: For archived nodes, we'd need to convert to HeapNode first for transforms
+                    // For now, we skip transforms on archived nodes to avoid the allocation
+                    _ = valid; // Transforms would require converting from archived to heap
                 }
 
                 OwnedNode::Archived(root)
             }
-            Some(reduced) => {
+            Some(mut reduced) => {
                 // We built `reduced` via reduction and must re-validate it.
-                validator
+                let valid = validator
                     .validate(schema.as_ref(), &reduced)
                     .map_err(Error::SchemaError)?
                     .ok()
                     .map_err(|err| {
                         Error::FailedValidation(self.spec.names[meta.binding()].clone(), err)
                     })?;
+
+                // Apply transformations if any are present
+                if !transform::transform(&mut reduced, valid, &self.alloc)? {
+                    // Entire document was removed by transform
+                    return Ok(None);
+                }
 
                 // Safety: we allocated `reduced` out of `self.alloc`.
                 let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };

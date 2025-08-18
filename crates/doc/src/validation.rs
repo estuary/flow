@@ -1,4 +1,4 @@
-use super::{reduce, walker::walk_document, Annotation, AsNode, SerPolicy};
+use super::{reduce, transform, walker::walk_document, Annotation, AsNode, SerPolicy};
 use json::validator::Context;
 use std::pin::Pin;
 
@@ -228,6 +228,22 @@ impl<'schema> Valid<'schema, '_> {
                 idx[subspan.begin] = (strategy, subspan.hashed);
             }
         }
+        idx
+    }
+
+    pub fn extract_transform_annotations(&self) -> Vec<Option<(&'schema transform::Strategy, u64)>> {
+        let mut idx = std::iter::repeat(None)
+            .take(self.span.end)
+            .collect::<Vec<_>>();
+
+        for (outcome, ctx) in self.validator.outcomes() {
+            let subspan = ctx.span();
+
+            if let ::json::validator::Outcome::Annotation(Annotation::Transform(strategy)) = outcome {
+                idx[subspan.begin] = Some((strategy, subspan.hashed));
+            }
+        }
+        
         idx
     }
 }

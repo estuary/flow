@@ -1,4 +1,4 @@
-use super::reduce;
+use super::{reduce, transform};
 use json::schema;
 use serde::Deserialize;
 use serde_json::Value;
@@ -10,6 +10,8 @@ pub enum Annotation {
     Core(schema::CoreAnnotation),
     /// "reduce" annotation keyword.
     Reduce(reduce::Strategy),
+    /// "transform" annotation keyword.
+    Transform(transform::Strategy),
     /// "secret" or "airbyte_secret" annotation keyword.
     Secret(bool),
     /// "multiline" annotation keyword marks fields that should have a multiline text input in the
@@ -42,8 +44,8 @@ impl schema::Annotation for Annotation {
 impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
-            "reduce" | "secret" | "airbyte_secret" | "multiline" | "advanced" | "order"
-            | "discriminator" => true,
+            "reduce" | "transform" | "secret" | "airbyte_secret" | "multiline" | "advanced" 
+            | "order" | "discriminator" => true,
             key if key.starts_with("x-") || key.starts_with("X-") => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
@@ -60,6 +62,10 @@ impl schema::build::AnnotationBuilder for Annotation {
             "reduce" => match reduce::Strategy::try_from(value) {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(r) => Ok(Annotation::Reduce(r)),
+            },
+            "transform" => match transform::Strategy::try_from(value) {
+                Err(e) => Err(AnnotationErr(Box::new(e))),
+                Ok(t) => Ok(Annotation::Transform(t)),
             },
             "order" => match i32::deserialize(value) {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
