@@ -24,10 +24,6 @@ expression: errors
         error: bad/name/ cannot be used as name for materialization ("/" is invalid),
     },
     Error {
-        scope: test://example/materializations#/materializations/testing,
-        error: materialization testing is a prohibited prefix of materialization testing/SoMe-target, defined at test://example/materializations#/materializations/testing~1SoMe-target,
-    },
-    Error {
         scope: test://example/materializations#/materializations/testing~1SoMe-target,
         error: materialization testing/SoMe-target collides with materialization testing/some-target, defined at test://example/materializations#/materializations/testing~1some-target,
     },
