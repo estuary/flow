@@ -45,7 +45,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/credentials`** | Credentials | Credentials for the service | object |  |
 | **`/credentials/credentials_title`** | Authentication Method | Set to `API Key`. | string | Required |
 | **`/credentials/access_token`** | API Key | The value of your Klaviyo private API Key . | string | Required |
-| `/advanced/window_size` | Window Size | Date window size for the `events` backfill in days. If you have a significant amount of `events` data` to backfill, smaller window sizes will allow the connector to checkpoint its progress more frequently. | integer | 30 |
+| `/advanced/window_size` | Window Size | Date window size for the `events` backfill in ISO 8601 format. ex: P30D means 30 days, PT6H means 6 hours. If you have a significant amount of `events` data` to backfill, smaller window sizes will allow the connector to checkpoint its progress more frequently. | string | P30D |
 
 
 #### Bindings
@@ -65,7 +65,7 @@ captures:
         image: ghcr.io/estuary/source-klaviyo-native:dev
         config:
             advanced:
-              window_size: 10
+              window_size: P10D
             credentials:
               credentials: API Key
               access_token: <secret>
