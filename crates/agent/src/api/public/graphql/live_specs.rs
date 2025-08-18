@@ -7,21 +7,6 @@ use std::{marker::PhantomData, sync::Arc};
 
 use crate::api::{public::graphql::alerts, App, ControlClaims};
 
-/*
-#[graphql(concrete(
-     name = "LiveCollection",
-     params(models::CollectionDef, proto_flow::flow::CollectionSpec)
- ))]
- #[graphql(concrete(
-     name = "LiveMaterialization",
-     params(models::MaterializationDef, proto_flow::flow::MaterializationSpec)
- ))]
- #[graphql(concrete(name = "LiveTest", params(models::TestDef, proto_flow::flow::TestSpec)))]
-
- */
-// <ControllerStatus: Send + Sync + async_graphql::OutputType>
-//#[graphql(concrete(name = "LiveCapture", params(models::status::capture::CaptureStatus)))]
-
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
 pub struct LiveSpec {
@@ -44,6 +29,16 @@ impl LiveSpec {
         let alerts = loader.load_one(self.catalog_name.clone()).await?;
         Ok(alerts.unwrap_or_default())
     }
+
+    async fn alert_history(
+        &self,
+        ctx: &Context<'_>,
+        before: Option<String>,
+        last: i32,
+    ) -> async_graphql::Result<alerts::PaginatedAlerts> {
+        alerts::alert_history(ctx, &self.catalog_name, before, last).await
+    }
+
     // async fn controller_status(
     //     &self,
     //     ctx: &Context<'_>,

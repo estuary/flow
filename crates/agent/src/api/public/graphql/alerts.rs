@@ -1,5 +1,6 @@
 use async_graphql::{
-    types::Json, Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject,
+    types::{connection, Json},
+    Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject,
 };
 use chrono::{DateTime, Utc};
 use models::status::AlertType;
@@ -27,7 +28,7 @@ pub struct Alert {
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
     /// may be used in formatting the alert message.
-    pub arguments: Json<async_graphql::Value>,
+    pub arguments: Json<serde_json::Value>,
     // Note that resovled_arguments are omitted for now, because it's
     // unclear whether we really have a use case for them in the API.
     // pub resolved_arguments: Option<models::RawValue>,
@@ -83,13 +84,12 @@ impl async_graphql::dataloader::Loader<AlertId> for AlertLoader {
         let results = rows
             .into_iter()
             .map(|row| {
-                let args = async_graphql::Value::from_json(row.arguments.0).unwrap();
                 let alert = Alert {
                     catalog_name: row.catalog_name,
                     alert_type: row.alert_type,
                     fired_at: row.fired_at,
                     resolved_at: row.resolved_at,
-                    arguments: async_graphql::Json(args),
+                    arguments: async_graphql::Json(row.arguments.0),
                 };
                 let id = alert.get_id();
                 (id, alert)
@@ -114,9 +114,11 @@ impl async_graphql::dataloader::Loader<String> for AlertLoader {
             catalog_name,
             fired_at,
             resolved_at,
-            arguments as "arguments: sqlx::types::Json<async_graphql::Value>"
+            arguments as "arguments: sqlx::types::Json<serde_json::Value>"
         from alert_history
         where catalog_name = any($1::text[])
+        and resolved_at is null
+        order by fired_at desc
             "#,
             keys
         )
@@ -168,7 +170,7 @@ pub async fn list_alerts_firing(
             catalog_name as "catalog_name!: String",
             fired_at,
             resolved_at,
-            arguments as "arguments!: sqlx::types::Json<async_graphql::Value>"
+            arguments as "arguments!: sqlx::types::Json<serde_json::Value>"
         from unnest($1::text[]) p(prefix)
         join alert_history a on a.resolved_at is null and starts_with(a.catalog_name, p.prefix)
         order by a.fired_at desc
@@ -192,4 +194,75 @@ pub async fn list_alerts_firing(
         .collect();
 
     Ok(results)
+}
+
+pub type PaginatedAlerts = connection::Connection<DateTime<Utc>, Alert>;
+
+pub async fn alert_history(
+    ctx: &Context<'_>,
+    catalog_name: &str,
+    before_date: Option<String>,
+    limit: i32,
+) -> async_graphql::Result<PaginatedAlerts> {
+    let app = ctx.data::<Arc<App>>()?;
+    let claims = ctx.data::<ControlClaims>()?;
+
+    // Verify user authorization
+    let _ = app
+        .verify_user_authorization(
+            claims,
+            vec![catalog_name.to_string()],
+            models::Capability::Read,
+        )
+        .await
+        .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
+
+    // JFC, really?! ... yes, really. IDK why rustc couldn't infer the error
+    // type, or why pagination requires 10 generic type parameters, but here we are.
+    connection::query::<_, _, _, _, _, _, _, _, _, async_graphql::Error>(
+        None,
+        before_date,
+        None,
+        Some(limit),
+        |_, before, _, limit| async move {
+            let effective_limit = limit.unwrap_or(20);
+            let rows = sqlx::query!(
+                r#"
+            select
+                alert_type as "alert_type!: AlertType",
+                catalog_name as "catalog_name!: String",
+                fired_at,
+                resolved_at,
+                arguments as "arguments!: sqlx::types::Json<serde_json::Value>"
+            from alert_history a
+            where a.catalog_name = $1 and a.fired_at < $2
+            order by a.fired_at desc
+            limit $3
+            "#,
+                catalog_name,
+                before.unwrap_or(Utc::now()),
+                effective_limit as i64,
+            )
+            .fetch_all(&app.pg_pool)
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
+
+            let has_prev_page = rows.len() == effective_limit;
+            let mut conn = connection::Connection::new(has_prev_page, false);
+
+            for row in rows {
+                let fired_at = row.fired_at;
+                let alert = Alert {
+                    alert_type: row.alert_type,
+                    catalog_name: row.catalog_name,
+                    fired_at,
+                    resolved_at: row.resolved_at,
+                    arguments: async_graphql::Json(row.arguments.0),
+                };
+                conn.edges.push(connection::Edge::new(fired_at, alert));
+            }
+            async_graphql::Result::Ok(conn)
+        },
+    )
+    .await
 }
