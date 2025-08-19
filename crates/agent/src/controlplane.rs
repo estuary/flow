@@ -14,7 +14,6 @@ use std::sync::{Arc, RwLock};
 
 use crate::{
     discovers::{Discover, DiscoverOutput},
-    evolution::{self, EvolutionOutput},
     logs,
     proxy_connectors::MakeConnectors,
     publications::{
@@ -110,12 +109,6 @@ pub trait ControlPlane: Send + Sync {
 
     /// Triggers controller runs for all dependents of the live spec with the given id.
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()>;
-
-    async fn evolve_collections(
-        &self,
-        draft: tables::DraftCatalog,
-        collections: Vec<evolution::EvolveRequest>,
-    ) -> anyhow::Result<EvolutionOutput>;
 
     async fn discover(
         &self,
@@ -512,20 +505,6 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
     fn current_time(&self) -> DateTime<Utc> {
         Utc::now()
-    }
-
-    async fn evolve_collections(
-        &self,
-        draft: tables::DraftCatalog,
-        requests: Vec<evolution::EvolveRequest>,
-    ) -> anyhow::Result<EvolutionOutput> {
-        let evolve = evolution::Evolution {
-            user_id: self.system_user_id,
-            draft,
-            requests,
-            require_user_can_admin: false,
-        };
-        evolution::evolve(evolve, &self.pool).await
     }
 
     async fn discover(

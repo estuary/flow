@@ -251,7 +251,7 @@ mod test {
 
     use super::*;
     use crate::draft_error::Error;
-    use crate::publications::{AffectedConsumer, IncompatibleCollection, JobStatus, RejectedField};
+    use crate::publications::JobStatus;
     use crate::status::activation::ActivationStatus;
     use crate::status::materialization::{MaterializationStatus, SourceCaptureStatus};
     use crate::status::publications::{PublicationInfo, PublicationStatus};
@@ -267,18 +267,7 @@ mod test {
             created: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
             completed: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
             detail: Some("some detail".to_string()),
-            result: Some(JobStatus::build_failed(vec![IncompatibleCollection {
-                collection: "snails/water".to_string(),
-                requires_recreation: Vec::new(),
-                affected_materializations: vec![AffectedConsumer {
-                    name: "snails/materialize".to_string(),
-                    fields: vec![RejectedField {
-                        field: "a_field".to_string(),
-                        reason: "do not like".to_string(),
-                    }],
-                    resource_path: vec!["water".to_string()],
-                }],
-            }])),
+            result: Some(JobStatus::build_failed()),
             errors: vec![Error {
                 catalog_name: "snails/shells".to_string(),
                 scope: Some("flow://materializations/snails/shells".to_string()),

@@ -8,7 +8,6 @@ use crate::{
     controllers::ControllerState,
     controlplane::ConnectorSpec,
     discovers::{self, DiscoverHandler, DiscoverOutput},
-    evolution,
     publications::{
         self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
     },
@@ -1616,14 +1615,6 @@ impl ControlPlane for TestControlPlane {
 
     fn current_time(&self) -> DateTime<Utc> {
         self.inner.current_time()
-    }
-
-    async fn evolve_collections(
-        &self,
-        draft: tables::DraftCatalog,
-        collections: Vec<evolution::EvolveRequest>,
-    ) -> anyhow::Result<evolution::EvolutionOutput> {
-        self.inner.evolve_collections(draft, collections).await
     }
 
     async fn discover(

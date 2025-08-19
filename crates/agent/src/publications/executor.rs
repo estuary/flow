@@ -152,10 +152,7 @@ impl<MC: MakeConnectors> Publisher<MC> {
                     ..Default::default()
                 },
                 tables::Errors::default(),
-                JobStatus::BuildFailed {
-                    incompatible_collections: Vec::new(),
-                    evolution_id: None,
-                },
+                JobStatus::build_failed(),
                 0, //retry_count
             ));
         }

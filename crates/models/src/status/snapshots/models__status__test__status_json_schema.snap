@@ -59,33 +59,6 @@ expression: schema
       },
       "type": "object"
     },
-    "AffectedConsumer": {
-      "properties": {
-        "fields": {
-          "description": "The specific fields that were rejected by the task. This will be empty if the incompatibility was not caused by an \"unsatisfiable\" constraint being returned by the task during validation.",
-          "items": {
-            "$ref": "#/definitions/RejectedField"
-          },
-          "type": "array"
-        },
-        "name": {
-          "description": "The catalog name of the affected task.",
-          "type": "string"
-        },
-        "resource_path": {
-          "description": "Identifies the specific binding that is affected. This can be used to differentiate in cases there are multiple bindings with the same source.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "fields",
-        "name"
-      ],
-      "type": "object"
-    },
     "AlertState": {
       "oneOf": [
         {
@@ -403,32 +376,6 @@ expression: schema
     "Id": {
       "type": "string"
     },
-    "IncompatibleCollection": {
-      "properties": {
-        "affected_materializations": {
-          "description": "The materializations that must be updated in order to resolve the incompatibility.",
-          "items": {
-            "$ref": "#/definitions/AffectedConsumer"
-          },
-          "type": "array"
-        },
-        "collection": {
-          "description": "The name of the drafted collection that was deemed incompatible.",
-          "type": "string"
-        },
-        "requires_recreation": {
-          "description": "Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed. If this is empty or missing, it indicates that the incompatibility can likely be resolved just by backfilling the affected materialization bindings.",
-          "items": {
-            "$ref": "#/definitions/ReCreateReason"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "collection"
-      ],
-      "type": "object"
-    },
     "InferredSchemaStatus": {
       "description": "Status of the inferred schema",
       "properties": {
@@ -470,24 +417,6 @@ expression: schema
         {
           "description": "There was a failure to build or validate the drafted specs. This could be due to a mistake in the drafted specs, or due to a failure to validate the proposed changes with an external system connected to one of the connected captures or materializations.",
           "properties": {
-            "evolution_id": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Id"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Deprecated: This field is no longer used"
-            },
-            "incompatible_collections": {
-              "description": "Drafted collections that are considered incompatible with the current state of the live catalog.\n\nIncompatbile collections will be set if there are collections that: - have a drafted key that's different from the current key - have changes to the logical partitioning - have schema changes that were rejected by a materialization\n\nIf incompatible collections are present, then these errors may often be fixed by re-trying the publication and including a backfill of affected materializations, or possibly by re-creating the collection with a new name.",
-              "items": {
-                "$ref": "#/definitions/IncompatibleCollection"
-              },
-              "type": "array"
-            },
             "type": {
               "enum": [
                 "buildFailed"
@@ -753,42 +682,6 @@ expression: schema
       },
       "required": [
         "history"
-      ],
-      "type": "object"
-    },
-    "ReCreateReason": {
-      "description": "Reasons why a draft collection spec would need to be published under a new name.",
-      "oneOf": [
-        {
-          "description": "The collection key in the draft differs from that of the live spec.",
-          "enum": [
-            "keyChange"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "One or more collection partition fields in the draft differs from that of the live spec.",
-          "enum": [
-            "partitionChange"
-          ],
-          "type": "string"
-        }
-      ]
-    },
-    "RejectedField": {
-      "properties": {
-        "field": {
-          "description": "The name of the field that was rejected. This will be the name from the collection `projections`.",
-          "type": "string"
-        },
-        "reason": {
-          "description": "The reason provided by the connector.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "field",
-        "reason"
       ],
       "type": "object"
     },
