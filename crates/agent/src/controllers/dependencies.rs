@@ -110,8 +110,7 @@ impl Dependencies {
 
     /// Starts the update process and returns a `PendingPublication`. This is
     /// basically the same as `update` except that it allows the controller to
-    /// finish the publication itself if it needs to, so that it can handle
-    /// `incompatibleCollections`.
+    /// finish the publication itself if it needs to.
     pub async fn start_update<DF, M>(
         &mut self,
         state: &ControllerState,

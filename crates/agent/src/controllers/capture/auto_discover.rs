@@ -8,14 +8,11 @@ use models::status::{
 
 use crate::{
     controllers::{
-        alerts,
-        publication_status::{self, PendingPublication},
-        ControllerErrorExt, ControllerState, NextRun,
+        alerts, publication_status::PendingPublication, ControllerErrorExt, ControllerState,
+        NextRun,
     },
     controlplane::ConnectorSpec,
     discovers::DiscoverOutput,
-    evolution,
-    publications::PublicationResult,
     ControlPlane,
 };
 
@@ -185,81 +182,6 @@ pub fn next_run(status: &AutoDiscoverStatus) -> Option<NextRun> {
         .map(|n| NextRun::after(n).with_jitter_percent(0))
 }
 
-async fn publication_finished<C: ControlPlane>(
-    mut pub_result: PublicationResult,
-    history: &mut PublicationStatus,
-    state: &ControllerState,
-    control_plane: &C,
-    model: &models::CaptureDef,
-    pending_outcome: &mut AutoDiscoverOutcome,
-) -> anyhow::Result<()> {
-    pending_outcome.publish_result = Some(pub_result.status.clone());
-
-    // Did the publication result in incompatible collections, which we should evolve?
-    let evolve_incompatible = model
-        .auto_discover
-        .as_ref()
-        .unwrap()
-        .evolve_incompatible_collections;
-
-    if let Some(incompatible_collections) = pub_result
-        .status
-        .incompatible_collections()
-        .filter(|_| evolve_incompatible)
-    {
-        let evolve_requests = crate::evolutions_requests(incompatible_collections);
-        // This is because we never try to publish materializations, so we
-        // should never see incompatibilities that don't require re-creating
-        // the collection.
-        assert!(
-            evolve_requests.iter().all(|r| r.new_name.is_some()),
-            "expected all evolutions to re-create collections"
-        );
-        assert!(!evolve_requests.is_empty());
-        let mut draft = std::mem::take(&mut pub_result.draft);
-        draft.errors.clear();
-        let evolution_result = control_plane
-            .evolve_collections(draft, evolve_requests)
-            .await
-            .context("evolving collections")?;
-        if !evolution_result.is_success() {
-            tracing::warn!("evolution failed");
-            pending_outcome.errors.extend(
-                evolution_result
-                    .draft
-                    .errors
-                    .iter()
-                    .map(tables::Error::to_draft_error),
-            );
-        } else {
-            let evolution::EvolutionOutput { draft, actions } = evolution_result;
-            tracing::info!(
-                collection_count = actions.len(),
-                "successfully re-created collections"
-            );
-            let new_detail = format!(
-                "{}, and re-creating {} collections",
-                pub_result.detail.as_deref().unwrap_or("no detail"),
-                actions.len()
-            );
-            pending_outcome.re_created_collections = actions;
-            let new_result = control_plane
-                .publish(
-                    Some(new_detail),
-                    state.logs_token,
-                    draft,
-                    state.data_plane_name.clone(),
-                )
-                .await
-                .context("publishing evolved collections")?;
-            publication_status::record_result(history, publication_status::pub_info(&new_result));
-            pending_outcome.publish_result = Some(new_result.status.clone());
-        }
-    }
-
-    return Ok(());
-}
-
 pub fn new_outcome(
     ts: DateTime<Utc>,
     output: DiscoverOutput,
@@ -373,20 +295,12 @@ async fn try_auto_discover<C: ControlPlane>(
     pending.details.push(publish_detail);
     // Add the draft back into the pending publication, so it will be published.
     pending.draft = draft;
-    let initial_pub_result = pending
+    let pub_result = pending
         .finish(state, pub_status, control_plane)
         .await
         .context("executing publication")?;
 
-    publication_finished(
-        initial_pub_result,
-        pub_status,
-        state,
-        control_plane,
-        model,
-        &mut outcome,
-    )
-    .await?;
+    outcome.publish_result = Some(pub_result.status);
 
     Ok(outcome)
 }
