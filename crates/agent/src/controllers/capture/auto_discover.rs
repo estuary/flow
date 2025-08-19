@@ -305,7 +305,9 @@ async fn try_auto_discover<C: ControlPlane>(
     control_plane: &C,
     pub_status: &mut PublicationStatus,
 ) -> anyhow::Result<AutoDiscoverOutcome> {
-    let update_only = !model.auto_discover.as_ref().unwrap().add_new_bindings;
+    let auto_discover = model.auto_discover.as_ref().unwrap();
+    let update_only = !auto_discover.add_new_bindings;
+    let reset_on_key_change = auto_discover.evolve_incompatible_collections;
     let capture_name = models::Capture::new(&state.catalog_name);
 
     let mut draft = tables::DraftCatalog::default();
@@ -323,6 +325,7 @@ async fn try_auto_discover<C: ControlPlane>(
             models::Capture::new(&state.catalog_name),
             draft,
             update_only,
+            reset_on_key_change,
             state.logs_token,
             state.data_plane_id,
         )

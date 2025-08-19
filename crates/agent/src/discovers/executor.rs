@@ -285,6 +285,14 @@ async fn prepare_discover(
         }
     };
 
+    let reset_on_key_change = draft
+        .captures
+        .get_by_key(&capture_name)
+        .and_then(|row| row.model.as_ref())
+        .and_then(|model| model.auto_discover.as_ref())
+        .map(|auto| auto.evolve_incompatible_collections)
+        .unwrap_or_default();
+
     Ok(Discover {
         user_id,
         filter_user_authz: true,
@@ -292,6 +300,7 @@ async fn prepare_discover(
         data_plane,
         draft,
         update_only,
+        reset_on_key_change,
         logs_token,
     })
 }
