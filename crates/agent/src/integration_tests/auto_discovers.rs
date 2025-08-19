@@ -1058,11 +1058,10 @@ async fn test_auto_discovers_update_only() {
         "resource": {
           "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pikas_alpine-grass\"]},\"id\":\"pikas_alpine-grass\"}"
         },
-        "source": "pikas/alpine-grass_v2",
+        "source": "pikas/alpine-grass",
         "fields": {
           "recommended": true
-        },
-        "backfill": 1
+        }
       },
       {
         "resource": {
@@ -1083,28 +1082,24 @@ async fn test_auto_discovers_update_only() {
         .publications
         .history
         .iter()
-        .map(|e| (e.detail.as_ref(), &e.result))
+        .map(|e| {
+            (
+                e.detail.as_ref().map(|d| {
+                    regex::Regex::new("generation [0-9a-f]+")
+                        .unwrap()
+                        .replace_all(d, "generation <redacted>")
+                }),
+                &e.result,
+            )
+        })
         .collect::<Vec<_>>();
+
     insta::assert_json_snapshot!(pub_history, @r###"
     [
       [
-        "auto-discover changes (0 added, 2 modified, 1 removed), and re-creating 1 collections",
+        "auto-discover changes (0 added, 2 modified, 1 removed)\nUpdated 'pikas/capture':\nbackfilled binding of reset collection pikas/alpine-grass\nUpdated 'pikas/alpine-grass':\nreset collection to new generation <redacted>",
         {
           "type": "success"
-        }
-      ],
-      [
-        "auto-discover changes (0 added, 2 modified, 1 removed)",
-        {
-          "type": "buildFailed",
-          "incompatible_collections": [
-            {
-              "collection": "pikas/alpine-grass",
-              "requires_recreation": [
-                "keyChange"
-              ]
-            }
-          ]
         }
       ],
       [

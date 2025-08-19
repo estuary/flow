@@ -28,6 +28,8 @@ pub struct Discover {
     /// Whether newly discovered bindings should be enabled by default. If
     /// `true`, then newly added bindings will be added with `disable: true`.
     pub update_only: bool,
+    /// If a discovered binding's collection key changes, should we perform a data-flow reset?
+    pub reset_on_key_change: bool,
     /// The draft into which discover results will be merged. This _must_
     /// contain the capture named by `capture_name`, or an error will be
     /// returned. All pre-existing changes in the draft will be preserved, as
@@ -165,6 +167,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             user_id,
             filter_user_authz,
             update_only,
+            reset_on_key_change,
             mut draft,
         } = req;
 
@@ -225,6 +228,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             discovered,
             spec.resource_path_pointers,
             db,
+            reset_on_key_change,
         )
         .await?;
 
@@ -252,6 +256,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         discovered: capture::response::Discovered,
         resource_path_pointers: Vec<String>,
         db: &PgPool,
+        reset_on_key_change: bool,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -308,8 +313,12 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         )
         .await?;
 
-        let mut modified_bindings =
-            specs::merge_collections(used_bindings, collections, &live.collections)?;
+        let mut modified_bindings = specs::merge_collections(
+            used_bindings,
+            collections,
+            &live.collections,
+            reset_on_key_change,
+        )?;
         // Don't report a binding as both added and modified, because that'd just be confusing
         modified_bindings.retain(|path, _| !added_bindings.contains_key(path));
 

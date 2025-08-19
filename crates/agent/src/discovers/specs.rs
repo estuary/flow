@@ -223,6 +223,7 @@ pub fn merge_collections(
     used_bindings: Vec<Binding>,
     draft: &mut tables::DraftCollections,
     live: &tables::LiveCollections,
+    reset_on_key_change: bool,
 ) -> anyhow::Result<Changes> {
     let mut modified_collections = Changes::new();
 
@@ -306,6 +307,9 @@ pub fn merge_collections(
                 model_key = ?draft_model.key,
                 "discovered key change"
             );
+            if reset_on_key_change {
+                draft_model.reset = true;
+            }
             modified = true;
             draft_model.key = discovered_key;
         }
@@ -578,7 +582,7 @@ mod tests {
                 "case/4": {
                     "writeSchema": false,
                     "readSchema": {"const": "read!"},
-                    "key": ["/old"],
+                    "key": ["/foo", "/bar"],
                 },
                 "case/7": {
                     "schema": false,
@@ -612,7 +616,7 @@ mod tests {
             last_build_id: models::Id::zero(),
             model: serde_json::from_value(json!({
                 "schema": false,
-                "key": ["/old"],
+                "key": ["/key"],
             }))
             .unwrap(),
             spec: Default::default(),
@@ -623,6 +627,7 @@ mod tests {
             discovered_bindings,
             &mut draft.collections,
             &live.collections,
+            true,
         );
 
         insta::assert_debug_snapshot!(draft.collections, @r###"
@@ -663,7 +668,8 @@ mod tests {
                       "sqlite": {}
                     },
                     "transforms": []
-                  }
+                  },
+                  "reset": true
                 },
                 is_touch: 0,
             },

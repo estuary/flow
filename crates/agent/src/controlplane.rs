@@ -122,6 +122,7 @@ pub trait ControlPlane: Send + Sync {
         capture_name: models::Capture,
         draft: tables::DraftCatalog,
         update_only: bool,
+        reset_on_key_change: bool,
         logs_token: Uuid,
         data_plane_id: models::Id,
     ) -> anyhow::Result<DiscoverOutput>;
@@ -532,6 +533,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         capture_name: models::Capture,
         draft: tables::DraftCatalog,
         update_only: bool,
+        reset_on_key_change: bool,
         logs_token: Uuid,
         data_plane_id: models::Id,
     ) -> anyhow::Result<DiscoverOutput> {
@@ -557,6 +559,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             capture_name,
             draft,
             update_only,
+            reset_on_key_change,
             logs_token,
             data_plane,
         };
