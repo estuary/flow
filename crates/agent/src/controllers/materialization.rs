@@ -4,7 +4,6 @@ use super::{
     ControllerState, Inbox, NextRun,
 };
 use crate::controllers::config_update;
-use crate::publications::{PublicationResult, RejectedField};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
@@ -13,9 +12,8 @@ use models::{
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
-    MaterializationEndpoint, ModelDef, OnIncompatibleSchemaChange, RawValue, SourceType,
+    MaterializationEndpoint, ModelDef, RawValue, SourceType,
 };
-use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tables::{utils::pointer_for_schema, LiveRow};
@@ -212,10 +210,7 @@ async fn source_capture_update<C: ControlPlane>(
     }
 }
 
-/// Publishes, and handles any incompatibleCollections by automatically
-/// applying `onIncompatibleSchemaChange` actions. Returns successful if
-/// _either_ the initial publication, or a subsequent attempt after applying
-/// evolutions actions was successful. Returns an error if the publication
+/// Publishes the publication. Returns an error if the publication
 /// was not successful.
 async fn do_publication<C: ControlPlane>(
     pub_status: &mut PublicationStatus,
@@ -223,36 +218,10 @@ async fn do_publication<C: ControlPlane>(
     mut pending_pub: PendingPublication,
     control_plane: &C,
 ) -> anyhow::Result<()> {
-    let mut result = pending_pub
+    let result = pending_pub
         .finish(state, pub_status, control_plane)
         .await
         .context("failed to execute publication")?;
-
-    if result.status.has_incompatible_collections() {
-        let PublicationResult {
-            built,
-            mut detail,
-            mut draft,
-            ..
-        } = result;
-        let mut detail = detail
-            .take()
-            .expect("detail must be set for controller-initiated publications");
-        detail.push_str(", and applying onIncompatibleSchemaChange actions");
-        apply_evolution_actions(state, built, &mut draft).context("applying evolution actions")?;
-
-        let new_result = PendingPublication::of(vec![detail], draft)
-            .finish(state, pub_status, control_plane)
-            .await
-            .context("failed to execute publication")?;
-        if !new_result.status.is_success() {
-            tracing::warn!(
-                publication_status = ?new_result.status,
-                "publication failed after applying evolution actions"
-            );
-        }
-        result = new_result;
-    }
 
     // We retry materialization publication failures, because they primarily depend on the
     // availability and state of an external system. But we don't retry indefinitely, since
@@ -261,100 +230,6 @@ async fn do_publication<C: ControlPlane>(
         .error_for_status()
         .with_retry(backoff_publication_failure(state.failures))?;
     Ok(())
-}
-
-fn apply_evolution_actions(
-    state: &ControllerState,
-    built: tables::Validations,
-    draft: &mut tables::DraftCatalog,
-) -> anyhow::Result<usize> {
-    let mat_name = models::Materialization::new(state.catalog_name.as_str());
-    let built_row = built
-        .built_materializations
-        .get_by_key(&mat_name)
-        .ok_or_else(|| anyhow::anyhow!("missing built row for materialization"))?;
-    let draft_materialization = draft
-        .materializations
-        .get_mut_by_key(&mat_name)
-        .ok_or_else(|| anyhow::anyhow!("missing draft row for materialization"))?;
-
-    // We intend to modify the spec
-    draft_materialization.is_touch = false;
-    let draft_model = draft_materialization
-        .model
-        .as_mut()
-        .ok_or_else(|| anyhow::anyhow!("missing draft model for materialization"))?;
-
-    let mut updated = 0;
-    for (i, binding) in built_row
-        .validated
-        .iter()
-        .flat_map(|v| v.bindings.iter())
-        .enumerate()
-    {
-        let naughty_fields: Vec<RejectedField> = binding
-            .constraints
-            .iter()
-            .filter(|(_, constraint)| {
-                // Unsatisfiable is a simple alias for Incompatible.
-                constraint.r#type == ConstraintType::Incompatible as i32
-                    || constraint.r#type == ConstraintType::Unsatisfiable as i32
-            })
-            .map(|(field, constraint)| RejectedField {
-                field: field.clone(),
-                reason: constraint.reason.clone(),
-            })
-            .collect();
-
-        if naughty_fields.is_empty() {
-            continue;
-        }
-
-        // find the draft materialization binding that corresponds to the validated binding.
-        // We'd ideally like to use the resource path pointers to do this, but we don't
-        // have them yet for materialization connectors. So instead we'll use the index, which
-        // means we need to account for disabled bindings in the model.
-        let Some(draft_binding) = draft_model
-            .bindings
-            .iter_mut()
-            .filter(|b| !b.disable)
-            .nth(i)
-        else {
-            panic!("model is missing binding corresponding to validated binding {i}");
-        };
-
-        let behavior = draft_binding
-            .on_incompatible_schema_change
-            .unwrap_or(draft_model.on_incompatible_schema_change);
-        match behavior {
-            OnIncompatibleSchemaChange::Abort => {
-                let resource_path = binding.resource_path.iter().format(", ");
-                // We still consider this a retryable error, since technically
-                // the external system could change and the connector might not
-                // return an unsatisfiable constraint on a subsequent attempt.
-                return Err(anyhow::anyhow!(
-                        "incompatible schema changes observed for binding [{resource_path}] and onIncompatibleSchemaChange is 'abort'"
-                    ));
-            }
-            OnIncompatibleSchemaChange::Backfill => {
-                draft_binding.backfill += 1;
-            }
-            OnIncompatibleSchemaChange::DisableBinding => {
-                draft_binding.disable = true;
-            }
-            OnIncompatibleSchemaChange::DisableTask => {
-                draft_model.shards.disable = true;
-            }
-        };
-        tracing::info!(
-            resource_path = ?binding.resource_path,
-            incompatible_fields = ?naughty_fields,
-            resolution_action = ?behavior,
-            "applied evolution action to binding"
-        );
-        updated += 1;
-    }
-    Ok(updated)
 }
 
 fn backoff_publication_failure(prev_failures: i32) -> NextRun {

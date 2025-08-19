@@ -1,20 +1,17 @@
-use std::collections::BTreeMap;
-
-use crate::proxy_connectors::MakeConnectors;
-
 use super::logs;
+use crate::proxy_connectors::MakeConnectors;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use models::draft_error;
 use rand::Rng;
 use sqlx::types::Uuid;
 use sqlx::Executor;
-use tables::{BuiltRow, LiveRow};
+use tables::BuiltRow;
 
 pub mod builds;
 mod commit;
 mod executor;
 mod finalize;
-mod incompatible_collections;
 mod initialize;
 mod retry;
 
@@ -25,11 +22,7 @@ pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, 
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
 pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
-pub use models::publications::{
-    AffectedConsumer, IncompatibleCollection, JobStatus, LockFailure, ReCreateReason, RejectedField,
-};
-
-use models::draft_error;
+pub use models::publications::{JobStatus, LockFailure};
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
@@ -164,7 +157,6 @@ pub struct UncommittedBuild {
     pub(crate) started_at: DateTime<Utc>,
     pub(crate) output: build::Output,
     pub(crate) test_errors: tables::Errors,
-    pub(crate) incompatible_collections: Vec<IncompatibleCollection>,
     pub(crate) retry_count: u32,
 }
 impl UncommittedBuild {
@@ -180,15 +172,9 @@ impl UncommittedBuild {
         self.output.errors()
     }
 
-    pub fn build_failed(mut self) -> PublicationResult {
+    pub fn build_failed(self) -> PublicationResult {
         let status = if self.test_errors.is_empty() {
-            // get_incompatible_collections returns those that were rejected by materializations,
-            // whereas the ones in `incompatible_collections` were rejected due to key or logical
-            // parititon changes.
-            let mut naughty_collections =
-                incompatible_collections::get_incompatible_collections(&self.output.built);
-            naughty_collections.extend(self.incompatible_collections.drain(..));
-            JobStatus::build_failed(naughty_collections)
+            JobStatus::build_failed()
         } else {
             JobStatus::TestFailed
         };
@@ -203,14 +189,9 @@ impl UncommittedBuild {
             started_at,
             output,
             test_errors,
-            incompatible_collections,
-            build_id,
+            build_id: _,
             retry_count,
         } = self;
-        debug_assert!(
-            incompatible_collections.is_empty(),
-            "incompatible_collections should always be empty when calling into_result"
-        );
         let build::Output { draft, live, built } = output;
         PublicationResult {
             user_id,
@@ -385,7 +366,6 @@ impl<MC: MakeConnectors> Publisher<MC> {
                 started_at: start_time,
                 output,
                 test_errors: tables::Errors::default(),
-                incompatible_collections: Vec::new(),
                 retry_count,
             });
         }
@@ -411,34 +391,6 @@ impl<MC: MakeConnectors> Publisher<MC> {
                     built: Default::default(),
                 },
                 test_errors: tables::Errors::default(),
-                incompatible_collections: Vec::new(),
-                retry_count,
-            });
-        }
-
-        let incompatible_collections = validate_collection_transitions(&draft, &live_catalog);
-        if !incompatible_collections.is_empty() {
-            let errors =  incompatible_collections.iter().map(|ic| tables::Error {
-                scope: tables::synthetic_scope(models::CatalogType::Collection, &ic.collection),
-                error: anyhow::anyhow!("collection key and logical partitioning may not be changed; a new collection must be created"),
-            }).collect::<tables::Errors>();
-            let output = build::Output {
-                draft,
-                live: live_catalog,
-                built: tables::Validations {
-                    errors,
-                    ..Default::default()
-                },
-            };
-            return Ok(UncommittedBuild {
-                publication_id,
-                build_id,
-                user_id,
-                detail,
-                started_at: start_time,
-                output,
-                test_errors: tables::Errors::default(),
-                incompatible_collections,
                 retry_count,
             });
         }
@@ -514,7 +466,6 @@ impl<MC: MakeConnectors> Publisher<MC> {
             started_at: start_time,
             output: built,
             test_errors,
-            incompatible_collections: Vec::new(),
             retry_count,
         })
     }
@@ -699,72 +650,6 @@ fn is_empty_draft(build: &UncommittedBuild) -> bool {
         && built.built_tests.iter().all(BuiltRow::is_passthrough)
 }
 
-pub fn partitions(projections: &BTreeMap<models::Field, models::Projection>) -> Vec<String> {
-    projections
-        .iter()
-        .filter_map(|(field, proj)| {
-            if matches!(
-                proj,
-                models::Projection::Extended {
-                    partition: true,
-                    ..
-                }
-            ) {
-                Some(field.to_string())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-}
-
-/// Validates that collection keys have not changed. This check is now also performed
-/// as part of the `validation` crate, but it's duplicated here so that we can return
-/// structured `IncompatibleCollection` errors. We should probably consider moving
-/// `IncompatibleCollection` into `tables`, and generating these structured errors
-/// as part of `validation`. But not today.
-pub fn validate_collection_transitions(
-    draft: &tables::DraftCatalog,
-    live: &tables::LiveCatalog,
-) -> Vec<IncompatibleCollection> {
-    draft
-        .collections
-        .inner_join(
-            live.collections.iter().map(|lc| (lc.catalog_name(), lc)),
-            |draft_row, _, live_row| {
-                let Some(draft_model) = draft_row.model.as_ref() else {
-                    return None;
-                };
-                // Resetting a collection allows the key and partitions to change.
-                if draft_model.reset || draft_model.delete {
-                    return None;
-                }
-                let live_model = &live_row.model;
-
-                let mut requires_recreation = Vec::new();
-                if draft_model.key != live_model.key {
-                    requires_recreation.push(ReCreateReason::KeyChange);
-                }
-                if partitions(&draft_model.projections) != partitions(&live_model.projections) {
-                    requires_recreation.push(ReCreateReason::PartitionChange);
-                }
-                if requires_recreation.is_empty() {
-                    None
-                } else {
-                    Some(IncompatibleCollection {
-                        collection: draft_row.collection.to_string(),
-                        requires_recreation,
-                        // Don't set affected_materializations because materializations
-                        // are not the source of the incompatibility, and all materializations
-                        // sourcing from the collection will always be affected.
-                        affected_materializations: Vec::new(),
-                    })
-                }
-            },
-        )
-        .collect()
-}
-
 /// Determines whether the given error is due to a transaction serialization failure,
 /// meaning that the commit must be retried.
 fn is_transaction_serialization_error(err: &anyhow::Error) -> bool {
@@ -797,7 +682,6 @@ mod test {
                 error: anyhow::anyhow!("test error"),
             })
             .collect(),
-            incompatible_collections: Vec::new(),
             retry_count: 0,
         };
         let result = build.build_failed();

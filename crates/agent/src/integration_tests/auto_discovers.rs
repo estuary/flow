@@ -439,21 +439,13 @@ async fn test_auto_discovers_no_evolution() {
             "completed": "[ts]",
             "detail": "auto-discover changes (0 added, 1 modified, 0 removed)",
             "result": {
-              "type": "buildFailed",
-              "incompatible_collections": [
-                {
-                  "collection": "mules/hey",
-                  "requires_recreation": [
-                    "keyChange"
-                  ]
-                }
-              ]
+              "type": "buildFailed"
             },
             "errors": [
               {
                 "catalog_name": "mules/hey",
-                "scope": "flow://collection/mules/hey",
-                "detail": "collection key and logical partitioning may not be changed; a new collection must be created"
+                "scope": "flow://collection/mules/hey#/key",
+                "detail": "the key of existing collection mules/hey cannot change (from [\"/id\"] to [\"/id\", \"/squeaks\"]) without also resetting it"
               }
             ]
           }
@@ -485,15 +477,7 @@ async fn test_auto_discovers_no_evolution() {
               }
             ],
             "publish_result": {
-              "type": "buildFailed",
-              "incompatible_collections": [
-                {
-                  "collection": "mules/hey",
-                  "requires_recreation": [
-                    "keyChange"
-                  ]
-                }
-              ]
+              "type": "buildFailed"
             }
           }
         }
@@ -962,10 +946,7 @@ async fn test_auto_discovers_update_only() {
     let failure = auto_discover.failure.as_ref().unwrap();
     assert_eq!(3, failure.count, "expect auto-discover was attempted again");
     assert_eq!(
-        Some(publications::JobStatus::BuildFailed {
-            incompatible_collections: Vec::new(),
-            evolution_id: None
-        }),
+        Some(publications::JobStatus::build_failed()),
         failure.last_outcome.publish_result
     );
     // Ensure that the failed publication is shown in the history.
