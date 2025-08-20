@@ -5,10 +5,10 @@ expression: errors
 [
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/1,
-        error: this materialization binding at offset 1 is bound to endpoint resource "target.one", but so is the binding at offset 0, which is not permitted (each binding must have a unique endpoint resource),
+        error: this materialization binding at offset 1 is bound to endpoint resource ["target", "one"], but so is the binding at offset 0, which is not permitted (each binding must have a unique endpoint resource),
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/2,
-        error: this materialization binding at offset 2 is bound to endpoint resource "target.one", but so is the binding at offset 1, which is not permitted (each binding must have a unique endpoint resource),
+        error: this materialization binding at offset 2 is bound to endpoint resource ["target", "one"], but so is the binding at offset 1, which is not permitted (each binding must have a unique endpoint resource),
     },
 ]

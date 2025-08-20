@@ -56,7 +56,7 @@ expression: "(selections, errors)"
                 },
             ),
             [
-                "disabling binding \"a\" due to incompatible field selection (onIncompatibleSchemaChange: disableBinding)",
+                "disabling binding [\"a\"] due to incompatible field selection (onIncompatibleSchemaChange: disableBinding)",
             ],
         ),
     ],

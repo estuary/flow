@@ -321,6 +321,11 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 resource_path: validation::load_resource_meta_path(binding.resource.get()),
                 backfill: binding.backfill,
                 field_selection: mock.last_fields.get(index).cloned(),
+                delta_updates: mock
+                    .last_fields
+                    .get(index)
+                    .map(|l| l.keys.is_empty())
+                    .unwrap_or_default(),
                 ..Default::default()
             })
             .collect();
@@ -447,6 +452,48 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
 pub fn run_errors(fixture_yaml: &str, patch_yaml: &str) -> tables::Errors {
     let outcome = run(fixture_yaml, patch_yaml);
     outcome.errors
+}
+
+#[allow(dead_code)]
+pub fn run_selection(
+    fixture_yaml: &str,
+    patch_yaml: &str,
+) -> (
+    Vec<(
+        Vec<flow::FieldSelection>,
+        Option<models::MaterializationDef>,
+        Vec<String>,
+    )>,
+    tables::Errors,
+) {
+    let outcome = run(fixture_yaml, patch_yaml);
+
+    let mut errors = outcome.errors_draft;
+    errors.extend(outcome.errors.into_iter());
+
+    let selections: Vec<_> = outcome
+        .built_materializations
+        .into_iter()
+        .map(
+            |tables::BuiltMaterialization {
+                 spec,
+                 model,
+                 model_fixes: fixes,
+                 ..
+             }| {
+                (
+                    std::mem::take(&mut spec.unwrap().bindings)
+                        .into_iter()
+                        .filter_map(|b| b.field_selection)
+                        .collect::<Vec<_>>(),
+                    model,
+                    fixes,
+                )
+            },
+        )
+        .collect();
+
+    (selections, errors)
 }
 
 #[derive(serde::Deserialize)]

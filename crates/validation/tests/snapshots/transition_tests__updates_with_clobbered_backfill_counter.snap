@@ -30,7 +30,7 @@ expression: "captures.chain(collections).chain(materializations).chain(errors).c
       }
     },
     [
-      "restored `backfill` of resource \"capture.path\""
+      "restored `backfill` of resource [\"capture\", \"path\"]"
     ]
   ],
   [
@@ -140,7 +140,7 @@ expression: "captures.chain(collections).chain(materializations).chain(errors).c
       }
     },
     [
-      "restored `backfill` of resource \"table.path\""
+      "restored `backfill` of resource [\"table\", \"path\"]"
     ]
   ]
 ]

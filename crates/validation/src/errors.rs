@@ -73,12 +73,6 @@ pub enum Error {
     NoSuchSchema { schema: Url },
     #[error("collection {collection} key cannot be empty (https://go.estuary.dev/Zq6zVB)")]
     CollectionKeyEmpty { collection: String },
-    #[error("the key of existing collection {collection} cannot change (from {live:?} to {draft:?}) without also resetting it")]
-    CollectionKeyChanged {
-        collection: String,
-        live: Vec<String>,
-        draft: Vec<String>,
-    },
     #[error("the logical partitions of existing collection {collection} cannot change (from {live:?} to {draft:?}) without also resetting it")]
     CollectionPartitionsChanged {
         collection: String,
@@ -101,6 +95,12 @@ pub enum Error {
     },
     #[error("groupBy field {field} accepts {type_:?}, but groupBy locations may only be null-able integers, strings, or booleans")]
     GroupByWrongType { field: String, type_: types::Set },
+    #[error("the group-by key of non-delta resource {path:?} cannot change (from {live:?} to {draft:?}) without a backfill")]
+    GroupByChanged {
+        path: Vec<String>,
+        live: Vec<String>,
+        draft: Vec<String>,
+    },
     #[error("location {ptr} is {read_type:?} in readSchema {read_schema}, but {write_type:?} in writeSchema {write_schema}. Types of keyed locations must be the same in read and write schemas.")]
     KeyReadWriteTypesDiffer {
         ptr: String,
@@ -193,10 +193,10 @@ pub enum Error {
     NotBeforeAfterOrder,
     #[error("test ingest document is invalid against the collection schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     IngestDocInvalid(doc::FailedValidation),
-    #[error("this {entity} binding at offset {rhs_index} is bound to endpoint resource {resource:?}, but so is the binding at offset {lhs_index}, which is not permitted (each binding must have a unique endpoint resource)")]
+    #[error("this {entity} binding at offset {rhs_index} is bound to endpoint resource {path:?}, but so is the binding at offset {lhs_index}, which is not permitted (each binding must have a unique endpoint resource)")]
     BindingDuplicatesResource {
         entity: &'static str,
-        resource: String,
+        path: Vec<String>,
         lhs_index: usize,
         rhs_index: usize,
     },

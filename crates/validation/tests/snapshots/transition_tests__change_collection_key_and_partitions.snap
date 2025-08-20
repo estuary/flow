@@ -4,10 +4,6 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/catalog.yaml#/collections/the~1collection/key,
-        error: the key of existing collection the/collection cannot change (from ["/f_one"] to ["/f_two", "/f_one"]) without also resetting it,
-    },
-    Error {
         scope: test://example/catalog.yaml#/collections/the~1collection/projections,
         error: the logical partitions of existing collection the/collection cannot change (from [] to ["F1"]) without also resetting it,
     },

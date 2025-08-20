@@ -2,7 +2,6 @@ use super::{
     indexed, reference, storage_mapping, walk_transition, Connectors, Error, NoOpConnectors, Scope,
 };
 use futures::SinkExt;
-use itertools::Itertools;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
@@ -337,10 +336,7 @@ async fn walk_capture<C: Connectors>(
 
         if let Some(live_spec) = live_spec {
             if model.backfill < live_spec.backfill {
-                model_fixes.push(format!(
-                    "restored `backfill` of resource {:?}",
-                    path.iter().join(".")
-                ));
+                model_fixes.push(format!("restored `backfill` of resource {path:?}"));
                 model.backfill = live_spec.backfill;
             }
         }

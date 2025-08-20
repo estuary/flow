@@ -1,15 +1,25 @@
 ---
-source: crates/validation/tests/field_selection_conflicts.rs
+source: crates/validation/tests/group_by_conflicts.rs
 expression: "(selections, errors)"
 ---
 (
     [
         (
-            [],
+            [
+                FieldSelection {
+                    keys: [
+                        "f_one",
+                        "f_two",
+                    ],
+                    values: [],
+                    document: "",
+                    field_config_json_map: {},
+                },
+            ],
             Some(
                 MaterializationDef {
                     source: None,
-                    on_incompatible_schema_change: DisableTask,
+                    on_incompatible_schema_change: Backfill,
                     endpoint: Connector(
                         ConnectorConfig {
                             image: "an/image:test",
@@ -43,7 +53,7 @@ expression: "(selections, errors)"
                         },
                     ],
                     shards: ShardTemplate {
-                        disable: true,
+                        disable: false,
                         min_txn_duration: None,
                         max_txn_duration: None,
                         hot_standbys: None,
@@ -55,9 +65,7 @@ expression: "(selections, errors)"
                     delete: false,
                 },
             ),
-            [
-                "disabling materialization due to incompatible field selection of binding [\"a\"] (onIncompatibleSchemaChange: disableTask)",
-            ],
+            [],
         ),
     ],
     [],

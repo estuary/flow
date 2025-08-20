@@ -1,5 +1,5 @@
 ---
-source: crates/validation/tests/field_selection_conflicts.rs
+source: crates/validation/tests/group_by_conflicts.rs
 expression: "(selections, errors)"
 ---
 (
@@ -56,7 +56,7 @@ expression: "(selections, errors)"
                 },
             ),
             [
-                "disabling materialization due to incompatible field selection of binding [\"a\"] (onIncompatibleSchemaChange: disableTask)",
+                "disabling materialization due to binding [\"a\"] group-by change from [\"f_one\"] to [\"f_one\", \"f_two\"] (onIncompatibleSchemaChange: disableTask)",
             ],
         ),
     ],
