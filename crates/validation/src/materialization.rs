@@ -3,7 +3,6 @@ use super::{
     Error, NoOpConnectors, Scope,
 };
 use futures::SinkExt;
-use itertools::Itertools;
 use json::schema::types;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
@@ -211,7 +210,7 @@ async fn walk_materialization<C: Connectors>(
     let bindings: Vec<(
         models::ResourcePath,
         models::MaterializationBinding,
-        bool,
+        Option<String>,
         Option<materialize::request::validate::Binding>,
     )> = bindings_model
         .into_iter()
@@ -234,13 +233,13 @@ async fn walk_materialization<C: Connectors>(
         .collect();
 
     // Do we need to disable the whole task due to a reset source collection?
-    if let Some((_, model_binding, _, _)) = bindings
+    if let Some(reason) = bindings
         .iter()
-        .find(|(_, _, disable_task, _)| *disable_task)
+        .filter_map(|(_, _, disable_task, _)| disable_task.as_ref())
+        .next()
     {
         model_fixes.push(format!(
-            "disabling materialization due to reset of collection {} (onIncompatibleSchemaChange: disableTask)",
-            model_binding.source.collection(),
+            "disabling materialization due to {reason} (onIncompatibleSchemaChange: disableTask)",
         ));
         shards.disable = true;
     }
@@ -263,15 +262,7 @@ async fn walk_materialization<C: Connectors>(
     // Filter to validation requests of active bindings.
     let bindings_validate: Vec<materialize::request::validate::Binding> = bindings
         .iter()
-        .filter_map(|(_path, _model, _disable_task, validate)| {
-            // TODO(johnny): Switch back to `validate.clone()` once connectors expect `Validate.group_by`.
-            if let Some(mut validate) = validate.clone() {
-                validate.group_by.clear();
-                Some(validate)
-            } else {
-                None
-            }
-        })
+        .filter_map(|(_path, _model, _disable_task, validate)| validate.clone())
         .collect();
     let bindings_validate_len = bindings_validate.len();
 
@@ -404,10 +395,7 @@ async fn walk_materialization<C: Connectors>(
 
         if let Some(live_spec) = live_spec {
             if model.backfill < live_spec.backfill {
-                model_fixes.push(format!(
-                    "restored `backfill` of resource {:?}",
-                    path.iter().join(".")
-                ));
+                model_fixes.push(format!("restored `backfill` of resource {path:?}"));
                 model.backfill = live_spec.backfill;
             }
         }
@@ -457,8 +445,7 @@ async fn walk_materialization<C: Connectors>(
             }
             (false, true, models::OnIncompatibleSchemaChange::Backfill) => {
                 model_fixes.push(format!(
-                    "backfilling binding {:?} due to incompatible field selection (onIncompatibleSchemaChange: backfill)",
-                    path.iter().join(".")
+                    "backfilling binding {path:?} due to incompatible field selection (onIncompatibleSchemaChange: backfill)",
                 ));
                 model.backfill += 1;
 
@@ -466,8 +453,7 @@ async fn walk_materialization<C: Connectors>(
             }
             (false, true, models::OnIncompatibleSchemaChange::DisableBinding) => {
                 model_fixes.push(format!(
-                    "disabling binding {:?} due to incompatible field selection (onIncompatibleSchemaChange: disableBinding)",
-                    path.iter().join(".")
+                    "disabling binding {path:?} due to incompatible field selection (onIncompatibleSchemaChange: disableBinding)",
                 ));
                 model.disable = true;
 
@@ -478,8 +464,7 @@ async fn walk_materialization<C: Connectors>(
             }
             (false, true, models::OnIncompatibleSchemaChange::DisableTask) => {
                 model_fixes.push(format!(
-                    "disabling materialization due to incompatible field selection of binding {:?} (onIncompatibleSchemaChange: disableTask)",
-                    path.iter().join(".")
+                    "disabling materialization due to incompatible field selection of binding {path:?} (onIncompatibleSchemaChange: disableTask)",
                 ));
                 shards.disable = true;
 
@@ -650,14 +635,14 @@ fn walk_materialization_binding<'a>(
 ) -> (
     models::ResourcePath,           // Path extracted from the model resource.
     models::MaterializationBinding, // Model with fixes applied.
-    bool,                           // Should we disable the task due to onIncompatibleSchemaChange?
+    Option<String>,                 // Should we disable the task due to onIncompatibleSchemaChange?
     Option<materialize::request::validate::Binding>, // Validate request if active.
 ) {
     let model_path = super::load_resource_meta_path(model.resource.get());
 
     if model.disable {
         // A disabled binding may reference a non-extant collection.
-        return (model_path, model, false, None);
+        return (model_path, model, None, None);
     }
 
     let live_model = live_bindings_model.get(&model_path);
@@ -681,7 +666,7 @@ fn walk_materialization_binding<'a>(
             (name, partitions.as_ref())
         }
     };
-    let Some((source_spec, built_collection)) = reference::walk_reference(
+    let Some((mut source_spec, built_collection)) = reference::walk_reference(
         scope,
         "this materialization binding",
         source,
@@ -690,12 +675,12 @@ fn walk_materialization_binding<'a>(
     ) else {
         model_fixes.push(format!("disabled binding of deleted collection {source}"));
         model.disable = true;
-        return (model_path, model, false, None);
+        return (model_path, model, None, None);
     };
 
     if disable {
         // Perform no further validations if the task is disabled.
-        return (model_path, model, false, None);
+        return (model_path, model, None, None);
     }
 
     if let Some(selector) = source_partitions {
@@ -727,9 +712,14 @@ fn walk_materialization_binding<'a>(
             && super::collection_was_reset(&source_spec, &live_spec.collection)
     });
     // Has the effective group-by key of the live materialization changed?
-    let group_by_changed = live_spec.is_some_and(|live_spec| {
-        live_spec.field_selection.as_ref().map(|f| &f.keys) != Some(&group_by)
-    });
+    let group_by_changed = live_spec
+        // Reset already implies a backfill.
+        .filter(|_| !was_reset)
+        // Delta-updates bindings may change their group-by at any time.
+        .filter(|live| !live.delta_updates)
+        .and_then(|live| live.field_selection.as_ref())
+        .map(|fields| &fields.keys)
+        .filter(|live_group_by| *live_group_by != &group_by);
 
     match (was_reset, on_incompatible_schema_change) {
         (false, _) => {}
@@ -741,7 +731,7 @@ fn walk_materialization_binding<'a>(
                 }),
             }
             .push(scope, errors);
-            return (model_path, model, false, None);
+            return (model_path, model, None, None);
         }
         (true, models::OnIncompatibleSchemaChange::Backfill) => {
             model_fixes.push(format!("backfilled binding of reset collection {source}"));
@@ -750,19 +740,56 @@ fn walk_materialization_binding<'a>(
         (true, models::OnIncompatibleSchemaChange::DisableBinding) => {
             model_fixes.push(format!("disabling binding of reset collection {source}"));
             model.disable = true;
-            return (model_path, model, false, None);
+            return (model_path, model, None, None);
         }
         (true, models::OnIncompatibleSchemaChange::DisableTask) => {
-            // This will be handled by the caller.
-            return (model_path, model, true, None);
+            // Caller handles disabling the task.
+            let reason = format!("reset of collection {source}");
+            return (model_path, model, Some(reason), None);
         }
     }
 
-    // TODO(johnny): Take `on_incompatible_schema_change` action on `group_by_changed`.
-    _ = group_by_changed; // Not used yet.
+    match (group_by_changed, on_incompatible_schema_change) {
+        (None, _) => {}
+        (Some(live_group_by), models::OnIncompatibleSchemaChange::Abort) => {
+            Error::AbortOnIncompatibleSchemaChange {
+                this_entity: catalog_name.to_string(),
+                inner: Box::new(Error::GroupByChanged {
+                    path: model_path.clone(),
+                    live: live_group_by.clone(),
+                    draft: group_by.clone(),
+                }),
+            }
+            .push(scope, errors);
+            return (model_path, model, None, None);
+        }
+        (Some(live_group_by), models::OnIncompatibleSchemaChange::Backfill) => {
+            model_fixes.push(format!(
+                "backfilled binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by:?}",
+            ));
+            model.backfill += 1;
+        }
+        (Some(live_group_by), models::OnIncompatibleSchemaChange::DisableBinding) => {
+            model_fixes.push(format!(
+                "disabling binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by:?}",
+            ));
+            model.disable = true;
+            return (model_path, model, None, None);
+        }
+        (Some(live_group_by), models::OnIncompatibleSchemaChange::DisableTask) => {
+            // Caller handles disabling the task.
+            let reason = format!(
+                "binding {model_path:?} group-by change from {live_group_by:?} to {group_by:?}",
+            );
+            return (model_path, model, Some(reason), None);
+        }
+    }
 
-    // TODO(johnny): Update projections of `source_spec`, setting `is_primary_key`
-    // for (only) those projections which are part of `group_by`
+    // Update projections of this binding's `source_spec` clone, setting
+    // `is_primary_key` for (only) those projections which are part of `group_by`.
+    for projection in source_spec.projections.iter_mut() {
+        projection.is_primary_key = group_by.contains(&projection.field);
+    }
 
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
@@ -772,7 +799,7 @@ fn walk_materialization_binding<'a>(
         group_by,
     };
 
-    (model_path, model, false, Some(validate))
+    (model_path, model, None, Some(validate))
 }
 
 fn walk_materialization_fields<'a>(

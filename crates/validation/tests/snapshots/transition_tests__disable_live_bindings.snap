@@ -306,7 +306,7 @@ Outcome {
                         field: "F1",
                         explicit: true,
                         is_partition_key: false,
-                        is_primary_key: true,
+                        is_primary_key: false,
                         inference: Some(
                             Inference {
                                 types: [

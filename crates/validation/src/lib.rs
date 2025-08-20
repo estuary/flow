@@ -502,7 +502,7 @@ fn validate_resource_paths<'a>(
         }
         Error::BindingDuplicatesResource {
             entity,
-            resource: resource_path(l_i).iter().join("."),
+            path: resource_path(l_i).to_vec(),
             lhs_index: l_i,
             rhs_index: r_i,
         }

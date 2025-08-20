@@ -1,5 +1,5 @@
 ---
-source: crates/validation/tests/field_selection_conflicts.rs
+source: crates/validation/tests/group_by_conflicts.rs
 expression: "(selections, errors)"
 ---
 (
@@ -9,7 +9,7 @@ expression: "(selections, errors)"
             Some(
                 MaterializationDef {
                     source: None,
-                    on_incompatible_schema_change: DisableTask,
+                    on_incompatible_schema_change: DisableBinding,
                     endpoint: Connector(
                         ConnectorConfig {
                             image: "an/image:test",
@@ -28,7 +28,7 @@ expression: "(selections, errors)"
                                     "the/collection",
                                 ),
                             ),
-                            disable: false,
+                            disable: true,
                             priority: 0,
                             fields: MaterializationFields {
                                 group_by: [],
@@ -43,7 +43,7 @@ expression: "(selections, errors)"
                         },
                     ],
                     shards: ShardTemplate {
-                        disable: true,
+                        disable: false,
                         min_txn_duration: None,
                         max_txn_duration: None,
                         hot_standbys: None,
@@ -56,7 +56,7 @@ expression: "(selections, errors)"
                 },
             ),
             [
-                "disabling materialization due to incompatible field selection of binding [\"a\"] (onIncompatibleSchemaChange: disableTask)",
+                "disabling binding [\"a\"] due to group-by change from [\"f_one\"] to [\"f_one\", \"f_two\"]",
             ],
         ),
     ],

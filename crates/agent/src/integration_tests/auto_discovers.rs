@@ -397,7 +397,7 @@ async fn test_auto_discovers_no_evolution() {
             recommended_name: "hey".to_string(),
             resource_config_json: r#"{"id": "hey"}"#.to_string(),
             document_schema_json: document_schema(1).to_string(),
-            key: vec!["/id".to_string(), "/squeaks".to_string()],
+            key: vec!["/id".to_string(), "/invalid-key".to_string()],
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
@@ -444,8 +444,8 @@ async fn test_auto_discovers_no_evolution() {
             "errors": [
               {
                 "catalog_name": "mules/hey",
-                "scope": "flow://collection/mules/hey#/key",
-                "detail": "the key of existing collection mules/hey cannot change (from [\"/id\"] to [\"/id\", \"/squeaks\"]) without also resetting it"
+                "scope": "flow://collection/mules/hey#/key/1",
+                "detail": "location /invalid-key is unknown in schema schema://bundle"
               }
             ]
           }

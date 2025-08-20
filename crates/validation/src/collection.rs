@@ -1,6 +1,5 @@
 use super::{indexed, schema, storage_mapping, walk_transition, Error, Scope};
-use doc::shape::X_INITIAL_READ_SCHEMA;
-use json::schema::{types, Keyword};
+use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
@@ -86,17 +85,6 @@ fn walk_collection(
         models::Collection::regex(),
         errors,
     );
-
-    if let Some(live_model) = live_model {
-        if !reset && key != live_model.key {
-            Error::CollectionKeyChanged {
-                collection: collection.to_string(),
-                live: live_model.key.iter().map(|k| k.to_string()).collect(),
-                draft: key.iter().map(|k| k.to_string()).collect(),
-            }
-            .push(scope.push_prop("key"), errors);
-        }
-    }
 
     // Determine the correct `journal_name_prefix` to use and its `generation_id`,
     // which is regenerated if `reset` is true or if this is a new collection.
@@ -527,8 +515,7 @@ fn walk_collection_projections(
             ptr: raw_ptr.to_string(),
             field: field.to_string(),
             explicit: true,
-            // TODO(johnny): Only canonical projections of key pointers should be `is_primary_key`.
-            is_primary_key: key.iter().any(|k| k == raw_ptr),
+            is_primary_key: key.iter().any(|k| &k[1..] == field.as_str()),
             is_partition_key: partition,
             inference: Some(assemble::inference(r_shape, r_exists)),
         });

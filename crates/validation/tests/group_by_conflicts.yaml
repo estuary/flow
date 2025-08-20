@@ -4,12 +4,9 @@ test://example/catalog.yaml:
       schema:
         type: object
         properties:
-          f_required: { type: integer }
-          f_loc_required: { type: integer }
-          f_optional: { type: integer }
-          f_forbidden: { type: integer }
-          f_incompatible: { type: integer }
-      key: [/f_required]
+          f_one: { type: integer }
+          f_two: { type: integer }
+      key: [/f_one, /f_two] # Changed from just /f_one.
 
   materializations:
     the/materialization:
@@ -35,7 +32,7 @@ driver:
       controlId: "11:11:11:11:11:11:11:04"
       dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
       lastPubId: "10:10:10:10:10:10:10:10"
-      key: [/f_required]
+      key: [/f_one]
 
   liveMaterializations:
     the/materialization:
@@ -44,7 +41,7 @@ driver:
       lastPubId: "10:10:10:10:10:10:10:10"
       bindings: *the_bindings
       lastFields:
-        - keys: [f_required]
+        - keys: [f_one]
 
   materializations:
     the/materialization:
@@ -54,9 +51,6 @@ driver:
         config: {}
       bindings:
         - constraints:
-            f_required: { type: 1, reason: "I'm a required field" }
-            f_loc_required: { type: 2, reason: "I'm a required location" }
-            f_optional: { type: 4, reason: "I'm an optional field" }
-            f_forbidden: { type: 5, reason: "I'm a forbidden fruit" }
-            f_incompatible: { type: 6, reason: "I'm an incompatible field" }
+            f_one: { type: 4, reason: "optional" }
+            f_two: { type: 4, reason: "optional" }
           resourcePath: [a]

@@ -1,0 +1,13 @@
+---
+source: crates/validation/tests/group_by_conflicts.rs
+expression: "(selections, errors)"
+---
+(
+    [],
+    [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
+            error: raising an error because the/materialization specifies `onIncompatibleSchemaChange: abort`: the group-by key of non-delta resource ["a"] cannot change (from ["f_one"] to ["f_two"]) without a backfill,
+        },
+    ],
+)
