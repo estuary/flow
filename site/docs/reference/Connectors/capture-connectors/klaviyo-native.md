@@ -6,7 +6,7 @@ It is available for use in the Flow web application. For local development or op
 
 ## Supported data resources
 
-The following data resources are supported through the Zendesk API:
+The following data resources are supported through the Klaviyo API:
 
 * [Campaigns](https://developers.klaviyo.com/en/reference/get_campaigns)
 * [Coupon Codes](https://developers.klaviyo.com/en/reference/get_coupon_codes)
@@ -44,8 +44,8 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/start_date` | Start Date | The date from which you&#x27;d like to replicate data for Klaviyo API, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | 30 days before the present |
 | **`/credentials`** | Credentials | Credentials for the service | object |  |
 | **`/credentials/credentials_title`** | Authentication Method | Set to `API Key`. | string | Required |
-| **`/credentials/access_token`** | API Key | The value of your Klaviyo private API Key . | string | Required |
-| `/advanced/window_size` | Window Size | Date window size for the `events` backfill in ISO 8601 format. ex: P30D means 30 days, PT6H means 6 hours. If you have a significant amount of `events` data` to backfill, smaller window sizes will allow the connector to checkpoint its progress more frequently. | string | P30D |
+| **`/credentials/access_token`** | API Key | The value of your Klaviyo private API Key. | string | Required |
+| `/advanced/window_size` | Window Size | Date window size for the `events` backfill in ISO 8601 format. ex: P30D means 30 days, PT6H means 6 hours. If you have a significant amount of `events` data to backfill, smaller window sizes will allow the connector to checkpoint its progress more frequently. | string | P30D |
 
 
 #### Bindings
