@@ -1,15 +1,26 @@
 ---
-source: crates/validation/tests/field_selection_conflicts.rs
+source: crates/validation/tests/group_by_conflicts.rs
 expression: "(selections, errors)"
 ---
 (
     [
         (
-            [],
+            [
+                FieldSelection {
+                    keys: [
+                        "f_one",
+                    ],
+                    values: [
+                        "f_two",
+                    ],
+                    document: "",
+                    field_config_json_map: {},
+                },
+            ],
             Some(
                 MaterializationDef {
                     source: None,
-                    on_incompatible_schema_change: DisableTask,
+                    on_incompatible_schema_change: Abort,
                     endpoint: Connector(
                         ConnectorConfig {
                             image: "an/image:test",
@@ -31,7 +42,11 @@ expression: "(selections, errors)"
                             disable: false,
                             priority: 0,
                             fields: MaterializationFields {
-                                group_by: [],
+                                group_by: [
+                                    Field(
+                                        "f_one",
+                                    ),
+                                ],
                                 require: {},
                                 exclude: [],
                                 recommended: Usize(
@@ -43,7 +58,7 @@ expression: "(selections, errors)"
                         },
                     ],
                     shards: ShardTemplate {
-                        disable: true,
+                        disable: false,
                         min_txn_duration: None,
                         max_txn_duration: None,
                         hot_standbys: None,
@@ -55,9 +70,7 @@ expression: "(selections, errors)"
                     delete: false,
                 },
             ),
-            [
-                "disabling materialization due to incompatible field selection of binding [\"a\"] (onIncompatibleSchemaChange: disableTask)",
-            ],
+            [],
         ),
     ],
     [],
