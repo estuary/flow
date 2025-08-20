@@ -1,3 +1,4 @@
+pub mod graphql;
 mod open_metrics;
 pub mod status;
 
@@ -52,6 +53,7 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     // Routes are defined in groups, with the first group all being
     // authenticated routes that require a valid authentication token, and the
     // second group being unauthenticated routes that can be accessed by anyone.
+    let graphql_schema = graphql::create_schema();
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",
@@ -62,8 +64,13 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
             "/api/v1/metrics/*prefix",
             aide::axum::routing::get(open_metrics::handle_get_metrics),
         )
+        .route(
+            "/api/graphql",
+            axum::routing::post(graphql::graphql_handler),
+        )
         // All routes below this are publicly accessible to anyone, without an authentication token
         .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+        .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
         // The docs UI is not documented as an API route
@@ -75,6 +82,8 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
                     .axum_handler(),
             ),
         )
+        // Makes the graphql schema available to handlers
+        .layer(axum::Extension(graphql_schema))
         .with_state(app.clone());
 
     // There's kind of a weird twist here, where we take the `OpenApi` that
