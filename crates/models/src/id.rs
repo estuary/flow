@@ -13,6 +13,9 @@ const ESTUARY_EPOCH_MILLIS: u64 = 1_600_000_000_000;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 8]);
 
+#[cfg(feature = "async-graphql")]
+async_graphql::scalar!(Id);
+
 impl Id {
     pub const fn new(b: [u8; 8]) -> Self {
         Self(b)

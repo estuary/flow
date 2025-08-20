@@ -225,6 +225,22 @@ aws-credential-types = "1.2.0"
 aws-msk-iam-sasl-signer = "1.0.0"
 aws-sdk-sts = "1.16"
 
+warp = "0.3.3" # TODO(johnny) remove me in favor of axum
+# Used for the agent http server
+axum = { version = "0.7", features = ["macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-extra = { version = "0.9", features = ["typed-header", "query"] }
+async-graphql = { version = "7.0", features = [
+    "chrono",
+    "dataloader",
+    "raw_value",
+    "tracing",
+    "uuid",
+    "url",
+    "graphiql",
+] }
+async-graphql-axum = "7.0"
+
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
 criterion = "0.3"
@@ -249,11 +265,6 @@ pbjson-build = "0.7"
 prost-build = "0.13"
 tonic-build = "0.12"
 
-warp = "0.3.3" # TODO(johnny) remove me in favor of axum
-# Used for the agent http server
-axum = { version = "0.7", features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-axum-extra = { version = "0.9", features = ["typed-header", "query"] }
 
 [profile.release]
 incremental = true
