@@ -688,8 +688,13 @@ fn walk_materialization_binding<'a>(
     }
 
     let field_config_json_map: BTreeMap<String, String>;
-    let group_by: Vec<String>;
-    (model.fields, field_config_json_map, group_by) = walk_materialization_fields(
+    let (group_by_fields, group_by_ptrs): (Vec<String>, Vec<String>);
+    (
+        model.fields,
+        field_config_json_map,
+        group_by_fields,
+        group_by_ptrs,
+    ) = walk_materialization_fields(
         scope.push_prop("fields"),
         model.fields,
         &source_spec,
@@ -719,7 +724,7 @@ fn walk_materialization_binding<'a>(
         .filter(|live| !live.delta_updates)
         .and_then(|live| live.field_selection.as_ref())
         .map(|fields| &fields.keys)
-        .filter(|live_group_by| *live_group_by != &group_by);
+        .filter(|live_group_by| *live_group_by != &group_by_fields);
 
     match (was_reset, on_incompatible_schema_change) {
         (false, _) => {}
@@ -757,7 +762,7 @@ fn walk_materialization_binding<'a>(
                 inner: Box::new(Error::GroupByChanged {
                     path: model_path.clone(),
                     live: live_group_by.clone(),
-                    draft: group_by.clone(),
+                    draft: group_by_fields.clone(),
                 }),
             }
             .push(scope, errors);
@@ -765,13 +770,13 @@ fn walk_materialization_binding<'a>(
         }
         (Some(live_group_by), models::OnIncompatibleSchemaChange::Backfill) => {
             model_fixes.push(format!(
-                "backfilled binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by:?}",
+                "backfilled binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by_fields:?}",
             ));
             model.backfill += 1;
         }
         (Some(live_group_by), models::OnIncompatibleSchemaChange::DisableBinding) => {
             model_fixes.push(format!(
-                "disabling binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by:?}",
+                "disabling binding {model_path:?} due to group-by change from {live_group_by:?} to {group_by_fields:?}",
             ));
             model.disable = true;
             return (model_path, model, None, None);
@@ -779,16 +784,16 @@ fn walk_materialization_binding<'a>(
         (Some(live_group_by), models::OnIncompatibleSchemaChange::DisableTask) => {
             // Caller handles disabling the task.
             let reason = format!(
-                "binding {model_path:?} group-by change from {live_group_by:?} to {group_by:?}",
+                "binding {model_path:?} group-by change from {live_group_by:?} to {group_by_fields:?}",
             );
             return (model_path, model, Some(reason), None);
         }
     }
 
-    // Update projections of this binding's `source_spec` clone, setting
-    // `is_primary_key` for (only) those projections which are part of `group_by`.
+    // Tweak `source_spec` so that the `key` and `projections` are consistent with `group_by`.
+    source_spec.key = group_by_ptrs;
     for projection in source_spec.projections.iter_mut() {
-        projection.is_primary_key = group_by.contains(&projection.field);
+        projection.is_primary_key = group_by_fields.contains(&projection.field);
     }
 
     let validate = materialize::request::validate::Binding {
@@ -796,13 +801,13 @@ fn walk_materialization_binding<'a>(
         collection: Some(source_spec),
         field_config_json_map,
         backfill: model.backfill,
-        group_by,
+        group_by: group_by_fields,
     };
 
     (model_path, model, None, Some(validate))
 }
 
-fn walk_materialization_fields<'a>(
+fn walk_materialization_fields(
     scope: Scope,
     model: models::MaterializationFields,
     collection: &flow::CollectionSpec,
@@ -813,7 +818,8 @@ fn walk_materialization_fields<'a>(
 ) -> (
     models::MaterializationFields, // `model` with fixes.
     BTreeMap<String, String>,      // `field_config` for the connector.
-    Vec<String>,                   // Effective group-by keys of the binding.
+    Vec<String>,                   // Effective group-by key fields of the binding.
+    Vec<String>,                   // Effective group-by key pointers of the binding.
 ) {
     let models::MaterializationFields {
         group_by,
@@ -836,7 +842,8 @@ fn walk_materialization_fields<'a>(
 
     let live_exclude = live_model.map(|l| l.exclude.as_slice()).unwrap_or_default();
 
-    let mut effective_group_by = Vec::new();
+    let mut effective_group_by_fields = Vec::new();
+    let mut effective_group_by_ptrs = Vec::new();
     let mut field_config = BTreeMap::new();
 
     // Enforce each `groupBy` field is present in projections and is a key-able type.
@@ -867,15 +874,17 @@ fn walk_materialization_fields<'a>(
             }
             .push(scope, errors);
         }
-        effective_group_by.push(field.to_string());
+        effective_group_by_fields.push(field.to_string());
+        effective_group_by_ptrs.push(proj.ptr.to_string());
     }
 
-    if effective_group_by.is_empty() {
+    if effective_group_by_fields.is_empty() {
         // Fall back to the canonical projections of collection key fields.
-        effective_group_by.extend(
+        effective_group_by_fields.extend(
             key.iter()
-                .map(|f| f.strip_prefix("/").unwrap_or(f).to_string()),
+                .map(|k| k.strip_prefix("/").unwrap_or(k).to_string()),
         );
+        effective_group_by_ptrs.extend(key.iter().cloned());
     }
 
     for (field, config) in &require {
@@ -929,7 +938,12 @@ fn walk_materialization_fields<'a>(
         recommended,
     };
 
-    (model, field_config, effective_group_by)
+    (
+        model,
+        field_config,
+        effective_group_by_fields,
+        effective_group_by_ptrs,
+    )
 }
 
 fn temporary_group_by_migration(
