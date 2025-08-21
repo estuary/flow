@@ -1,6 +1,8 @@
-use super::{jobs, logs, Id};
-use agent_sql::connector_tags::{fetch_connector_tag, resolve, Row};
 use anyhow::Context;
+use control_plane_api::{
+    connector_tags::{self, fetch_connector_tag, resolve, Row},
+    jobs, logs, Id,
+};
 use proto_flow::flow;
 use runtime::{LogHandler, Runtime, RuntimeProtocol};
 use serde::{Deserialize, Serialize};
@@ -217,7 +219,7 @@ impl TagExecutor {
         // The tag fields may not be updated if the resource_path_pointers have
         // changed. If that happens, then we bail without making any changes
         // other than to job_status.
-        let tag_updated = agent_sql::connector_tags::update_tag_fields(
+        let tag_updated = connector_tags::update_tag_fields(
             row.tag_id,
             documentation_url,
             endpoint_config_schema.into(),
@@ -234,8 +236,7 @@ impl TagExecutor {
         }
 
         if let Some(oauth2) = oauth2 {
-            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2.into(), pool)
-                .await?;
+            connector_tags::update_oauth2_spec(row.connector_id, oauth2.into(), pool).await?;
         }
 
         return Ok(JobStatus::Success);
