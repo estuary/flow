@@ -30,6 +30,11 @@ Once you're done, [add the bucket](#add-the-bucket) in Estuary.
 Once your collections begin to persist data, you can view your storage bucket to confirm that the
 bucket is receiving data as expected. This should indicate that your bucket has been set up correctly.
 
+You can also set a [bucket lifecycle policy](../concepts/storage-mappings.md#bucket-lifecycle-policies) to limit
+how long collections keep data.
+Note that lifecycle policies should be specific to the `collection-data/` sub-directory that Estuary creates,
+**not** cover the entire bucket.
+
 ## Google Cloud Storage buckets
 
 You'll need to grant Estuary Flow access to your GCS bucket.
@@ -160,10 +165,16 @@ You'll need to grant Estuary Flow access to your S3 bucket.
 You'll need to grant Estuary Flow access to your storage account and container.
 You'll also need to provide some identifying information.
 
-1. [Create an Azure Blob Storage container](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal#create-a-container)
+1. [Create an Azure storage account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create) if you haven't already.
+
+   Make sure your storage account has the `Hierarchical Namespace` option **disabled**.
+   During storage account creation, you can review this setting in the **Advanced** tab.
+   Under the **Data Lake Storage** section, ensure the hierarchical namespace option is unchecked.
+
+2. Within the storage account, [create an Azure Blob Storage container](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal#create-a-container)
    to use with Flow, if you haven't already.
 
-2. Gather the following information. You'll need this when you contact us to complete setup.
+3. Gather the following information. You'll need this when you contact us to complete setup.
 
     - Your **Azure AD tenant ID**. You can find this in the **Azure Active Directory** page.
       ![Azure AD Tenant ID](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Azure_AD_Tenant_ID_1b60184837/Azure_AD_Tenant_ID_1b60184837.png)
@@ -177,7 +188,7 @@ You'll also need to provide some identifying information.
    You'll grant Flow access to your storage resources by connecting to Estuary's
    [Azure application](https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/what-is-application-management).
 
-3. Add Estuary's Azure application to your tenant.
+4. Add Estuary's Azure application to your tenant.
 
 import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";
@@ -207,7 +218,7 @@ import BrowserOnly from "@docusaurus/BrowserOnly";
    </TabItem>
    </Tabs>
 
-4. Grant the application access to your storage account via the
+5. Grant the application access to your storage account via the
    [
    `Storage Blob Data Owner`](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#storage-blob-data-owner)
    IAM role.
