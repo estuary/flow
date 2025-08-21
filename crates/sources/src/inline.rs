@@ -260,7 +260,7 @@ fn inline_materialization(
             inline_config(
                 Scope::new(scope)
                     .push_prop("endpoint")
-                    .push_prop("connector")
+                    .push_prop("local")
                     .push_prop("config"),
                 config,
                 imports,
