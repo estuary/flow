@@ -29,7 +29,7 @@ struct Binding {
     delta_updates: bool,                   // Delta updates, or standard?
     journal_read_suffix: String, // Suffix attached to journal checkpoints for this binding.
     key_extractors: Vec<doc::Extractor>, // Key extractors for this collection.
-    read_schema_json: String,    // Read JSON-Schema of collection documents.
+    read_schema_json: bytes::Bytes, // Read JSON-Schema of collection documents.
     ser_policy: doc::SerPolicy,  // Serialization policy for this source.
     state_key: String,           // State key for this binding.
     store_document: bool,        // Are we storing the root document (often `flow_document`)?

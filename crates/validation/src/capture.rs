@@ -110,14 +110,14 @@ async fn walk_capture<C: Connectors>(
     indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json) = match &endpoint {
+    let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
         models::CaptureEndpoint::Connector(config) => (
             flow::capture_spec::ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
         models::CaptureEndpoint::Local(config) => (
             flow::capture_spec::ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap(),
+            serde_json::to_string(config).unwrap().into(),
         ),
     };
     // Resolve the data-plane for this task. We cannot continue without it.
@@ -170,7 +170,7 @@ async fn walk_capture<C: Connectors>(
         .iter()
         .flat_map(|model| model.bindings.iter())
         .filter_map(|model| {
-            let model_path = super::load_resource_meta_path(model.resource.get());
+            let model_path = super::load_resource_meta_path(model.resource.get().as_bytes());
             (!model_path.is_empty()).then_some((model_path, model))
         })
         .collect();
@@ -462,7 +462,7 @@ fn walk_capture_binding<'a>(
     models::CaptureBinding,
     Option<capture::request::validate::Binding>,
 ) {
-    let model_path = super::load_resource_meta_path(model.resource.get());
+    let model_path = super::load_resource_meta_path(model.resource.get().as_bytes());
 
     if model.disable {
         // A disabled binding may reference a non-extant collection.

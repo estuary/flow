@@ -71,9 +71,10 @@ impl From<RawValue> for Box<serde_json::value::RawValue> {
     }
 }
 
-impl From<RawValue> for String {
+impl From<RawValue> for bytes::Bytes {
     fn from(value: RawValue) -> Self {
         let s: Box<str> = value.0.into();
+        let s: String = s.into();
         s.into()
     }
 }

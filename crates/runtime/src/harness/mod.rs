@@ -20,7 +20,7 @@ pub use derive::run_derive;
 pub use materialize::run_materialize;
 
 pub enum Read {
-    Document { binding: u32, doc: String },
+    Document { binding: u32, doc: bytes::Bytes },
     Checkpoint(consumer::Checkpoint),
 }
 
