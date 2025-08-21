@@ -79,7 +79,7 @@ pub async fn fetch_controller_state(
     controller_task_id: Id,
     db: impl sqlx::PgExecutor<'static>,
 ) -> anyhow::Result<Option<ControllerState>> {
-    let maybe_job = agent_sql::controllers::fetch_controller_job(controller_task_id, db)
+    let maybe_job = control_plane_api::controllers::fetch_controller_job(controller_task_id, db)
         .await
         .context("fetching controller job")?;
 
@@ -92,7 +92,7 @@ pub async fn fetch_controller_state(
 
 impl ControllerState {
     pub fn parse_db_row(
-        job: &agent_sql::controllers::ControllerJob,
+        job: &control_plane_api::controllers::ControllerJob,
     ) -> anyhow::Result<ControllerState> {
         let status: ControllerStatus = if job.controller_version == 0 {
             ControllerStatus::Uninitialized

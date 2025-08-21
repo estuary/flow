@@ -110,7 +110,6 @@ name = "agent"
 version = "0.0.0"
 dependencies = [
  "activate",
- "agent-sql",
  "aide",
  "allocator",
  "anyhow",
@@ -128,6 +127,7 @@ dependencies = [
  "chrono",
  "clap 4.5.21",
  "colored_json",
+ "control-plane-api",
  "coroutines",
  "dekaf",
  "derivative",
@@ -178,25 +178,6 @@ dependencies = [
  "validator",
  "xxhash-rust",
  "zeroize",
-]
-
-[[package]]
-name = "agent-sql"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "insta",
- "models",
- "proto-flow",
- "proto-gazette",
- "schemars",
- "serde",
- "serde_json",
- "sqlx",
- "tables",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1986,6 +1967,79 @@ dependencies = [
  "getrandom 0.2.15",
  "once_cell",
  "tiny-keccak",
+]
+
+[[package]]
+name = "control-plane-api"
+version = "0.0.0"
+dependencies = [
+ "activate",
+ "aide",
+ "allocator",
+ "anyhow",
+ "assemble",
+ "async-graphql",
+ "async-graphql-axum",
+ "async-process",
+ "async-trait",
+ "automations",
+ "axum",
+ "axum-extra",
+ "base64 0.13.1",
+ "build",
+ "bytes",
+ "chrono",
+ "clap 4.5.21",
+ "colored_json",
+ "coroutines",
+ "derivative",
+ "doc",
+ "futures",
+ "gazette",
+ "humantime",
+ "humantime-serde",
+ "insta",
+ "itertools 0.10.5",
+ "json",
+ "jsonwebtoken",
+ "labels",
+ "lazy_static",
+ "locate-bin",
+ "log",
+ "md5",
+ "migrate",
+ "models",
+ "ops",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.11.27",
+ "runtime",
+ "rustls 0.23.10",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sources",
+ "sqlx",
+ "tables",
+ "tempfile",
+ "thiserror 1.0.63",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tower 0.5.0",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid 1.10.0",
+ "validation",
+ "validator",
+ "xxhash-rust",
+ "zeroize",
 ]
 
 [[package]]

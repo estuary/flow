@@ -1,0 +1,63 @@
+---
+source: crates/control-plane-api/src/discovers/specs.rs
+expression: path_merge_out
+---
+(
+    [
+        Binding {
+            target: Collection(
+                "acmeCo/my/foo",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"foo"},
+                ),
+            ),
+            collection_key: [
+                "/foo-key",
+            ],
+            is_fallback_key: false,
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
+        },
+        Binding {
+            target: Collection(
+                "acmeCo/my/bar",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"bar"},
+                ),
+            ),
+            collection_key: [
+                "/bar-key",
+            ],
+            is_fallback_key: false,
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
+        },
+    ],
+    {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/my/bar",
+            ),
+            disable: true,
+        },
+        [
+            "foo",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/my/foo",
+            ),
+            disable: false,
+        },
+    },
+    {},
+)

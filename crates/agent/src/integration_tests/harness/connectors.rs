@@ -1,4 +1,4 @@
-use crate::proxy_connectors::{DiscoverConnectors, MakeConnectors};
+use control_plane_api::proxy_connectors::{DiscoverConnectors, MakeConnectors};
 use futures::stream::StreamExt;
 use proto_flow::capture;
 use std::collections::HashMap;

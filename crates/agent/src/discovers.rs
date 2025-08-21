@@ -1,339 +1,438 @@
-use std::collections::HashSet;
-
-use crate::proxy_connectors::DiscoverConnectors;
-
 use anyhow::Context;
-use models::discovers::{Changed, Changes};
-use proto_flow::{capture, flow::capture_spec};
-use sqlx::{types::Uuid, PgPool};
+use control_plane_api::{
+    connector_tags, data_plane,
+    discovers::{fetch_discover, Discover, DiscoverHandler, Row},
+    draft, live_specs,
+    proxy_connectors::DiscoverConnectors,
+    Id,
+};
+use serde::{Deserialize, Serialize};
 
-pub(crate) mod executor;
-mod specs;
-
-/// Represents the desire to discover an endpoint. The discovered bindings will be merged with
-/// those in the `base_model`.
-pub struct Discover {
-    /// The name of the capture, which _must_ exist within the `draft`.
-    pub capture_name: models::Capture,
-    /// The data plane to use for the discover. For an existing capture, this
-    /// _should_ be the data plane that the capture is currently running in. But
-    /// that is not required.
-    pub data_plane: tables::DataPlane,
-    pub logs_token: Uuid,
-    /// The id of the user that is performing the discover.
-    pub user_id: Uuid,
-    /// Whether to apply authorization policies to restrict the specs that are visible
-    /// to the user. If `false` then no authorization policies will be applied, so be careful.
-    pub filter_user_authz: bool,
-    /// Whether newly discovered bindings should be enabled by default. If
-    /// `true`, then newly added bindings will be added with `disable: true`.
-    pub update_only: bool,
-    /// If a discovered binding's collection key changes, should we perform a data-flow reset?
-    pub reset_on_key_change: bool,
-    /// The draft into which discover results will be merged. This _must_
-    /// contain the capture named by `capture_name`, or an error will be
-    /// returned. All pre-existing changes in the draft will be preserved, as
-    /// long as they don't conflict with the discover results.
-    pub draft: tables::DraftCatalog,
+/// JobStatus is the possible outcomes of a handled discover operation.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum JobStatus {
+    Queued,
+    WrongProtocol,
+    TagFailed,
+    ImageForbidden,
+    PullFailed,
+    DiscoverFailed,
+    MergeFailed,
+    Success {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        publication_id: Option<Id>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        specs_unchanged: bool,
+    },
+    DeprecatedBackground,
+    NoDataPlane,
 }
 
-#[derive(Debug)]
-pub struct DiscoverOutput {
-    /// The name of the capture for which discover was run.
-    pub capture_name: models::Capture,
-    /// The final draft containing the merged output of the discover, if
-    /// successful. If the discover was unsuccessful, the draft `errors` will be
-    /// non-empty and the state of any other specs in the draft is unspecified.
-    pub draft: tables::DraftCatalog,
-    /// Bindings that were added by the discover. Note that added bindings will
-    /// be disabled if `update_only` was `true`, and they will still be
-    /// represented here.
-    pub added: Changes,
-    /// Bindings that were modified by the discover.
-    pub modified: Changes,
-    /// Bindings that were removed by the discover. The `disable` flag here
-    /// reflects whether the binding _was_ disabled prior to removal.
-    pub removed: Changes,
-}
-
-impl DiscoverOutput {
-    fn failed(capture_name: models::Capture, error: anyhow::Error) -> DiscoverOutput {
-        let mut draft = tables::DraftCatalog::default();
-        draft.errors.insert(tables::Error {
-            scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
-            error,
-        });
-        DiscoverOutput {
-            capture_name,
-            draft,
-            added: Default::default(),
-            modified: Default::default(),
-            removed: Default::default(),
+impl JobStatus {
+    #[cfg(test)]
+    pub fn is_success(&self) -> bool {
+        match self {
+            JobStatus::Success { .. } => true,
+            _ => false,
         }
     }
+}
 
-    pub fn is_success(&self) -> bool {
-        self.draft.errors.is_empty()
+type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
+
+pub struct DiscoverOutcome {
+    id: Id,
+    draft_id: Id,
+    result: ProcessResult,
+    status: JobStatus,
+}
+
+impl automations::Outcome for DiscoverOutcome {
+    async fn apply<'s>(
+        self,
+        txn: &'s mut sqlx::PgConnection,
+    ) -> anyhow::Result<automations::Action> {
+        let DiscoverOutcome {
+            id,
+            draft_id,
+            result,
+            status,
+        } = self;
+
+        control_plane_api::draft::delete_errors(draft_id, txn)
+            .await
+            .context("clearing old errors")?;
+
+        match result {
+            Ok(draft) => {
+                draft::upsert_draft_catalog(draft_id, &draft, txn).await?;
+            }
+            Err(draft_errs) => {
+                draft::insert_errors(draft_id, draft_errs, txn).await?;
+            }
+        }
+
+        control_plane_api::discovers::resolve(id, status, txn).await?;
+        Ok(automations::Action::Done)
     }
+}
 
-    /// Returns true if the discover resulted in no changes to the capture or
-    /// any collections. The return value should only be used if the discover
-    /// was successful.
-    pub fn is_unchanged(&self) -> bool {
-        self.added.is_empty() && self.modified.is_empty() && self.removed.is_empty()
+fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
+    (status, Err(Vec::new()))
+}
+
+pub struct DiscoverExecutor<C: DiscoverConnectors> {
+    pub handler: DiscoverHandler<C>,
+}
+
+impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
+    const TASK_TYPE: automations::TaskType = automations::task_types::DISCOVERS;
+
+    type Receive = serde_json::Value;
+
+    type State = ();
+
+    type Outcome = DiscoverOutcome;
+
+    async fn poll<'s>(
+        &'s self,
+        pool: &'s sqlx::PgPool,
+        task_id: models::Id,
+        _parent_id: Option<models::Id>,
+        _state: &'s mut Self::State,
+        inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
+    ) -> anyhow::Result<Self::Outcome> {
+        tracing::debug!(?inbox, %task_id, "executing discover task");
+        let row = fetch_discover(task_id, pool).await?;
+        let draft_id = row.draft_id;
+        assert_eq!(row.id, task_id);
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+        let (status, result) = self.process(row, pool).await?;
+        tracing::info!(id=%task_id, %time_queued, ?status, "finished");
+        inbox.clear();
+        Ok(DiscoverOutcome {
+            id: task_id,
+            draft_id,
+            result,
+            status,
+        })
     }
+}
 
-    /// Prunes any drafted specs that would be no-op changes. This includes
-    /// collection specs that are identical to the live specs, and any
-    /// collection specs that correspond to disabled bindings, regardless of
-    /// whether they are identical to the live specs. The `modified` set will
-    /// also be updated to remove mentions of such specs. The `added` set will
-    /// still contain records of the disabled bindings, though, even after the
-    /// collection specs themeselves have been pruned. This is because they
-    /// _were_ still added to the capture model, just in a disabled state.
-    pub fn prune_unchanged_specs(&mut self) -> usize {
-        assert!(
-            self.draft.errors.is_empty(),
-            "cannot prune_unchanged on discover output with errors"
+impl<C: DiscoverConnectors> DiscoverExecutor<C> {
+    #[tracing::instrument(err, skip_all, fields(id=?row.id, draft_id = ?row.draft_id, user_id = %row.user_id))]
+    async fn process(
+        &self,
+        row: Row,
+        pool: &sqlx::PgPool,
+    ) -> anyhow::Result<(JobStatus, ProcessResult)> {
+        tracing::info!(
+            %row.capture_name,
+            %row.connector_tag_id,
+            %row.connector_tag_job_success,
+            %row.created_at,
+            %row.data_plane_name,
+            %row.draft_id,
+            %row.image_name,
+            %row.image_tag,
+            %row.logs_token,
+            %row.protocol,
+            %row.updated_at,
+            %row.user_id,
+            "processing discover",
         );
 
-        let mut pruned_count = 0;
-        if self.is_unchanged() {
-            // We've discovered absolutely no changes, so remove everything from
-            // the draft. Note that this will also remove any pre-existing
-            // unrelated specs.
-            pruned_count = self.draft.spec_count();
-            self.draft = tables::DraftCatalog::default();
-        } else {
-            let DiscoverOutput {
-                ref mut draft,
-                ref added,
-                ref modified,
-                ..
-            } = self;
-            // At least one binding has changed, so the capture spec itself must
-            // be changed, and we'll only remove collection specs that have not
-            // been modified. Start by determining the set of modified
-            // collection names. Note that removed bindings are not included
-            // here because we want to remove the corresponding collection specs
-            // from the draft.
-            let changed_collections = added
-                .values()
-                .chain(modified.values())
-                .filter(|changed| !changed.disable)
-                .map(|changed| &changed.target)
-                .collect::<HashSet<&models::Collection>>();
+        // Various pre-flight checks.
+        if !row.connector_tag_job_success {
+            return Ok(precheck_failed(JobStatus::TagFailed));
+        } else if row.protocol != "capture" {
+            return Ok(precheck_failed(JobStatus::WrongProtocol));
+        } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
+            return Ok(precheck_failed(JobStatus::ImageForbidden));
+        }
+        let mut data_planes: tables::DataPlanes = data_plane::fetch_data_planes(
+            pool,
+            Vec::new(),
+            row.data_plane_name.as_str(),
+            row.user_id,
+        )
+        .await?;
 
-            draft.collections.retain(|row| {
-                let retain = changed_collections.contains(&row.collection);
-                if !retain {
-                    pruned_count += 1;
-                }
-                retain
+        let Some(data_plane) = data_planes.pop().filter(|d| d.is_default) else {
+            tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
+            return Ok(precheck_failed(JobStatus::NoDataPlane));
+        };
+
+        let image_composed = format!("{}{}", row.image_name, row.image_tag);
+        let prepared = prepare_discover(
+            row.user_id,
+            row.draft_id,
+            models::Capture::new(&row.capture_name),
+            row.endpoint_config.0.clone().into(),
+            row.update_only,
+            row.logs_token,
+            image_composed,
+            data_plane,
+            pool,
+        )
+        .await;
+
+        let result = match prepared {
+            Ok(disco) => self.handler.discover(pool, disco).await,
+            Err(e) => Err(e),
+        };
+
+        match result {
+            Ok(output) if output.is_success() => Ok((
+                JobStatus::Success {
+                    publication_id: None,
+                    specs_unchanged: false,
+                },
+                Ok(output.draft),
+            )),
+            Ok(output) => {
+                let draft_errs = output
+                    .draft
+                    .errors
+                    .iter()
+                    .map(tables::Error::to_draft_error)
+                    .collect::<Vec<_>>();
+                Ok((JobStatus::DiscoverFailed, Err(draft_errs)))
+            }
+            Err(err) => {
+                let draft_errors = vec![models::draft_error::Error {
+                    scope: Some(
+                        tables::synthetic_scope(models::CatalogType::Capture, &row.capture_name)
+                            .to_string(),
+                    ),
+                    catalog_name: row.capture_name.clone(),
+                    detail: format!("{:#}", err),
+                }];
+                Ok((JobStatus::DiscoverFailed, Err(draft_errors)))
+            }
+        }
+    }
+}
+
+/// Resolves the specs to be used as the base for a discover, and returns them
+/// as part of a fully prepared `Discover`. This will always include the capture
+/// spec, even if there is no extant drafted or live spec for it. The resolved
+/// capture will always have the endpoint set to the values from the `discovers`
+/// row, even if it differs from the endpoint on the drafted or live spec. All
+/// other specs in the given draft will be loaded as they are and used as the
+/// base for the merge after the discover completes.
+async fn prepare_discover(
+    user_id: uuid::Uuid,
+    draft_id: Id,
+    capture_name: models::Capture,
+    endpoint_config: models::RawValue,
+    update_only: bool,
+    logs_token: uuid::Uuid,
+    image_composed: String,
+    data_plane: tables::DataPlane,
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<Discover> {
+    let mut draft = draft::load_draft(draft_id, pool)
+        .await
+        .context("loading draft")?;
+
+    let endpoint = models::CaptureEndpoint::Connector(models::ConnectorConfig {
+        image: image_composed,
+        config: endpoint_config,
+    });
+    if let Some(drafted) = draft.captures.get_mut_by_key(&capture_name) {
+        if let Some(model) = drafted.model.as_mut() {
+            model.endpoint = endpoint;
+        }
+    } else {
+        let name = &[capture_name.to_string()];
+        // Filter to only specs that the user can read. If they can't admin, then wait until they
+        // try to publish to surface that error.
+        let live =
+            live_specs::get_live_specs(user_id, name, Some(models::Capability::Read), pool).await?;
+
+        // See if there's an existing live capture with this name
+        if let Some(tables::LiveCapture {
+            capture,
+            last_pub_id,
+            mut model,
+            ..
+        }) = live.captures.into_iter().next()
+        {
+            model.endpoint = endpoint;
+            draft.captures.insert(tables::DraftCapture {
+                capture: capture.clone(),
+                model: Some(model),
+                expect_pub_id: Some(last_pub_id),
+                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
+                is_touch: true, // This will get updated if the discover returns any changes
+            });
+        } else {
+            // There's no existing live or draft spec, so insert a starter spec.
+            let new_model = models::CaptureDef {
+                endpoint,
+                auto_discover: Some(models::AutoDiscover {
+                    add_new_bindings: true,
+                    evolve_incompatible_collections: true,
+                }),
+                interval: models::CaptureDef::default_interval(),
+                shards: models::ShardTemplate::default(),
+                expect_pub_id: None,
+                bindings: Vec::new(),
+                delete: false,
+            };
+            draft.captures.insert(tables::DraftCapture {
+                capture: capture_name.clone(),
+                model: Some(new_model),
+                expect_pub_id: Some(Id::zero()),
+                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
+                is_touch: false,
             });
         }
-        // Remove any modification changes that correspond to disabled bindings,
-        // since we've just removed the collection specs themselves.
-        self.modified.retain(|_, changed| !changed.disable);
-        pruned_count
-    }
+    };
+
+    let reset_on_key_change = draft
+        .captures
+        .get_by_key(&capture_name)
+        .and_then(|row| row.model.as_ref())
+        .and_then(|model| model.auto_discover.as_ref())
+        .map(|auto| auto.evolve_incompatible_collections)
+        .unwrap_or_default();
+    Ok(Discover {
+        user_id,
+        filter_user_authz: true,
+        capture_name,
+        data_plane,
+        draft,
+        update_only,
+        reset_on_key_change,
+        logs_token,
+    })
 }
 
-/// A DiscoverHandler is a Handler which performs discovery operations.
-#[derive(Clone)]
-pub struct DiscoverHandler<C> {
-    pub connectors: C,
-}
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
 
-impl<C: DiscoverConnectors> DiscoverHandler<C> {
-    pub fn new(connectors: C) -> Self {
-        Self { connectors }
-    }
-}
+    use models::Id;
+    use uuid::Uuid;
 
-impl<C: DiscoverConnectors> DiscoverHandler<C> {
-    #[tracing::instrument(skip_all, fields(
-        capture_name = %req.capture_name,
-        data_plane_name = %req.data_plane.data_plane_name,
-        user_id = %req.user_id,
-        update_only = %req.update_only,
-        image
-    ))]
-    pub async fn discover(&self, db: &PgPool, req: Discover) -> anyhow::Result<DiscoverOutput> {
-        let Discover {
-            capture_name,
-            data_plane,
-            logs_token,
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_prepare_discover() {
+        let harness =
+            crate::integration_tests::harness::TestHarness::init("test_prepare_discover").await;
+
+        sqlx::query(
+            r#"
+            with
+            p1 as (
+                insert into user_grants(user_id, object_role, capability) values
+                ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin')
+            ),
+            p2 as (
+                insert into drafts (id, user_id) values
+                ('eeeeeeeeeeeeeeee', '11111111-1111-1111-1111-111111111111')
+            ),
+            p3 as (
+                insert into draft_specs (draft_id, catalog_name, spec_type, spec) values
+                ('eeeeeeeeeeeeeeee', 'aliceCo/dir/source-thingy', 'capture', '{
+                    "bindings": [ ],
+                    "endpoint": { "connector": { "config": { "a": "draftedA" }, "image": "draft/image" } },
+                    "interval": "10m"
+                }'),
+                ('eeeeeeeeeeeeeeee', 'aliceCo/dir/another-thingy', 'collection', '{
+                    "schema": { "const": 42 },
+                    "key": ["/id"]
+                }')
+            ),
+            p4 as (
+                -- This is here to assert that it is ignored due to the presence of the drafted capture
+                insert into live_specs (catalog_name, spec_type, controller_task_id, spec) values
+                ('aliceCo/dir/source-thingy', 'capture', '1122334455667788'::flowid, '{
+                    "bindings": [ {"target": "who/cares" } ],
+                    "endpoint": { "connector": { "config": { "a": "liveA" }, "image": "live/image" } },
+                    "interval": "90m"
+                }')
+            ),
+            p5 as (
+                insert into internal.tasks (task_id, task_type) values ('1122334455667788'::flowid, 2)
+                on conflict do nothing
+            )
+            select 1;
+            "#,
+        )
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+
+        let draft_id = Id::from_hex("eeeeeeeeeeeeeeee").unwrap();
+        let user_id = Uuid::from_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let capture_name = models::Capture::new("aliceCo/dir/source-thingy");
+        let endpoint_config = models::RawValue::from_str(r#"{"a": "discoversA"}"#).unwrap();
+        let logs_token = Uuid::from_str("22222222-3333-4444-5555-666666666666").unwrap();
+        let image_composed = String::from("discovers/image:tag");
+        let data_plane = tables::DataPlane {
+            control_id: Id::zero(),
+            data_plane_name: "test-data-plane".to_string(),
+            data_plane_fqdn: "data.plane.test".to_string(),
+            is_default: true,
+            hmac_keys: Vec::new(),
+            encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
+            ops_logs_name: models::Collection::new("tha/logs"),
+            ops_stats_name: models::Collection::new("tha/stats"),
+            broker_address: "broker.test".to_string(),
+            reactor_address: "reactor.test".to_string(),
+        };
+
+        let result = super::prepare_discover(
             user_id,
-            filter_user_authz,
-            update_only,
-            reset_on_key_change,
-            mut draft,
-        } = req;
+            draft_id,
+            capture_name.clone(),
+            endpoint_config,
+            false, // !update_only
+            logs_token,
+            image_composed.clone(),
+            data_plane.clone(),
+            &harness.pool,
+        )
+        .await
+        .unwrap();
 
-        let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
-            return Ok(DiscoverOutput::failed(
-                capture_name.clone(),
-                anyhow::anyhow!("missing capture: '{capture_name}' in draft"),
-            ));
-        };
+        assert_eq!(capture_name, result.capture_name);
 
-        let Some(models::CaptureEndpoint::Connector(connector_cfg)) =
-            capture_def.model.as_ref().map(|m| &m.endpoint)
-        else {
-            // TODO: better error message if drafted model is None
-            anyhow::bail!("only connector endpoints are supported");
-        };
-        tracing::Span::current().record("image", &connector_cfg.image);
+        assert_eq!(Id::zero(), result.data_plane.control_id);
+        assert_eq!("test-data-plane", &result.data_plane.data_plane_name);
+        assert_eq!("data.plane.test", &result.data_plane.data_plane_fqdn);
+        assert!(result.data_plane.is_default);
+        assert_eq!("tha/logs", result.data_plane.ops_logs_name.as_str());
+        assert_eq!("tha/stats", result.data_plane.ops_stats_name.as_str());
+        assert_eq!("broker.test", &result.data_plane.broker_address);
+        assert_eq!("reactor.test", &result.data_plane.reactor_address);
 
-        // INFO is a good default since these are not shown in the UI, so if we're looking then
-        // there's already a problem.
-        let log_level = capture_def
+        assert_eq!(logs_token, result.logs_token);
+        assert_eq!(user_id, result.user_id);
+        assert!(!result.update_only);
+
+        // The draft should contain everything that was already drafted
+        assert_eq!(1, result.draft.captures.len());
+        assert_eq!(1, result.draft.collections.len());
+        assert_eq!(2, result.draft.spec_count());
+
+        // The resolved capture should use the endpoint config from the discovers row
+        let model = result
+            .draft
+            .captures
+            .get_by_key(&capture_name)
+            .unwrap()
             .model
             .as_ref()
-            .and_then(|m| m.shards.log_level.as_deref())
-            .and_then(ops::LogLevel::from_str_name)
-            .unwrap_or(ops::LogLevel::Info);
-
-        let request = capture::Request {
-            discover: Some(capture::request::Discover {
-                name: capture_name.to_string(),
-                connector_type: capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(connector_cfg).unwrap().into(),
-            }),
-            ..Default::default()
-        }
-        .with_internal(|internal| {
-            internal.set_log_level(log_level);
-        });
-        let result = self
-            .connectors
-            .discover(&data_plane, &capture_name, logs_token, request)
-            .await;
-
-        let (spec, discovered) = match result {
-            Ok(response) => response,
-            Err(err) => {
-                return Ok(DiscoverOutput::failed(capture_name, err));
-            }
+            .unwrap();
+        let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
+            panic!("expected connector endpoint, got: {:?}", model.endpoint);
         };
-
-        let output = Self::build_merged_catalog(
-            capture_name,
-            user_id,
-            filter_user_authz,
-            update_only,
-            draft,
-            discovered,
-            spec.resource_path_pointers,
-            db,
-            reset_on_key_change,
-        )
-        .await?;
-
-        if output.is_success() {
-            tracing::info!(
-                added = ?output.added,
-                modified = ?output.modified,
-                removed = ?output.removed,
-                "discover merge success");
-        } else {
-            tracing::warn!(
-                errors = ?output.draft.errors,
-                "discover merge failed"
-            );
-        }
-        Ok(output)
-    }
-
-    async fn build_merged_catalog(
-        capture_name: models::Capture,
-        user_id: uuid::Uuid,
-        filter_user_authz: bool,
-        update_only: bool,
-        mut draft: tables::DraftCatalog,
-        discovered: capture::response::Discovered,
-        resource_path_pointers: Vec<String>,
-        db: &PgPool,
-        reset_on_key_change: bool,
-    ) -> anyhow::Result<DiscoverOutput> {
-        let discovered_bindings = match specs::parse_response(discovered)
-            .context("converting connector discovery response into specs")
-        {
-            Ok(b) => b,
-            Err(err) => {
-                return Ok(DiscoverOutput::failed(capture_name, err));
-            }
-        };
-
-        let tables::DraftCatalog {
-            ref mut captures,
-            ref mut collections,
-            ..
-        } = &mut draft;
-        let Some(drafted_capture) = captures.get_mut_by_key(&capture_name) else {
-            anyhow::bail!("expected capture '{}' to exist in draft", capture_name);
-        };
-        let tables::DraftCapture {
-            model: Some(ref mut capture_model),
-            ref mut is_touch,
-            ..
-        } = drafted_capture
-        else {
-            anyhow::bail!(
-                "expected model to be drafted for capture '{}', but was a deletion",
-                capture_name
-            );
-        };
-
-        let pointers = resource_path_pointers
-            .iter()
-            .map(|p| doc::Pointer::from_str(p.as_str()))
-            .collect::<Vec<_>>();
-        let (used_bindings, added_bindings, removed_bindings) = specs::update_capture_bindings(
-            capture_name.as_str(),
-            capture_model,
-            discovered_bindings,
-            update_only,
-            &pointers,
-        )?;
-
-        let collection_names = capture_model
-            .bindings
-            .iter()
-            .map(|b| b.target.to_string())
-            .collect::<Vec<_>>();
-
-        let live = crate::live_specs::get_live_specs(
-            user_id,
-            &collection_names,
-            filter_user_authz.then_some(models::Capability::Read),
-            db,
-        )
-        .await?;
-
-        let mut modified_bindings = specs::merge_collections(
-            used_bindings,
-            collections,
-            &live.collections,
-            reset_on_key_change,
-        )?;
-        // Don't report a binding as both added and modified, because that'd just be confusing
-        modified_bindings.retain(|path, _| !added_bindings.contains_key(path));
-
-        if !added_bindings.is_empty()
-            || !modified_bindings.is_empty()
-            || !removed_bindings.is_empty()
-        {
-            *is_touch = false; // We're modifying the capture, so it's no longer a touch
-        }
-
-        Ok(DiscoverOutput {
-            capture_name,
-            draft,
-            added: added_bindings,
-            modified: modified_bindings,
-            removed: removed_bindings,
-        })
+        assert!(cfg.config.get().contains("discoversA"));
+        assert_eq!(image_composed, cfg.image);
     }
 }
