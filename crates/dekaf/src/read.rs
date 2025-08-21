@@ -123,9 +123,6 @@ impl Read {
             collection_name: collection.name.to_owned(),
             task_name: match auth {
                 SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
-                SessionAuthentication::User(user_auth) => {
-                    format!("user-auth: {:?}", user_auth.claims.email)
-                }
                 SessionAuthentication::Redirect { .. } => {
                     bail!("Redirected sessions cannot read data")
                 }
