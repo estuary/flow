@@ -1,6 +1,3 @@
-#[cfg(feature = "sqlx-support")]
-use sqlx::Decode;
-
 /// RawValue is like serde_json::value::RawValue, but removes newlines to ensure
 /// values can safely be used in newline-delimited contexts.
 ///

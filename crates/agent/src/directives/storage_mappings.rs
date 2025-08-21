@@ -1,13 +1,17 @@
 use std::io::Write;
 
-use crate::{
-    directives::{JobStatus, Row},
-    logs,
-};
-use agent_sql::directives::storage_mappings::{
-    fetch_storage_mappings, upsert_storage_mapping, user_has_admin_capability, StorageMapping,
-};
+use crate::directives::JobStatus;
 use anyhow::Context;
+use control_plane_api::{
+    directives::{
+        storage_mappings::{
+            fetch_storage_mappings, upsert_storage_mapping, user_has_admin_capability,
+            StorageMapping,
+        },
+        Row,
+    },
+    jobs, logs,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use validator::Validate;
@@ -256,16 +260,15 @@ async fn check_bucket_access(
             args = ?cmd.get_args(),
             "running storage check"
         );
-        let exit_status =
-            crate::jobs::run_without_removing_env(&desc, logs_tx, logs_token, &mut cmd)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to execute {desc} command: {:?} with: {:?}",
-                        cmd.get_program(),
-                        cmd.get_args()
-                    )
-                })?;
+        let exit_status = jobs::run_without_removing_env(&desc, logs_tx, logs_token, &mut cmd)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to execute {desc} command: {:?} with: {:?}",
+                    cmd.get_program(),
+                    cmd.get_args()
+                )
+            })?;
         if !exit_status.success() {
             anyhow::bail!("failed to {desc}, please check that permissions are set appropriately");
         }
