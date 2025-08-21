@@ -22,8 +22,8 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/reset/a",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/id",
                 ],
@@ -44,7 +44,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -66,7 +66,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -95,7 +95,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -124,7 +124,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -133,7 +133,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "testing/reset/a/2020202020202020",
@@ -215,8 +215,8 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/reset/b",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1b/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1b/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/id",
                 ],
@@ -237,7 +237,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -259,7 +259,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -288,7 +288,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -317,7 +317,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -326,7 +326,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "testing/reset/b/2020202020202020",
@@ -458,18 +458,18 @@ Outcome {
             spec: MaterializationSpec {
                 name: "testing/materialize",
                 connector_type: Image,
-                config_json: "{\"image\":\"an/image:test\",\"config\":{}}",
+                config_json: b"{\"image\":\"an/image:test\",\"config\":{}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"table\":\"a\"}",
+                        resource_config_json: b"{\"table\":\"a\"}",
                         resource_path: [
                             "a",
                         ],
                         collection: Some(
                             CollectionSpec {
                                 name: "testing/reset/a",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                                read_schema_json: "",
+                                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                                read_schema_json: b"",
                                 key: [
                                     "/id",
                                 ],
@@ -490,7 +490,7 @@ Outcome {
                                                 string: None,
                                                 title: "Flow truncation indicator",
                                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -512,7 +512,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -541,7 +541,7 @@ Outcome {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -570,7 +570,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -579,7 +579,7 @@ Outcome {
                                         ),
                                     },
                                 ],
-                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "testing/reset/a/2020202020202020",
@@ -805,20 +805,20 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "b",
                         ],
                         collection: Some(
                             CollectionSpec {
                                 name: "testing/reset/b",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "testing/reset/b/0000000000000001",
@@ -850,23 +850,23 @@ Outcome {
             previous_spec: MaterializationSpec {
                 name: "testing/materialize",
                 connector_type: Image,
-                config_json: "",
+                config_json: b"",
                 bindings: [
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "a",
                         ],
                         collection: Some(
                             CollectionSpec {
                                 name: "testing/reset/a",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "testing/reset/a/0000000000000001",
@@ -894,20 +894,20 @@ Outcome {
                         ser_policy: None,
                     },
                     Binding {
-                        resource_config_json: "",
+                        resource_config_json: b"",
                         resource_path: [
                             "b",
                         ],
                         collection: Some(
                             CollectionSpec {
                                 name: "testing/reset/b",
-                                write_schema_json: "",
-                                read_schema_json: "",
+                                write_schema_json: b"",
+                                read_schema_json: b"",
                                 key: [],
                                 uuid_ptr: "",
                                 partition_fields: [],
                                 projections: [],
-                                ack_template_json: "",
+                                ack_template_json: b"",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "testing/reset/b/0000000000000001",

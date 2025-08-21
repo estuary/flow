@@ -214,8 +214,8 @@ Snap {
         ],
         document: "flow_document",
         field_config_json_map: {
-            "an_int": "{\"key\":\"config\"}",
-            "nested": "{\"cfg\":42}",
+            "an_int": b"{\"key\":\"config\"}",
+            "nested": b"{\"cfg\":42}",
         },
     },
     conflicts: [],
