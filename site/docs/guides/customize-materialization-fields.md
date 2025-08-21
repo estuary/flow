@@ -121,9 +121,11 @@ Every included field will be mapped to a table column or equivalent in the endpo
 
    If your materialization already exists, navigate to the [edit materialization](./edit-data-flows.md#edit-a-materialization) page.
 
-2. In the Collection Selector, choose the collection whose output fields you want to change. Click its **Collection** tab.
+2. In the Collection Selector, choose the collection whose output fields you want to change.
 
-3. Review the listed fields in the field selection table.
+3. In the **Config** tab, scroll down to the **Field Selection** table.
+
+4. Review the listed fields in the field selection table.
 
    Estuary automatically detects fields and uses a priority-based selection system to determine the fields to include or exclude in the materialization.
 
@@ -137,7 +139,7 @@ Every included field will be mapped to a table column or equivalent in the endpo
    * **Conflict**: The field matches criteria for both selection and rejection.
    Symbolized by a warning sign. The outcome tooltip provides detailed information on the conflict.
 
-4. Choose whether to start with one of Flow's field selection **modes**. You can customize individual fields later. Modes include and exclude fields based on field depth:
+5. Choose whether to start with one of Flow's field selection **modes**. You can customize individual fields later. Modes include and exclude fields based on field depth:
 
    * **Depth Zero:** Only selects top-level fields
    * **Depth One:** Selects object fields with one degree of nesting
@@ -147,13 +149,13 @@ Every included field will be mapped to a table column or equivalent in the endpo
    Selecting a depth limit can help prevent over-materializing complex document structures.
    If you don't select a mode, Estuary will default to **Depth One**.
 
-5. You can modify individual fields by choosing to **require** or **exclude** them.
+6. You can modify individual fields by choosing to **require** or **exclude** them.
 
    ![Field selection modes and individual options](./guide-images/field-selection.png)
 
-6. Repeat steps 2 through 5 with other collections, if necessary.
+7. Repeat steps 2 through 5 with other collections, if necessary.
 
-7. Click **Save and Publish**.
+8. Click **Save and Publish**.
 
 The named, included fields will be reflected in the endpoint system.
 
