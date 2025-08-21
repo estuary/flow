@@ -90,7 +90,7 @@ message Log {
   // Message of the log.
   string message = 5;
   // Structured Fields of the log.
-  map<string, string> fields_json_map = 6 [
+  map<string, bytes> fields_json_map = 6 [
     (gogoproto.castvalue) = "encoding/json.RawMessage",
     json_name = "fields"
   ];

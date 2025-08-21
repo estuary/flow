@@ -26,7 +26,7 @@ message Request {
     // This may be a partial specification (for example, a Docker image),
     // providing only enough information to fetch the remainder of the
     // specification schema.
-    string config_json = 2 [
+    bytes config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "config"
     ];
@@ -46,7 +46,7 @@ message Request {
     // Connector type addressed by this request.
     flow.MaterializationSpec.ConnectorType connector_type = 2;
     // Connector configuration, as an encoded JSON object.
-    string config_json = 3 [
+    bytes config_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "config"
     ];
@@ -54,7 +54,7 @@ message Request {
     // materialized. Bindings are ordered and unique on the bound collection name.
     message Binding {
       // JSON-encoded object which specifies the endpoint resource to be materialized.
-      string resource_config_json = 1 [
+      bytes resource_config_json = 1 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "resourceConfig"
       ];
@@ -62,7 +62,7 @@ message Request {
       flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
       // Projection configuration, keyed by the projection field name,
       // with JSON-encoded and driver-defined configuration objects.
-      map<string, string> field_config_json_map = 3 [
+      map<string, bytes> field_config_json_map = 3 [
         (gogoproto.castvalue) = "encoding/json.RawMessage",
         json_name = "fieldConfig"
       ];
@@ -101,7 +101,7 @@ message Request {
     // Last-persisted connector checkpoint state from a previous session.
     // The Apply RPC may use this state to perform a post-commit apply
     // of files staged under the `last_materialization` specification.
-    string state_json = 6 [
+    bytes state_json = 6 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
     ];
@@ -135,7 +135,7 @@ message Request {
     // Range of documents to be processed by this session.
     flow.RangeSpec range = 3;
     // Last-persisted connector checkpoint state from a previous session.
-    string state_json = 4 [
+    bytes state_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
     ];
@@ -149,7 +149,7 @@ message Request {
     uint32 binding = 1;
     // key tuple, as an array of key components.
     // Ordering matches `keys` of the materialization's field selection.
-    string key_json = 2 [
+    bytes key_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "key"
     ];
@@ -170,7 +170,7 @@ message Request {
     uint32 binding = 1;
     // Key tuple, as an array of key components.
     // Ordering matches `keys` of the materialization's field selection.
-    string key_json = 2 [
+    bytes key_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "key"
     ];
@@ -178,14 +178,14 @@ message Request {
     bytes key_packed = 3;
     // Values tuple, as an array of value components.
     // Ordering matches `values` of the materialization's field selection.
-    string values_json = 4 [
+    bytes values_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "values"
     ];
     // Packed FoundationDB tuple of the document values to store.
     bytes values_packed = 5;
     // JSON document to store.
-    string doc_json = 6 [
+    bytes doc_json = 6 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "doc"
     ];
@@ -219,7 +219,7 @@ message Response {
     // Protocol version must be 3032023.
     uint32 protocol = 1;
     // JSON schema of the connector's configuration.
-    string config_schema_json = 2 [
+    bytes config_schema_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "configSchema"
     ];
@@ -229,7 +229,7 @@ message Response {
     // - `x-collection-name: true`, a string location for a resource name (required).
     // - `x-schema-name: true`, a string location for a resource schema (optional).
     // - `x-delta-updates: true`, a boolean location for enabling delta-updates mode (optional).
-    string resource_config_schema_json = 3 [
+    bytes resource_config_schema_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceConfigSchema"
     ];
@@ -404,7 +404,7 @@ message Response {
     // Index of the Open binding for which this document was loaded.
     uint32 binding = 1;
     // Loaded JSON document.
-    string doc_json = 2 [
+    bytes doc_json = 2 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "doc"
     ];
