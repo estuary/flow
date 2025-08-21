@@ -98,8 +98,8 @@ pub struct ShuffleResponse {
     #[prost(int64, tag = "5")]
     pub write_head: i64,
     /// Memory arena of this message.
-    #[prost(bytes = "vec", tag = "6")]
-    pub arena: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "6")]
+    pub arena: ::prost::bytes::Bytes,
     /// Shuffled documents, each encoded in the 'application/json'
     /// media-type.
     #[prost(message, repeated, tag = "7")]
@@ -391,8 +391,8 @@ pub mod combine_request {
                 super::super::super::flow::Projection,
             >,
             /// Collection JSON-Schema to reduce over.
-            #[prost(string, tag = "4")]
-            pub schema_json: ::prost::alloc::string::String,
+            #[prost(bytes = "bytes", tag = "4")]
+            pub schema_json: ::prost::bytes::Bytes,
             /// Optional SerPolicy to use for extracted fields and the document.
             #[prost(message, optional, tag = "5")]
             pub ser_policy: ::core::option::Option<super::super::super::flow::SerPolicy>,
@@ -412,8 +412,8 @@ pub mod combine_request {
         #[prost(uint32, tag = "1")]
         pub binding: u32,
         /// Document to add to the combiner.
-        #[prost(string, tag = "2")]
-        pub doc_json: ::prost::alloc::string::String,
+        #[prost(bytes = "bytes", tag = "2")]
+        pub doc_json: ::prost::bytes::Bytes,
         /// Add document to the front (true), or back (false) of the combiner?
         #[prost(bool, tag = "3")]
         pub front: bool,
@@ -429,8 +429,8 @@ pub struct CombineResponse {
     #[prost(bool, tag = "2")]
     pub deleted: bool,
     /// Full JSON document.
-    #[prost(string, tag = "3")]
-    pub doc_json: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "3")]
+    pub doc_json: ::prost::bytes::Bytes,
     /// Was this document at the front, or back of the combiner?
     #[prost(bool, tag = "4")]
     pub front: bool,
