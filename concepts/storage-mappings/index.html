@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)."></script><link rel="stylesheet" href="/assets/css/styles.5ecd8a62.css">
-<script src="/assets/js/runtime~main.305edab6.js" defer="defer"></script>
-<script src="/assets/js/main.64c4a2a1.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.5844941c.js" defer="defer"></script>
+<script src="/assets/js/main.3e0670a4.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -20,7 +20,7 @@ Your <strong>storage mapping</strong> tells Flow which bucket to use.</p>
 <p>When you first register for Flow, your storage mapping is Estuary&#x27;s secure Google Cloud Storage bucket.
 Data in Flow&#x27;s cloud storage bucket is deleted 20 days after collection.</p>
 <p>For production workflows, you should <a href="/getting-started/installation/">set up your own cloud storage bucket as a storage mapping</a>.</p>
-<p>You can set up a bucket lifecycle policy to manage data retention in your storage mapping;
+<p>You can set up a <a href="#bucket-lifecycle-policies">bucket lifecycle policy</a> to manage data retention in your storage mapping;
 for example, to remove data after six months.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="recovery-logs">Recovery logs<a href="#recovery-logs" class="hash-link" aria-label="Direct link to Recovery logs" title="Direct link to Recovery logs">​</a></h2>
 <p>In addition to collection data, Flow uses your storage mapping to temporarily store <strong>recovery logs</strong>.</p>
@@ -30,6 +30,107 @@ Recovery logs are an opaque binary log, but may contain user data.</p>
 so a task named <code>acmeCo/produce-TNT</code> would have a recovery log called <code>recovery/acmeCo/produce-TNT</code></p>
 <p>Flow prunes data from recovery logs once it is no longer required.</p>
 <div class="theme-admonition theme-admonition-warning admonition_xJq3 alert alert--warning"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8.893 1.5c-.183-.31-.52-.5-.887-.5s-.703.19-.886.5L.138 13.499a.98.98 0 0 0 0 1.001c.193.31.53.501.886.501h13.964c.367 0 .704-.19.877-.5a1.03 1.03 0 0 0 .01-1.002L8.893 1.5zm.133 11.497H6.987v-2.003h2.039v2.003zm0-3.004H6.987V5.987h2.039v4.006z"></path></svg></span>warning</div><div class="admonitionContent_BuS1"><p>Deleting data from recovery logs while it is still in use can
-cause Flow processing tasks to fail permanently.</p></div></div></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/estuary/flow/edit/master/site/docs/concepts/storage-mappings.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/concepts/schemas/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Schemas</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/concepts/tests/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Tests</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#recovery-logs" class="table-of-contents__link toc-highlight">Recovery logs</a></li></ul></div></div></div></div></main></div></div></div><footer class="footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Resources</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/">Flow Documentation</a></li><li class="footer__item"><a href="https://estuary.dev/success-stories/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Success Stories<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://go.estuary.dev/slack" target="_blank" rel="noopener noreferrer" class="footer__link-item">Slack<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.linkedin.com/company/estuary-tech/" target="_blank" rel="noopener noreferrer" class="footer__link-item">LinkedIn<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://twitter.com/EstuaryDev" target="_blank" rel="noopener noreferrer" class="footer__link-item">Twitter<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.youtube.com/@estuarydev" target="_blank" rel="noopener noreferrer" class="footer__link-item">YouTube<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://estuary.dev/contact-us/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Contact Us<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2025 Estuary Technologies, Inc. Built with Docusaurus.</div></div></div></footer></div>
+cause Flow processing tasks to fail permanently.</p></div></div>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="bucket-lifecycle-policies">Bucket lifecycle policies<a href="#bucket-lifecycle-policies" class="hash-link" aria-label="Direct link to Bucket lifecycle policies" title="Direct link to Bucket lifecycle policies">​</a></h2>
+<p>You can add a lifecycle policy to your storage bucket to limit how long to keep collection data.
+This is similar to Estuary&#x27;s 20-day limit on collection data when using the trial bucket.</p>
+<p>Bucket lifecycle policies should <strong>only</strong> be applied to the <code>collection-data/</code> subfolder in a bucket.
+Deleting data in the <a href="#recovery-logs"><code>recovery/</code></a> folder can cause tasks to fail.</p>
+<p>You can apply a lifecycle policy to your storage bucket in:</p>
+<ul>
+<li><a href="#add-a-lifecycle-policy-in-aws">AWS</a></li>
+<li><a href="#add-a-lifecycle-policy-in-gcp">Google Cloud</a></li>
+<li><a href="#add-a-lifecycle-policy-in-azure">Azure</a></li>
+</ul>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-lifecycle-policy-in-aws">Add a lifecycle policy in AWS<a href="#add-a-lifecycle-policy-in-aws" class="hash-link" aria-label="Direct link to Add a lifecycle policy in AWS" title="Direct link to Add a lifecycle policy in AWS">​</a></h3>
+<p>To add a lifecycle policy in AWS:</p>
+<ol>
+<li>
+<p>Select your storage bucket in the AWS S3 console.</p>
+</li>
+<li>
+<p>If <code>collection-data/</code> isn&#x27;t located at the top level of your bucket, note the full path for the directory.</p>
+</li>
+<li>
+<p>In the <strong>Management</strong> tab, click <strong>Create lifecycle rule</strong>.</p>
+</li>
+<li>
+<p>Add a name for the rule.</p>
+</li>
+<li>
+<p>Choose to <strong>Limit the scope to specific prefixes or tags</strong> and enter the full path for <code>collection-data/</code> as the prefix.</p>
+</li>
+<li>
+<p>Select a desired action to take, such as deleting data or setting it to a different storage class.</p>
+</li>
+<li>
+<p>Enter the number of days for the action to take effect and any other information required for the action.</p>
+</li>
+<li>
+<p>Click <strong>Create rule</strong>.</p>
+</li>
+</ol>
+<p>For full instructions on creating and managing a lifecycle policy in AWS, see the <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-set-lifecycle-configuration-intro.html" target="_blank" rel="noopener noreferrer">AWS docs</a>.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-lifecycle-policy-in-gcp">Add a lifecycle policy in GCP<a href="#add-a-lifecycle-policy-in-gcp" class="hash-link" aria-label="Direct link to Add a lifecycle policy in GCP" title="Direct link to Add a lifecycle policy in GCP"> ​</a></h3>
+<p>To add a lifecycle policy in GCP:</p>
+<ol>
+<li>
+<p>Select your storage bucket in the GCP Cloud Storage console.</p>
+</li>
+<li>
+<p>If <code>collection-data/</code> isn&#x27;t located at the top level of your bucket, note the full path for the directory.</p>
+</li>
+<li>
+<p>In the <strong>Lifecycle</strong> tab, click <strong>Add a rule</strong>.</p>
+</li>
+<li>
+<p>Choose a desired action, such as deleting data or setting it to a different storage class, and click <strong>Continue</strong>.</p>
+</li>
+<li>
+<p>Under <strong>Set Rule Scopes</strong>, check <strong>Object name matches prefix</strong> and enter the path for <code>collection-data/</code>.</p>
+</li>
+<li>
+<p>Under <strong>Set Conditions</strong>, configure one or more desired conditions, such as age in days.</p>
+</li>
+<li>
+<p>Click <strong>Create</strong>.</p>
+</li>
+</ol>
+<p>For full instructions on creating and managing a lifecycle policy in GCP, see the <a href="https://cloud.google.com/storage/docs/lifecycle" target="_blank" rel="noopener noreferrer">Google Cloud docs</a>.</p>
+<h3 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-lifecycle-policy-in-azure">Add a lifecycle policy in Azure<a href="#add-a-lifecycle-policy-in-azure" class="hash-link" aria-label="Direct link to Add a lifecycle policy in Azure" title="Direct link to Add a lifecycle policy in Azure">​</a></h3>
+<p>To add a lifecycle policy in Azure:</p>
+<ol>
+<li>
+<p>Go to your Azure storage account.</p>
+</li>
+<li>
+<p>Note the full path for your <code>collection-data/</code> directory, including the container name.</p>
+</li>
+<li>
+<p>Under <strong>Data Management</strong>, select <strong>Lifecycle Management</strong>.</p>
+</li>
+<li>
+<p>In the <strong>List View</strong> tab, click <strong>Add a rule</strong>.</p>
+</li>
+<li>
+<p>Provide a name.</p>
+</li>
+<li>
+<p>Under <strong>Rule scope</strong>, select <strong>Limit blobs with filters</strong>.</p>
+</li>
+<li>
+<p>Choose affected blob types and subtypes and click <strong>Next</strong>.</p>
+</li>
+<li>
+<p>Fill out an if/then rule, choosing a timeline and action to take, such as deleting objects or changing their storage class after a number of days. Click <strong>Next</strong>.</p>
+</li>
+<li>
+<p>Add your <code>collection-data/</code> path under <strong>Blob prefix</strong> as a <strong>Filter set</strong>.</p>
+</li>
+<li>
+<p>Click <strong>Add</strong>.</p>
+</li>
+</ol>
+<p>For full instructions on creating and managing a lifecycle policy in Azure, see the <a href="https://learn.microsoft.com/en-us/azure/storage/blobs/lifecycle-management-overview" target="_blank" rel="noopener noreferrer">Azure docs</a>.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/estuary/flow/edit/master/site/docs/concepts/storage-mappings.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/concepts/schemas/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Schemas</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/concepts/tests/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Tests</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#recovery-logs" class="table-of-contents__link toc-highlight">Recovery logs</a></li><li><a href="#bucket-lifecycle-policies" class="table-of-contents__link toc-highlight">Bucket lifecycle policies</a><ul><li><a href="#add-a-lifecycle-policy-in-aws" class="table-of-contents__link toc-highlight">Add a lifecycle policy in AWS</a></li><li><a href="#add-a-lifecycle-policy-in-gcp" class="table-of-contents__link toc-highlight">Add a lifecycle policy in GCP</a></li><li><a href="#add-a-lifecycle-policy-in-azure" class="table-of-contents__link toc-highlight">Add a lifecycle policy in Azure</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Resources</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/">Flow Documentation</a></li><li class="footer__item"><a href="https://estuary.dev/success-stories/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Success Stories<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://go.estuary.dev/slack" target="_blank" rel="noopener noreferrer" class="footer__link-item">Slack<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.linkedin.com/company/estuary-tech/" target="_blank" rel="noopener noreferrer" class="footer__link-item">LinkedIn<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://twitter.com/EstuaryDev" target="_blank" rel="noopener noreferrer" class="footer__link-item">Twitter<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.youtube.com/@estuarydev" target="_blank" rel="noopener noreferrer" class="footer__link-item">YouTube<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://estuary.dev/contact-us/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Contact Us<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2025 Estuary Technologies, Inc. Built with Docusaurus.</div></div></div></footer></div>
 </body>
 </html>
