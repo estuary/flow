@@ -30,7 +30,7 @@ struct FlexLog {
     message: String,
     /// Supplemental fields of the log.
     #[serde(default)]
-    fields: BTreeMap<String, Box<serde_json::value::RawValue>>,
+    fields: BTreeMap<String, proto_flow::RawJSONDeserialize>,
     /// Metadata of the shard which created the Log.
     #[serde(default)]
     shard: Option<Shard>,
@@ -38,7 +38,8 @@ struct FlexLog {
     #[serde(default)]
     spans: Vec<Log>,
     #[serde(default, flatten)]
-    // Extra would ideally be Box<RawValue>, but this doesn't work with serde(flatten).
+    // Extra would ideally be Box<proto_flow::RawJSONDeserialize>,
+    // but this doesn't work with serde(flatten).
     // See: https://github.com/serde-rs/json/issues/883
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -120,13 +121,15 @@ where
         fields.extend(
             extra
                 .into_iter()
-                .map(|(k, v)| (k, serde_json::value::to_raw_value(&v).unwrap())),
+                .map(|(k, v)| (k, proto_flow::RawJSONDeserialize(v.to_string().into()))),
         );
 
         if message.is_empty() {
             for key in ["message", "msg"] {
-                let Some(msg) = fields.get(key)  else { continue };
-                let Ok(msg) = serde_json::from_str(msg.get()) else { continue };
+                let Some(msg) = fields.get(key) else { continue };
+                let Ok(msg) = serde_json::from_slice(&msg.0) else {
+                    continue;
+                };
                 message = msg;
                 fields.remove(key);
             }
@@ -137,14 +140,7 @@ where
             timestamp: Some(proto_flow::as_timestamp(ts)),
             level: level as i32,
             message,
-            fields_json_map: fields
-                .into_iter()
-                .map(|(k, v)| {
-                    let v: Box<str> = v.into();
-                    let v: String = v.into();
-                    (k, v)
-                })
-                .collect(),
+            fields_json_map: fields.into_iter().map(|(k, v)| (k, v.0)).collect(),
             shard: shard.map(Into::into),
             spans,
         }

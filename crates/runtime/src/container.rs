@@ -183,11 +183,10 @@ pub async fn start(
 
     // Service process stderr by decoding ops::Logs and sending to our handler.
     let stderr = process.stderr.take().unwrap();
-    let sanitize_logs_task_name = format!("\"{task_name}\"");
+    let quoted_task_name: bytes::Bytes = format!("\"{task_name}\"").into();
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
-        let quoted_task_name = sanitize_logs_task_name;
 
         // Wait for a non-empty read of stderr to complete or EOF/error.
         // Note that `flow-connector-init` writes one whitespace byte on startup.
@@ -281,7 +280,7 @@ pub async fn start(
 /// Performs a basic validation of logs that represent events, to restrict
 /// connectors to emitting connectorStatus and configUpdate events for the
 /// currently running task.
-fn sanitize_event_type(quoted_task_name: &str, mut log: ops::Log) -> ops::Log {
+fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> ops::Log {
     match log
         .fields_json_map
         .get("eventType")
@@ -299,11 +298,11 @@ fn sanitize_event_type(quoted_task_name: &str, mut log: ops::Log) -> ops::Log {
                     log.fields_json_map
                         .insert("_sanitized_eventTarget".to_string(), v);
                     log.fields_json_map
-                        .insert("eventTarget".to_string(), quoted_task_name.to_string());
+                        .insert("eventTarget".to_string(), quoted_task_name.clone());
                 }
                 None => {
                     log.fields_json_map
-                        .insert("eventTarget".to_string(), quoted_task_name.to_string());
+                        .insert("eventTarget".to_string(), quoted_task_name.clone());
                 }
             }
         }
@@ -815,6 +814,8 @@ mod test {
 
     #[test]
     fn test_log_event_validation() {
+        let abc = bytes::Bytes::from("\"a/b/c\"");
+
         let good = json!({
             "shard": {
                 "name": "a/b/c",
@@ -831,7 +832,7 @@ mod test {
             }
         });
         let log: ops::Log = serde_json::from_value(good).unwrap();
-        let out = sanitize_event_type("\"a/b/c\"", log.clone());
+        let out = sanitize_event_type(&abc, log.clone());
         assert_eq!(log, out);
 
         let naughty_type = json!({
@@ -850,14 +851,14 @@ mod test {
             }
         });
         let log: ops::Log = serde_json::from_value(naughty_type).unwrap();
-        let out = sanitize_event_type("\"a/b/c\"", log);
+        let out = sanitize_event_type(&abc, log);
 
         assert!(!out.fields_json_map.contains_key("eventType"));
         assert_eq!(
-            Some("\"foo\""),
             out.fields_json_map
                 .get("_sanitized_eventType")
-                .map(|v| v.as_str())
+                .map(|v| v.as_ref()),
+            Some("\"foo\"".as_bytes()),
         );
 
         let naughty_target = json!({
@@ -876,14 +877,14 @@ mod test {
             }
         });
         let log: ops::Log = serde_json::from_value(naughty_target).unwrap();
-        let out = sanitize_event_type("\"a/b/c\"", log);
+        let out = sanitize_event_type(&abc, log);
         assert_eq!(
-            Some("\"a/b/c\""),
-            out.fields_json_map.get("eventTarget").map(|v| v.as_str())
+            out.fields_json_map.get("eventTarget").map(|v| v.as_ref()),
+            Some("\"a/b/c\"".as_bytes()),
         );
         assert_eq!(
-            Some("\"connectorStatus\""),
-            out.fields_json_map.get("eventType").map(|v| v.as_str())
+            out.fields_json_map.get("eventType").map(|v| v.as_ref()),
+            Some("\"connectorStatus\"".as_bytes()),
         );
     }
 }

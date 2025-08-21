@@ -46,7 +46,7 @@ pub async fn start<L: LogHandler>(
             image,
             config: sealed_config,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
+            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
             crate::image_connector::serve(
                 attach_container,
@@ -76,7 +76,7 @@ pub async fn start<L: LogHandler>(
             env,
             protobuf,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
+            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
             crate::local_connector::serve(
                 command,
@@ -97,7 +97,7 @@ pub async fn start<L: LogHandler>(
     connector_tx
         .try_send(Request {
             spec: Some(proto_flow::materialize::request::Spec {
-                config_json: "{}".to_string(),
+                config_json: "{}".into(),
                 connector_type: connector_type,
             }),
             ..Default::default()
@@ -121,7 +121,7 @@ pub async fn start<L: LogHandler>(
                 .await
                 .map_err(crate::anyhow_to_status)?;
 
-            tokens.inject_into(config_json)?;
+            *config_json = tokens.inject_into(config_json)?.to_string().into();
             tokens.zeroize();
         }
     }
@@ -135,7 +135,7 @@ fn extract_endpoint<'r>(
     request: &'r mut Request,
 ) -> anyhow::Result<(
     models::MaterializationEndpoint,
-    &'r mut String,
+    &'r mut bytes::Bytes,
     i32,
     Option<String>,
 )> {
@@ -179,7 +179,7 @@ fn extract_endpoint<'r>(
     if connector_type == ConnectorType::Image as i32 {
         Ok((
             models::MaterializationEndpoint::Connector(
-                serde_json::from_str(config_json).context("parsing connector config")?,
+                serde_json::from_slice(config_json).context("parsing connector config")?,
             ),
             config_json,
             connector_type,
@@ -188,7 +188,7 @@ fn extract_endpoint<'r>(
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
             models::MaterializationEndpoint::Local(
-                serde_json::from_str(config_json).context("parsing local config")?,
+                serde_json::from_slice(config_json).context("parsing local config")?,
             ),
             config_json,
             connector_type,
@@ -197,7 +197,7 @@ fn extract_endpoint<'r>(
     } else if connector_type == ConnectorType::Dekaf as i32 {
         Ok((
             models::MaterializationEndpoint::Dekaf(
-                serde_json::from_str(config_json).context("parsing local config")?,
+                serde_json::from_slice(config_json).context("parsing local config")?,
             ),
             config_json,
             connector_type,

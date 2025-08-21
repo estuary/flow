@@ -20,8 +20,8 @@ pub fn parse_validate(
         last_version: _,
     } = &validate;
 
-    let config: Config = serde_json::from_str(&config_json)
-        .with_context(|| format!("failed to parse SQLite configuration: {config_json}"))?;
+    let config: Config = serde_json::from_slice(&config_json)
+        .with_context(|| format!("failed to parse SQLite configuration: {config_json:?}"))?;
 
     let transforms: Vec<Transform> = transforms
         .into_iter()
@@ -41,8 +41,8 @@ pub fn parse_validate(
                 .map(Param::new)
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let block: String = serde_json::from_str(&lambda_config_json).with_context(|| {
-                format!("failed to parse SQLite lambda block: {lambda_config_json}")
+            let block: String = serde_json::from_slice(&lambda_config_json).with_context(|| {
+                format!("failed to parse SQLite lambda block: {lambda_config_json:?}")
             })?;
 
             Ok(Transform {

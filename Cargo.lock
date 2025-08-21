@@ -3630,6 +3630,7 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-sts",
+ "bytes",
  "doc",
  "insta",
  "jsonwebtoken",
@@ -4603,6 +4604,7 @@ name = "models"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "caseless",
  "chrono",
  "humantime-serde",
@@ -8085,6 +8087,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-process",
+ "bytes",
  "futures",
  "insta",
  "locate-bin",

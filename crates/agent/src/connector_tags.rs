@@ -266,12 +266,15 @@ async fn spec_materialization(
             serde_json::to_string(
                 &serde_json::json!({"variant": variant.to_string(), "config": {}}),
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
         )
     } else {
         (
             flow::materialization_spec::ConnectorType::Image as i32,
-            serde_json::to_string(&serde_json::json!({"image": image, "config": {}})).unwrap(),
+            serde_json::to_string(&serde_json::json!({"image": image, "config": {}}))
+                .unwrap()
+                .into(),
         )
     };
 
@@ -306,9 +309,9 @@ async fn spec_materialization(
 
     Ok(ConnectorSpec {
         documentation_url,
-        endpoint_config_schema: RawValue::from_string(config_schema_json)
+        endpoint_config_schema: serde_json::from_slice(&config_schema_json)
             .context("parsing endpoint config schema")?,
-        resource_config_schema: RawValue::from_string(resource_config_schema_json)
+        resource_config_schema: serde_json::from_slice(&resource_config_schema_json)
             .context("parsing resource config schema")?,
         resource_path_pointers: Vec::new(),
         oauth2,
@@ -323,8 +326,9 @@ async fn spec_capture(
     let req = capture::Request {
         spec: Some(capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&serde_json::json!({"image": image, "config": {}}))
-                .unwrap(),
+            config_json: serde_json::json!({"image": image, "config": {}})
+                .to_string()
+                .into(),
         }),
         ..Default::default()
     };
@@ -356,9 +360,9 @@ async fn spec_capture(
     };
     Ok(ConnectorSpec {
         documentation_url,
-        endpoint_config_schema: RawValue::from_string(config_schema_json)
+        endpoint_config_schema: serde_json::from_slice(&config_schema_json)
             .context("parsing endpoint config schema")?,
-        resource_config_schema: RawValue::from_string(resource_config_schema_json)
+        resource_config_schema: serde_json::from_slice(&resource_config_schema_json)
             .context("parsing resource config schema")?,
         resource_path_pointers,
         oauth2: oauth,

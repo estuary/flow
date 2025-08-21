@@ -96,7 +96,7 @@ pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Resul
 
     open.state_json = db
         .load_connector_state(
-            models::RawValue::from_str(&open.state_json)
+            serde_json::from_slice::<models::RawValue>(&open.state_json)
                 .context("failed to parse initial open connector state")?,
         )
         .await?
@@ -230,13 +230,13 @@ pub fn recv_client_load_or_flush(
             let binding = &task.bindings[binding_index as usize];
 
             let (memtable, _alloc, doc) = accumulator
-                .doc_bytes_to_heap_node(doc_json.as_bytes())
+                .doc_bytes_to_heap_node(&doc_json)
                 .with_context(|| {
-                format!(
-                    "couldn't parse source document as JSON (source {})",
-                    binding.collection_name
-                )
-            })?;
+                    format!(
+                        "couldn't parse source document as JSON (source {})",
+                        binding.collection_name
+                    )
+                })?;
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
@@ -285,7 +285,7 @@ pub fn recv_client_load_or_flush(
                     load: Some(request::Load {
                         binding: binding_index,
                         key_packed,
-                        key_json: String::new(), // TODO
+                        key_json: bytes::Bytes::new(), // TODO
                     }),
                     ..Default::default()
                 }))
@@ -335,13 +335,13 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
             let binding = &task.bindings[binding_index as usize];
 
             let (memtable, _alloc, doc) = accumulator
-                .doc_bytes_to_heap_node(doc_json.as_bytes())
+                .doc_bytes_to_heap_node(&doc_json)
                 .with_context(|| {
-                format!(
-                    "couldn't parse loaded document as JSON (source {})",
-                    binding.collection_name
-                )
-            })?;
+                    format!(
+                        "couldn't parse loaded document as JSON (source {})",
+                        binding.collection_name
+                    )
+                })?;
 
             memtable.add(binding_index, doc, true)?;
 
@@ -423,12 +423,14 @@ pub fn send_connector_store(
     // enabled. We do this so that we can count the number of bytes on the
     // stats. If delta updates is enabled, we'll clear out this string before
     // sending the response.
-    let mut doc_json = serde_json::to_string(
+    serde_json::to_writer(
+        buf.writer(),
         &binding
             .ser_policy
             .on_owned_with_truncation_indicator(&root, &truncation_indicator),
     )
     .expect("document serialization cannot fail");
+    let mut doc_json = buf.split().freeze();
 
     let values_packed = doc::Extractor::extract_all_owned_indicate_truncation(
         &root,
@@ -452,9 +454,9 @@ pub fn send_connector_store(
             delete: meta.deleted(),
             doc_json,
             exists: meta.front(),
-            key_json: String::new(), // TODO(johnny)
+            key_json: bytes::Bytes::new(), // TODO(johnny)
             key_packed,
-            values_json: String::new(), // TODO(johnny)
+            values_json: bytes::Bytes::new(), // TODO(johnny)
             values_packed,
         }),
         ..Default::default()

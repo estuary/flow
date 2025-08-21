@@ -167,7 +167,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                     }),
                     ..Default::default()
                 }),
-                resource_path: validation::load_resource_meta_path(binding.resource.get()),
+                resource_path: validation::load_resource_meta_path(
+                    binding.resource.get().as_bytes(),
+                ),
                 backfill: binding.backfill,
                 ..Default::default()
             })
@@ -181,7 +183,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             recovery_log_template: Some(recovery_template),
             bindings,
             shard_template: Some(shard_template),
-            config_json: String::new(),
+            config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
         };
         live.captures.insert_row(
@@ -250,7 +252,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 .collect();
 
             Some(flow::collection_spec::Derivation {
-                config_json: String::new(),
+                config_json: bytes::Bytes::new(),
                 connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
                 network_ports: Vec::new(),
                 recovery_log_template: Some(recovery_template),
@@ -265,14 +267,14 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
 
         let built_spec = flow::CollectionSpec {
             name: collection.to_string(),
-            ack_template_json: String::new(),
+            ack_template_json: bytes::Bytes::new(),
             derivation,
             key: model.key.iter().map(|k| k.to_string()).collect(),
             partition_fields: Vec::new(),
             partition_template: Some(partition_template),
             projections: Vec::new(),
-            write_schema_json: schema.to_string(),
-            read_schema_json: String::new(),
+            write_schema_json: schema.to_string().into(),
+            read_schema_json: bytes::Bytes::new(),
             uuid_ptr: "/_meta/uuid".to_string(),
         };
         live.collections.insert_row(
@@ -318,7 +320,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                     }),
                     ..Default::default()
                 }),
-                resource_path: validation::load_resource_meta_path(binding.resource.get()),
+                resource_path: validation::load_resource_meta_path(
+                    binding.resource.get().as_bytes(),
+                ),
                 backfill: binding.backfill,
                 field_selection: mock.last_fields.get(index).cloned(),
                 delta_updates: mock
@@ -337,7 +341,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             recovery_log_template: Some(recovery_template),
             bindings,
             shard_template: Some(shard_template),
-            config_json: String::new(),
+            config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
         };
         live.materializations.insert_row(
@@ -673,7 +677,8 @@ impl validation::Connectors for MockDriverCalls {
                                 config_schema_json: serde_json::json!({
                                     "type": "object",
                                 })
-                                .to_string(),
+                                .to_string()
+                                .into(),
                                 resource_config_schema_json: serde_json::json!({
                                     "type": "object",
                                     "properties": {
@@ -682,7 +687,8 @@ impl validation::Connectors for MockDriverCalls {
                                     },
                                     "required": ["source"]
                                 })
-                                .to_string(),
+                                .to_string()
+                                .into(),
                                 resource_path_pointers: Vec::new(),
                                 ..Default::default()
                             }),
@@ -706,7 +712,7 @@ impl validation::Connectors for MockDriverCalls {
                     }
                 };
 
-                let config: serde_json::Value = serde_json::from_str(&validate.config_json)?;
+                let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
 
                 if call.connector_type as i32 != validate.connector_type {
                     return Err(anyhow::anyhow!(
@@ -719,7 +725,7 @@ impl validation::Connectors for MockDriverCalls {
                     return Err(anyhow::anyhow!(
                         "connector config mismatch: {} vs {}",
                         call.config.to_string(),
-                        &validate.config_json,
+                        config.to_string(),
                     ));
                 }
                 if let Some(err) = &call.error {
@@ -771,8 +777,8 @@ impl validation::Connectors for MockDriverCalls {
                     () = co
                         .yield_(derive::Response {
                             spec: Some(derive::response::Spec {
-                                config_schema_json: "true".to_string(),
-                                resource_config_schema_json: "true".to_string(),
+                                config_schema_json: "true".into(),
+                                resource_config_schema_json: "true".into(),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -794,7 +800,7 @@ impl validation::Connectors for MockDriverCalls {
                     }
                 };
 
-                let config: serde_json::Value = serde_json::from_str(&validate.config_json)?;
+                let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
 
                 if call.connector_type as i32 != validate.connector_type {
                     return Err(anyhow::anyhow!(
@@ -807,7 +813,7 @@ impl validation::Connectors for MockDriverCalls {
                     return Err(anyhow::anyhow!(
                         "connector config mismatch: {} vs {}",
                         call.config.to_string(),
-                        &validate.config_json,
+                        config.to_string(),
                     ));
                 }
                 if call
@@ -879,7 +885,8 @@ impl validation::Connectors for MockDriverCalls {
                                 config_schema_json: serde_json::json!({
                                     "type": "object",
                                 })
-                                .to_string(),
+                                .to_string()
+                                .into(),
                                 resource_config_schema_json: serde_json::json!({
                                     "type": "object",
                                     "properties": {
@@ -888,7 +895,8 @@ impl validation::Connectors for MockDriverCalls {
                                     },
                                     "required": ["target"]
                                 })
-                                .to_string(),
+                                .to_string()
+                                .into(),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -911,7 +919,7 @@ impl validation::Connectors for MockDriverCalls {
                     }
                 };
 
-                let config: serde_json::Value = serde_json::from_str(&validate.config_json)?;
+                let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
 
                 if call.connector_type as i32 != validate.connector_type {
                     return Err(anyhow::anyhow!(
@@ -924,7 +932,7 @@ impl validation::Connectors for MockDriverCalls {
                     return Err(anyhow::anyhow!(
                         "connector config mismatch: {} vs {}",
                         call.config.to_string(),
-                        &validate.config_json,
+                        config.to_string(),
                     ));
                 }
                 if let Some(err) = &call.error {

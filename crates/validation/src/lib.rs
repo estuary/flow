@@ -430,7 +430,7 @@ where
 
 // Load the resource path encoded in /_meta/path, or return an empty Vec
 // if there is no such location, or it's not an array of strings.
-pub fn load_resource_meta_path(resource_config_json: &str) -> Vec<String> {
+pub fn load_resource_meta_path(resource_config_json: &[u8]) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct Meta {
         path: Vec<String>,
@@ -443,7 +443,7 @@ pub fn load_resource_meta_path(resource_config_json: &str) -> Vec<String> {
 
     if let Ok(Skim {
         meta: Some(Meta { path }),
-    }) = serde_json::from_str::<Skim>(resource_config_json)
+    }) = serde_json::from_slice::<Skim>(resource_config_json)
     {
         path
     } else {
@@ -471,15 +471,16 @@ fn store_resource_meta(resource: &models::RawValue, path: &[String]) -> models::
 
 // Strip /_meta from a resource config, before sending it to a connector.
 // TODO(johnny): We intend to remove this once connectors are updated.
-fn strip_resource_meta(resource: &models::RawValue) -> String {
+fn strip_resource_meta(resource: &models::RawValue) -> bytes::Bytes {
     type Skim = std::collections::BTreeMap<String, models::RawValue>;
 
     let Ok(mut resource) = serde_json::from_str::<Skim>(resource.get()) else {
-        return resource.get().to_string();
+        return resource.get().to_string().into();
     };
     _ = resource.remove("_meta");
 
     let resource: Box<str> = serde_json::value::to_raw_value(&resource).unwrap().into();
+    let resource: String = resource.into();
     resource.into()
 }
 
@@ -588,13 +589,13 @@ mod test {
             model: models::CollectionDef::example(),
             spec: proto_flow::flow::CollectionSpec {
                 name: name.to_string(),
-                write_schema_json: String::from("{}"),
-                read_schema_json: String::from("{}"),
+                write_schema_json: String::from("{}").into(),
+                read_schema_json: String::from("{}").into(),
                 key: vec![String::from("/id")],
                 uuid_ptr: String::from("/_meta/uuid"),
                 partition_fields: vec![],
                 projections: vec![],
-                ack_template_json: String::from("{}"),
+                ack_template_json: String::from("{}").into(),
                 partition_template: None,
                 derivation: None,
             },

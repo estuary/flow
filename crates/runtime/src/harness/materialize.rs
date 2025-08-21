@@ -101,7 +101,7 @@ async fn run_session(
             version: labeling.build.clone(),
             last_materialization: None,
             last_version: String::new(),
-            state_json: String::new(),
+            state_json: bytes::Bytes::new(),
         }),
         ..Default::default()
     }

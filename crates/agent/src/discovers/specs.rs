@@ -54,14 +54,14 @@ pub fn parse_response(
 /// path values other than strings will result in an error.
 fn resource_path(
     resource_path_pointers: &[doc::Pointer],
-    resource_config_json: &str,
+    resource_config_json: &[u8],
 ) -> anyhow::Result<(ResourcePath, bool)> {
     let mut path = validation::load_resource_meta_path(resource_config_json);
     if !path.is_empty() {
         return Ok((path, false));
     }
     let resource: serde_json::Value =
-        serde_json::from_str(resource_config_json).context("parsing resource config JSON")?;
+        serde_json::from_slice(resource_config_json).context("parsing resource config JSON")?;
     for pointer in resource_path_pointers {
         match pointer.query(&resource) {
             None | Some(serde_json::Value::Null) => {
@@ -81,10 +81,10 @@ fn index_fetched_bindings<'a>(
     let mut map = HashMap::new();
     let mut fallback_pointers_used = false;
     for (idx, binding) in bindings.iter().enumerate() {
-        let (path, used_pointers) = resource_path(resource_path_pointers, binding.resource.get())
-            .context(format!(
-            "extracting resource path from existing binding at index {idx}"
-        ))?;
+        let (path, used_pointers) =
+            resource_path(resource_path_pointers, binding.resource.get().as_bytes()).context(
+                format!("extracting resource path from existing binding at index {idx}"),
+            )?;
         fallback_pointers_used |= used_pointers;
         // TODO(phil): this check is already done as part of validation, and can be removed when we remove resource path pointers.
         if map.contains_key(&path) {
@@ -178,7 +178,7 @@ pub fn update_capture_bindings(
                     disable,
                 },
             );
-            let resource = models::RawValue::from_string(resource_config_json)?;
+            let resource = serde_json::from_slice::<models::RawValue>(&resource_config_json)?;
             models::CaptureBinding {
                 target,
                 disable,
@@ -187,7 +187,7 @@ pub fn update_capture_bindings(
             }
         };
         let document_schema = models::Schema::new(
-            models::RawValue::from_str(&document_schema_json)
+            serde_json::from_slice::<models::RawValue>(&document_schema_json)
                 .context("parsing discovered collection schema")?,
         );
         used_bindings.push(Binding {

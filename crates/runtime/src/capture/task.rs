@@ -105,7 +105,7 @@ impl Task {
             .collect::<Vec<_>>();
 
         let state_schema = doc::reduce::merge_patch_schema().to_string();
-        let state_schema = doc::validation::build_bundle(&state_schema).unwrap();
+        let state_schema = doc::validation::build_bundle(state_schema.as_bytes()).unwrap();
         let state_validator = doc::Validator::new(state_schema).unwrap();
 
         // Build combiner Spec with all bindings, plus one extra for state reductions.

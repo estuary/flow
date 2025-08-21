@@ -122,14 +122,14 @@ async fn generate_missing_capture_configs(
         models::CaptureEndpoint::Connector(config) => (
             capture::request::Spec {
                 connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
         models::CaptureEndpoint::Local(config) => (
             capture::request::Spec {
                 connector_type: flow::capture_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
@@ -201,14 +201,14 @@ async fn generate_missing_collection_configs(
         models::DeriveUsing::Connector(config) => (
             derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
         models::DeriveUsing::Local(config) => (
             derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
@@ -276,21 +276,21 @@ async fn generate_missing_materialization_configs(
         models::MaterializationEndpoint::Connector(config) => (
             materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
         models::MaterializationEndpoint::Local(config) => (
             materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
         models::MaterializationEndpoint::Dekaf(config) => (
             materialize::request::Spec {
                 connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
-                config_json: serde_json::to_string(config).unwrap(),
+                config_json: serde_json::to_string(config).unwrap().into(),
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
@@ -340,14 +340,14 @@ async fn generate_missing_materialization_configs(
 }
 
 fn stub_missing_configs(
-    config_schema_json: &str,
-    resource_config_schema_json: &str,
+    config_schema_json: &[u8],
+    resource_config_schema_json: &[u8],
     missing_config_url: Option<url::Url>,
     missing_resource_urls: Vec<(url::Url, models::Collection)>,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     // Closure which builds a doc::Shape.
-    let build_shape = |schema: &str| -> anyhow::Result<doc::Shape> {
-        let schema = doc::validation::build_bundle(&schema)?;
+    let build_shape = |schema: &[u8]| -> anyhow::Result<doc::Shape> {
+        let schema = doc::validation::build_bundle(schema)?;
 
         let mut index = doc::SchemaIndexBuilder::new();
         index.add(&schema)?;
