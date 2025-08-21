@@ -756,6 +756,15 @@ fn bool<const U: bool>() -> bool {
     U
 }
 
+// field_fold maps a projection field name to its folded AVRO-compatible name.
+// Currently this is the most basic possible transform that provides somewhat
+// reasonable UX, and will forbid any field which isn't AVRO_FIELD_RE relaxed
+// to also allow '/'.
+// TODO(johnny): Fold unicode (punycode?) and whitespace.
+fn field_fold(field: &str) -> String {
+    field.replace("/", "_")
+}
+
 #[cfg(test)]
 mod test {
     use crate::{from_upstream_topic_name, to_upstream_topic_name};
