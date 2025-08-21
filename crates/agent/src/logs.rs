@@ -220,7 +220,7 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
     );
 
     for (field, content_json) in &log.fields_json_map {
-        let content: serde_json::Value = serde_json::from_str(content_json).unwrap();
+        let content: serde_json::Value = serde_json::from_slice(content_json).unwrap();
 
         write!(
             &mut line,
@@ -251,7 +251,7 @@ mod test {
                 ("array", "[1,2,true,\"false\"]"),
             ]
             .into_iter()
-            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .map(|(key, value)| (key.to_string(), value.into()))
             .collect(),
             ..Default::default()
         };

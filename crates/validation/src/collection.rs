@@ -243,7 +243,8 @@ fn walk_collection(
         ack_template_json: serde_json::json!({
             "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef", "ack": true}
         })
-        .to_string(),
+        .to_string()
+        .into(),
         partition_template: Some(partition_template),
         derivation: None,
     };
@@ -363,7 +364,7 @@ fn walk_collection_schema(
     model: models::Schema,
     errors: &mut tables::Errors,
 ) -> Option<Schema> {
-    let spec = match schema::Schema::new(model.get()) {
+    let spec = match schema::Schema::new(model.get().as_bytes()) {
         Ok(schema) => schema,
         Err(err) => {
             err.push(scope, errors);

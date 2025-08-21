@@ -477,12 +477,12 @@ pub async fn extract_dekaf_config(
     if spec.connector_type != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32 {
         anyhow::bail!("Not a Dekaf materialization")
     }
-    let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
+    let config = serde_json::from_slice::<models::DekafConfig>(&spec.config_json)?;
 
     let decrypted_endpoint_config =
         unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
 
     let dekaf_config =
-        serde_json::from_str::<connector::DekafConfig>(&decrypted_endpoint_config.to_string())?;
+        serde_json::from_str::<connector::DekafConfig>(decrypted_endpoint_config.get())?;
     Ok(dekaf_config)
 }

@@ -19,8 +19,8 @@ mod user_publications;
 
 fn spec_fixture() -> proto_flow::capture::response::Spec {
     proto_flow::capture::response::Spec {
-        config_schema_json: r#"{"type": "object"}"#.to_string(),
-        resource_config_schema_json: r#"{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}"#.to_string(),
+        config_schema_json: r#"{"type": "object"}"#.into(),
+        resource_config_schema_json: r#"{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}"#.into(),
         resource_path_pointers: vec!["/id".to_string()],
         ..Default::default()
     }

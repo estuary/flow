@@ -15,11 +15,11 @@ impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
     }
 }
 
-pub fn new_validator(schema: &str) -> Result<doc::Validator, anyhow::Error> {
+pub fn new_validator(schema: &[u8]) -> Result<doc::Validator, anyhow::Error> {
     let schema = json::schema::build::build_schema(
         // Bundled schemas carry their own $id so this isn't used in practice.
         url::Url::parse("https://example").unwrap(),
-        &serde_json::from_str(&schema).context("parsing bundled JSON schema")?,
+        &serde_json::from_slice(schema).context("parsing bundled JSON schema")?,
     )
     .context("building bundled JSON schema")?;
 

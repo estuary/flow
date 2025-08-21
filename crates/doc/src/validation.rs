@@ -14,10 +14,10 @@ pub type RawValidator<'sm> = json::validator::Validator<'sm, Annotation, SpanCon
 pub use json::schema::build::build_schema;
 
 // Build an already-bundled Schema.
-pub fn build_bundle(bundle: &str) -> Result<Schema, json::schema::build::Error> {
+pub fn build_bundle(bundle: &[u8]) -> Result<Schema, json::schema::build::Error> {
     let mut schema = build_schema(
         url::Url::parse("schema://bundle").unwrap(),
-        &serde_json::from_str(bundle).map_err(json::schema::build::Error::FormatErr)?,
+        &serde_json::from_slice(bundle).map_err(json::schema::build::Error::FormatErr)?,
     )?;
 
     // Tweak scope to remove a synthetic resource pointer that was previously

@@ -71,12 +71,12 @@ pub async fn do_discover(
         models::CaptureEndpoint::Connector(config) => capture::request::Discover {
             name: capture.capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&config).unwrap(),
+            config_json: serde_json::to_string(&config).unwrap().into(),
         },
         models::CaptureEndpoint::Local(config) => capture::request::Discover {
             name: capture.capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Local as i32,
-            config_json: serde_json::to_string(config).unwrap(),
+            config_json: serde_json::to_string(config).unwrap().into(),
         },
     };
     let discover = capture::Request {
@@ -128,7 +128,7 @@ pub async fn do_discover(
         model.bindings.push(models::CaptureBinding {
             target: collection.clone(),
             disable: false,
-            resource: models::RawValue::from_string(binding.resource_config_json)?,
+            resource: serde_json::from_slice::<models::RawValue>(&binding.resource_config_json)?,
             backfill: 0,
         });
 
@@ -137,8 +137,10 @@ pub async fn do_discover(
             &scope,
             None,
             Some(models::CollectionDef {
-                schema: Some(models::Schema::new(models::RawValue::from_string(
-                    binding.document_schema_json,
+                schema: Some(models::Schema::new(serde_json::from_slice::<
+                    models::RawValue,
+                >(
+                    &binding.document_schema_json
                 )?)),
                 write_schema: None,
                 read_schema: None,

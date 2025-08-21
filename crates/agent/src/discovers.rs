@@ -195,12 +195,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .and_then(ops::LogLevel::from_str_name)
             .unwrap_or(ops::LogLevel::Info);
 
-        let config_json = serde_json::to_string(connector_cfg).unwrap();
         let request = capture::Request {
             discover: Some(capture::request::Discover {
                 name: capture_name.to_string(),
                 connector_type: capture_spec::ConnectorType::Image as i32,
-                config_json,
+                config_json: serde_json::to_string(connector_cfg).unwrap().into(),
             }),
             ..Default::default()
         }
