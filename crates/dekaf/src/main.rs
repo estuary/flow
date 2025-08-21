@@ -5,7 +5,8 @@ use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{
-    log_appender::GazetteWriter, logging, KafkaApiClient, KafkaClientAuth, Session, TaskManager,
+    log_appender::{self, GazetteWriter},
+    logging, otel, KafkaApiClient, KafkaClientAuth, Session, TaskManager,
 };
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
@@ -22,6 +23,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tracing::Instrument;
 use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
@@ -133,6 +135,9 @@ pub struct Cli {
 
     #[command(flatten)]
     tls: Option<TlsArgs>,
+
+    #[command(flatten)]
+    otel: Option<OtelArgs>,
 }
 
 #[derive(Args, Debug, serde::Serialize)]
@@ -146,6 +151,40 @@ struct TlsArgs {
     /// behind a TLS-terminating proxy and instead be directly exposed.
     #[arg(long, env = "CERTIFICATE_KEY_FILE", requires = "certificate_file")]
     certificate_key_file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, serde::Serialize)]
+#[group(id = "otel_config", requires = "otel_endpoint")]
+struct OtelArgs {
+    /// OpenTelemetry OTLP endpoint URL
+    #[arg(long, env = "OTEL_ENDPOINT", group = "otel_config")]
+    otel_endpoint: Option<String>,
+
+    /// Service name for OpenTelemetry traces
+    #[arg(
+        long,
+        env = "OTEL_SERVICE_NAME",
+        group = "otel_config",
+        default_value = "dekaf"
+    )]
+    otel_service_name: Option<String>,
+
+    /// Grafana Cloud username/instance ID for authentication
+    #[arg(long, env = "OTEL_USERNAME", group = "otel_config")]
+    otel_username: Option<String>,
+
+    /// Grafana Cloud API token for authentication
+    #[arg(long, env = "OTEL_PASSWORD", group = "otel_config")]
+    otel_password: Option<String>,
+
+    /// Trace sampling rate (0.0-1.0)
+    #[arg(
+        long,
+        env = "OTEL_SAMPLE_RATE",
+        default_value = "0.1",
+        group = "otel_config"
+    )]
+    otel_sample_rate: f64,
 }
 
 #[derive(Args, Debug, Clone, serde::Serialize)]
@@ -215,16 +254,6 @@ impl Cli {
 }
 
 fn main() {
-    logging::install();
-
-    let cli = Cli::parse();
-
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .unwrap();
-
-    tracing::info!("Starting dekaf");
-
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build();
@@ -237,7 +266,7 @@ fn main() {
         }
     };
 
-    let handle = runtime.spawn(async_main(cli));
+    let handle = runtime.spawn(async_main());
     let result = runtime.block_on(async { handle.await.unwrap() });
 
     // Explicitly shut down the runtime without waiting for blocking background tasks.
@@ -250,7 +279,39 @@ fn main() {
     }
 }
 
-async fn async_main(cli: Cli) -> anyhow::Result<()> {
+async fn async_main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    let otel_cfg = if let Some(otel_args) = &cli.otel {
+        Some(otel::OtelConfig {
+            endpoint: otel_args
+                .otel_endpoint
+                .clone()
+                .expect("OTEL_ENDPOINT should be set by this point"),
+            service_name: otel_args
+                .otel_service_name
+                .clone()
+                .expect("OTEL_SERVICE_NAME should be set by this point"),
+            username: otel_args.otel_username.clone(),
+            password: otel_args.otel_password.clone(),
+            sample_rate: otel_args.otel_sample_rate,
+        })
+    } else {
+        None
+    };
+
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .unwrap();
+
+    logging::install(otel_cfg).expect("Failed to set up logging/tracing");
+
+    tracing::info!("Starting dekaf");
+
+    if let Some(_) = cli.otel {
+        tracing::info!("OpenTelemetry tracing enabled");
+    }
+
     let upstream_kafka_urls = cli.build_broker_urls()?;
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
@@ -495,6 +556,8 @@ async fn serve(
 
     metrics::gauge!("dekaf_total_connections").increment(1);
 
+    let correlation_id = uuid::Uuid::new_v4().to_string();
+
     let result = async {
         loop {
             tokio::select! {
@@ -503,11 +566,27 @@ async fn serve(
                         return Ok(());
                     };
 
-                    dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
-                    .await?;
+                    let request_span = tracing::info_span!(
+                        // Detach from parent span so that each request frame is its own top-level span.
+                        // This is because a single session may run for hours at a time, and otel doesn't
+                        // like long-running root spans.
+                        parent: None,
+                        "session_request",
+                        "addr" = ?addr,
+                        "correlation_id" = %correlation_id,
+                        { log_appender::SESSION_CLIENT_ID_FIELD_MARKER } = session.client_id(),
+                        { log_appender::SESSION_TASK_NAME_FIELD_MARKER } = session.task_name(),
+                    );
 
-                    () = w.write_all(&mut out).await?;
-                    out.clear();
+                    async {
+                        dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
+                        .await?;
+
+                        () = w.write_all(&mut out).await?;
+                        out.clear();
+
+                        anyhow::Ok(())
+                    }.instrument(request_span).await?;
                 }
                 _ = tokio::time::sleep(idle_timeout) => {
                     anyhow::bail!("timeout waiting for next session request")

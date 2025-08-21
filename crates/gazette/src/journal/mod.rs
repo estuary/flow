@@ -51,6 +51,7 @@ impl Client {
     }
 
     /// Invoke the Gazette journal Apply API.
+    #[tracing::instrument(skip(self))]
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
         let mut client = self.into_sub(self.router.route(
             None,
@@ -68,6 +69,7 @@ impl Client {
     }
 
     /// Invoke the Gazette journal ListFragments API.
+    #[tracing::instrument(skip(self))]
     pub async fn list_fragments(
         &self,
         req: broker::FragmentsRequest,

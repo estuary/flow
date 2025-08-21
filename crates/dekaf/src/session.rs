@@ -51,6 +51,7 @@ pub struct Session {
     msk_region: String,
     // Number of ReadResponses to buffer in PendingReads
     read_buffer_size: usize,
+    client_id: Option<String>,
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
     legacy_mode_broker_urls: Option<Vec<String>>,
@@ -81,6 +82,7 @@ impl Session {
             legacy_mode_broker_password,
             reads: HashMap::new(),
             auth: None,
+            client_id: None,
             secret,
             data_preview_state: SessionDataPreviewState::Unknown,
         }
@@ -1560,5 +1562,20 @@ impl Session {
             }
             Err(e) => return Err(e),
         }
+    }
+
+    pub fn task_name(&self) -> Option<String> {
+        match &self.auth {
+            Some(SessionAuthentication::Task(auth)) => Some(auth.task_name.clone()),
+            Some(SessionAuthentication::Redirect { spec, .. }) => Some(spec.name.clone()),
+            _ => None,
+        }
+    }
+    pub fn client_id(&self) -> Option<&str> {
+        self.client_id.as_ref().map(|x| x.as_str())
+    }
+
+    pub fn set_client_id(&mut self, client_id: String) {
+        self.client_id = Some(client_id);
     }
 }
