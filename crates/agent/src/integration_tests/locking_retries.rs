@@ -3,8 +3,10 @@ use uuid::Uuid;
 
 use crate::{
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
-    publications::{DefaultRetryPolicy, JobStatus, LockFailure, NoopWithCommit, RetryPolicy},
     ControlPlane,
+};
+use control_plane_api::publications::{
+    DefaultRetryPolicy, JobStatus, LockFailure, NoopWithCommit, RetryPolicy,
 };
 
 #[tokio::test]

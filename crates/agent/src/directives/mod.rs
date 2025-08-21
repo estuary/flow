@@ -1,6 +1,8 @@
-use crate::logs;
+use control_plane_api::{
+    directives::{fetch_directive, resolve, Row},
+    logs,
+};
 
-use agent_sql::directives::{fetch_directive, resolve, Row};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;

@@ -3,23 +3,29 @@ pub mod connectors;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::publications::{NoopInitialize, NoopWithCommit};
+use crate::publications::PublicationsExecutor;
+use crate::DiscoverExecutor;
 use crate::{
     controllers::ControllerState,
-    controlplane::ConnectorSpec,
-    discovers::{self, DiscoverHandler, DiscoverOutput},
-    publications::{
-        self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
-    },
-    ControlPlane, PGControlPlane,
+    controlplane::{ConnectorSpec, ControlPlane, PGControlPlane},
+    discovers,
 };
-use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
+use control_plane_api::server;
+use control_plane_api::{
+    discovers::{DiscoverHandler, DiscoverOutput},
+    draft,
+    publications::{
+        self, DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
+        PublicationResult, Publisher, UncommittedBuild,
+    },
+    TextJson,
+};
 use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
 use models::status::connector::ConfigUpdate;
 use models::status::{AlertState, AlertType, ControllerAlert, ShardRef};
-use models::{CatalogType, Id};
+use models::{Capability, CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
 use serde::Deserialize;
@@ -62,7 +68,7 @@ pub struct ScenarioResult {
 }
 
 pub struct UserDiscoverResult {
-    pub job_status: discovers::executor::JobStatus,
+    pub job_status: crate::discovers::JobStatus,
     pub draft: tables::DraftCatalog,
     pub errors: Vec<(String, String)>,
 }
@@ -72,7 +78,7 @@ impl UserDiscoverResult {
         let discover = sqlx::query!(
             r#"select
                 draft_id as "draft_id: Id",
-                job_status as "job_status: TextJson<discovers::executor::JobStatus>"
+                job_status as "job_status: TextJson<discovers::JobStatus>"
             from discovers
             where id = $1;"#,
             discover_id as Id,
@@ -81,9 +87,7 @@ impl UserDiscoverResult {
         .await
         .expect("failed to query discover");
 
-        let draft = crate::draft::load_draft(discover.draft_id, db)
-            .await
-            .unwrap();
+        let draft = draft::load_draft(discover.draft_id, db).await.unwrap();
 
         let errors = load_draft_errors(discover.draft_id, db).await;
 
@@ -143,7 +147,7 @@ impl TestHarness {
 
         // System user id is set in `seed.sql`, so we could technically hard code it here.
         // This is a bit more robust, though, as it ensures that the seed has been run.
-        let system_user_id = agent_sql::get_user_id_for_email("support@estuary.dev", &pool)
+        let system_user_id = control_plane_api::get_user_id_for_email("support@estuary.dev", &pool)
             .await
             .expect("querying for agent user id");
 
@@ -168,7 +172,8 @@ impl TestHarness {
             pool.clone(),
             id_gen.clone(),
             mock_connectors,
-        );
+        )
+        .with_skip_all_tests();
 
         let control_plane = TestControlPlane::new(PGControlPlane::new(
             pool.clone(),
@@ -445,7 +450,7 @@ impl TestHarness {
         .await
         .expect("failed to create user");
 
-        agent_sql::directives::beta_onboard::provision_tenant(
+        control_plane_api::directives::beta_onboard::provision_tenant(
             "support@estuary.dev",
             Some(format!("for test: {}", self.test_name)),
             tenant,
@@ -484,7 +489,7 @@ impl TestHarness {
 
     pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
         let mut txn = self.pool.begin().await.unwrap();
-        agent_sql::directives::grant::upsert_user_grant(
+        control_plane_api::directives::grant::upsert_user_grant(
             user_id,
             role,
             capability,
@@ -502,7 +507,7 @@ impl TestHarness {
             .all_spec_names()
             .map(|n| (*n).to_owned())
             .collect();
-        let specs = agent_sql::live_specs::fetch_live_specs(
+        let specs = control_plane_api::live_specs::fetch_live_specs(
             user_id,
             &owned_names,
             false, /* don't fetch user capabilities */
@@ -617,8 +622,8 @@ impl TestHarness {
         let rows = sqlx::query!(
             r#"select
             id as "id: Id",
-            spec as "spec: agent_sql::TextJson<Box<RawValue>>",
-            spec_type as "spec_type: agent_sql::CatalogType"
+            spec as "spec: TextJson<Box<RawValue>>",
+            spec_type as "spec_type: CatalogType"
             from live_specs where catalog_name = $1;"#,
             name
         )
@@ -647,11 +652,11 @@ impl TestHarness {
             select
                 id as "id: Id",
                 last_pub_id as "last_pub_id: Id",
-                spec_type as "spec_type?: agent_sql::CatalogType",
-                spec as "spec: agent_sql::TextJson<Box<RawValue>>",
+                spec_type as "spec_type?: CatalogType",
+                spec as "spec: TextJson<Box<RawValue>>",
                 reads_from as "reads_from: Vec<String>",
                 writes_to as "writes_to: Vec<String>",
-                built_spec as "built_spec: agent_sql::TextJson<Box<RawValue>>",
+                built_spec as "built_spec: TextJson<Box<RawValue>>",
                 inferred_schema_md5
             from live_specs
             where catalog_name = $1;
@@ -791,7 +796,7 @@ impl TestHarness {
     /// controller status from the perspective of a controller.
     pub async fn get_controller_state(&mut self, name: &str) -> ControllerState {
         let job = sqlx::query_as!(
-            agent_sql::controllers::ControllerJob,
+            control_plane_api::controllers::ControllerJob,
             r#"select
                 ls.id as "live_spec_id: Id",
                 ls.catalog_name as "catalog_name!: String",
@@ -799,7 +804,7 @@ impl TestHarness {
                 ls.last_build_id as "last_build_id: Id",
                 ls.spec as "live_spec: TextJson<Box<RawValue>>",
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
-                ls.spec_type as "spec_type: agent_sql::CatalogType",
+                ls.spec_type as "spec_type: CatalogType",
                 ls.dependency_hash as "live_dependency_hash",
                 ls.created_at,
                 ls.updated_at as "live_spec_updated_at",
@@ -918,8 +923,13 @@ impl TestHarness {
             task_types::LIVE_SPEC_CONTROLLER => {
                 Server::new().register(self.controller_exec.clone())
             }
-            task_types::PUBLICATIONS => Server::new().register(self.publisher.clone()),
-            task_types::DISCOVERS => Server::new().register(self.discover_handler.clone()),
+            task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
+                publisher: self.publisher.clone(),
+                pg_pool: self.pool.clone(),
+            }),
+            task_types::DISCOVERS => Server::new().register(DiscoverExecutor {
+                handler: self.discover_handler.clone(),
+            }),
             task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
             _ => panic!("unsupported task type: {:?}", task_type),
         };
@@ -1088,7 +1098,7 @@ impl TestHarness {
             .begin()
             .await
             .expect("failed to start transaction");
-        let pub_id = agent_sql::publications::create(
+        let pub_id = publications::create(
             &mut txn,
             user_id,
             draft_id,
@@ -1136,7 +1146,7 @@ impl TestHarness {
 
         let result = sqlx::query!(
             r#"
-            select job_status as "job_status: agent_sql::TextJson<publications::JobStatus>",
+            select job_status as "job_status: TextJson<publications::JobStatus>",
             draft_id as "draft_id: Id",
             pub_id as "pub_id: Id"
             from publications where id = $1"#,
@@ -1163,7 +1173,7 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> Id {
-        use agent_sql::drafts as drafts_sql;
+        use control_plane_api::draft as drafts_sql;
         let detail = detail.into();
 
         let mut txn = self
@@ -1195,7 +1205,7 @@ impl TestHarness {
                 draft_id,
                 row.capture.as_str(),
                 row.model(),
-                agent_sql::CatalogType::Capture,
+                control_plane_api::CatalogType::Capture,
                 row.expect_pub_id.map(Into::into),
                 &mut txn,
             )
@@ -1207,7 +1217,7 @@ impl TestHarness {
                 draft_id,
                 row.collection.as_str(),
                 row.model(),
-                agent_sql::CatalogType::Collection,
+                control_plane_api::CatalogType::Collection,
                 row.expect_pub_id.map(Into::into),
                 &mut txn,
             )
@@ -1219,7 +1229,7 @@ impl TestHarness {
                 draft_id,
                 row.materialization.as_str(),
                 row.model(),
-                agent_sql::CatalogType::Materialization,
+                control_plane_api::CatalogType::Materialization,
                 row.expect_pub_id.map(Into::into),
                 &mut txn,
             )
@@ -1231,7 +1241,7 @@ impl TestHarness {
                 draft_id,
                 row.test.as_str(),
                 row.model(),
-                agent_sql::CatalogType::Test,
+                control_plane_api::CatalogType::Test,
                 row.expect_pub_id.map(Into::into),
                 &mut txn,
             )
@@ -1254,7 +1264,7 @@ impl TestHarness {
             on conflict(collection_name) do update set
             schema = excluded.schema;"#,
             collection_name.as_str() as &str,
-            agent_sql::TextJson(schema) as agent_sql::TextJson<models::Schema>,
+            TextJson(schema) as TextJson<models::Schema>,
         )
         .execute(&self.pool)
         .await
@@ -1265,7 +1275,7 @@ impl TestHarness {
         sqlx::query_as!(
             PublicationSpec,
             r#"select
-              ps.spec as "spec!: agent_sql::TextJson<models::RawValue>",
+              ps.spec as "spec!: TextJson<models::RawValue>",
               ps.pub_id as "pub_id: Id",
               coalesce(ps.detail, '') as "detail!: String",
               ps.published_at as "published_at: DateTime<Utc>"
@@ -1299,7 +1309,7 @@ impl TestHarness {
 
     pub async fn status_summary(&mut self, catalog_name: &str) -> models::status::Summary {
         let results =
-            crate::api::public::status::fetch_status(&self.pool, &[catalog_name.to_string()], true)
+            server::public::status::fetch_status(&self.pool, &[catalog_name.to_string()], true)
                 .await
                 .expect("failed to fetch status for summary");
         assert_eq!(1, results.len(), "expected 1 status for '{catalog_name}'");
@@ -1314,7 +1324,7 @@ pub struct PublicationSpec {
     pub pub_id: Id,
     pub published_at: DateTime<Utc>,
     pub detail: String,
-    pub spec: agent_sql::TextJson<models::RawValue>,
+    pub spec: TextJson<models::RawValue>,
 }
 
 /// Returns a simple json schema with properties named `p1,p2,pn`, up to `num_properties`.
@@ -1408,7 +1418,7 @@ pub struct TestControlPlane {
 /// `FailBuild`s are applied based on matching catalog names in the publication.
 #[derive(Clone)]
 struct InjectBuildFailures(Arc<Mutex<BTreeMap<String, VecDeque<Box<dyn FailBuild>>>>>);
-impl crate::publications::FinalizeBuild for InjectBuildFailures {
+impl publications::FinalizeBuild for InjectBuildFailures {
     fn finalize(&self, build: &mut UncommittedBuild) -> anyhow::Result<()> {
         let mut build_failures = self.0.lock().unwrap();
         for (catalog_name, modifications) in build_failures.iter_mut() {

@@ -1,5 +1,6 @@
-use crate::{controlplane::ControlPlane, publications::PublicationResult};
+use crate::controlplane::ControlPlane;
 use anyhow::Context;
+use control_plane_api::publications::PublicationResult;
 use models::{
     draft_error,
     status::publications::{PublicationInfo, PublicationStatus},
@@ -69,10 +70,6 @@ impl PendingPublication {
             draft: tables::DraftCatalog::default(),
             details: Vec::new(),
         }
-    }
-
-    pub fn of(details: Vec<String>, draft: tables::DraftCatalog) -> PendingPublication {
-        PendingPublication { details, draft }
     }
 
     pub fn has_pending(&self) -> bool {

@@ -12,9 +12,9 @@ use crate::{
         NextRun,
     },
     controlplane::ConnectorSpec,
-    discovers::DiscoverOutput,
     ControlPlane,
 };
+use control_plane_api::discovers::DiscoverOutput;
 
 async fn try_connector_spec<C: ControlPlane>(
     model: &models::CaptureDef,

@@ -12,15 +12,15 @@ use sqlx::types::Uuid;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 
-use crate::{
-    discovers::{Discover, DiscoverOutput},
-    logs,
-    proxy_connectors::MakeConnectors,
+use control_plane_api::{
+    connector_tags, controllers, data_plane,
+    discovers::{Discover, DiscoverHandler, DiscoverOutput},
+    live_specs, logs,
+    proxy_connectors::{DiscoverConnectors, MakeConnectors},
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
         PublicationResult, Publisher,
     },
-    DiscoverConnectors, DiscoverHandler,
 };
 
 macro_rules! unwrap_single {
@@ -238,7 +238,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         Option<broker::JournalSpec>, // ops logs template.
         Option<broker::JournalSpec>, // ops stats template.
     )> {
-        let mut fetched = agent_sql::data_plane::fetch_data_planes(
+        let mut fetched = data_plane::fetch_data_planes(
             &self.pool,
             vec![data_plane_id],
             "", // Don't fetch default data-plane.
@@ -249,14 +249,10 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let Some(mut data_plane) = fetched.pop() else {
             anyhow::bail!("data-plane {data_plane_id} does not exist");
         };
-        let ops_logs_template = agent_sql::data_plane::fetch_ops_journal_template(
-            &self.pool,
-            &data_plane.ops_logs_name,
-        );
-        let ops_stats_template = agent_sql::data_plane::fetch_ops_journal_template(
-            &self.pool,
-            &data_plane.ops_stats_name,
-        );
+        let ops_logs_template =
+            data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_logs_name);
+        let ops_stats_template =
+            data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_stats_name);
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
@@ -315,7 +311,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
-        agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;
+        controllers::notify_dependents(live_spec_id, &self.pool).await?;
         Ok(())
     }
 
@@ -439,13 +435,12 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
         let (image_name, image_tag) = models::split_image_tag(&image);
         let Some(row) =
-            agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool)
-                .await?
+            connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool).await?
         else {
             anyhow::bail!("no connector spec found for image '{}'", image);
         };
 
-        let agent_sql::connector_tags::ConnectorSpec {
+        let connector_tags::ConnectorSpec {
             protocol,
             documentation_url,
             endpoint_config_schema,
@@ -481,7 +476,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
         let names = names.into_iter().collect::<Vec<_>>();
-        let mut live = crate::live_specs::get_live_specs(
+        let mut live = live_specs::get_live_specs(
             self.system_user_id,
             &names,
             None, // don't filter based on user capability
@@ -497,11 +492,11 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             .map(|c| c.collection.as_str())
             .collect::<Vec<_>>();
         let inferred_schema_rows =
-            agent_sql::live_specs::fetch_inferred_schemas(&collection_names, &self.pool)
+            live_specs::fetch_inferred_schemas(&collection_names, &self.pool)
                 .await
                 .context("fetching inferred schemas")?;
         for row in inferred_schema_rows {
-            let agent_sql::live_specs::InferredSchemaRow {
+            let live_specs::InferredSchemaRow {
                 collection_name,
                 schema,
                 md5,
@@ -537,7 +532,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             system_user_id,
             ..
         } = self;
-        let data_planes = agent_sql::data_plane::fetch_data_planes(
+        let data_planes = data_plane::fetch_data_planes(
             pool,
             vec![data_plane_id],
             "not-a-real-default",
