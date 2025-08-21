@@ -39,10 +39,10 @@ Outcome {
             spec: CaptureSpec {
                 name: "the/capture",
                 connector_type: Image,
-                config_json: "{\"image\":\"an/image\",\"config\":{\"a\":\"config\"}}",
+                config_json: b"{\"image\":\"an/image\",\"config\":{\"a\":\"config\"}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"table\":\"foo\"}",
+                        resource_config_json: b"{\"table\":\"foo\"}",
                         resource_path: [
                             "capture",
                             "path",
@@ -50,8 +50,8 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
-                                read_schema_json: "",
+                                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                                read_schema_json: b"",
                                 key: [
                                     "/f_one",
                                 ],
@@ -72,7 +72,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: Some(
@@ -108,7 +108,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -130,7 +130,7 @@ Outcome {
                                                 string: None,
                                                 title: "Flow truncation indicator",
                                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -152,7 +152,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: Some(
@@ -188,7 +188,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -208,7 +208,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Cannot,
                                                 numeric: None,
@@ -230,7 +230,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -259,7 +259,7 @@ Outcome {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -268,7 +268,7 @@ Outcome {
                                         ),
                                     },
                                 ],
-                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "the/collection/2020202020202020",
@@ -485,8 +485,8 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "the/collection",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/f_one",
                 ],
@@ -507,7 +507,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: Some(
@@ -543,7 +543,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -565,7 +565,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -587,7 +587,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: Some(
@@ -623,7 +623,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -643,7 +643,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Cannot,
                                 numeric: None,
@@ -665,7 +665,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -694,7 +694,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -703,7 +703,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/collection/2020202020202020",
@@ -811,8 +811,8 @@ Outcome {
             },
             spec: CollectionSpec {
                 name: "the/derivation",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema\",\"properties\":{\"d_one\":{\"type\":\"integer\"},\"d_two\":{\"type\":\"string\"}},\"required\":[\"d_one\",\"d_two\"],\"type\":\"object\"}",
-                read_schema_json: "",
+                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema\",\"properties\":{\"d_one\":{\"type\":\"integer\"},\"d_two\":{\"type\":\"string\"}},\"required\":[\"d_one\",\"d_two\"],\"type\":\"object\"}",
+                read_schema_json: b"",
                 key: [
                     "/d_one",
                 ],
@@ -833,7 +833,7 @@ Outcome {
                                 string: None,
                                 title: "Flow truncation indicator",
                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -855,7 +855,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: Some(
@@ -891,7 +891,7 @@ Outcome {
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -913,7 +913,7 @@ Outcome {
                                 string: None,
                                 title: "",
                                 description: "",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -942,7 +942,7 @@ Outcome {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
-                                default_json: "",
+                                default_json: b"",
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
@@ -951,7 +951,7 @@ Outcome {
                         ),
                     },
                 ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
                         name: "the/derivation/2020202020202020",
@@ -1013,15 +1013,15 @@ Outcome {
                 derivation: Some(
                     Derivation {
                         connector_type: Sqlite,
-                        config_json: "{}",
+                        config_json: b"{}",
                         transforms: [
                             Transform {
                                 name: "fromCollection",
                                 collection: Some(
                                     CollectionSpec {
                                         name: "the/collection",
-                                        write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
-                                        read_schema_json: "",
+                                        write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                                        read_schema_json: b"",
                                         key: [
                                             "/f_one",
                                         ],
@@ -1042,7 +1042,7 @@ Outcome {
                                                         string: None,
                                                         title: "",
                                                         description: "",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: Some(
@@ -1078,7 +1078,7 @@ Outcome {
                                                         ),
                                                         title: "",
                                                         description: "",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
@@ -1100,7 +1100,7 @@ Outcome {
                                                         string: None,
                                                         title: "Flow truncation indicator",
                                                         description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
@@ -1122,7 +1122,7 @@ Outcome {
                                                         string: None,
                                                         title: "",
                                                         description: "",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: Some(
@@ -1158,7 +1158,7 @@ Outcome {
                                                         ),
                                                         title: "",
                                                         description: "",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
@@ -1178,7 +1178,7 @@ Outcome {
                                                         string: None,
                                                         title: "",
                                                         description: "",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Cannot,
                                                         numeric: None,
@@ -1200,7 +1200,7 @@ Outcome {
                                                         string: None,
                                                         title: "",
                                                         description: "",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
@@ -1229,7 +1229,7 @@ Outcome {
                                                         ),
                                                         title: "Flow Publication Time",
                                                         description: "Flow publication date-time of this document",
-                                                        default_json: "",
+                                                        default_json: b"",
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
@@ -1238,7 +1238,7 @@ Outcome {
                                                 ),
                                             },
                                         ],
-                                        ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                        ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
                                                 name: "the/collection/2020202020202020",
@@ -1325,8 +1325,8 @@ Outcome {
                                 shuffle_key: [
                                     "/f_two",
                                 ],
-                                shuffle_lambda_config_json: "",
-                                lambda_config_json: "\"select 123 as d_one, 'hello' as d_two;\\n\"",
+                                shuffle_lambda_config_json: b"",
+                                lambda_config_json: b"\"select 123 as d_one, 'hello' as d_two;\\n\"",
                                 read_only: true,
                                 journal_read_suffix: "derive/the/derivation/fromCollection",
                                 not_before: None,
@@ -1533,10 +1533,10 @@ Outcome {
             spec: MaterializationSpec {
                 name: "the/materialization",
                 connector_type: Image,
-                config_json: "{\"image\":\"other/image\",\"config\":{\"a\":\"config\"}}",
+                config_json: b"{\"image\":\"other/image\",\"config\":{\"a\":\"config\"}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"name\":\"path\",\"schema\":\"table\"}",
+                        resource_config_json: b"{\"name\":\"path\",\"schema\":\"table\"}",
                         resource_path: [
                             "table",
                             "path",
@@ -1544,8 +1544,8 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
-                                read_schema_json: "",
+                                write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                                read_schema_json: b"",
                                 key: [
                                     "/f_one",
                                 ],
@@ -1566,7 +1566,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: Some(
@@ -1602,7 +1602,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -1624,7 +1624,7 @@ Outcome {
                                                 string: None,
                                                 title: "Flow truncation indicator",
                                                 description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -1646,7 +1646,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: Some(
@@ -1682,7 +1682,7 @@ Outcome {
                                                 ),
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -1702,7 +1702,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Cannot,
                                                 numeric: None,
@@ -1724,7 +1724,7 @@ Outcome {
                                                 string: None,
                                                 title: "",
                                                 description: "",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -1753,7 +1753,7 @@ Outcome {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
-                                                default_json: "",
+                                                default_json: b"",
                                                 secret: false,
                                                 exists: Must,
                                                 numeric: None,
@@ -1762,7 +1762,7 @@ Outcome {
                                         ),
                                     },
                                 ],
-                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
                                         name: "the/collection/2020202020202020",
@@ -2024,7 +2024,7 @@ Outcome {
                         step_scope: "test://example/catalog.yaml#/tests/the~1test/0/ingest",
                         collection: "the/collection",
                         docs_json_vec: [
-                            "{\"f_one\":42,\"f_two\":\"a string\"}",
+                            b"{\"f_one\":42,\"f_two\":\"a string\"}",
                         ],
                         partitions: Some(
                             LabelSelector {
