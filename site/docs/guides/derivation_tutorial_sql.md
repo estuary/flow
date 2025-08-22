@@ -81,7 +81,7 @@ The transformation in this tutorial will make use of the `length`, `bot` and `us
 
 Set up your folder structure so you can organize the resources required for the derivation. Create a working directory to follow along, and inside, create a `flow.yaml` file.
 
-Inside your `flow.yaml `file, add the following contents:
+Inside your `flow.yaml` file, add the following contents:
 
 ```yaml
 ---

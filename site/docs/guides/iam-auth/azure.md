@@ -1,6 +1,6 @@
 # Azure IAM Authentication
 
-Flow supports IAM authentication with Azure services such as Azure SQL and Azure Storage using aan application created by you which has access to the resources, and has trusted identity tokens signed by us as the OIDC (OpenID Connect) provider. Note however that not all connectors currently support using IAM authentication.
+Flow supports IAM authentication with Azure services such as Azure SQL and Azure Storage using an application created by you which has access to the resources, and has trusted identity tokens signed by us as the OIDC (OpenID Connect) provider. Note however that not all connectors currently support using IAM authentication.
 
 ## App Registration with Resource Access
 
