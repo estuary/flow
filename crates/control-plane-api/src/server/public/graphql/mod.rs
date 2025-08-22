@@ -75,6 +75,13 @@ pub fn create_schema() -> GraphQLSchema {
     Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish()
 }
 
+/// Returns the GraphQL SDL (Schema Definition Language) as a string.
+/// This is used by the flow-client build script to generate types.
+pub fn schema_sdl() -> String {
+    let schema = create_schema();
+    schema.sdl()
+}
+
 pub(crate) async fn graphql_handler(
     schema: Extension<GraphQLSchema>,
     claims: Extension<ControlClaims>,

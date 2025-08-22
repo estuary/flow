@@ -1,5 +1,6 @@
 use anyhow::Context;
 
+pub mod alerts;
 pub mod client;
 pub use client::{
     fetch_task_authorization, fetch_user_collection_authorization, fetch_user_prefix_authorization,
