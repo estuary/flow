@@ -112,20 +112,18 @@ fn do_parse(parse_args: &ParseArgs) {
 
 fn do_spec() {
     let mut schema = ParseConfig::json_schema();
+    let obj = schema.as_object_mut().unwrap();
+
     // Add a UUID as the $id of the schema. This allows the resulting schema to be nested within
     // other schemas, since any $ref uris will be resolved relative to the $id.
-    let id = format!("uuid://{}", uuid::Uuid::new_v4());
-    if let Some(meta) = schema.schema.metadata.as_mut() {
-        meta.id = Some(id);
-    } else {
-        unreachable!("schema should always have metadata");
-    }
-    // Add the "advanced" annotation to the schema, so that the configuration UI will collaps this
+    obj.insert(
+        "$id".to_string(),
+        serde_json::Value::String(format!("uuid://{}", uuid::Uuid::new_v4())),
+    );
+    // Add the "advanced" annotation to the schema, so that the configuration UI will collapse this
     // by default.
-    schema
-        .schema
-        .extensions
-        .insert("advanced".to_string(), true.into());
+    obj.insert("advanced".to_string(), serde_json::Value::Bool(true));
+
     serde_json::to_writer_pretty(io::stdout(), &schema).or_bail("failed to write schema");
 }
 

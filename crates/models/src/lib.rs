@@ -285,7 +285,7 @@ impl ModelDef for AnySpec {
     }
 }
 
-fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn duration_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "pattern": "^\\d+(s|m|h|d)$"
@@ -293,7 +293,11 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     .unwrap()
 }
 
+<<<<<<< HEAD
 pub fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+=======
+fn datetime_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+>>>>>>> 6a10084407 (Update the world WIP)
     serde_json::from_value(serde_json::json!({
         "type": ["string"],
         "format": "date-time",
@@ -301,7 +305,11 @@ pub fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::sche
     .unwrap()
 }
 
+<<<<<<< HEAD
 pub fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+=======
+fn option_datetime_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+>>>>>>> 6a10084407 (Update the world WIP)
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "format": "date-time",

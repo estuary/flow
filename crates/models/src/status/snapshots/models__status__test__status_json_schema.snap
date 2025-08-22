@@ -3,17 +3,16 @@ source: crates/models/src/status/mod.rs
 expression: schema
 ---
 {
-  "$schema": "https://json-schema.org/draft/2019-09/schema",
-  "definitions": {
+  "$defs": {
     "ActivationStatus": {
-      "description": "Status of the task shards running in the data-plane. This records information about the activations of builds in the data-plane, including any subsequent re-activations due to shard failures.",
+      "description": "Status of the task shards running in the data-plane. This records information about\nthe activations of builds in the data-plane, including any subsequent re-activations\ndue to shard failures.",
       "properties": {
         "last_activated": {
-          "$ref": "#/definitions/Id",
-          "description": "The build id that was last activated in the data plane. If this is less than the `last_build_id` of the controlled spec, then an activation is still pending."
+          "$ref": "#/$defs/Id",
+          "description": "The build id that was last activated in the data plane.\nIf this is less than the `last_build_id` of the controlled spec,\nthen an activation is still pending."
         },
         "last_activated_at": {
-          "description": "The time at which the last data plane activation was performed. This could have been in order to activate a recent publication, or in response to a shard failure.",
+          "description": "The time at which the last data plane activation was performed.\nThis could have been in order to activate a recent publication,\nor in response to a shard failure.",
           "format": "date-time",
           "type": [
             "string",
@@ -23,16 +22,16 @@ expression: schema
         "last_failure": {
           "anyOf": [
             {
-              "$ref": "#/definitions/ShardFailure"
+              "$ref": "#/$defs/ShardFailure"
             },
             {
               "type": "null"
             }
           ],
-          "description": "The most recent shard failure to have been observed. The presence of a failure here does not necessarily mean that the shard is currently in a failed state, as it may have been re-activated since the failure occurred."
+          "description": "The most recent shard failure to have been observed. The presence of a failure here\ndoes not necessarily mean that the shard is currently in a failed state, as it may\nhave been re-activated since the failure occurred."
         },
         "next_retry": {
-          "description": "The next time at which failed task shards will be re-activated. If this is present, then there has been at least one observed shard failure, which the controller has not yet handled.",
+          "description": "The next time at which failed task shards will be re-activated. If this is present, then\nthere has been at least one observed shard failure, which the controller has not yet handled.",
           "format": "date-time",
           "type": [
             "string",
@@ -40,15 +39,15 @@ expression: schema
           ]
         },
         "recent_failure_count": {
-          "description": "Count of shard failures that have been observed over the last 24 hours for the currently activated build. This resets to 0 when a newly published build is activated.",
+          "description": "Count of shard failures that have been observed over the last 24 hours for the currently activated\nbuild. This resets to 0 when a newly published build is activated.",
           "format": "uint32",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "shard_status": {
           "anyOf": [
             {
-              "$ref": "#/definitions/ShardStatusCheck"
+              "$ref": "#/$defs/ShardStatusCheck"
             },
             {
               "type": "null"
@@ -62,17 +61,13 @@ expression: schema
     "AlertState": {
       "oneOf": [
         {
+          "const": "firing",
           "description": "The alert is currently firing.",
-          "enum": [
-            "firing"
-          ],
           "type": "string"
         },
         {
+          "const": "resolved",
           "description": "The alert has resolved. Resolved alerts may be retained in the status for a short while.",
-          "enum": [
-            "resolved"
-          ],
           "type": "string"
         }
       ]
@@ -82,7 +77,7 @@ expression: schema
         "count": {
           "description": "The number of consecutive failures that have been observed.",
           "format": "uint32",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "first_ts": {
@@ -93,8 +88,8 @@ expression: schema
           ]
         },
         "last_outcome": {
-          "$ref": "#/definitions/AutoDiscoverOutcome",
-          "description": "The discover outcome corresponding to the most recent failure. This will be updated with the results of each retry until an auto-discover succeeds."
+          "$ref": "#/$defs/AutoDiscoverOutcome",
+          "description": "The discover outcome corresponding to the most recent failure. This will\nbe updated with the results of each retry until an auto-discover\nsucceeds."
         }
       },
       "required": [
@@ -110,28 +105,28 @@ expression: schema
         "added": {
           "description": "Bindings that were added to the capture.",
           "items": {
-            "$ref": "#/definitions/DiscoverChange"
+            "$ref": "#/$defs/DiscoverChange"
           },
           "type": "array"
         },
         "errors": {
           "description": "Errors that occurred during the discovery or evolution process.",
           "items": {
-            "$ref": "#/definitions/Error"
+            "$ref": "#/$defs/Error"
           },
           "type": "array"
         },
         "modified": {
           "description": "Bindings that were modified, either to change the schema or the collection key.",
           "items": {
-            "$ref": "#/definitions/DiscoverChange"
+            "$ref": "#/$defs/DiscoverChange"
           },
           "type": "array"
         },
         "publish_result": {
           "anyOf": [
             {
-              "$ref": "#/definitions/JobStatus"
+              "$ref": "#/$defs/JobStatus"
             },
             {
               "type": "null"
@@ -142,14 +137,14 @@ expression: schema
         "re_created_collections": {
           "description": "Collections that were re-created due to the collection key having changed.",
           "items": {
-            "$ref": "#/definitions/EvolvedCollection"
+            "$ref": "#/$defs/EvolvedCollection"
           },
           "type": "array"
         },
         "removed": {
           "description": "Bindings that were removed because they no longer appear in the source system.",
           "items": {
-            "$ref": "#/definitions/DiscoverChange"
+            "$ref": "#/$defs/DiscoverChange"
           },
           "type": "array"
         },
@@ -171,16 +166,16 @@ expression: schema
         "failure": {
           "anyOf": [
             {
-              "$ref": "#/definitions/AutoDiscoverFailure"
+              "$ref": "#/$defs/AutoDiscoverFailure"
             },
             {
               "type": "null"
             }
           ],
-          "description": "If auto-discovery has failed, this will include information about that failure. This field is cleared as soon as a successful auto-discover is run."
+          "description": "If auto-discovery has failed, this will include information about that failure.\nThis field is cleared as soon as a successful auto-discover is run."
         },
         "interval": {
-          "description": "The interval at which auto-discovery is run. This is normally unset, which uses the default interval.",
+          "description": "The interval at which auto-discovery is run. This is normally unset, which uses\nthe default interval.",
           "pattern": "^\\d+(s|m|h)$",
           "type": [
             "string",
@@ -190,13 +185,13 @@ expression: schema
         "last_success": {
           "anyOf": [
             {
-              "$ref": "#/definitions/AutoDiscoverOutcome"
+              "$ref": "#/$defs/AutoDiscoverOutcome"
             },
             {
               "type": "null"
             }
           ],
-          "description": "The outcome of the last _successful_ auto-discover. If `failure` is set, then that will typically be more recent than `last_success`."
+          "description": "The outcome of the last _successful_ auto-discover. If `failure` is set,\nthen that will typically be more recent than `last_success`."
         },
         "next_at": {
           "default": null,
@@ -209,13 +204,55 @@ expression: schema
         "pending_publish": {
           "anyOf": [
             {
-              "$ref": "#/definitions/AutoDiscoverOutcome"
+              "$ref": "#/$defs/AutoDiscoverOutcome"
             },
             {
               "type": "null"
             }
           ],
-          "description": "The outcome of the a recent discover, which is about to be published. This will typically only be observed if the publication failed for some reason."
+          "description": "The outcome of the a recent discover, which is about to be published.\nThis will typically only be observed if the publication failed for some\nreason."
+        }
+      },
+      "type": "object"
+    },
+    "CaptureStatus": {
+      "description": "Status of a capture controller",
+      "properties": {
+        "activation": {
+          "$ref": "#/$defs/ActivationStatus",
+          "default": {}
+        },
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ControllerAlert"
+          },
+          "type": "object"
+        },
+        "auto_discover": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutoDiscoverStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "config_updates": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingConfigUpdateStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publications": {
+          "$ref": "#/$defs/PublicationStatus",
+          "default": {
+            "history": []
+          }
         }
       },
       "type": "object"
@@ -230,12 +267,44 @@ expression: schema
       "type": "string"
     },
     "Collection": {
-      "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
+      "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",
       "examples": [
         "acmeCo/collection"
       ],
       "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$",
       "type": "string"
+    },
+    "CollectionStatus": {
+      "description": "The status of a collection controller",
+      "properties": {
+        "activation": {
+          "$ref": "#/$defs/ActivationStatus",
+          "default": {}
+        },
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ControllerAlert"
+          },
+          "type": "object"
+        },
+        "inferred_schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferredSchemaStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publications": {
+          "$ref": "#/$defs/PublicationStatus",
+          "default": {
+            "history": []
+          }
+        }
+      },
+      "type": "object"
     },
     "ControllerAlert": {
       "additionalProperties": true,
@@ -243,7 +312,7 @@ expression: schema
         "count": {
           "description": "The number of failures.",
           "format": "uint32",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "error": {
@@ -274,22 +343,22 @@ expression: schema
           ]
         },
         "spec_type": {
-          "$ref": "#/definitions/CatalogType",
+          "$ref": "#/$defs/CatalogType",
           "description": "The live spec type"
         },
         "state": {
-          "$ref": "#/definitions/AlertState",
+          "$ref": "#/$defs/AlertState",
           "description": "The current state of the alert."
         }
       },
       "required": [
-        "count",
-        "error",
+        "state",
+        "spec_type",
         "first_ts",
         "last_ts",
-        "resolved_at",
-        "spec_type",
-        "state"
+        "error",
+        "count",
+        "resolved_at"
       ],
       "type": "object"
     },
@@ -308,14 +377,14 @@ expression: schema
           "type": "array"
         },
         "target": {
-          "$ref": "#/definitions/Collection",
+          "$ref": "#/$defs/Collection",
           "description": "The target collection of the capture binding that was changed."
         }
       },
       "required": [
-        "disable",
         "resource_path",
-        "target"
+        "target",
+        "disable"
       ],
       "type": "object"
     },
@@ -366,10 +435,10 @@ expression: schema
         }
       },
       "required": [
-        "new_name",
         "old_name",
-        "updated_captures",
-        "updated_materializations"
+        "new_name",
+        "updated_materializations",
+        "updated_captures"
       ],
       "type": "object"
     },
@@ -380,14 +449,14 @@ expression: schema
       "description": "Status of the inferred schema",
       "properties": {
         "schema_last_updated": {
-          "description": "The time at which the inferred schema was last published. This will only be present if the inferred schema was published at least once.",
+          "description": "The time at which the inferred schema was last published. This will only\nbe present if the inferred schema was published at least once.",
           "format": "date-time",
           "type": [
             "string"
           ]
         },
         "schema_md5": {
-          "description": "The md5 sum of the inferred schema that was last published. Because the publications handler updates the model instead of the controller, it's technically possible for the published inferred schema to be more recent than the one corresponding to this hash. If that happens, we would expect a subsequent publication on the next controller run, which would update the hash but not actually modify the schema.",
+          "description": "The md5 sum of the inferred schema that was last published.\nBecause the publications handler updates the model instead of the controller, it's\ntechnically possible for the published inferred schema to be more recent than the one\ncorresponding to this hash. If that happens, we would expect a subsequent publication\non the next controller run, which would update the hash but not actually modify the schema.",
           "type": [
             "string",
             "null"
@@ -403,9 +472,7 @@ expression: schema
           "description": "The publication has not yet been completed.",
           "properties": {
             "type": {
-              "enum": [
-                "queued"
-              ],
+              "const": "queued",
               "type": "string"
             }
           },
@@ -415,12 +482,10 @@ expression: schema
           "type": "object"
         },
         {
-          "description": "There was a failure to build or validate the drafted specs. This could be due to a mistake in the drafted specs, or due to a failure to validate the proposed changes with an external system connected to one of the connected captures or materializations.",
+          "description": "There was a failure to build or validate the drafted specs. This could\nbe due to a mistake in the drafted specs, or due to a failure to\nvalidate the proposed changes with an external system connected to one\nof the connected captures or materializations.",
           "properties": {
             "type": {
-              "enum": [
-                "buildFailed"
-              ],
+              "const": "buildFailed",
               "type": "string"
             }
           },
@@ -433,9 +498,7 @@ expression: schema
           "description": "Publication failed due to the failure of one or more tests.",
           "properties": {
             "type": {
-              "enum": [
-                "testFailed"
-              ],
+              "const": "testFailed",
               "type": "string"
             }
           },
@@ -445,12 +508,10 @@ expression: schema
           "type": "object"
         },
         {
-          "description": "Something went wrong with the publication process. These errors can typically be retried by the client.",
+          "description": "Something went wrong with the publication process. These errors can\ntypically be retried by the client.",
           "properties": {
             "type": {
-              "enum": [
-                "publishFailed"
-              ],
+              "const": "publishFailed",
               "type": "string"
             }
           },
@@ -460,12 +521,10 @@ expression: schema
           "type": "object"
         },
         {
-          "description": "The publication was successful. All drafted specs are now committed as the live specs. Note that activation of the published specs in the data plane happens asynchronously, after the publication is committed. Therefore, it may take some time for the published changes to be reflected in running tasks.",
+          "description": "The publication was successful. All drafted specs are now committed as\nthe live specs. Note that activation of the published specs in the data\nplane happens asynchronously, after the publication is committed.\nTherefore, it may take some time for the published changes to be\nreflected in running tasks.",
           "properties": {
             "type": {
-              "enum": [
-                "success"
-              ],
+              "const": "success",
               "type": "string"
             }
           },
@@ -475,12 +534,10 @@ expression: schema
           "type": "object"
         },
         {
-          "description": "Returned when there are no draft specs (after pruning unbound collections). There will not be any `draft_errors` in this case, because there's no `catalog_name` to associate with an error. And it may not be desirable to treat this as an error, depending on the scenario.",
+          "description": "Returned when there are no draft specs (after pruning unbound\ncollections). There will not be any `draft_errors` in this case, because\nthere's no `catalog_name` to associate with an error. And it may not be\ndesirable to treat this as an error, depending on the scenario.",
           "properties": {
             "type": {
-              "enum": [
-                "emptyDraft"
-              ],
+              "const": "emptyDraft",
               "type": "string"
             }
           },
@@ -490,18 +547,16 @@ expression: schema
           "type": "object"
         },
         {
-          "description": "One or more expected `last_pub_id`s did not match the actual `last_pub_id`, indicating that specs have been changed since the draft was created.",
+          "description": "One or more expected `last_pub_id`s did not match the actual `last_pub_id`, indicating that specs\nhave been changed since the draft was created.",
           "properties": {
             "failures": {
               "items": {
-                "$ref": "#/definitions/LockFailure"
+                "$ref": "#/$defs/LockFailure"
               },
               "type": "array"
             },
             "type": {
-              "enum": [
-                "expectPubIdMismatch"
-              ],
+              "const": "expectPubIdMismatch",
               "type": "string"
             }
           },
@@ -511,18 +566,16 @@ expression: schema
           "type": "object"
         },
         {
-          "description": "Optimistic locking failure for one or more specs in the publication. This case should typically be retried by the publisher.",
+          "description": "Optimistic locking failure for one or more specs in the publication. This case should\ntypically be retried by the publisher.",
           "properties": {
             "failures": {
               "items": {
-                "$ref": "#/definitions/LockFailure"
+                "$ref": "#/$defs/LockFailure"
               },
               "type": "array"
             },
             "type": {
-              "enum": [
-                "buildIdLockFailure"
-              ],
+              "const": "buildIdLockFailure",
               "type": "string"
             }
           },
@@ -535,9 +588,7 @@ expression: schema
           "description": "The publication used the deprecated background flag, which is no longer supported.",
           "properties": {
             "type": {
-              "enum": [
-                "deprecatedBackground"
-              ],
+              "const": "deprecatedBackground",
               "type": "string"
             }
           },
@@ -554,7 +605,7 @@ expression: schema
         "actual": {
           "anyOf": [
             {
-              "$ref": "#/definitions/Id"
+              "$ref": "#/$defs/Id"
             },
             {
               "type": "null"
@@ -567,8 +618,8 @@ expression: schema
           "type": "string"
         },
         "expected": {
-          "$ref": "#/definitions/Id",
-          "description": "The expected id (either `last_pub_id` or `last_build_id`) that was not matched."
+          "$ref": "#/$defs/Id",
+          "description": "The expected id (either `last_pub_id` or `last_build_id`) that was not\nmatched."
         }
       },
       "required": [
@@ -577,11 +628,53 @@ expression: schema
       ],
       "type": "object"
     },
+    "MaterializationStatus": {
+      "description": "Status of a materialization controller",
+      "properties": {
+        "activation": {
+          "$ref": "#/$defs/ActivationStatus",
+          "default": {}
+        },
+        "alerts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ControllerAlert"
+          },
+          "type": "object"
+        },
+        "config_updates": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingConfigUpdateStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publications": {
+          "$ref": "#/$defs/PublicationStatus",
+          "default": {
+            "history": []
+          }
+        },
+        "source_capture": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceCaptureStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "PendingConfigUpdateStatus": {
-      "description": "Information on the config updates performed by the controller. This does not include any information on user-initiated config updates.",
+      "description": "Information on the config updates performed by the controller.\nThis does not include any information on user-initiated config updates.",
       "properties": {
         "build": {
-          "$ref": "#/definitions/Id",
+          "$ref": "#/$defs/Id",
           "description": "The id of the build when the associated config update event was generated."
         },
         "next_attempt": {
@@ -592,8 +685,8 @@ expression: schema
         }
       },
       "required": [
-        "build",
-        "next_attempt"
+        "next_attempt",
+        "build"
       ],
       "type": "object"
     },
@@ -608,8 +701,8 @@ expression: schema
           ]
         },
         "count": {
-          "description": "A publication info may represent multiple publications of the same spec. If the publications have similar outcomes, then multiple publications can be condensed into a single entry in the history. If this is done, then the `count` field will be greater than 1. This field is omitted if the count is 1.",
-          "minimum": 1.0,
+          "description": "A publication info may represent multiple publications of the same spec.\nIf the publications have similar outcomes, then multiple publications\ncan be condensed into a single entry in the history. If this is done,\nthen the `count` field will be greater than 1. This field is omitted if\nthe count is 1.",
+          "minimum": 1,
           "type": "integer"
         },
         "created": {
@@ -629,22 +722,22 @@ expression: schema
         "errors": {
           "description": "Errors will be non-empty for publications that were not successful",
           "items": {
-            "$ref": "#/definitions/Error"
+            "$ref": "#/$defs/Error"
           },
           "type": "array"
         },
         "id": {
-          "$ref": "#/definitions/Id",
-          "description": "The id of the publication, which will match the `last_pub_id` of the spec after a successful publication, at least until the next publication."
+          "$ref": "#/$defs/Id",
+          "description": "The id of the publication, which will match the `last_pub_id` of the\nspec after a successful publication, at least until the next publication."
         },
         "is_touch": {
-          "description": "A touch publication is a publication that does not modify the spec, but only updates the `built_spec` and `last_build_id` fields. They are most commonly performed in response to changes in the spec's dependencies. Touch publications will never be combined with non-touch publications in the history.",
+          "description": "A touch publication is a publication that does not modify the spec, but\nonly updates the `built_spec` and `last_build_id` fields. They are most\ncommonly performed in response to changes in the spec's dependencies.\nTouch publications will never be combined with non-touch publications in\nthe history.",
           "type": "boolean"
         },
         "result": {
           "anyOf": [
             {
-              "$ref": "#/definitions/JobStatus"
+              "$ref": "#/$defs/JobStatus"
             },
             {
               "type": "null"
@@ -659,10 +752,10 @@ expression: schema
       "type": "object"
     },
     "PublicationStatus": {
-      "description": "Information on the publications performed by the controller. This does not include any information on user-initiated publications.",
+      "description": "Information on the publications performed by the controller.\nThis does not include any information on user-initiated publications.",
       "properties": {
         "dependency_hash": {
-          "description": "Hash of all of the dependencies of this spec at the time of the last observation. This is compared against the `dependency_hash` of the live spec in order to determine whether any of the spec's dependencies have changed since it was last published. If they have, then the controller will initiate a touch publication of the spec.",
+          "description": "Hash of all of the dependencies of this spec at the time of the last\nobservation. This is compared against the `dependency_hash` of the live\nspec in order to determine whether any of the spec's dependencies have\nchanged since it was last published. If they have, then the controller\nwill initiate a touch publication of the spec.",
           "type": [
             "string",
             "null"
@@ -671,13 +764,13 @@ expression: schema
         "history": {
           "description": "A limited history of publications performed by this controller",
           "items": {
-            "$ref": "#/definitions/PublicationInfo"
+            "$ref": "#/$defs/PublicationInfo"
           },
           "type": "array"
         },
         "max_observed_pub_id": {
-          "$ref": "#/definitions/Id",
-          "description": "The publication id at which the controller has last notified dependent specs. A publication of the controlled spec will cause the controller to notify the controllers of all dependent specs. When it does so, it sets `max_observed_pub_id` to the current `last_pub_id`, so that it can avoid notifying dependent controllers unnecessarily."
+          "$ref": "#/$defs/Id",
+          "description": "The publication id at which the controller has last notified dependent\nspecs. A publication of the controlled spec will cause the controller to\nnotify the controllers of all dependent specs. When it does so, it sets\n`max_observed_pub_id` to the current `last_pub_id`, so that it can avoid\nnotifying dependent controllers unnecessarily."
         }
       },
       "required": [
@@ -690,7 +783,7 @@ expression: schema
       "properties": {
         "fields": {
           "additionalProperties": true,
-          "description": "Arbitrary JSON that can be used to communicate additional details. The specific fields and their meanings are up to the connector, except for the flow `/events` fields: `eventType`, `eventTarget`, and `error`, which are restricted to string values.",
+          "description": "Arbitrary JSON that can be used to communicate additional details. The\nspecific fields and their meanings are up to the connector, except for\nthe flow `/events` fields: `eventType`, `eventTarget`, and `error`, which\nare restricted to string values.",
           "type": "object"
         },
         "message": {
@@ -698,7 +791,7 @@ expression: schema
           "type": "string"
         },
         "shard": {
-          "$ref": "#/definitions/ShardRef",
+          "$ref": "#/$defs/ShardRef",
           "description": "The specific shard that failed"
         },
         "ts": {
@@ -710,21 +803,21 @@ expression: schema
         }
       },
       "required": [
-        "message",
         "shard",
-        "ts"
+        "ts",
+        "message"
       ],
       "type": "object"
     },
     "ShardRef": {
-      "description": "Identifies the specific task shard that is the source of an event. This matches the shape of the `shard` field in an `ops.Log` message.",
+      "description": "Identifies the specific task shard that is the source of an event. This\nmatches the shape of the `shard` field in an `ops.Log` message.",
       "properties": {
         "build": {
-          "$ref": "#/definitions/Id",
-          "description": "The id of the build that the shard was running when the event was generated. This can be compared against the `last_build_id` of the live spec to determine whether the event happened with the most rececnt version of the published spec (it did if the `last_build_id` is the same)."
+          "$ref": "#/$defs/Id",
+          "description": "The id of the build that the shard was running when the event was\ngenerated. This can be compared against the `last_build_id` of the live\nspec to determine whether the event happened with the most rececnt\nversion of the published spec (it did if the `last_build_id` is the\nsame)."
         },
         "keyBegin": {
-          "description": "The key range of the task as a hex string. Together with rClockBegin, this uniquely identifies a specific task shard.",
+          "description": "The key range of the task as a hex string. Together with rClockBegin, this\nuniquely identifies a specific task shard.",
           "type": "string"
         },
         "name": {
@@ -732,15 +825,15 @@ expression: schema
           "type": "string"
         },
         "rClockBegin": {
-          "description": "The rClock range of the task as a hex string. Together with keyBegin, this uniquely identifies a specific task shard.",
+          "description": "The rClock range of the task as a hex string. Together with keyBegin, this\nuniquely identifies a specific task shard.",
           "type": "string"
         }
       },
       "required": [
-        "build",
-        "keyBegin",
         "name",
-        "rClockBegin"
+        "keyBegin",
+        "rClockBegin",
+        "build"
       ],
       "type": "object"
     },
@@ -749,7 +842,7 @@ expression: schema
         "count": {
           "description": "The number of checks that have returned ths status",
           "format": "uint32",
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "integer"
         },
         "first_ts": {
@@ -767,13 +860,13 @@ expression: schema
           ]
         },
         "status": {
-          "$ref": "#/definitions/ShardsStatus",
+          "$ref": "#/$defs/ShardsStatus",
           "description": "The observed status"
         }
       },
       "required": [
-        "first_ts",
         "last_ts",
+        "first_ts",
         "status"
       ],
       "type": "object"
@@ -782,24 +875,18 @@ expression: schema
       "description": "Represents a high level status aggregate of all the shards for a given task.",
       "oneOf": [
         {
+          "const": "Ok",
           "description": "All task shards have a `Primary` member.",
-          "enum": [
-            "Ok"
-          ],
           "type": "string"
         },
         {
-          "description": "Any task shards are in `Pending` or `Backfill`, and none are `Failed`. Or no task shards yet exist.",
-          "enum": [
-            "Pending"
-          ],
+          "const": "Pending",
+          "description": "Any task shards are in `Pending` or `Backfill`, and none are `Failed`.\nOr no task shards yet exist.",
           "type": "string"
         },
         {
+          "const": "Failed",
           "description": "Any task shard is `Failed`",
-          "enum": [
-            "Failed"
-          ],
           "type": "string"
         }
       ]
@@ -808,172 +895,26 @@ expression: schema
       "description": "Status information about the `sourceCapture`",
       "properties": {
         "add_bindings": {
-          "description": "If `up_to_date` is `false`, then this will contain the set of `sourceCapture` collections that need to be added. This is provided simply to aid in debugging in case the publication to add the bindings fails.",
+          "description": "If `up_to_date` is `false`, then this will contain the set of\n`sourceCapture` collections that need to be added. This is provided\nsimply to aid in debugging in case the publication to add the bindings\nfails.",
           "items": {
-            "$ref": "#/definitions/Collection"
+            "$ref": "#/$defs/Collection"
           },
           "type": "array",
           "uniqueItems": true
         },
         "up_to_date": {
           "default": false,
-          "description": "Whether the materialization bindings are up-to-date with respect to the `sourceCapture` bindings. In normal operation, this should always be `true`. Otherwise, there will be a controller `error` and the publication status will contain details of why the update failed.",
+          "description": "Whether the materialization bindings are up-to-date with respect to\nthe `sourceCapture` bindings. In normal operation, this should always\nbe `true`. Otherwise, there will be a controller `error` and the\npublication status will contain details of why the update failed.",
           "type": "boolean"
         }
       },
       "type": "object"
-    }
-  },
-  "description": "Represents the internal state of a controller.",
-  "oneOf": [
-    {
-      "description": "Status of a capture controller",
-      "properties": {
-        "activation": {
-          "$ref": "#/definitions/ActivationStatus",
-          "default": {}
-        },
-        "alerts": {
-          "additionalProperties": {
-            "$ref": "#/definitions/ControllerAlert"
-          },
-          "type": "object"
-        },
-        "auto_discover": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AutoDiscoverStatus"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "config_updates": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PendingConfigUpdateStatus"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "publications": {
-          "$ref": "#/definitions/PublicationStatus",
-          "default": {
-            "history": []
-          }
-        },
-        "type": {
-          "enum": [
-            "Capture"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "type": "object"
     },
-    {
-      "description": "The status of a collection controller",
-      "properties": {
-        "activation": {
-          "$ref": "#/definitions/ActivationStatus",
-          "default": {}
-        },
-        "alerts": {
-          "additionalProperties": {
-            "$ref": "#/definitions/ControllerAlert"
-          },
-          "type": "object"
-        },
-        "inferred_schema": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/InferredSchemaStatus"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "publications": {
-          "$ref": "#/definitions/PublicationStatus",
-          "default": {
-            "history": []
-          }
-        },
-        "type": {
-          "enum": [
-            "Collection"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "type": "object"
-    },
-    {
-      "description": "Status of a materialization controller",
-      "properties": {
-        "activation": {
-          "$ref": "#/definitions/ActivationStatus",
-          "default": {}
-        },
-        "alerts": {
-          "additionalProperties": {
-            "$ref": "#/definitions/ControllerAlert"
-          },
-          "type": "object"
-        },
-        "config_updates": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PendingConfigUpdateStatus"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "publications": {
-          "$ref": "#/definitions/PublicationStatus",
-          "default": {
-            "history": []
-          }
-        },
-        "source_capture": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SourceCaptureStatus"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "type": {
-          "enum": [
-            "Materialization"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "type": "object"
-    },
-    {
+    "TestStatus": {
       "properties": {
         "alerts": {
           "additionalProperties": {
-            "$ref": "#/definitions/ControllerAlert"
+            "$ref": "#/$defs/ControllerAlert"
           },
           "type": "object"
         },
@@ -981,30 +922,38 @@ expression: schema
           "type": "boolean"
         },
         "publications": {
-          "$ref": "#/definitions/PublicationStatus",
+          "$ref": "#/$defs/PublicationStatus",
           "default": {
             "history": []
           }
-        },
+        }
+      },
+      "required": [
+        "passing"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/CaptureStatus",
+      "properties": {
         "type": {
-          "enum": [
-            "Test"
-          ],
+          "const": "Capture",
           "type": "string"
         }
       },
       "required": [
-        "passing",
         "type"
       ],
       "type": "object"
     },
     {
+      "$ref": "#/$defs/CollectionStatus",
       "properties": {
         "type": {
-          "enum": [
-            "Uninitialized"
-          ],
+          "const": "Collection",
           "type": "string"
         }
       },
@@ -1012,7 +961,37 @@ expression: schema
         "type"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "#/$defs/MaterializationStatus",
+      "properties": {
+        "type": {
+          "const": "Materialization",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "#/$defs/TestStatus",
+      "properties": {
+        "type": {
+          "const": "Test",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "type": "null"
     }
   ],
+  "description": "Represents the internal state of a controller.",
   "title": "ControllerStatus"
 }

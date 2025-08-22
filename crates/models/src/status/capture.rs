@@ -169,7 +169,7 @@ pub struct AutoDiscoverStatus {
     pub failure: Option<AutoDiscoverFailure>,
 }
 
-fn interval_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn interval_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "pattern": "^\\d+(s|m|h)$"

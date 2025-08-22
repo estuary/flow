@@ -33,7 +33,7 @@ fn main() {
         .server_mod_attribute("materialize", "#[cfg(feature = \"materialize_server\")]")
         .server_mod_attribute("protocol", "#[cfg(feature = \"broker_server\")]")
         .server_mod_attribute("runtime", "#[cfg(feature = \"runtime_server\")]")
-        .compile(&proto_build, &b.proto_include())
+        .compile_protos(&proto_build, &b.proto_include())
         .expect("tonic build failed");
 }
 

@@ -844,14 +844,6 @@ fn walk_derive_transform<'a>(
         models::Shuffle::Lambda(lambda) => (Vec::new(), lambda.to_string()),
         // Source documents may be processed by any shard.
         models::Shuffle::Any => (Vec::new(), String::new()),
-        // Shuffle is unset.
-        models::Shuffle::Unset => {
-            Error::ShuffleUnset {
-                transform: model.name.to_string(),
-            }
-            .push(scope, errors);
-            (Vec::new(), String::new())
-        }
     };
 
     super::temporary_cross_data_plane_read_check(scope, source_built, data_plane_id, errors);

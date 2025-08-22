@@ -1,5 +1,5 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{redact, reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode, redact, reduce};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -364,7 +364,7 @@ impl MemDrainer {
         };
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
@@ -475,9 +475,9 @@ impl MemDrainer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
-    use crate::{combine::CHUNK_TARGET_SIZE, SerPolicy, Validator};
+    use crate::{SerPolicy, Validator, combine::CHUNK_TARGET_SIZE};
     use itertools::Itertools;
     use json::schema::build::build_schema;
 

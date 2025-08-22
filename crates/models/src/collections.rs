@@ -16,17 +16,19 @@ use std::collections::BTreeMap;
 /// through the use of annotated reduction strategies of the collection schema.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "CollectionDef::example")]
+#[schemars(example = CollectionDef::example())]
 pub struct CollectionDef {
     /// # Schema against which collection documents are validated and reduced on write and read.
-    #[schemars(example = "Schema::example_relative")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Schema", example = Schema::example_relative())]
     pub schema: Option<Schema>,
     /// # Schema against which collection documents are validated and reduced on write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Schema")]
     pub write_schema: Option<Schema>,
     /// # Schema against which collection documents are validated and reduced on read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Schema")]
     pub read_schema: Option<Schema>,
     /// # Composite key of this collection.
     pub key: CompositeKey,
@@ -39,11 +41,13 @@ pub struct CollectionDef {
     pub journals: JournalTemplate,
     // # Derivation which builds this collection as transformations of other collections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Derivation")]
     pub derive: Option<Derivation>,
     /// # Expected publication ID of this collection within the control plane.
     /// When present, a publication of the collection will fail if the
     /// last publication ID in the control plane doesn't match this value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
     /// # Delete this collection within the control plane.
     /// When true, a publication will delete this collection.
@@ -113,20 +117,11 @@ impl Projection {
     }
 }
 
-fn projections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Field::json_schema(gen);
-    gen.definitions_mut().insert(Field::schema_name(), schema);
-
-    let schema = Projection::json_schema(gen);
-    gen.definitions_mut()
-        .insert(Projection::schema_name(), schema);
-
+fn projections_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            Field::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", Projection::schema_name()),
-            },
+            Field::schema_pattern(): generator.subschema_for::<Projection>(),
         },
         "additionalProperties": false,
         "examples": [{

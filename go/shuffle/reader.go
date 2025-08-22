@@ -3,6 +3,7 @@ package shuffle
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -137,7 +138,7 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			} else if ctx.Err() != nil {
 				return message.Envelope{}, ctx.Err()
 			} else if r.resp.TerminalError != "" {
-				return message.Envelope{}, fmt.Errorf(r.resp.TerminalError)
+				return message.Envelope{}, errors.New(r.resp.TerminalError)
 			} else if err == io.EOF {
 				return message.Envelope{}, err // Read through |end| offset.
 			}
@@ -292,7 +293,7 @@ func (g *governor) poll(ctx context.Context) error {
 			// (i.e., if we drained this read because the coordinating shard has changed).
 			return g.onConverge(ctx)
 		} else if r.resp.TerminalError != "" {
-			return fmt.Errorf(r.resp.TerminalError)
+			return errors.New(r.resp.TerminalError)
 		} else if len(r.resp.Docs) == 0 && r.resp.Tailing() {
 			// This is an empty read which informed us the reader is now tailing.
 			// Leave it in pending, but return to attempt another read of the channel.

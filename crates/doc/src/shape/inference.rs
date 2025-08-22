@@ -379,7 +379,6 @@ impl Shape {
 #[cfg(test)]
 mod test {
     use super::*;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     #[test]
@@ -1605,22 +1604,13 @@ mod test {
 
         // Expect we round-trip to expected JSON schema.
         insta::assert_yaml_snapshot!(super::schema::to_schema(shape), @r###"
-        ---
-        $schema: "https://json-schema.org/draft/2019-09/schema"
         type: object
-        required:
-          - _meta
-          - id
         properties:
           _meta:
             type: object
-            required:
-              - op
             properties:
               before:
                 type: object
-                required:
-                  - id
                 properties:
                   data:
                     description: "(source type: varchar)"
@@ -1629,9 +1619,13 @@ mod test {
                     description: "(source type: non-nullable int)"
                     type: integer
                 additionalProperties: false
+                required:
+                  - id
               op:
                 type: string
             additionalProperties: false
+            required:
+              - op
           data:
             description: "(source type: varchar)"
             type: string
@@ -1639,6 +1633,9 @@ mod test {
             description: "(source type: non-nullable int)"
             type: integer
         additionalProperties: false
+        required:
+          - _meta
+          - id
         "###);
     }
 

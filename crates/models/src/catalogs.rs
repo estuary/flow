@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::{
     Capture, CaptureDef, Collection, CollectionDef, Materialization, MaterializationDef,
-    RelativeUrl, Test, TestDef, TestStep, TransformDef,
+    RelativeUrl, Test, TestDef, TestStep,
 };
 
 /// Each catalog source defines a portion of a Flow Catalog, by defining
@@ -17,6 +17,7 @@ use super::{
 pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.
     #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     pub _schema: Option<String>,
     /// # Import other Flow catalog sources.
     /// By importing another Flow catalog source, its collections, schemas, and derivations
@@ -85,20 +86,9 @@ pub enum Capability {
 
 impl Catalog {
     /// Build a root JSON schema for the Catalog model.
-    pub fn root_json_schema() -> schemars::schema::RootSchema {
-        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
-        settings.option_add_null_type = false;
-
-        let generator = schemars::gen::SchemaGenerator::new(settings);
-        let mut root = generator.into_root_schema_for::<Self>();
-
-        TransformDef::patch_schema(
-            root.definitions
-                .get_mut(&TransformDef::schema_name())
-                .unwrap(),
-        );
-
-        root
+    pub fn root_json_schema() -> schemars::Schema {
+        let settings = schemars::generate::SchemaSettings::draft2020_12();
+        schemars::SchemaGenerator::new(settings).root_schema_for::<Self>()
     }
 
     /// Returns the names of all specs that are directly included within this catalog.
@@ -127,39 +117,35 @@ impl Catalog {
     }
 }
 
-fn collections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Collection::json_schema(gen);
-    gen.definitions_mut()
-        .insert(Collection::schema_name(), schema);
-
-    let mut schema = CollectionDef::json_schema(gen);
+fn collections_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+    // Side effect: this adds CollectionDef to the schema definitions.
+    let collection_def = generator.subschema_for::<CollectionDef>();
 
     // Extend CollectionDef schema with a oneOf which requires either schema or readSchema / writeSchema.
-    let schemars::schema::Schema::Object(schema_obj) = &mut schema else {
-        panic!("must be a schema object")
-    };
-    schema_obj.subschemas().one_of = Some(vec![
-        from_value(json!({
-            "required": ["schema"],
-            "properties": { "readSchema": false, "writeSchema": false },
-        }))
-        .unwrap(),
-        from_value(json!({
-            "required": ["readSchema", "writeSchema"],
-            "properties": { "schema": false },
-        }))
-        .unwrap(),
-    ]);
-
-    gen.definitions_mut()
-        .insert(CollectionDef::schema_name(), schema);
+    generator
+        .definitions_mut()
+        .get_mut(CollectionDef::schema_name().as_ref())
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert(
+            "oneOf".to_string(),
+            json!([
+                {
+                    "required": ["schema"],
+                    "properties": { "readSchema": false, "writeSchema": false },
+                },
+                {
+                    "required": ["readSchema", "writeSchema"],
+                    "properties": { "schema": false },
+                },
+            ]),
+        );
 
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            Collection::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", CollectionDef::schema_name()),
-            },
+            Collection::schema_pattern(): collection_def,
         },
         "additionalProperties": false,
         "examples": [{
@@ -169,20 +155,11 @@ fn collections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::sch
     .unwrap()
 }
 
-fn captures_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Capture::json_schema(gen);
-    gen.definitions_mut().insert(Capture::schema_name(), schema);
-
-    let schema = CaptureDef::json_schema(gen);
-    gen.definitions_mut()
-        .insert(CaptureDef::schema_name(), schema);
-
+fn captures_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            Capture::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", CaptureDef::schema_name()),
-            },
+            Capture::schema_pattern(): generator.subschema_for::<CaptureDef>(),
         },
         "additionalProperties": false,
         "examples": [{
@@ -192,21 +169,13 @@ fn captures_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema
     .unwrap()
 }
 
-fn materializations_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Materialization::json_schema(gen);
-    gen.definitions_mut()
-        .insert(Materialization::schema_name(), schema);
-
-    let schema = MaterializationDef::json_schema(gen);
-    gen.definitions_mut()
-        .insert(MaterializationDef::schema_name(), schema);
-
+fn materializations_schema(
+    generator: &mut schemars::generate::SchemaGenerator,
+) -> schemars::Schema {
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            Materialization::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", MaterializationDef::schema_name()),
-            },
+            Materialization::schema_pattern(): generator.subschema_for::<MaterializationDef>(),
         },
         "additionalProperties": false,
         "examples": [{
@@ -216,19 +185,11 @@ fn materializations_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars
     .unwrap()
 }
 
-fn tests_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Test::json_schema(gen);
-    gen.definitions_mut().insert(Test::schema_name(), schema);
-
-    let schema = TestDef::json_schema(gen);
-    gen.definitions_mut().insert(TestDef::schema_name(), schema);
-
+fn tests_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            Test::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", TestDef::schema_name()),
-            },
+            Test::schema_pattern(): generator.subschema_for::<TestDef>(),
         },
         "additionalProperties": false,
         "examples": [{
@@ -239,13 +200,6 @@ fn tests_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::S
         }],
     }))
     .unwrap()
-}
-
-#[cfg(feature = "sqlx-support")]
-impl sqlx::postgres::PgHasArrayType for CatalogType {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("_catalog_spec_type")
-    }
 }
 
 impl std::str::FromStr for CatalogType {

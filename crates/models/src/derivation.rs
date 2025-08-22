@@ -2,7 +2,7 @@ use super::{
     CompositeKey, ConnectorConfig, DeriveUsingSqlite, DeriveUsingTypescript, LocalConfig, RawValue,
     ShardTemplate, Source, Transform,
 };
-use schemars::{schema::Schema, JsonSchema};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 use std::time::Duration;
@@ -54,7 +54,7 @@ pub enum DeriveUsing {
 /// "update" lambda and a derived document "publish" lambda.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "TransformDef::example")]
+#[schemars(example = TransformDef::example())]
 pub struct TransformDef {
     /// # Name of this transformation.
     /// The names of transforms within a derivation must be unique and stable.
@@ -62,7 +62,6 @@ pub struct TransformDef {
     /// # Source collection read by this transform.
     pub source: Source,
     /// # Shuffle by which source documents are mapped to processing shards.
-    #[serde(default)]
     pub shuffle: Shuffle,
     /// # Priority applied to documents processed by this transform.
     /// When all transforms are of equal priority, Flow processes documents
@@ -114,7 +113,7 @@ pub struct TransformDef {
 /// collection documents.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "Shuffle::example")]
+#[schemars(example = Shuffle::example())]
 pub enum Shuffle {
     /// # A Document may be shuffled to any task shard.
     /// Use 'any' if your transformation does not rely on internal task state,
@@ -125,20 +124,11 @@ pub enum Shuffle {
     /// # Lambda which extracts a shuffle key from the sourced documents of this transform.
     /// Lambdas may be provided inline, or as a relative URL to a file containing the lambda.
     Lambda(RawValue),
-    // Placeholder variant for specs which omit a Shuffle, which is no longer allowed.
-    #[schemars(skip)]
-    Unset,
 }
 
 impl Shuffle {
     pub fn example() -> Self {
         Self::Key(CompositeKey::example())
-    }
-}
-
-impl Default for Shuffle {
-    fn default() -> Self {
-        Shuffle::Unset
     }
 }
 
@@ -163,26 +153,5 @@ impl TransformDef {
 
     fn priority_is_zero(p: &u32) -> bool {
         *p == 0
-    }
-
-    pub fn patch_schema(schema: &mut Schema) {
-        let Schema::Object(schema_obj) = schema else {
-            panic!("must be a schema object")
-        };
-        let schema_obj = schema_obj.object.as_mut().expect("must be a schema object");
-
-        // Patch in that `shuffle` is a required property.
-        schema_obj.required.insert("shuffle".to_string());
-
-        let shuffle = schema_obj
-            .properties
-            .get_mut("shuffle")
-            .expect("has shuffle property");
-
-        // Remove the "default: unset" annotation otherwise added by schemars.
-        let Schema::Object(shuffle_obj) = shuffle else {
-            panic!("must be a schema object")
-        };
-        shuffle_obj.metadata().default = None;
     }
 }

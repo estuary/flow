@@ -259,6 +259,74 @@ async fn test_deletions() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+<<<<<<< HEAD
+=======
+async fn test_old_style_deletions() -> anyhow::Result<()> {
+    let shape = json_schema_to_shape(
+        br#"{
+       "properties": {
+            "key": {
+                "type": "string"
+            },
+            "_meta": {
+                "properties": {
+                    "op": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "additionalProperties": {
+            "type": "string"
+        },
+        "type": "object",
+        "required": [
+            "key",
+            "_meta"
+        ]
+    }"#,
+    )?;
+
+    let (avro_schema, extractors) =
+        dekaf::utils::build_legacy_field_extractors(shape, DeletionMode::CDC)?;
+
+    let decoded = extract_and_decode(
+        serde_to_jsonl(vec![
+            json!({
+                "key": "first",
+                "_meta": {
+                    "op": "c"
+                },
+            }),
+            json!({
+                "key": "second",
+                "_meta": {
+                    "op": "d"
+                },
+            }),
+            json!({
+                "key": "second",
+                "_meta": {
+                    "op": "d"
+                },
+                "additional": "I should end up in _flow_extra"
+            }),
+        ])?
+        .as_slice(),
+        extractors,
+        avro_schema,
+    )?;
+
+    for (idx, doc) in decoded.into_iter().enumerate() {
+        insta::assert_debug_snapshot!(format!("old-deletions-{}", idx), doc?);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+>>>>>>> 6a10084407 (Update the world WIP)
 async fn test_fields_with_hyphens() -> anyhow::Result<()> {
     let fixture_path = "tests/fixtures/fields_with_hyphens.yaml".to_string();
     let docs = vec![json!({

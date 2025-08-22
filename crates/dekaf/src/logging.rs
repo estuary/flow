@@ -60,7 +60,7 @@ lazy_static! {
     // Producer IDs should change infrequently, so we should create one as early as possible and use it for the lifetime of the process
     static ref PRODUCER: gazette::uuid::Producer = {
         // There's probably a neat bit-banging way to do this with i64 and masks, but I'm just not that fancy.
-        let mut producer_id = rand::thread_rng().gen::<[u8; 6]>();
+        let mut producer_id = rand::rng().random::<[u8; 6]>();
         producer_id[0] |= 0x01;
         gazette::uuid::Producer::from_bytes(producer_id)
     };

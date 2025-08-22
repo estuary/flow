@@ -33,8 +33,9 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     // Bind our port before we do anything else.
     let addr = format!("0.0.0.0:{}", port).parse().unwrap();
-    let incoming = TcpIncoming::new(addr, true, None)
-        .map_err(|e| anyhow::anyhow!("tcp incoming error {}", e))?;
+    let incoming = TcpIncoming::bind(addr)
+        .map_err(|e| anyhow::anyhow!("tcp incoming error {}", e))?
+        .with_nodelay(Some(true));
 
     // Now write a byte to stderr to let our container host know that we're alive.
     // Whitespace avoids interfering with JSON logs that also write to stderr.
