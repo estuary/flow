@@ -87,26 +87,40 @@ inline void pbuffer::pad()
     extend(ZEROS, n);
 }
 
-// Compute a uint64_t bit mask with the low `length` bytes set.
-#define STR_MASK(length) ((1ull << ((length) * 8ull)) - 1ull)
+inline bool is_indirect_str(const uint32_t w)
+{
+    // The indirect representation starts with 0b10, which is a valid only in
+    // a UTF-8 continuation byte. Its presence in the first byte tells us that
+    // this *not* an inline string.
+    return (w & 0b11000000) == 0b10000000;
+}
 
-// Build a pword holding an inline string representation, which is a
-// short-string optimization that's also implemented by rkyv.
-// * Inline strings have seven low bytes of data and one high byte of length,
-//   with the highest bit always left unset.
-// * Indirect strings store data earlier in the archive and reference
-//   it using an always-negative offset (highest bit is always set).
-#define STR_INLINE(word, length) \
-    pword { .u64 = (word) | ((length) << 56) }
+inline uint32_t encode_indirect_str_length(uint32_t len)
+{
+    return 0b10000000 | (len & 0b00111111) | ((len & 0b11000000) << 2);
+}
+
+inline uint32_t decode_indirect_str_length(uint32_t w)
+{
+    return (w & 0b00111111) | ((w >> 2) & 0b11000000);
+}
+
+inline size_t decode_inline_str_length(uint64_t value)
+{
+    // Inline strings are padded with trailing 0xFF bytes, and 0xFF
+    // can ONLY appear as padding (it's not a valid UTF-8 byte).
+    // Determine the number of leading bytes which are 0xFF
+    // (recall we're little-endian).
+    return 8 - (std::countl_zero(~value) / 8);
+}
 
 // Resolve the inner offset of a string placed at `offset`.
-inline void pstr_resolve(uint32_t &pos, const uint64_t offset)
+inline void pstr_resolve(const uint32_t p1, uint32_t &p2, const uint64_t offset)
 {
-    // Is this an indirect representation?
-    if (pos & 0x80000000)
+    if (is_indirect_str(p1))
     {
         // Switch from a negative absolute location, to a negative relative offset.
-        pos = ~pos - offset;
+        p2 = ~p2 - offset;
     }
 }
 
@@ -126,7 +140,7 @@ inline void pnode_resolve(pnode &n, uint64_t offset)
     }
     case 0x08: // String.
     {
-        pstr_resolve(n.w2.u32.l, offset + 4);
+        pstr_resolve(n.w1.u32.h, n.w2.u32.l, offset + 4);
         break;
     }
     }
@@ -158,7 +172,7 @@ inline pnode place_object(pbuffer &buf, pfield *const d, const uint64_t len)
     const uint64_t offset = buf.len;
     for (uint64_t i = 0; i != len; ++i)
     {
-        pstr_resolve(d[i].property.u32.h, offset + i * sizeof(pfield));
+        pstr_resolve(d[i].property.u32.l, d[i].property.u32.h, offset + i * sizeof(pfield));
         pnode_resolve(d[i].node, offset + i * sizeof(pfield) + 8);
     }
     buf.extend(d, len);
@@ -208,15 +222,17 @@ __attribute__((noinline)) void sort_pfields(pbuffer &buf, pfield *const d, const
 {
     auto view = [&buf](const pword &w) -> std::string_view
     {
-        if (w.u32.h & 0x80000000)
+        if (is_indirect_str(w.u32.l))
         {
-            // This property is an indirect representation that points to its string.
-            return std::string_view(reinterpret_cast<const char *>(buf.data + ~w.u32.h), w.u32.l);
+            return std::string_view(
+                reinterpret_cast<const char *>(buf.data + ~w.u32.h),
+                decode_indirect_str_length(w.u32.l));
         }
         else
         {
-            // This property is an inline representation of its short string.
-            return std::string_view(reinterpret_cast<const char *>(&w), w.u64 >> 56);
+            return std::string_view(
+                reinterpret_cast<const char *>(&w),
+                decode_inline_str_length(w.u64));
         }
     };
     std::sort(d, d + len, [view](const pfield &lhs, const pfield &rhs) -> bool
@@ -255,27 +271,18 @@ __attribute__((flatten)) pnode transcode_object(pbuffer &buf, dom::object obj)
         unsorted += (cur.key <= last_key);
         last_key = cur.key;
 
-        if (cur.key.length() < 8)
+        if (cur.key.length() < 9)
         {
             // Store using inline representation.
-
-            // SAFETY: cur.key is drawn from simdjson's internal string buffer which
-            // is allocated with sufficient size to parse a maximum-size document
-            // having only empty strings (3 bytes per string), and is then further
-            // extended with 64 SIMD padding bytes. This means we can always fetch
-            // 8 bytes without worrying about running off the edge of an allocated page.
-            // We then mask out extra bytes to zero by &-ing with the STR_MASK macro.
-            uint64_t word;
-            memcpy(&word, cur.key.data(), 8);
-
-            field->property = STR_INLINE(word & STR_MASK(cur.key.length()), cur.key.length());
+            field->property.u64 = 0xFFFFFFFFFFFFFFFFull;
+            memcpy(&field->property.u64, cur.key.data(), cur.key.length());
         }
         else
         {
             // Store using indirect representation.
             field->property = pword{
                 .u32 = {
-                    .l = static_cast<uint32_t>(cur.key.length()),
+                    .l = encode_indirect_str_length(cur.key.length()),
                     .h = static_cast<uint32_t>(~buf.len),
                 }};
             buf.extend(cur.key.data(), cur.key.length());
@@ -333,24 +340,26 @@ inline pnode transcode_node(pbuffer &buf, dom::element_type typ, dom::element el
         const char *const d = elem.get_c_str();
         size_t len = elem.get_string_length();
 
-        if (len < 8)
+        if (len < 9)
         {
             // Store using inline representation.
-            // SAFETY: See comment in transcode_object().
-            uint64_t word;
-            memcpy(&word, d, 8);
-
-            pword s = STR_INLINE(word & STR_MASK(len), len);
-            return pnode{
-                .w1 = {.u32 = {.l = 0x08, .h = s.u32.l}},
-                .w2 = {.u32 = {.l = s.u32.h, .h = 0}},
+            pnode ret = pnode{
+                .w1 = {.u32 = {.l = 0x08, .h = 0xFFFFFFFF}},
+                .w2 = {.u32 = {.l = 0xFFFFFFFF, .h = 0}},
             };
+            memcpy(&ret.w1.u32.h, d, len);
+            return ret;
         }
         else
         {
             // Store using indirect representation.
             pnode ret = pnode{
-                .w1 = {.u32 = {.l = 0x08, .h = static_cast<uint32_t>(len)}},
+                .w1 = {
+                    .u32 = {
+                        .l = 0x08,
+                        .h = encode_indirect_str_length(len),
+                    },
+                },
                 .w2 = {.u32 = {.l = static_cast<uint32_t>(~buf.len), .h = 0}},
             };
             buf.extend(d, len);
