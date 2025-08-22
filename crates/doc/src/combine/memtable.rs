@@ -77,7 +77,7 @@ impl Entries {
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
             let (lhs, rhs) = (&next[index - 1], &next[index]);
-            let (validator, ref schema) = &mut validators[lhs.meta.binding()];
+            let &mut (ref mut validator, ref schema) = &mut validators[lhs.meta.binding()];
 
             let rhs_valid = validator
                 .validate(schema.as_ref(), &rhs.root)
@@ -309,7 +309,7 @@ impl MemTable {
         // we'll validate the document upon drain.
         for doc in sorted.iter() {
             if !doc.meta.front() {
-                let (validator, ref schema) = &mut spec.validators[doc.meta.binding()];
+                let &mut (ref mut validator, ref schema) = &mut spec.validators[doc.meta.binding()];
                 validator
                     .validate(schema.as_ref(), &doc.root)?
                     .ok()
@@ -352,7 +352,7 @@ impl MemDrainer {
         };
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {

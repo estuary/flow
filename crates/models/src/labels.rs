@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// entities within Flow.
 #[derive(Deserialize, Serialize, JsonSchema, Clone)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "Label::example")]
+#[schemars(example = Label::example())]
 pub struct Label {
     /// # Name of the Label.
     pub name: String,
@@ -28,7 +28,7 @@ impl Label {
 /// LabelSet is a collection of labels and their values.
 #[derive(Deserialize, Serialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "LabelSet::example")]
+#[schemars(example = LabelSet::example())]
 pub struct LabelSet {
     /// Labels of the set.
     pub labels: Vec<Label>,
@@ -45,7 +45,7 @@ impl LabelSet {
 /// LabelSelector defines a filter over LabelSets.
 #[derive(Deserialize, Serialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "LabelSelector::example")]
+#[schemars(example = LabelSelector::example())]
 pub struct LabelSelector {
     /// # Included labels of the selector.
     #[serde(default)]

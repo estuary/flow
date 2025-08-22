@@ -97,13 +97,13 @@ impl<'a> Location<'a> {
 
     /// Returns a struct that implements `std::fmt::Display` to provide a string representation of
     /// the location as a JSON pointer that does no escaping besides '~' and '/'.
-    pub fn pointer_str(&self) -> PointerStr {
+    pub fn pointer_str(&self) -> PointerStr<'_> {
         PointerStr(*self)
     }
 
     /// Returns a struct that implements `std::fmt::Display` to provide a string representation of
     /// the location as a JSON pointer that is suitable for inclusion in a URL fragment.
-    pub fn url_escaped(&self) -> UrlEscaped {
+    pub fn url_escaped(&self) -> UrlEscaped<'_> {
         UrlEscaped(*self)
     }
 

@@ -1,7 +1,7 @@
 use super::spec_fixture;
 use crate::{
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
-    publications, ControlPlane,
+    publications,
 };
 use models::status::{capture::DiscoverChange, AlertType, StatusSummaryType};
 use proto_flow::capture::response::{discovered::Binding, Discovered};

@@ -362,7 +362,7 @@ pub async fn recv_client_start_commit(
 
         let complexity_limit = complexity_limit_for_binding(*binding, bindings_with_sourced_schema);
 
-        serialized.schema.extensions.insert(
+        serialized.as_object_mut().unwrap().insert(
             X_COMPLEXITY_LIMIT.to_string(),
             serde_json::Value::Number(serde_json::Number::from(complexity_limit)),
         );

@@ -71,9 +71,10 @@ impl Client {
     }
 
     /// Build a fresh `gazette::journal::Client` and `gazette::shard::Client`
-    /// There is a bug that causes these clients to hang under heavy/varied load,
-    /// so until that bug is found+fixed, this is the work-around.
-    #[deprecated]
+    /// TODO(johnny): To my knowledge, this is no longer needed.
+    /// There was once a bug in data-plane-gateway; that bug was fixed,
+    /// and data-plane-gateway is not used aside from the legacy data-plane
+    /// which is winding down.
     pub fn with_fresh_gazette_client(self) -> Self {
         let router = gazette::Router::new("local");
 
@@ -194,8 +195,8 @@ impl Client {
 
         // The encryption service does not currently require any sort of
         // authentication, so there's no auth header added here. We'll of course
-        // need to update this if we ever add authentiation to that endpoint.
-        let mut req = self
+        // need to update this if we ever add authentication to that endpoint.
+        let req = self
             .http_client
             .post(&encrypt_endpoint)
             .header("Content-Type", "application/json")

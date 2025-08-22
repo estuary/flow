@@ -19,7 +19,7 @@ pub struct TaskService {
     err_cap: usize,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn new_task_service(config_ptr: *const u8, config_len: u32) -> *mut TaskService {
     let config = unsafe { std::slice::from_raw_parts(config_ptr, config_len as usize) };
     let config = proto_flow::runtime::TaskServiceConfig::decode(config).unwrap();
@@ -60,7 +60,7 @@ pub extern "C" fn new_task_service(config_ptr: *const u8, config_len: u32) -> *m
     Box::leak(Box::new(svc_abi))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn task_service_drop(svc: *mut TaskService) {
     let TaskService {
         svc_ptr,
