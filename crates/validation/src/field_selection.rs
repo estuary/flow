@@ -17,6 +17,7 @@ use tables::EitherOrBoth as EOB;
     serde::Serialize,
     serde::Deserialize,
 )]
+#[serde(tag = "type")]
 pub enum Select {
     #[error("field is within the desired depth")]
     DesiredDepth,
@@ -52,6 +53,7 @@ pub enum Select {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[serde(tag = "type")]
 pub enum Reject {
     #[error("field doesn't meet any selection criteria")]
     NotSelected,
