@@ -178,13 +178,22 @@ where
     })
 }
 
+/// field_fold maps a projection field name to its folded AVRO-compatible name.
+/// Currently this is the most basic possible transform that provides somewhat
+/// reasonable UX, and will forbid any field which isn't AVRO_FIELD_RE relaxed
+/// to also allow '/'.
+/// TODO(johnny): Fold unicode (punycode?) and whitespace.
+pub fn field_fold(field: &str) -> String {
+    field.replace("/", "_")
+}
+
 // Largely lifted from materialize-kafka
 // TODO(jshearer): Expose this logic somewhere that materialize-kafka can use it
 fn constraint_for_projection(
     projection: &flow::Projection,
     endpoint_config: &DekafConfig,
 ) -> materialize::response::validated::Constraint {
-    let folded_field = super::field_fold(&projection.field);
+    let folded_field = field_fold(&projection.field);
 
     if !avro::AVRO_FIELD_RE.is_match(&folded_field) {
         return materialize::response::validated::Constraint {

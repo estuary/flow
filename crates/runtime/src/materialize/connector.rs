@@ -89,7 +89,7 @@ pub async fn start<L: LogHandler>(
             .boxed()
         }
         models::MaterializationEndpoint::Dekaf(_) => {
-            dekaf::connector::connector(connector_rx).boxed()
+            dekaf_connector::connector(connector_rx).boxed()
         }
     };
 
