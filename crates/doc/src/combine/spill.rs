@@ -3,7 +3,6 @@ use crate::owned::OwnedArchivedNode;
 use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use bytes::Buf;
-use rkyv::ser::Serializer;
 use std::collections::BinaryHeap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -49,32 +48,27 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 
         let mut last_chunk_index = 0;
         let mut lz4_buf = Vec::new();
-        let mut raw_buf = rkyv::AlignedVec::with_capacity(2 * chunk_target_size);
-        let mut rkyv_scratch = Default::default();
+        let mut raw_buf = rkyv::util::AlignedVec::<16>::with_capacity(2 * chunk_target_size);
+        let mut arena = rkyv::ser::allocator::Arena::new();
 
         for (index, HeapEntry { meta, root }) in entries.iter().enumerate() {
             let offset = raw_buf.len();
+
+            // This is a hot loop. A key optimization is that we're directly
+            // serializing into `raw_buf` and re-using its storage each
+            // iteration to avoid extra allocation.
 
             // Write meta header.
             raw_buf.extend_from_slice(&meta.to_bytes());
             // Reserve space for document size header.
             raw_buf.extend_from_slice(&[0; 4]);
 
-            // Re-constitute an rkyv serializer around `raw_buf`.
-            let mut wrapped_buf = rkyv::ser::serializers::AlignedSerializer::new(raw_buf);
-            let mut rkyver = rkyv::ser::serializers::AllocSerializer::<8192>::new(
-                wrapped_buf,
-                rkyv_scratch,
-                Default::default(), // We don't use shared smart pointers, so this is always empty.
-            );
-
-            _ = rkyver
-                .serialize_value(root)
-                .expect("serialize of HeapNode to memory always succeeds");
-
-            // Disassemble `rkyver` to recover `raw_buf`.
-            (wrapped_buf, rkyv_scratch, _) = rkyver.into_components();
-            raw_buf = wrapped_buf.into_inner();
+            raw_buf = rkyv::api::low::to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
+                root,
+                raw_buf,
+                arena.acquire(),
+            )
+            .expect("serialize of HeapNode to memory always succeeds");
 
             // Update header with the final document length, excluding header.
             let doc_len = raw_buf.len() - offset - 8;
@@ -224,7 +218,7 @@ impl Segment {
 
         // Allocate and decompress into `raw_buf`.
         // Safety: we're immediately decompressing into allocated memory, overwriting its uninitialized content.
-        let mut raw_buf = rkyv::AlignedVec::with_capacity(raw_len as usize);
+        let mut raw_buf = rkyv::util::AlignedVec::<16>::with_capacity(raw_len as usize);
         unsafe { raw_buf.set_len(raw_len as usize) }
 
         let decompressed_bytes =
@@ -339,7 +333,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let Entry { mut meta, root } = entry;
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
 
         // `reduced` root which is updated as reductions occur.
         let mut reduced: Option<HeapNode<'_>> = None;
@@ -509,22 +503,21 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..186]);
+        assert_eq!(ranges, vec![0..171]);
 
         insta::assert_snapshot!(to_hex(&spill.get_ref()), @r###"
-        |68000000 90000000 b0000000 00400000| h............@.. 00000000
-        |006b6579 0b008103 08000000 6161610c| .key........aaa. 00000010
-        |00000500 10760500 31000001 18007070| .....v..1.....pp 00000020
-        |706c6500 00051100 90060000 00ccffff| ple............. 00000030
-        |ff020d00 7c000000 01000080 48003062| ....|.......H.0b 00000040
-        |62621c00 10030500 08480061 62616e61| bb.......H.abana 00000050
-        |6e614300 01050003 48005000 00000000| naC.....H.P..... 00000060
-        |42000000 48000000 f1080200 00804000| B...H.........@. 00000070
-        |00006b65 79000000 00030800 00006363| ..key.........cc 00000080
-        |630c0000 05001076 05003100 00011800| c......v..1..... 00000090
-        |70617272 6f740006 11000005 00c0ccff| parrot.......... 000000a0
-        |ffff0200 00000000 0000|              ..........       000000b0
-                                                               000000ba
+        |5c000000 90000000 c0000000 00400000| \............@.. 00000000
+        |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
+        |0010ff1c 0011760a 00031800 4370706c| ......v.....Cppl 00000020
+        |65180090 06000000 ccffffff 0225007c| e............%.| 00000030
+        |00000001 00008048 00306262 623b000d| .......H.0bbb;.. 00000040
+        |48006262 616e616e 61180007 48005000| H.bbanana...H.P. 00000050
+        |00000000 3f000000 48000000 c0020000| ....?...H....... 00000060
+        |80400000 006b6579 ff010070 08000000| .@...key...p.... 00000070
+        |6363630b 0061ff00 00000076 0a000318| ccc..a.....v.... 00000080
+        |00526172 726f7418 00f00106 000000cc| .Rarrot......... 00000090
+        |ffffff02 00000000 000000|            ...........      000000a0
+                                                               000000ab
         "###);
 
         // Parse the region as a Segment.
@@ -535,7 +528,7 @@ mod test {
         assert_eq!(segment.head.meta.front(), false);
         assert!(crate::compare(segment.head.root.get(), &fixture[0].1).is_eq());
         assert!(!segment.tail.is_empty());
-        assert_eq!(segment.next, 112..186);
+        assert_eq!(segment.next, 100..171);
 
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
         segment = next_segment.unwrap();
@@ -544,7 +537,7 @@ mod test {
         assert_eq!(segment.head.meta.front(), true);
         assert!(crate::compare(segment.head.root.get(), &fixture[1].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
-        assert_eq!(segment.next, 112..186);
+        assert_eq!(segment.next, 100..171);
 
         // Next chunk is read and has one document.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
@@ -554,7 +547,7 @@ mod test {
         assert_eq!(segment.head.meta.front(), true);
         assert!(crate::compare(segment.head.root.get(), &fixture[2].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
-        assert_eq!(segment.next, 186..186);
+        assert_eq!(segment.next, 171..171);
 
         // Stepping the segment again consumes it, as no chunks remain.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
