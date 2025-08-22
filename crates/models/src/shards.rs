@@ -5,7 +5,7 @@ use std::time::Duration;
 /// A ShardTemplate configures how shards process a catalog task.
 #[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "ShardTemplate::example")]
+#[schemars(example = ShardTemplate::example())]
 pub struct ShardTemplate {
     /// # Disable processing of the task's shards.
     #[serde(default, skip_serializing_if = "super::is_false")]
@@ -47,6 +47,7 @@ pub struct ShardTemplate {
     /// If not set, then no hot standbys are maintained.
     /// EXPERIMENTAL: this field MAY be removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "u32")]
     pub hot_standbys: Option<u32>,
     /// # Size of the ring buffer used to sequence documents for exactly-once semantics.
     /// The ring buffer is a performance optimization only:
@@ -58,6 +59,7 @@ pub struct ShardTemplate {
     /// If not set, a reasonable default (currently 65,536) is used.
     /// EXPERIMENTAL: this field is LIKELY to be removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "u32")]
     pub ring_buffer_size: Option<u32>,
     /// # Size of the reader channel used for decoded documents.
     /// Larger values are recommended for tasks having more than one
@@ -65,6 +67,7 @@ pub struct ShardTemplate {
     /// If not set, a reasonable default (currently 4,096) is used.
     /// EXPERIMENTAL: this field is LIKELY to be removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "u32")]
     pub read_channel_size: Option<u32>,
     /// # Log level of this tasks's shards.
     /// Log levels may currently be "error", "warn", "info", "debug", or "trace".
@@ -72,6 +75,7 @@ pub struct ShardTemplate {
     // NOTE(johnny): We're not making this an enum because it's likely
     // we'll introduce a modular logging capability.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     pub log_level: Option<String>,
 }
 

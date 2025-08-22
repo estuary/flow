@@ -93,7 +93,7 @@ pub async fn fetch_spec_md5_hashes(
         "#,
         spec_names as Vec<&str>
     )
-    .fetch_all(txn)
+    .fetch_all(&mut **txn)
     .await?;
 
     let out = rows

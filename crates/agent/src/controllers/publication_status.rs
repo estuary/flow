@@ -71,10 +71,6 @@ impl PendingPublication {
         }
     }
 
-    pub fn of(details: Vec<String>, draft: tables::DraftCatalog) -> PendingPublication {
-        PendingPublication { details, draft }
-    }
-
     pub fn has_pending(&self) -> bool {
         self.draft.spec_count() > 0
     }

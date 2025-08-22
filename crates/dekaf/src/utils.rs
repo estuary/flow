@@ -161,7 +161,7 @@ pub fn build_field_extractors(
     ))
 }
 
-pub fn build_LEGACY_field_extractors(
+pub fn build_legacy_field_extractors(
     mut schema: doc::Shape,
     deletions: DeletionMode,
 ) -> anyhow::Result<(avro::Schema, Vec<(avro::Schema, CustomizableExtractor)>)> {

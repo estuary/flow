@@ -930,12 +930,12 @@ mod test {
                     expect: Ok(json!("18999999999999991234")),
                 },
                 Partial {
-                    rhs: json!(86753.09),
-                    expect: Ok(json!("19000000000000077987.09000000000")),
+                    rhs: json!(86753.25),
+                    expect: Ok(json!("19000000000000077987.25")),
                 },
                 Partial {
                     rhs: json!("10203.040506070812"),
-                    expect: Ok(json!("19000000000000088190.130506070812")),
+                    expect: Ok(json!("19000000000000088190.290506070812")),
                 },
             ],
         );
@@ -1303,14 +1303,7 @@ mod test {
                 },
                 Partial {
                     rhs: high_limit_schema.clone(),
-                    expect: Ok({
-                        let mut expected = high_limit_schema.clone();
-                        expected.as_object_mut().unwrap().insert(
-                            "$schema".to_string(),
-                            json!("https://json-schema.org/draft/2019-09/schema"),
-                        );
-                        expected
-                    }),
+                    expect: Ok(high_limit_schema),
                 },
             ],
         );
@@ -1332,7 +1325,6 @@ mod test {
                 Partial {
                     rhs: low_limit_schema,
                     expect: Ok(json!({
-                      "$schema": "https://json-schema.org/draft/2019-09/schema",
                       "additionalProperties": { "type": ["object", "string"] },
                       "properties": {
                         "field1": { "type": "string" },

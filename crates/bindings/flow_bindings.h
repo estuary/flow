@@ -123,7 +123,7 @@ void extract_invoke16(struct Channel *ch, struct In16 i);
 void extract_drop(struct Channel *ch);
 
 /**
- * Returns general statistics on memory allocations perfomed from within libbindings.
+ * Returns general statistics on memory allocations performed from within libbindings.
  */
 struct GlobalMemoryStats get_memory_stats(void);
 

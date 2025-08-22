@@ -450,8 +450,13 @@ impl Read {
             compression: Compression::None,
             version: 2,
         };
-        RecordBatchEncoder::encode(&mut buf, records.iter(), &opts, Some(compressor))
-            .expect("record encoding cannot fail");
+        RecordBatchEncoder::encode_with_custom_compression(
+            &mut buf,
+            records.iter(),
+            &opts,
+            Some(compressor),
+        )
+        .expect("record encoding cannot fail");
 
         tracing::debug!(
             count = records.len(),
