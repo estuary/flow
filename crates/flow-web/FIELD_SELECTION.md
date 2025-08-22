@@ -80,6 +80,7 @@ interface FieldSelection {
 - **ConnectorOmits**: No connector constraint provided
 - **DuplicateFold**: Ambiguous folded field name
 - **DuplicateLocation**: Location already materialized
+- **ExcludedParent**: Location's parent is excluded by user's field selection
 - **CoveredLocation**: Location covered by parent field
 - **NotSelected**: Doesn't meet selection criteria
 

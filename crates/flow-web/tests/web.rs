@@ -301,7 +301,7 @@ fn test_skim_projections_basic() {
             ptr: "/id".to_string(),
             field: "Id".to_string(),
             explicit: true,
-            is_primary_key: true,
+            is_primary_key: false,
             is_partition_key: false,
             inference: Some(flow::Inference {
                 types: vec!["integer".to_string()],
@@ -360,7 +360,9 @@ fn test_field_selection_basic() {
             {
               "field":"id",
               "select":{
-                "reason": "GroupByKey",
+                "reason": {
+                  "type": "GroupByKey",
+                },
                 "detail":"field is part of the materialization group-by key"
               }
             }
@@ -426,20 +428,23 @@ fn test_field_selection_with_reject() {
     // Should have both select and reject outcomes
     let outcomes = &result["outcomes"];
     assert_eq!(outcomes.as_array().unwrap().len(), 2);
-    
+
     // ID field should be selected (group-by key)
     let id_outcome = &outcomes[0];
     assert_eq!(id_outcome["field"], "id");
-    assert!(id_outcome["select"]["reason"] == "GroupByKey");
+    assert!(id_outcome["select"]["reason"]["type"] == "GroupByKey");
     assert!(id_outcome["reject"].is_null());
-    
+
     // Name field should be rejected (user excluded)
     let name_outcome = &outcomes[1];
     assert_eq!(name_outcome["field"], "name");
     assert!(name_outcome["select"].is_null());
-    assert_eq!(name_outcome["reject"]["reason"], "UserExcludes");
-    assert_eq!(name_outcome["reject"]["detail"], "field is excluded by the user's field selection");
-    
+    assert_eq!(name_outcome["reject"]["reason"]["type"], "UserExcludes");
+    assert_eq!(
+        name_outcome["reject"]["detail"],
+        "field is excluded by the user's field selection"
+    );
+
     assert_eq!(result["hasConflicts"], false);
 }
 
