@@ -3,7 +3,7 @@
 
 If you want to use your own AWS account for an Estuary Flow private deployment, you will first need to speak with your Estuary account manager. Estuary BYOC deployments require a license and additional setup on Estuary's side.
 
-Once your account manager lets you know that the BYOC deployment can procede, you will need to follow the steps below:
+Once your account manager lets you know that the BYOC deployment can proceed, you will need to follow the steps below:
 
 1. Navigate to the **IAM Role** section of the AWS UI and begin the **Create role** workflow.
 

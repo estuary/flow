@@ -3,7 +3,7 @@
 
 If you want to use your own Azure tenant and subscription for an Estuary Flow private deployment, you will first need to speak with your Estuary account manager. Estuary BYOC deployments require a license and additional setup on Estuary's side.
 
-Once your account manager lets you know that the BYOC deployment can procede, you will need to follow the steps below:
+Once your account manager lets you know that the BYOC deployment can proceed, you will need to follow the steps below:
 
 1. Add the `data-plane-controller` Azure Application to your subscription by following this link: [Add data-plane-controller](https://login.microsoftonline.com/common/oauth2/authorize?client_id=76f09062-041b-476e-9c79-1cf8d26fe213&response_type=code&redirect_uri=https%3A%2F%2Feyrcnmuzzyriypdajwdk.supabase.co%2Ffunctions%2Fv1%2Fazure-dpc-oauth)
 
