@@ -22,6 +22,9 @@ pub use tables::RoleGrant;
 // Re-export the router builder function for the agent to use
 pub use server::build_router;
 
+// Re-export the GraphQL schema SDL function for flow-client build script
+pub use server::public::graphql::schema_sdl as graphql_schema_sdl;
+
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
