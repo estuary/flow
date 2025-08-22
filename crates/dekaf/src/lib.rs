@@ -25,12 +25,14 @@ pub use task_manager::{TaskManager, TaskState};
 mod session;
 pub use session::Session;
 
-pub mod connector;
 pub mod metrics_server;
 pub mod registry;
 
 mod api_client;
 pub use api_client::{KafkaApiClient, KafkaClientAuth};
+
+/// Re-export the dekaf-connector crate so it can be used as `crate::connector`.
+pub use dekaf_connector as connector;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
@@ -695,15 +697,6 @@ fn dekaf_shard_template_id(task_name: &str) -> String {
     format!("materialize/{task_name}/0000000000000000/")
 }
 
-
-// field_fold maps a projection field name to its folded AVRO-compatible name.
-// Currently this is the most basic possible transform that provides somewhat
-// reasonable UX, and will forbid any field which isn't AVRO_FIELD_RE relaxed
-// to also allow '/'.
-// TODO(johnny): Fold unicode (punycode?) and whitespace.
-fn field_fold(field: &str) -> String {
-    field.replace("/", "_")
-}
 
 #[cfg(test)]
 mod test {

@@ -104,7 +104,7 @@ pub fn build_field_extractors(
                         source_shape.to_owned(),
                         required,
                     ),
-                    name: super::field_fold(&proj.field),
+                    name: dekaf_connector::field_fold(&proj.field),
                     doc: None,
                     aliases: None,
                     default,
