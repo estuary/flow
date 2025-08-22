@@ -113,7 +113,7 @@ pub fn transcode_perf() {
     let chunks: Vec<_> = fixture.chunks(CHUNK_SIZE).collect();
 
     let mut parser = simd_doc::Parser::new();
-    let mut scratch = rkyv::AlignedVec::with_capacity(CHUNK_SIZE);
+    let mut scratch = rkyv::util::AlignedVec::with_capacity(CHUNK_SIZE);
 
     let mut docs: usize = 0;
     let mut bytes: usize = 0;
