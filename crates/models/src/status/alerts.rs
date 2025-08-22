@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
-    graphql(rename_items = "lowercase")
+    graphql(rename_items = "snake_case")
 )]
 #[serde(rename_all = "snake_case")]
 pub enum AlertType {
@@ -61,29 +61,6 @@ impl AlertType {
     }
 }
 
-// These custom serde impls exist only to ensure that the serde
-// representations are consistent with the `name()`.
-impl serde::Serialize for AlertType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.name().serialize(serializer)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for AlertType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let str_val = String::deserialize(deserializer)?;
-        AlertType::from_str(&str_val).ok_or(serde::de::Error::custom(format!(
-            "invalid alert type: '{str_val}'"
-        )))
-    }
-}
-
 #[cfg(feature = "sqlx-support")]
 impl sqlx::Type<sqlx::postgres::Postgres> for AlertType {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -94,7 +71,7 @@ impl sqlx::Type<sqlx::postgres::Postgres> for AlertType {
 #[cfg(feature = "sqlx-support")]
 impl sqlx::Encode<'_, sqlx::postgres::Postgres> for AlertType {
     fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
-        self.name().encode_by_ref(buf)
+        <&str as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.name(), buf)
     }
 }
 
