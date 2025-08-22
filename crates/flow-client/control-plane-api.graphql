@@ -1,0 +1,183 @@
+"""
+An alert from the alert_history table
+"""
+type Alert {
+	"""
+	The type of the alert
+	"""
+	alertType: AlertType!
+	"""
+	The catalog name that the alert pertains to.
+	"""
+	catalogName: String!
+	"""
+	Time at which the alert started firing.
+	"""
+	firedAt: DateTime!
+	"""
+	The time at which the alert was resolved, or null if it is still firing.
+	"""
+	resolvedAt: DateTime
+	"""
+	The alert arguments contain additional details about the alert, which
+	may be used in formatting the alert message.
+	"""
+	arguments: JSON!
+}
+
+type AlertConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [AlertEdge!]!
+	"""
+	A list of nodes.
+	"""
+	nodes: [Alert!]!
+}
+
+"""
+An edge in a connection.
+"""
+type AlertEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Alert!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+enum AlertType {
+	auto_discover_failed
+	shard_failed
+	data_movement_stalled
+	free_trial
+	free_trial_ending
+	free_trial_stalled
+	missing_payment_method
+}
+
+enum CatalogType {
+	capture
+	collection
+	materialization
+	test
+}
+
+"""
+Implement the DateTime<Utc> scalar
+
+The input/output is a string in RFC3339 format.
+"""
+scalar DateTime
+
+scalar Id
+
+"""
+A scalar that can represent any JSON value.
+"""
+scalar JSON
+
+type LiveSpec {
+	liveSpecId: Id!
+	catalogName: String!
+	specType: CatalogType!
+	spec: JSON!
+	lastBuildId: Id!
+	lastPubId: Id!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	builtSpec: JSON!
+	"""
+	Returns all alerts that are currently firing for this live spec.
+	"""
+	firingAlerts: [Alert!]!
+	"""
+	Returns the history of resolved alerts for this live spec. Alerts are
+	returned in reverse chronological order based on the `firedAt`
+	timestamp, and are paginated.
+	"""
+	alertHistory(before: String, last: Int!): AlertConnection!
+}
+
+"""
+Information about pagination in a connection
+"""
+type PageInfo {
+	"""
+	When paginating backwards, are there more items?
+	"""
+	hasPreviousPage: Boolean!
+	"""
+	When paginating forwards, are there more items?
+	"""
+	hasNextPage: Boolean!
+	"""
+	When paginating backwards, the cursor to continue.
+	"""
+	startCursor: String
+	"""
+	When paginating forwards, the cursor to continue.
+	"""
+	endCursor: String
+}
+
+type QueryRoot {
+	captures(
+		"""
+		Filter by catalog prefix
+		"""
+		prefixes: [String!]!
+	): [LiveSpec!]!
+	collections(
+		"""
+		Filter by catalog prefix
+		"""
+		prefixes: [String!]!
+	): [LiveSpec!]!
+	materializations(
+		"""
+		Filter by catalog prefix
+		"""
+		prefixes: [String!]!
+	): [LiveSpec!]!
+	tests(
+		"""
+		Filter by catalog prefix
+		"""
+		prefixes: [String!]!
+	): [LiveSpec!]!
+	"""
+	Returns a list of alerts that are currently firing for the given catalog
+	prefixes.
+	"""
+	alerts(
+		"""
+		Show alerts for the given catalog prefixes
+		"""
+		prefixes: [String!]!
+	): [Alert!]!
+}
+
+"""
+Directs the executor to include this field or fragment only when the `if` argument is true.
+"""
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Directs the executor to skip this field or fragment when the `if` argument is true.
+"""
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Provides a scalar specification URL for specifying the behavior of custom scalar types.
+"""
+directive @specifiedBy(url: String!) on SCALAR
+schema {
+	query: QueryRoot
+}
