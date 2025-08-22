@@ -126,7 +126,7 @@ rocksdb = { version = "0.22", default-features = false, features = [
     "snappy",
     "rtti",
 ] }
-rkyv = { version = "0.7", features = ["archive_le"] }
+rkyv = { version = "0" }
 rsasl = { version = "2.1.0", default-features = false, features = [
     "provider",
     "config_builder",
