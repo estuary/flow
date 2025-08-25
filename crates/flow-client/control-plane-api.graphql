@@ -64,6 +64,32 @@ enum AlertType {
 	missing_payment_method
 }
 
+"""
+A prefix to which the user is authorized.
+"""
+type AuthorizedPrefix {
+	"""
+	The prefix to which the user is authorized.
+	"""
+	prefix: String!
+	"""
+	The capability granted to the user for this prefix.
+	"""
+	capability: Capability!
+}
+
+"""
+Capability within the Estuary role-based access control (RBAC) authorization system.
+"""
+enum Capability {
+	"""
+	Note that the discriminants here align with those in the database type.
+	"""
+	read
+	write
+	admin
+}
+
 enum CatalogType {
 	capture
 	collection
@@ -164,6 +190,7 @@ type QueryRoot {
 		"""
 		prefixes: [String!]!
 	): [Alert!]!
+	authorizedPrefixes(minCapability: Capability!): [AuthorizedPrefix!]!
 }
 
 """
