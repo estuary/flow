@@ -16,13 +16,13 @@ use super::{AsNode, BumpStr, BumpVec, Field, Fields, Node};
     )
 )]
 pub enum HeapNode<'alloc> {
-    Array(#[rkyv(omit_bounds)] BumpVec<'alloc, HeapNode<'alloc>>),
+    Array(i32, #[rkyv(omit_bounds)] BumpVec<'alloc, HeapNode<'alloc>>),
     Bool(bool),
     Bytes(BumpVec<'alloc, u8>),
     Float(f64),
     NegInt(i64),
     Null,
-    Object(BumpVec<'alloc, HeapField<'alloc>>),
+    Object(i32, BumpVec<'alloc, HeapField<'alloc>>),
     PosInt(u64),
     String(BumpStr<'alloc>),
 }
@@ -57,28 +57,70 @@ impl<'alloc> HeapNode<'alloc> {
         bumpalo::Bump::with_capacity(capacity)
     }
 
-    // from_node builds a HeapNode from another AsNode implementation.
+    // Recursively clone the argument AsNode into a HeapNode.
+    #[inline]
     pub fn from_node<N: AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> Self {
+        Self::from_node_with_length(node, alloc).0
+    }
+
+    // Recursively clone the argument AsNode into a HeapNode, also returning its tape length.
+    pub fn from_node_with_length<N: AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> (Self, i32) {
         match node.as_node() {
-            Node::Array(arr) => HeapNode::Array(BumpVec::with_contents(
-                alloc,
-                arr.iter().map(|item| Self::from_node(item, alloc)),
-            )),
-            Node::Bool(b) => HeapNode::Bool(b),
-            Node::Bytes(b) => HeapNode::Bytes(BumpVec::from_slice(b, alloc)),
-            Node::Null => HeapNode::Null,
-            Node::Float(n) => HeapNode::Float(n),
-            Node::PosInt(n) => HeapNode::PosInt(n),
-            Node::NegInt(n) => HeapNode::NegInt(n),
-            Node::Object(fields) => HeapNode::Object(BumpVec::with_contents(
-                alloc,
-                fields.iter().map(|field| HeapField {
-                    property: BumpStr::from_str(field.property(), alloc),
-                    value: Self::from_node(field.value(), alloc),
-                }),
-            )),
-            Node::String(s) => HeapNode::String(BumpStr::from_str(s, alloc)),
+            Node::Array(arr) => {
+                let mut built_length = 1;
+                let items = BumpVec::with_contents(
+                    alloc,
+                    arr.iter().map(|item| {
+                        let (item, child_delta) = Self::from_node_with_length(item, alloc);
+                        built_length += child_delta;
+                        item
+                    }),
+                );
+                (HeapNode::Array(built_length, items), built_length)
+            }
+            Node::Bool(b) => (HeapNode::Bool(b), 1),
+            Node::Bytes(b) => (HeapNode::Bytes(BumpVec::from_slice(b, alloc)), 1),
+            Node::Null => (HeapNode::Null, 1),
+            Node::Float(n) => (HeapNode::Float(n), 1),
+            Node::PosInt(n) => (HeapNode::PosInt(n), 1),
+            Node::NegInt(n) => (HeapNode::NegInt(n), 1),
+            Node::Object(fields) => {
+                let mut built_length = 1;
+                let fields = BumpVec::with_contents(
+                    alloc,
+                    fields.iter().map(|field| {
+                        let (value, child_delta) =
+                            Self::from_node_with_length(field.value(), alloc);
+                        built_length += child_delta;
+
+                        HeapField {
+                            property: BumpStr::from_str(field.property(), alloc),
+                            value,
+                        }
+                    }),
+                );
+                (HeapNode::Object(built_length, fields), built_length)
+            }
+            Node::String(s) => (HeapNode::String(BumpStr::from_str(s, alloc)), 1),
         }
+    }
+
+    pub fn new_array<I>(alloc: &'alloc bumpalo::Bump, iter: I) -> Self
+    where
+        I: ExactSizeIterator<Item = HeapNode<'alloc>>,
+    {
+        let items = BumpVec::with_contents(alloc, iter);
+        let built_length = 1 + items.iter().map(|i| i.tape_length()).sum::<i32>();
+        HeapNode::Array(built_length, items)
+    }
+
+    pub fn new_object<I>(alloc: &'alloc bumpalo::Bump, iter: I) -> Self
+    where
+        I: ExactSizeIterator<Item = HeapField<'alloc>>,
+    {
+        let fields = BumpVec::with_contents(alloc, iter);
+        let built_length = 1 + fields.iter().map(|f| f.value.tape_length()).sum::<i32>();
+        HeapNode::Object(built_length, fields)
     }
 }
 
@@ -91,15 +133,23 @@ impl<'alloc> AsNode for HeapNode<'alloc> {
     #[inline(always)]
     fn as_node<'a>(&'a self) -> Node<'a, Self> {
         match self {
-            HeapNode::Array(a) => Node::Array(a),
+            HeapNode::Array(_tape_length, a) => Node::Array(a),
             HeapNode::Bool(b) => Node::Bool(*b),
             HeapNode::Bytes(b) => Node::Bytes(b),
             HeapNode::Float(n) => Node::Float(*n),
             HeapNode::NegInt(n) => Node::NegInt(*n),
             HeapNode::Null => Node::Null,
-            HeapNode::Object(o) => Node::Object(o.as_slice()),
+            HeapNode::Object(_tape_length, o) => Node::Object(o.as_slice()),
             HeapNode::PosInt(n) => Node::PosInt(*n),
             HeapNode::String(s) => Node::String(s),
+        }
+    }
+    #[inline]
+    fn tape_length(&self) -> i32 {
+        match self {
+            HeapNode::Array(tape_length, _) => *tape_length,
+            HeapNode::Object(tape_length, _) => *tape_length,
+            _ => 1,
         }
     }
 }
@@ -114,13 +164,13 @@ impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
     where
         'alloc: 'a;
 
+    #[inline]
     fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>> {
         match self.binary_search_by(|l| l.property.cmp(property)) {
             Ok(ind) => Some(&self[ind]),
             Err(_) => None,
         }
     }
-
     #[inline]
     fn len(&self) -> usize {
         self.len()
@@ -139,38 +189,5 @@ impl<'a, 'alloc> Field<'a, HeapNode<'alloc>> for &'a HeapField<'alloc> {
     #[inline(always)]
     fn value(&self) -> &'a HeapNode<'alloc> {
         &self.value
-    }
-}
-
-impl<'alloc> BumpVec<'alloc, HeapField<'alloc>> {
-    /// Insert or obtain a mutable reference to a child HeapNode with the given property.
-    pub fn insert_property(
-        &mut self,
-        property: &str,
-        alloc: &'alloc bumpalo::Bump,
-    ) -> &mut HeapNode<'alloc> {
-        let ind = match self.binary_search_by(|l| l.property.cmp(property)) {
-            Ok(ind) => ind,
-            Err(ind) => {
-                self.insert(
-                    ind,
-                    HeapField {
-                        property: BumpStr::from_str(property, alloc),
-                        value: HeapNode::Null,
-                    },
-                    alloc,
-                );
-                ind
-            }
-        };
-        &mut self[ind].value
-    }
-
-    // Remove the named property, returning its removed HeapField if found.
-    pub fn remove_property(&mut self, property: &str) -> Option<HeapField<'alloc>> {
-        match self.binary_search_by(|l| l.property.cmp(property)) {
-            Ok(ind) => Some(self.remove(ind)),
-            Err(_) => None,
-        }
     }
 }

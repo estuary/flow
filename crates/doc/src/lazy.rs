@@ -38,10 +38,11 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
     // Map this LazyNode into an owned HeapNode, either by re-hydrating a non-heap Node,
     // or by taking a shallow copy of a HeapNode. Note that the returned HeapNode may
     // reference structure which is shared with other HeapNodes.
-    pub fn into_heap_node(self, alloc: &'alloc bumpalo::Bump) -> HeapNode<'alloc> {
+    // Returns both the HeapNode and its tape length.
+    pub fn into_heap_node(self, alloc: &'alloc bumpalo::Bump) -> (HeapNode<'alloc>, i32) {
         match self {
-            Self::Node(doc) => HeapNode::from_node(doc, alloc),
-            Self::Heap(doc) => Self::borrow(doc),
+            Self::Node(doc) => HeapNode::from_node_with_length(doc, alloc),
+            Self::Heap(doc) => (Self::borrow(doc), doc.tape_length()),
         }
     }
 
@@ -67,10 +68,10 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
                 Node::Object(fields) => LazyDestructured::Object(LazyObject::Node(fields)),
                 doc @ _ => LazyDestructured::ScalarNode(doc),
             },
-            Self::Heap(HeapNode::Array(arr)) => {
+            Self::Heap(HeapNode::Array(_tape_length, arr)) => {
                 LazyDestructured::Array(LazyArray::Heap(arr.as_slice()))
             }
-            Self::Heap(HeapNode::Object(fields)) => {
+            Self::Heap(HeapNode::Object(_tape_length, fields)) => {
                 LazyDestructured::Object(LazyObject::Heap(fields.as_slice()))
             }
             Self::Heap(doc) => LazyDestructured::ScalarHeap(doc),
@@ -89,6 +90,13 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
         match self {
             Self::Heap(n) => Ok(validator.validate(schema, *n)?.ok()),
             Self::Node(n) => Ok(validator.validate(schema, *n)?.ok()),
+        }
+    }
+
+    pub fn tape_length(&self) -> i32 {
+        match self {
+            Self::Heap(n) => n.tape_length(),
+            Self::Node(n) => n.tape_length(),
         }
     }
 }
@@ -138,16 +146,25 @@ impl<'alloc, 'n, N: AsNode> LazyField<'alloc, 'n, N> {
     // Map this LazyField into an owned HeapField, either by re-hydrating a non-heap Field,
     // or by taking a shallow copy of a HeapField. Note that the returned HeapField may
     // reference structure which is shared with other HeapNodes.
-    pub fn into_heap_field(self, alloc: &'alloc bumpalo::Bump) -> HeapField<'alloc> {
+    // Returns both the HeapField and the tape length of its value.
+    pub fn into_heap_field(self, alloc: &'alloc bumpalo::Bump) -> (HeapField<'alloc>, i32) {
         match self {
-            Self::Node(field) => HeapField {
-                property: BumpStr::from_str(field.property(), alloc),
-                value: HeapNode::from_node(field.value(), alloc),
-            },
-            Self::Heap(HeapField { property, value }) => HeapField {
-                property: *property,
-                value: LazyNode::<N>::borrow(value),
-            },
+            Self::Node(field) => {
+                let (value, built_length) = HeapNode::from_node_with_length(field.value(), alloc);
+                let field = HeapField {
+                    property: BumpStr::from_str(field.property(), alloc),
+                    value,
+                };
+                (field, built_length)
+            }
+            Self::Heap(HeapField { property, value }) => {
+                let built_length = value.tape_length();
+                let field = HeapField {
+                    property: *property,
+                    value: LazyNode::<N>::borrow(value),
+                };
+                (field, built_length)
+            }
         }
     }
 
