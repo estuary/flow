@@ -1,3 +1,6 @@
+//! GraphQL API
+//!
+//! The `QueryRoot`
 mod alerts;
 pub mod id;
 mod live_specs;
@@ -7,10 +10,12 @@ use axum::Extension;
 use live_specs::fetch_live_specs;
 use std::sync::Arc;
 
-use crate::server::{App, ControlClaims};
+use crate::server::{snapshot::Snapshot, App, ControlClaims};
 
+// This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
+// Represents the portion of the GraphQL schema that deals with read-only queries.
 pub struct QueryRoot;
 
 #[Object]
@@ -54,21 +59,40 @@ impl QueryRoot {
         alerts::list_alerts_firing(ctx, prefixes).await
     }
 
-    /*
     async fn authorized_prefixes(
         &self,
         ctx: &Context<'_>,
-        min_capability: Capability,
-        after: Option<String>,
-        first: Option<u32>,
-    ) -> async_graphql::Result<Vec<String>> {
+        min_capability: models::Capability,
+    ) -> async_graphql::Result<Vec<AuthorizedPrefix>> {
         let claims = ctx.data::<ControlClaims>().unwrap();
         let app = ctx.data::<App>().unwrap();
-        async_graphql::types::connection::query(after, before, first, last, f)
-        let prefixes = app.authorized_prefixes(claims).await?;
-        Ok(prefixes)
+        let (_, roles) =
+            Snapshot::evaluate(app.snapshot(), chrono::Utc::now(), |snapshot: &Snapshot| {
+                let roles = tables::UserGrant::transitive_roles(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                )
+                .filter(|grant| grant.capability >= min_capability)
+                .map(|grant| AuthorizedPrefix {
+                    prefix: grant.object_role.to_string(),
+                    capability: grant.capability,
+                })
+                .collect::<Vec<_>>();
+                Ok((None, roles))
+            })
+            .expect("evaluation cannot fail");
+        Ok(roles)
     }
-    */
+}
+
+/// A prefix to which the user is authorized.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct AuthorizedPrefix {
+    /// The prefix to which the user is authorized.
+    pub prefix: String,
+    /// The capability granted to the user for this prefix.
+    pub capability: models::Capability,
 }
 
 pub fn create_schema() -> GraphQLSchema {
