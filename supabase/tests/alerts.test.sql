@@ -160,9 +160,9 @@ begin
   delete from alert_history;
   delete from controller_jobs;
 
-  insert into alert_subscriptions (catalog_prefix, email, exclude_alert_types)
-  values ('barbCo/', 'barb@example.com', null),
-    ('barbCo/', 'bob@example.com', array['data_not_processed_in_interval'::alert_type]);
+  insert into alert_subscriptions (catalog_prefix, email, include_alert_types)
+  values ('barbCo/', 'barb@example.com', enum_range(null::alert_type)),
+    ('barbCo/', 'bob@example.com', array['data_movement_stalled'::alert_type]);
 
   insert into auth.users(id, email, raw_user_meta_data) values ('44444444-5555-6666-7777-888888888888', 'barb@example.com', '{"full_name": "Barbara Example"}');
 
