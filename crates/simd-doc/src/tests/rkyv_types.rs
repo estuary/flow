@@ -67,19 +67,19 @@ pub fn rkyv_types() {
     "###);
 
     let nodes = [
-        doc::HeapNode::Array(doc::BumpVec::new()),
-        doc::HeapNode::Array(doc::BumpVec::with_contents(
+        doc::HeapNode::new_array(&alloc, std::iter::empty()),
+        doc::HeapNode::new_array(
             &alloc,
             [doc::HeapNode::Bool(true), doc::HeapNode::Bool(false)].into_iter(),
-        )),
-        doc::HeapNode::Array(doc::BumpVec::with_contents(
+        ),
+        doc::HeapNode::new_array(
             &alloc,
             [
                 doc::HeapNode::String(doc::BumpStr::from_str("aaaaaaaaa", &alloc)),
                 doc::HeapNode::String(doc::BumpStr::from_str("bbbbbbbbb", &alloc)),
             ]
             .into_iter(),
-        )),
+        ),
         doc::HeapNode::Bool(false),
         doc::HeapNode::Bool(true),
         doc::HeapNode::Bytes(doc::BumpVec::new()),
@@ -94,8 +94,8 @@ pub fn rkyv_types() {
         doc::HeapNode::NegInt(i64::MIN),
         doc::HeapNode::NegInt(i64::MAX),
         doc::HeapNode::Null,
-        doc::HeapNode::Object(doc::BumpVec::new()),
-        doc::HeapNode::Object(doc::BumpVec::with_contents(
+        doc::HeapNode::new_object(&alloc, std::iter::empty()),
+        doc::HeapNode::new_object(
             &alloc,
             [
                 doc::HeapField {
@@ -108,8 +108,8 @@ pub fn rkyv_types() {
                 },
             ]
             .into_iter(),
-        )),
-        doc::HeapNode::Object(doc::BumpVec::with_contents(
+        ),
+        doc::HeapNode::new_object(
             &alloc,
             [
                 doc::HeapField {
@@ -122,7 +122,7 @@ pub fn rkyv_types() {
                 },
             ]
             .into_iter(),
-        )),
+        ),
         doc::HeapNode::PosInt(0),
         doc::HeapNode::PosInt(u64::MAX),
         doc::HeapNode::String(doc::BumpStr::from_str("", &alloc)),
@@ -130,21 +130,21 @@ pub fn rkyv_types() {
         doc::HeapNode::String(doc::BumpStr::from_str("big big big big big", &alloc)),
     ];
 
-    insta::assert_snapshot!(to_snap(&nodes), @r###"
-    case: Array([]):
-     |00000000 fcffffff 00000000 00000000| ................ 00000000
+    insta::assert_snapshot!(to_snap(&nodes), @r#"
+    case: Array(1, []):
+     |00000000 01000000 f8ffffff 00000000| ................ 00000000
                                                             00000010
-    case: Array([Bool(true), Bool(false)]):
+    case: Array(3, [Bool(true), Bool(false)]):
      |01010000 00000000 00000000 00000000| ................ 00000000
      |01000000 00000000 00000000 00000000| ................ 00000010
-     |00000000 dcffffff 02000000 00000000| ................ 00000020
+     |00000000 03000000 d8ffffff 02000000| ................ 00000020
                                                             00000030
-    case: Array([String("aaaaaaaaa"), String("bbbbbbbbb")]):
+    case: Array(3, [String("aaaaaaaaa"), String("bbbbbbbbb")]):
      |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
      |62620000 00000000 08000000 89000000| bb.............. 00000010
      |e4ffffff 00000000 08000000 89000000| ................ 00000020
-     |ddffffff 00000000 00000000 dcffffff| ................ 00000030
-     |02000000 00000000|                   ........         00000040
+     |ddffffff 00000000 00000000 03000000| ................ 00000030
+     |d8ffffff 02000000|                   ........         00000040
                                                             00000048
     case: Bool(false):
      |01000000 00000000 00000000 00000000| ................ 00000000
@@ -180,23 +180,23 @@ pub fn rkyv_types() {
     case: Null:
      |05000000 00000000 00000000 00000000| ................ 00000000
                                                             00000010
-    case: Object([]):
-     |06000000 fcffffff 00000000 00000000| ................ 00000000
+    case: Object(1, []):
+     |06000000 01000000 f8ffffff 00000000| ................ 00000000
                                                             00000010
-    case: Object([HeapField { property: "key", value: Bool(false) }, HeapField { property: "two", value: Bool(true) }]):
+    case: Object(3, [HeapField { property: "key", value: Bool(false) }, HeapField { property: "two", value: Bool(true) }]):
      |6b6579ff ffffffff 01000000 00000000| key............. 00000000
      |00000000 00000000 74776fff ffffffff| ........two..... 00000010
      |01010000 00000000 00000000 00000000| ................ 00000020
-     |06000000 ccffffff 02000000 00000000| ................ 00000030
+     |06000000 03000000 c8ffffff 02000000| ................ 00000030
                                                             00000040
-    case: Object([HeapField { property: "aaaaaaaaa", value: String("bbbbbbbbb") }, HeapField { property: "ccccccccc", value: String("ddddddddd") }]):
+    case: Object(3, [HeapField { property: "aaaaaaaaa", value: String("bbbbbbbbb") }, HeapField { property: "ccccccccc", value: String("ddddddddd") }]):
      |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
      |62626363 63636363 63636364 64646464| bbcccccccccddddd 00000010
      |64646464 00000000 89000000 d8ffffff| dddd............ 00000020
      |08000000 89000000 d5ffffff 00000000| ................ 00000030
      |89000000 d2ffffff 08000000 89000000| ................ 00000040
-     |cfffffff 00000000 06000000 ccffffff| ................ 00000050
-     |02000000 00000000|                   ........         00000060
+     |cfffffff 00000000 06000000 03000000| ................ 00000050
+     |c8ffffff 02000000|                   ........         00000060
                                                             00000068
     case: PosInt(0):
      |07000000 00000000 00000000 00000000| ................ 00000000
@@ -215,7 +215,7 @@ pub fn rkyv_types() {
      |62696700 00000000 08000000 93000000| big............. 00000010
      |e4ffffff 00000000|                   ........         00000020
                                                             00000028
-    "###);
+    "#);
 }
 
 fn to_snap<S>(things: &[S]) -> String

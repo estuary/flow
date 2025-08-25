@@ -3,6 +3,7 @@
 #include "simdjson.h"
 #include "rust/cxx.h"
 #include <bit>
+#include <utility>
 
 using namespace simdjson;
 
@@ -135,7 +136,7 @@ inline void pnode_resolve(pnode &n, uint64_t offset)
     case 0x00: // Array.
     case 0x06: // Object.
     {
-        n.w1.u32.h = n.w1.u32.h - (offset + 4);
+        n.w2.u32.l = n.w2.u32.l - (offset + 8);
         break;
     }
     case 0x08: // String.
@@ -147,7 +148,7 @@ inline void pnode_resolve(pnode &n, uint64_t offset)
 }
 
 // Place the resolved contents of an array into the buffer.
-inline pnode place_array(pbuffer &buf, pnode *const d, const uint64_t len)
+inline pnode place_array(pbuffer &buf, pnode *const d, const uint64_t len, const int32_t tape_length)
 {
     buf.pad();
 
@@ -159,13 +160,13 @@ inline pnode place_array(pbuffer &buf, pnode *const d, const uint64_t len)
     buf.extend(d, len);
 
     return pnode{
-        .w1 = {.u32 = {.l = 0x00, .h = static_cast<uint32_t>(offset)}},
-        .w2 = {.u32 = {.l = static_cast<uint32_t>(len), .h = 0}},
+        .w1 = {.u32 = {.l = 0x00, .h = static_cast<uint32_t>(tape_length)}},
+        .w2 = {.u32 = {.l = static_cast<uint32_t>(offset), .h = static_cast<uint32_t>(len)}},
     };
 }
 
 // Place the resolved contents of an object into the buffer.
-inline pnode place_object(pbuffer &buf, pfield *const d, const uint64_t len)
+inline pnode place_object(pbuffer &buf, pfield *const d, const uint64_t len, const int32_t tape_length)
 {
     buf.pad();
 
@@ -178,16 +179,17 @@ inline pnode place_object(pbuffer &buf, pfield *const d, const uint64_t len)
     buf.extend(d, len);
 
     return pnode{
-        .w1 = {.u32 = {.l = 0x06, .h = static_cast<uint32_t>(offset)}},
-        .w2 = {.u32 = {.l = static_cast<uint32_t>(len), .h = 0}},
+        .w1 = {.u32 = {.l = 0x06, .h = static_cast<uint32_t>(tape_length)}},
+        .w2 = {.u32 = {.l = static_cast<uint32_t>(offset), .h = static_cast<uint32_t>(len)}},
     };
 }
 
 // Forward declaration of transcode_node, used by transcode_array and transcode_object.
-pnode transcode_node(pbuffer &buf, dom::element_type typ, dom::element elem);
+// Returns a pair of (pnode, built_length) where built_length is the total number of nodes in this subtree.
+std::pair<pnode, int32_t> transcode_node(pbuffer &buf, dom::element_type typ, dom::element elem);
 
 // Transcode a simdjson array using a depth-first walk of its items.
-__attribute__((flatten)) pnode transcode_array(pbuffer &buf, dom::array arr)
+__attribute__((flatten)) std::pair<pnode, int32_t> transcode_array(pbuffer &buf, dom::array arr)
 {
     uint64_t len = arr.size();
 
@@ -207,14 +209,17 @@ __attribute__((flatten)) pnode transcode_array(pbuffer &buf, dom::array arr)
     scratch.reserve(len * 2);
     pnode *item = reinterpret_cast<pnode *>(scratch.data());
 
+    int32_t built_length = 1; // Initially 1 for this node.
     for (dom::element cur : arr)
     {
-        *(item++) = transcode_node(buf, cur.type(), cur);
+        auto [node, child_delta] = transcode_node(buf, cur.type(), cur);
+        *(item++) = node;
+        built_length += child_delta;
     }
-    pnode ret = place_array(buf, reinterpret_cast<pnode *>(scratch.data()), len);
+    pnode ret = place_array(buf, reinterpret_cast<pnode *>(scratch.data()), len, built_length);
 
     buf.pool.emplace_back(std::move(scratch));
-    return ret;
+    return {ret, built_length};
 }
 
 // Sort the fields of a transcoded object.
@@ -240,7 +245,7 @@ __attribute__((noinline)) void sort_pfields(pbuffer &buf, pfield *const d, const
 }
 
 // Transcode a simdjson object using a depth-first walk of its fields.
-__attribute__((flatten)) pnode transcode_object(pbuffer &buf, dom::object obj)
+__attribute__((flatten)) std::pair<pnode, int32_t> transcode_object(pbuffer &buf, dom::object obj)
 {
     uint64_t len = obj.size();
 
@@ -263,6 +268,7 @@ __attribute__((flatten)) pnode transcode_object(pbuffer &buf, dom::object obj)
     // Track whether field properties are already sorted.
     std::string_view last_key;
     uint32_t unsorted = 0;
+    int32_t built_length = 1; // Initially 1 for this node.
 
     for (dom::key_value_pair cur : obj)
     {
@@ -288,7 +294,9 @@ __attribute__((flatten)) pnode transcode_object(pbuffer &buf, dom::object obj)
             buf.extend(cur.key.data(), cur.key.length());
         }
 
-        field->node = transcode_node(buf, cur_type, cur.value);
+        auto [node, child_delta] = transcode_node(buf, cur_type, cur.value);
+        field->node = node;
+        built_length += child_delta;
         field++;
     }
 
@@ -297,13 +305,13 @@ __attribute__((flatten)) pnode transcode_object(pbuffer &buf, dom::object obj)
     {
         sort_pfields(buf, reinterpret_cast<pfield *>(scratch.data()), len);
     }
-    pnode ret = place_object(buf, reinterpret_cast<pfield *>(scratch.data()), len);
+    pnode ret = place_object(buf, reinterpret_cast<pfield *>(scratch.data()), len, built_length);
 
     buf.pool.emplace_back(std::move(scratch));
-    return ret;
+    return {ret, built_length};
 }
 
-inline pnode transcode_node(pbuffer &buf, dom::element_type typ, dom::element elem)
+inline std::pair<pnode, int32_t> transcode_node(pbuffer &buf, dom::element_type typ, dom::element elem)
 {
     switch (typ)
     {
@@ -320,20 +328,20 @@ inline pnode transcode_node(pbuffer &buf, dom::element_type typ, dom::element el
         int64_t v = elem.get_int64();
         if (v < 0)
         {
-            return pnode{.w1 = {.u64 = 0x04}, .w2 = {.i64 = v}};
+            return {pnode{.w1 = {.u64 = 0x04}, .w2 = {.i64 = v}}, 1};
         }
         else
         {
-            return pnode{.w1 = {.u64 = 0x07}, .w2 = {.i64 = v}};
+            return {pnode{.w1 = {.u64 = 0x07}, .w2 = {.i64 = v}}, 1};
         }
     }
     case dom::element_type::UINT64:
     {
-        return pnode{.w1 = {.u64 = 0x07}, .w2 = {.u64 = elem.get_uint64()}};
+        return {pnode{.w1 = {.u64 = 0x07}, .w2 = {.u64 = elem.get_uint64()}}, 1};
     }
     case dom::element_type::DOUBLE:
     {
-        return pnode{.w1 = {.u64 = 0x03}, .w2 = {.f64 = elem.get_double()}};
+        return {pnode{.w1 = {.u64 = 0x03}, .w2 = {.f64 = elem.get_double()}}, 1};
     }
     case dom::element_type::STRING:
     {
@@ -348,7 +356,7 @@ inline pnode transcode_node(pbuffer &buf, dom::element_type typ, dom::element el
                 .w2 = {.u32 = {.l = 0xFFFFFFFF, .h = 0}},
             };
             memcpy(&ret.w1.u32.h, d, len);
-            return ret;
+            return {ret, 1};
         }
         else
         {
@@ -363,27 +371,28 @@ inline pnode transcode_node(pbuffer &buf, dom::element_type typ, dom::element el
                 .w2 = {.u32 = {.l = static_cast<uint32_t>(~buf.len), .h = 0}},
             };
             buf.extend(d, len);
-            return ret;
+            return {ret, 1};
         }
     }
     case dom::element_type::BOOL:
     {
         if (elem.get_bool())
         {
-            return pnode{.w1 = {.u64 = 0x101}, .w2 = {}};
+            return {pnode{.w1 = {.u64 = 0x101}, .w2 = {}}, 1};
         }
         else
         {
-            return pnode{.w1 = {.u64 = 0x01}, .w2 = {}};
+            return {pnode{.w1 = {.u64 = 0x01}, .w2 = {}}, 1};
         }
     }
     default:
-        return pnode{.w1 = {.u64 = 0x05}, .w2 = {}};
+        return {pnode{.w1 = {.u64 = 0x05}, .w2 = {}}, 1};
     }
 }
 
 // Recursively walk a `dom::element`, initializing `out` with its structure.
-void parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem, HeapNode &out)
+// Returns the total number of nodes in the parsed subtree.
+int32_t parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem, HeapNode &out)
 {
     switch (typ)
     {
@@ -395,14 +404,16 @@ void parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem
         {
             throw std::out_of_range("array is too large");
         }
-        rust::Slice<HeapNode> items = set_array(alloc, out, arr.size());
+        rust::Slice<HeapNode> items;
+        int32_t *built_length;
+        set_array(alloc, out, arr.size(), items, built_length);
         rust::Slice<HeapNode>::iterator it = items.begin();
 
         for (dom::element cur : arr)
         {
-            parse_node(alloc, cur.type(), cur, *(it++));
+            *built_length += parse_node(alloc, cur.type(), cur, *(it++));
         }
-        break;
+        return *built_length;
     }
     case dom::element_type::OBJECT:
     {
@@ -412,7 +423,9 @@ void parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem
         {
             throw std::out_of_range("object is too large");
         }
-        rust::Slice<HeapField> fields = set_object(alloc, out, obj.size());
+        rust::Slice<HeapField> fields;
+        int32_t *built_length;
+        set_object(alloc, out, obj.size(), fields, built_length);
         rust::Slice<HeapField>::iterator it = fields.begin();
 
         // Track whether field properties are already sorted.
@@ -427,7 +440,7 @@ void parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem
             unsorted += (cur.key <= last_key);
             last_key = cur.key;
 
-            parse_node(alloc, cur_type, cur.value, child);
+            *built_length += parse_node(alloc, cur_type, cur.value, child);
         }
 
         // Restore the sorted invariant of doc::HeapNode::Object fields.
@@ -435,29 +448,29 @@ void parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem
         {
             sort_heap_fields(fields);
         }
-        break;
+        return *built_length;
     }
     case dom::element_type::INT64:
         set_i64(out, elem);
-        break;
+        return 1;
     case dom::element_type::UINT64:
         set_u64(out, elem);
-        break;
+        return 1;
     case dom::element_type::DOUBLE:
         set_f64(out, elem);
-        break;
+        return 1;
     case dom::element_type::STRING:
     {
         std::string_view str = elem;
         set_string(alloc, out, str.data(), str.size());
-        break;
+        return 1;
     }
     case dom::element_type::BOOL:
         set_bool(out, elem);
-        break;
+        return 1;
     default:
         set_null(out);
-        break;
+        return 1;
     }
 }
 
@@ -525,8 +538,8 @@ inline void Parser::transcode(const rust::Slice<const uint8_t> input, Transcoded
         uint64_t start_len = buf.len;
 
         dom::element elem = *it;
-        pnode root = transcode_node(buf, elem.type(), elem);
-        place_array(buf, &root, 1);
+        auto [root, _] = transcode_node(buf, elem.type(), elem);
+        place_array(buf, &root, 1, 0);
 
         ++it; // Step to the next document and verify trailing newline.
         if (input.data()[it.current_index() - 1] != '\n')
