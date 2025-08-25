@@ -99,7 +99,9 @@ fn test_simd_and_fallback_results_are_equal() {
     for ((case, (s_doc, s_next_offset)), (f_doc, f_next_offset)) in
         cases.iter().zip(parsed.iter()).zip(fallback.iter())
     {
-        if s_next_offset != f_next_offset || doc::compare(s_doc, f_doc) != std::cmp::Ordering::Equal
+        if s_next_offset != f_next_offset
+            || doc::compare(s_doc, f_doc) != std::cmp::Ordering::Equal
+            || s_doc.tape_length() != f_doc.tape_length()
         {
             eprintln!("parse case:\n{case}");
             eprintln!("simd     @{s_next_offset}:\n{s_doc:?}");
