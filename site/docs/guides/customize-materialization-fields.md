@@ -115,6 +115,11 @@ flowctl preview --infer-schema --source <full\path\to\flow.yaml> --collection <y
 Now that all your fields are present in the collection schema as projections,
 you can choose which ones to include in the materialization.
 
+Estuary automatically detects fields and uses a priority-based selection system to determine the fields to include or exclude in the materialization.
+
+This means that, for each field, a stronger selection reason will override a weaker rejection reason, and vice versa.
+This helps ensure that critical fields get materialized.
+
 Every included field will be mapped to a table column or equivalent in the endpoint system.
 
 1. If you haven't created the materialization, [begin the process](./create-dataflow.md#create-a-materialization). Pause once you've selected the collections to materialize.
@@ -127,9 +132,7 @@ Every included field will be mapped to a table column or equivalent in the endpo
 
 4. Review the listed fields in the field selection table.
 
-   Estuary automatically detects fields and uses a priority-based selection system to determine the fields to include or exclude in the materialization.
-
-   These [selection and rejection reasons](#field-selection-and-rejection-reasons) inform the default materialized fields.
+   Estuary checks each field against a number of selection and rejection criteria to inform the default materialized fields.
    You can customize this behavior further with **modes** and individual **field overrides**.
 
    The field selection table will provide an **Outcome** for each field:
@@ -158,38 +161,3 @@ Every included field will be mapped to a table column or equivalent in the endpo
 8. Click **Save and Publish**.
 
 The named, included fields will be reflected in the endpoint system.
-
-### Field selection and rejection reasons
-
-Estuary uses a priority-based system to determine which fields to materialize.
-This means that, for each field, a stronger selection reason will override a weaker rejection reason, and vice versa.
-This helps ensure that critical fields get materialized.
-
-When fields have both selection and rejection reasons, conflicts are surfaced to users to resolve.
-
-**Selection reasons**, starting from the strongest priority, include:
-
-* **Group-By Key:** Part of the materialization group-by key
-* **Current Document:** Currently used to store the document
-* **User Requires:** Required by user's field selection
-* **Connector Requires:** Required by connector
-* **Partition Key:** Collection partition key
-* **Current Value:** Part of current materialization
-* **User Defined:** User-projected field
-* **Connector Requires Location:** Location-based connector requirement
-* **Core Metadata:** Essential system fields
-* **Desired Depth:** Within user-specified depth
-
-**Rejection reasons**, starting from the strongest priority, include:
-
-* **User Excludes:** Excluded by user's field selection
-* **Connector Forbids:** Forbidden by connector
-* **Connector Incompatible:** Requires backfill to resolve
-* **Collection Omits:** Field doesn't exist in source
-* **Connector Omits:** No connector constraint provided
-* **Duplicate Fold:** Ambiguous folded field name
-* **Duplicate Location:** Location already materialized
-* **Covered Location:** Location covered by parent field
-* **Not Selected:** Doesn't meet selection criteria
-
-Note that fields may be excluded by default simply if they do not match any selection criteria.
