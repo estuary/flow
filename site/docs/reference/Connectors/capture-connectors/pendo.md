@@ -13,6 +13,7 @@ The following data resources are supported through the Pendo API:
 * [Guide](https://engageapi.pendo.io/#4f1e3ca1-fc41-4469-bf4b-da90ee8caf3d)
 * [Page](https://engageapi.pendo.io/#a53463f9-bdd3-443e-b22f-b6ea6c7376fb)
 * [Report](https://engageapi.pendo.io/#2ac0699a-b653-4082-be11-563e5c0c9410)
+* [Segment](https://engageapi.pendo.io/#92b4a527-1311-45be-bf36-cfcf91d1a47c)
 * [TrackType](https://engageapi.pendo.io/#9f83f648-4fe7-45db-b30d-963679af6304)
 * [Visitor](https://engageapi.pendo.io/#dd943e68-5bff-4a1a-9891-b55638ae2c3d)
 * [PageEvents](https://engageapi.pendo.io/#9af41daf-e6f2-4dc2-8031-836922aad09e)
