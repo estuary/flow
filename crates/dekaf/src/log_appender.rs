@@ -191,6 +191,9 @@ enum GazetteAppender {
 }
 
 impl GazetteAppender {
+    #[tracing::instrument(skip_all, fields(
+        journal_name = self.get_journal_name()
+    ))]
     async fn append<S>(&mut self, data: impl Fn() -> S + Send + Sync) -> anyhow::Result<()>
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
@@ -224,6 +227,9 @@ impl GazetteAppender {
         }
     }
 
+    #[tracing::instrument(skip(self), fields(
+        journal_name = self.get_journal_name()
+    ))]
     async fn get_client(&self) -> anyhow::Result<journal::Client> {
         match self {
             GazetteAppender::OpsStats(state) => match state.task_listener.get().await? {
@@ -271,9 +277,6 @@ pub struct TaskForwarder<W: TaskWriter> {
 }
 
 // These well-known tracing field names are used to annotate all log messages within a particular session.
-// This is done by using `tracing_record_hierarchical` to update the field value wherever it's defined in the span hierarchy:
-//
-// tracing::Span::current().record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, ...client_id...);
 pub const SESSION_TASK_NAME_FIELD_MARKER: &str = "task_name";
 pub const SESSION_CLIENT_ID_FIELD_MARKER: &str = "session_client_id";
 pub const EXCLUDE_FROM_TASK_LOGGING: &str = "exclude_from_task_logging";
@@ -311,7 +314,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
         }
     }
 
-    #[instrument(skip_all, fields(
+    #[instrument(name = "start_log_append_loop", skip_all, fields(
         task_name = tracing::field::Empty
     ))]
     async fn start(
@@ -531,16 +534,10 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
     }
 
     pub fn set_task_name(&self, name: String, build: String) {
-        use tracing_record_hierarchical::SpanExt;
-
         self.send_message(TaskWriterMessage::SetTaskName {
             name: name.clone(),
             build,
         });
-
-        // Also set the task name on the parent span so it's included in the logs. This also adds it
-        // to the logs that Dekaf writes to stdout, which makes debugging issues much easier.
-        tracing::Span::current().record_hierarchical(SESSION_TASK_NAME_FIELD_MARKER, name);
     }
 
     pub fn send_log_message(&self, log: ops::Log) {
@@ -662,7 +659,6 @@ mod tests {
     use tracing::{info, info_span};
     use tracing::{instrument::WithSubscriber, Instrument};
 
-    use tracing_record_hierarchical::SpanExt;
     use tracing_subscriber::prelude::*;
 
     #[derive(Default, Clone)]
@@ -736,7 +732,6 @@ mod tests {
         let producer = gen_producer();
 
         let subscriber = tracing_subscriber::registry()
-            .with(tracing_record_hierarchical::HierarchicalRecord::default())
             .with(ops::tracing::Layer::new(
                 |log| MOCK_LOG_FORWARDER.get().send_log_message(log.clone()),
                 std::time::SystemTime::now,
@@ -818,44 +813,6 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("session_logger_and_task_name", logs).await;
-            assert!(!cancelled.is_cancelled());
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_logging_with_client_id_hierarchical() {
-        setup(|logs, _stats, cancelled| async move {
-            {
-                info!("Test log data before setting name, you should see me");
-                let session_span = info_span!(
-                    "session_span",
-                    { SESSION_CLIENT_ID_FIELD_MARKER } = tracing::field::Empty
-                );
-                let session_guard = session_span.enter();
-
-                info!("Test log data without a task name yet!");
-
-                MOCK_LOG_FORWARDER.get().set_task_name(
-                    "my_task".to_string(),
-                    "11:22:33:44:55:66:77:88".parse().unwrap(),
-                );
-
-                let child_span = info_span!("child_span");
-                let child_guard = child_span.enter();
-
-                tracing::Span::current()
-                    .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, "my-client-id");
-
-                info!("I should have a client ID");
-                drop(child_guard);
-                info!("I should also have a client ID");
-                drop(session_guard)
-            };
-
-            tokio::time::sleep(Duration::from_millis(100)).await;
-
-            assert_output("session_logger_and_task_name_hierarchical", logs).await;
             assert!(!cancelled.is_cancelled());
         })
         .await;

@@ -19,6 +19,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::watch;
+use tracing::Instrument;
 
 // Define a custom cloneable error type
 #[derive(Debug, Clone)]
@@ -79,6 +80,7 @@ pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
 impl TaskStateListener {
     /// Gets the current state, waiting if it's not yet available.
     /// Returns a clone of the state or the cached error.
+    #[tracing::instrument(skip(self), name = "task_state_listener_get")]
     pub async fn get(&self) -> anyhow::Result<TaskState> {
         let mut temp_rx = (*self.0).clone();
         loop {
@@ -190,7 +192,7 @@ impl TaskManager {
                 sender,
                 stop_signal,
                 activity_signal,
-                task_name,
+                task_name.clone(),
             ),
         ));
 
@@ -198,7 +200,6 @@ impl TaskManager {
     }
 
     /// Runs the task manager loop until either there are no more receivers or the stop signal is triggered.
-    #[tracing::instrument(skip(self, receiver, sender, stop_signal))]
     async fn run_task_manager(
         self: std::sync::Arc<Self>,
         // Hold onto a strong reference to the receiver so we can keep it alive until the timeout runs out
@@ -228,6 +229,13 @@ impl TaskManager {
         let mut timeout_start = None;
 
         loop {
+            let tick_span = tracing::info_span!(
+                parent: None, // This is the key: creates a new root trace.
+                "task_manager_tick",
+                task_name = %task_name,
+            );
+
+            let guard = tick_span.enter();
             // No more receivers except us, time to shut down this task loop.
             // Note that we only do this after waiting out the interval.
             // This is to provide a grace period for any new receivers to be created
@@ -251,6 +259,8 @@ impl TaskManager {
                     break;
                 }
             }
+
+            drop(guard);
 
             let mut has_been_migrated = false;
 
@@ -381,6 +391,7 @@ impl TaskManager {
                     }
                 } // End of match
             }
+            .instrument(tick_span)
             .await;
 
             if let Err(e) = loop_result {

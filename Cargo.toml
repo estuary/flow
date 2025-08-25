@@ -200,7 +200,14 @@ tracing-subscriber = { version = "0.3", features = [
     "env-filter",
     "fmt",
 ] }
-tracing-record-hierarchical = "0.1.1"
+tracing-opentelemetry = "0.28"
+opentelemetry = { version = "0.27", features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace"] }
+opentelemetry-otlp = { version = "0.27", features = [
+    "tonic",
+    "trace",
+    "tls-roots",
+] }
 rustls-native-certs = "0.7.2"
 zeroize = "1.6"
 

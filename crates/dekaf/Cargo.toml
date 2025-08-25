@@ -71,7 +71,6 @@ tokio-rustls = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
-tracing-record-hierarchical = { workspace = true }
 aws-config = { workspace = true }
 aws-types = { workspace = true }
 aws-credential-types = { workspace = true }
@@ -79,11 +78,16 @@ aws-msk-iam-sasl-signer = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
 webpki = { workspace = true }
 apache-avro = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 async-process = { path = "../async-process" }
