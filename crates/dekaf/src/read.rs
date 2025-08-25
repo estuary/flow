@@ -262,7 +262,7 @@ impl Read {
                 Some(resp) => match resp {
                     Ok(data @ ReadJsonLine::Meta(_)) => Ok(data),
                     Ok(ReadJsonLine::Doc { root, next_offset }) => match root.get() {
-                        doc::heap::ArchivedNode::Object(_) => {
+                        doc::heap::ArchivedNode::Object(_, _) => {
                             Ok(ReadJsonLine::Doc { root, next_offset })
                         }
                         non_object => {

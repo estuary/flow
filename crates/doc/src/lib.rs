@@ -20,6 +20,13 @@ pub trait AsNode: Sized {
     /// Convert an AsNode into a Node.
     fn as_node<'a>(&'a self) -> Node<'a, Self>;
 
+    /// Return the total number of nodes contained within this node, inclusive.
+    /// Under a "tape" interpretation of a document, this is the total number
+    /// of entries utilized by this node and all its children.
+    /// This number is always positive, but is a signed type to facilitate easy
+    /// calculation of tape-length deltas.
+    fn tape_length(&self) -> i32;
+
     /// Convert an AsNode into a serde_json::Value using the debug SerPolicy.
     fn to_debug_json_value(&self) -> serde_json::Value {
         serde_json::to_value(&SerPolicy::debug().on(self)).unwrap()

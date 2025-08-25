@@ -1,6 +1,6 @@
 use super::{
-    compare_key_lazy, compare_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop,
-    schema::json_schema_merge, Cursor, Error, ParsedNumber, Result,
+    compare_key_lazy, compare_lazy, reduce_item, reduce_prop,
+    schema::json_schema_merge, Error, Tape, ParsedNumber, Result,
 };
 use crate::{
     lazy::{LazyDestructured, LazyNode},
@@ -148,112 +148,151 @@ pub struct Minimize {
 impl Strategy {
     pub fn apply<'alloc, 'schema, L: AsNode, R: AsNode>(
         &'schema self,
-        cur: Cursor<'alloc, 'schema, '_, '_, '_, L, R>,
-    ) -> Result<(HeapNode<'alloc>, bool)> {
+        tape: &mut Tape<'schema>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> Result<(HeapNode<'alloc>, i32, bool)> {
         match self {
-            Strategy::Append => Ok((Self::append(cur)?, false)),
-            Strategy::FirstWriteWins(fww) => Ok((Self::first_write_wins(cur, fww), false)),
-            Strategy::JsonSchemaMerge => Ok((json_schema_merge(cur)?, false)),
-            Strategy::LastWriteWins(lww) => Self::last_write_wins(cur, lww),
-            Strategy::Maximize(max) => Ok((Self::maximize(cur, max)?, false)),
-            Strategy::Merge(merge) => Self::merge(cur, merge),
-            Strategy::Minimize(min) => Ok((Self::minimize(cur, min)?, false)),
-            Strategy::Set(set) => Ok((set.apply(cur)?, false)),
-            Strategy::Sum => Ok((Self::sum(cur)?, false)),
+            Strategy::Append => {
+                let (node, built_length) = Self::append(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                Ok((node, built_length, false))
+            }
+            Strategy::FirstWriteWins(fww) => {
+                let (node, built_length) = Self::first_write_wins(tape, tape_index, loc, full, lhs, rhs, alloc, fww);
+                Ok((node, built_length, false))
+            }
+            Strategy::JsonSchemaMerge => {
+                let (node, built_length) = json_schema_merge(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                Ok((node, built_length, false))
+            }
+            Strategy::LastWriteWins(lww) => Self::last_write_wins(tape, tape_index, loc, full, lhs, rhs, alloc, lww),
+            Strategy::Maximize(max) => {
+                let (node, built_length) = Self::maximize(tape, tape_index, loc, full, lhs, rhs, alloc, max)?;
+                Ok((node, built_length, false))
+            }
+            Strategy::Merge(merge) => Self::merge(tape, tape_index, loc, full, lhs, rhs, alloc, merge),
+            Strategy::Minimize(min) => {
+                let (node, built_length) = Self::minimize(tape, tape_index, loc, full, lhs, rhs, alloc, min)?;
+                Ok((node, built_length, false))
+            }
+            Strategy::Set(set) => {
+                let (node, built_length) = set.apply(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                Ok((node, built_length, false))
+            }
+            Strategy::Sum => {
+                let (node, built_length) = Self::sum(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                Ok((node, built_length, false))
+            }
         }
     }
 
     fn append<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
-        let Cursor {
-            tape,
-            loc,
-            full: _,
-            lhs,
-            rhs,
-            alloc,
-        } = cur;
+        _tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        _full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> Result<(HeapNode<'alloc>, i32)> {
 
         use LazyDestructured as LD;
 
         match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
             (Some(LD::Array(lhs)), LD::Array(rhs)) => {
-                *tape = &tape[1..]; // Increment for self.
+                *tape_index += 1; // Increment for self.
 
                 let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
+                let mut built_length = 1;
 
                 for lhs in lhs.into_iter() {
-                    arr.push(lhs.into_heap_node(alloc), alloc);
+                    let (node, child_delta) = lhs.into_heap_node(alloc);
+                    arr.push(node, alloc);
+                    built_length += child_delta;
                 }
                 for rhs in rhs.into_iter() {
-                    let rhs = rhs.into_heap_node(alloc);
-                    *tape = &tape[count_nodes(&rhs)..];
-                    arr.push(rhs, alloc)
+                    let (node, child_delta) = rhs.into_heap_node(alloc);
+                    arr.push(node, alloc);
+                    built_length += child_delta;
+                    *tape_index += child_delta;
                 }
-                Ok(HeapNode::Array(arr))
+                Ok((HeapNode::Array(built_length, arr), built_length))
             }
             (None, LD::Array(_)) => {
-                let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(rhs)
+                let (rhs, built_length) = rhs.into_heap_node(alloc);
+                *tape_index += built_length;
+                Ok((rhs, built_length))
             }
             (Some(LD::ScalarNode(Node::Null) | LD::ScalarHeap(HeapNode::Null)), LD::Array(_)) => {
-                *tape = &tape[count_nodes_lazy(&rhs)..];
-                Ok(HeapNode::Null) // Ignores `rhs` and remains `null`.
+                *tape_index += rhs.tape_length();
+                Ok((HeapNode::Null, 1)) // Ignores `rhs` and remains `null`.
             }
             _ => Err(Error::with_details(Error::AppendWrongType, loc, lhs, rhs)),
         }
     }
 
     fn first_write_wins<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        _tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        _loc: json::Location<'_>,
+        _full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         _fww: &FirstWriteWins,
-    ) -> HeapNode<'alloc> {
-        let Some(lhs) = cur.lhs else {
-            let rhs = cur.rhs.into_heap_node(cur.alloc);
-            *cur.tape = &cur.tape[count_nodes(&rhs)..];
-            return rhs;
+    ) -> (HeapNode<'alloc>, i32) {
+        let Some(lhs) = lhs else {
+            let (rhs, built_length) = rhs.into_heap_node(alloc);
+            *tape_index += built_length;
+            return (rhs, built_length);
         };
 
-        *cur.tape = &cur.tape[count_nodes_lazy(&cur.rhs)..];
-        lhs.into_heap_node(cur.alloc)
+        *tape_index += rhs.tape_length();
+        lhs.into_heap_node(alloc)
     }
 
     fn last_write_wins<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        _tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        _loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         lww: &LastWriteWins,
-    ) -> Result<(HeapNode<'alloc>, bool)> {
+    ) -> Result<(HeapNode<'alloc>, i32, bool)> {
         if !lww.associative
-            && !cur.full
-            && matches!(&cur.lhs, Some(lhs) if compare_lazy(lhs, &cur.rhs).is_ne())
+            && !full
+            && matches!(&lhs, Some(lhs) if compare_lazy(lhs, &rhs).is_ne())
         {
             // When marked !associative, partial reductions may only reduce equal values.
             return Err(Error::NotAssociative);
         }
-        let rhs = cur.rhs.into_heap_node(cur.alloc);
-        *cur.tape = &cur.tape[count_nodes(&rhs)..];
-        Ok((rhs, cur.full && lww.delete))
+        let (rhs, built_length) = rhs.into_heap_node(alloc);
+        *tape_index += built_length;
+        Ok((rhs, built_length, full && lww.delete))
     }
 
     fn min_max_helper<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         key: &[Pointer],
         reverse: bool,
-    ) -> Result<HeapNode<'alloc>> {
-        let Cursor {
-            tape,
-            loc,
-            full,
-            lhs,
-            rhs,
-            alloc,
-        } = cur;
+    ) -> Result<(HeapNode<'alloc>, i32)> {
 
         let Some(lhs) = lhs else {
-            let rhs = rhs.into_heap_node(alloc);
-            *tape = &tape[count_nodes(&rhs)..];
-            return Ok(rhs);
+            let (rhs, built_length) = rhs.into_heap_node(alloc);
+            *tape_index += built_length;
+            return Ok((rhs, built_length));
         };
 
         let ord = match (key.is_empty(), reverse) {
@@ -265,52 +304,63 @@ impl Strategy {
 
         if ord.is_lt() {
             // Retain the LHS.
-            *tape = &tape[count_nodes_lazy(&rhs)..];
+            *tape_index += rhs.tape_length();
             Ok(lhs.into_heap_node(alloc))
         } else if key.is_empty() {
             // When there's no key then each value is a complete and opaque blob,
             // and we simply take the RHS.
-            let rhs = rhs.into_heap_node(alloc);
-            *tape = &tape[count_nodes(&rhs)..];
-            Ok(rhs)
+            let (rhs, built_length) = rhs.into_heap_node(alloc);
+            *tape_index += built_length;
+            Ok((rhs, built_length))
         } else {
-            let cur = Cursor {
+            Self::merge_with_key(
                 tape,
+                tape_index,
                 loc,
                 full,
-                lhs: if ord.is_eq() { Some(lhs) } else { None },
+                if ord.is_eq() { Some(lhs) } else { None },
                 rhs,
                 alloc,
-            };
-            Self::merge_with_key(cur, &[])
+                &[],
+            )
         }
     }
 
     fn minimize<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         min: &Minimize,
-    ) -> Result<HeapNode<'alloc>> {
-        Self::min_max_helper(cur, &min.key, false)
+    ) -> Result<(HeapNode<'alloc>, i32)> {
+        Self::min_max_helper(tape, tape_index, loc, full, lhs, rhs, alloc, &min.key, false)
     }
 
     fn maximize<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         max: &Maximize,
-    ) -> Result<HeapNode<'alloc>> {
-        Self::min_max_helper(cur, &max.key, true)
+    ) -> Result<(HeapNode<'alloc>, i32)> {
+        Self::min_max_helper(tape, tape_index, loc, full, lhs, rhs, alloc, &max.key, true)
     }
 
     fn sum<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
-        let Cursor {
-            tape,
-            loc,
-            full: _,
-            lhs,
-            rhs,
-            alloc,
-        } = cur;
+        _tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        _full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> Result<(HeapNode<'alloc>, i32)> {
 
         use LazyDestructured as LD;
         use ParsedNumber as PN;
@@ -342,10 +392,10 @@ impl Strategy {
             return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs));
         };
 
-        *tape = &tape[1..];
+        *tape_index += 1;
 
         if let Some(n) = PN::checked_add(ln, rn) {
-            Ok(n.into_heap_node(alloc))
+            Ok((n.into_heap_node(alloc), 1))
         } else {
             Err(Error::with_details(
                 Error::SumNumericOverflow,
@@ -357,68 +407,79 @@ impl Strategy {
     }
 
     fn merge<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         merge: &Merge,
-    ) -> Result<(HeapNode<'alloc>, bool)> {
-        let delete = cur.full && merge.delete;
-        Ok((Self::merge_with_key(cur, &merge.key)?, delete))
+    ) -> Result<(HeapNode<'alloc>, i32, bool)> {
+        let delete = full && merge.delete;
+        let (node, built_length) = Self::merge_with_key(tape, tape_index, loc, full, lhs, rhs, alloc, &merge.key)?;
+        Ok((node, built_length, delete))
     }
 
     fn merge_with_key<'alloc, L: AsNode, R: AsNode>(
-        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        tape: &mut Tape<'_>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
         key: &[Pointer],
-    ) -> Result<HeapNode<'alloc>> {
-        let Cursor {
-            tape,
-            loc,
-            lhs,
-            rhs,
-            alloc,
-            full,
-        } = cur;
+    ) -> Result<(HeapNode<'alloc>, i32)> {
 
         use LazyDestructured as LD;
 
         match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
             // Object <= Object: deep associative merge.
             (Some(LD::Object(lhs)), LD::Object(rhs)) => {
-                *tape = &tape[1..]; // Increment for self.
+                *tape_index += 1; // Increment for self.
 
                 let mut fields =
                     BumpVec::with_capacity_in(std::cmp::max(lhs.len(), rhs.len()), alloc);
+                let mut built_length = 1;
 
                 for eob in itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
                     lhs.property().cmp(rhs.property())
                 }) {
-                    let (field, delete) = reduce_prop::<L, R>(tape, loc, full, eob, alloc)?;
+                    let (field, child_delta, delete) =
+                        reduce_prop::<L, R>(tape, tape_index, loc, full, eob, alloc)?;
                     if !delete {
                         fields.push(field, alloc);
+                        built_length += child_delta;
                     }
                 }
-                Ok(HeapNode::Object(fields))
+                Ok((HeapNode::Object(built_length, fields), built_length))
             }
             // !Object <= Object (full reduction)
             (_, LD::Object(rhs)) if full => {
-                *tape = &tape[1..]; // Increment for self.
+                *tape_index += 1; // Increment for self.
 
                 let mut fields = BumpVec::with_capacity_in(rhs.len(), alloc);
+                let mut built_length = 1;
 
                 for rhs in rhs.into_iter() {
-                    let (field, delete) =
-                        reduce_prop::<L, R>(tape, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    let (field, child_delta, delete) =
+                        reduce_prop::<L, R>(tape, tape_index, loc, full, EitherOrBoth::Right(rhs), alloc)?;
                     if !delete {
                         fields.push(field, alloc);
+                        built_length += child_delta;
                     }
                 }
-                Ok(HeapNode::Object(fields))
+                Ok((HeapNode::Object(built_length, fields), built_length))
             }
 
             // Array <= Array: deep associative merge.
             (Some(LD::Array(lhs)), LD::Array(rhs)) => {
-                *tape = &tape[1..]; // Increment for self.
+                *tape_index += 1; // Increment for self.
 
                 let mut items =
                     BumpVec::with_capacity_in(std::cmp::max(lhs.len(), rhs.len()), alloc);
+                let mut built_length = 1;
 
                 for eob in itertools::merge_join_by(
                     lhs.into_iter().enumerate(),
@@ -431,35 +492,39 @@ impl Strategy {
                         }
                     },
                 ) {
-                    let (item, delete) = reduce_item::<L, R>(tape, loc, full, eob, alloc)?;
+                    let (item, child_delta, delete) =
+                        reduce_item::<L, R>(tape, tape_index, loc, full, eob, alloc)?;
                     if !delete {
                         items.push(item, alloc);
+                        built_length += child_delta;
                     }
                 }
-                Ok(HeapNode::Array(items))
+                Ok((HeapNode::Array(built_length, items), built_length))
             }
             // !Array <= Array (full reduction)
             (_, LD::Array(rhs)) if full => {
-                *tape = &tape[1..]; // Increment for self.
+                *tape_index += 1; // Increment for self.
 
                 let mut items = BumpVec::with_capacity_in(rhs.len(), alloc);
+                let mut built_length = 1;
 
                 for rhs in rhs.into_iter().enumerate() {
-                    let (item, delete) =
-                        reduce_item::<L, R>(tape, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    let (item, child_delta, delete) =
+                        reduce_item::<L, R>(tape, tape_index, loc, full, EitherOrBoth::Right(rhs), alloc)?;
                     if !delete {
                         items.push(item, alloc);
+                        built_length += child_delta;
                     }
                 }
-                Ok(HeapNode::Array(items))
+                Ok((HeapNode::Array(built_length, items), built_length))
             }
 
             // !Object <= Object | !Array <= Array (associative reduction)
             (_, LD::Object(_) | LD::Array(_)) => {
                 if lhs.is_none() {
-                    let rhs = rhs.into_heap_node(alloc);
-                    *tape = &tape[count_nodes(&rhs)..];
-                    Ok(rhs)
+                    let (rhs, built_length) = rhs.into_heap_node(alloc);
+                    *tape_index += built_length;
+                    Ok((rhs, built_length))
                 } else {
                     // Not associative because:
                     // {a: 1} . ("foo" . {b: 2}) == {a: 1, b: 2}

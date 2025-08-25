@@ -342,10 +342,10 @@ fn do_merge(
                 )
             })?;
 
-            let doc = doc::HeapNode::Array(doc::BumpVec::with_contents(
+            let doc = doc::HeapNode::new_array(
                 memtable.alloc(),
                 [doc::HeapNode::String(key), op].into_iter(),
-            ));
+            );
             memtable.add(0, doc, false)?;
         }
         Ok(())

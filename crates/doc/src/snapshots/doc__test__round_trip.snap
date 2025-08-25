@@ -3,6 +3,7 @@ source: crates/doc/src/lib.rs
 expression: doc
 ---
 Object(
+    19,
     [
         HeapField {
             property: "",
@@ -25,6 +26,7 @@ Object(
         HeapField {
             property: "nested",
             value: Object(
+                6,
                 [
                     HeapField {
                         property: "false",
@@ -35,6 +37,7 @@ Object(
                     HeapField {
                         property: "shared string",
                         value: Object(
+                            2,
                             [
                                 HeapField {
                                     property: "shared string",
@@ -67,6 +70,7 @@ Object(
         HeapField {
             property: "numbers",
             value: Array(
+                4,
                 [
                     PosInt(
                         1229782938247303441,
@@ -95,6 +99,7 @@ Object(
         HeapField {
             property: "some",
             value: Object(
+                2,
                 [
                     HeapField {
                         property: "bytes",
