@@ -1005,17 +1005,17 @@ mod test {
         let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
         let (spill, ranges) = spill.into_parts();
-        assert_eq!(ranges, vec![0..107]);
-        insta::assert_snapshot!(to_hex(spill.get_ref()), @r###"
-        |63000000 d8000000 c0000000 00400000| c............@.. 00000000
+        assert_eq!(ranges, vec![0..110]);
+        insta::assert_snapshot!(to_hex(spill.get_ref()), @r"
+        |66000000 d8000000 c0000000 00400000| f............@.. 00000000
         |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
         |0010ff1c 0011760a 00021800 40676f6f| ......v.....@goo 00000020
-        |640c0000 18009006 000000cc ffffff02| d............... 00000030
-        |0d000202 001c8048 00306262 622f000f| .......H.0bbb/.. 00000040
-        |48002e3f 63636348 00022162 618f0001| H..?cccH..!ba... 00000050
-        |60000790 00500000 000000|            `....P.....      00000060
-                                                               0000006b
-        "###);
+        |640c0000 1800d006 00000003 000000c8| d............... 00000030
+        |ffffff02 11003c00 00804800 30626262| ......<...H.0bbb 00000040
+        |2f000f48 002e3f63 63634800 02216261| /..H..?cccH..!ba 00000050
+        |8f000160 00079000 50ff0200 0000|     ...`....P.....   00000060
+                                                               0000006e
+        ");
 
         // New MemTable. This time we attempt to spill an invalid, non-reduced document.
         let memtable = MemTable::new(spec);

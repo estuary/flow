@@ -1,4 +1,4 @@
-use super::{count_nodes, Cursor, Error, Result};
+use super::{Cursor, Error, Result};
 use crate::{
     shape::limits,
     shape::{
@@ -12,7 +12,7 @@ use serde_json::Value as JsonValue;
 
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-) -> Result<HeapNode<'alloc>> {
+) -> Result<(HeapNode<'alloc>, i32)> {
     let Cursor {
         tape,
         loc,
@@ -22,12 +22,13 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
         alloc,
     } = cur;
 
-    let lhs = lhs
+    *tape = &tape[rhs.tape_length() as usize..];
+
+    // For historical $reasons, JSON schemas parse from serde_json::Value.
+    let lhs: serde_json::Value = lhs
         .map(|n| serde_json::to_value(SerPolicy::noop().on_lazy(&n)).unwrap())
         .unwrap_or(serde_json::Value::Bool(false));
-    let rhs = serde_json::to_value(SerPolicy::noop().on_lazy(&rhs)).unwrap();
-
-    *tape = &tape[count_nodes(&rhs)..];
+    let rhs: serde_json::Value = serde_json::to_value(SerPolicy::noop().on_lazy(&rhs)).unwrap();
 
     let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
     let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
@@ -80,8 +81,7 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
 
     // Convert back from `Shape` into `HeapNode`.
     let merged_doc = serde_json::to_value(to_schema(merged_shape)).unwrap();
-    let merged_doc = HeapNode::from_serde(merged_doc, alloc).unwrap();
-    Ok(merged_doc)
+    Ok(HeapNode::from_node_with_length(&merged_doc, alloc))
 }
 
 fn shape_from_node(node: serde_json::Value) -> Result<Shape> {

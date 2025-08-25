@@ -92,15 +92,23 @@ impl AsNode for ArchivedNode {
     #[inline(always)]
     fn as_node<'a>(&'a self) -> Node<'a, Self> {
         match self {
-            ArchivedNode::Array(a) => Node::Array(a.as_slice()),
+            ArchivedNode::Array(_tape_length, a) => Node::Array(a.as_slice()),
             ArchivedNode::Bool(b) => Node::Bool(*b),
             ArchivedNode::Bytes(b) => Node::Bytes(b),
             ArchivedNode::Float(n) => Node::Float(n.to_native()),
             ArchivedNode::NegInt(n) => Node::NegInt(n.to_native()),
             ArchivedNode::Null => Node::Null,
-            ArchivedNode::Object(o) => Node::Object(o.as_slice()),
+            ArchivedNode::Object(_tape_length, o) => Node::Object(o.as_slice()),
             ArchivedNode::PosInt(n) => Node::PosInt(n.to_native()),
             ArchivedNode::String(s) => Node::String(s),
+        }
+    }
+    #[inline]
+    fn tape_length(&self) -> i32 {
+        match self {
+            ArchivedNode::Array(tape_length, _) => tape_length.to_native(),
+            ArchivedNode::Object(tape_length, _) => tape_length.to_native(),
+            _ => 1,
         }
     }
 }

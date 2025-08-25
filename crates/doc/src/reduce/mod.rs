@@ -1,6 +1,6 @@
 use super::{
     lazy::{LazyField, LazyNode},
-    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Pointer, SerPolicy, Valid,
+    AsNode, BumpStr, Field, HeapField, HeapNode, Pointer, SerPolicy, Valid,
 };
 use itertools::EitherOrBoth;
 use std::cmp::Ordering;
@@ -107,7 +107,7 @@ pub fn reduce<'alloc, N: AsNode>(
     let tape = rhs_valid.extract_reduce_annotations();
     let tape = &mut tape.as_slice();
 
-    let reduced = Cursor {
+    let (node, _tape_length, delete) = Cursor {
         tape,
         loc: json::Location::Root,
         full,
@@ -118,7 +118,7 @@ pub fn reduce<'alloc, N: AsNode>(
     .reduce()?;
 
     assert!(tape.is_empty());
-    Ok(reduced)
+    Ok((node, delete))
 }
 
 /// Cursor models a joint document location which is being reduced.
@@ -134,42 +134,10 @@ pub struct Cursor<'alloc, 'schema, 'tmp, 'l, 'r, L: AsNode, R: AsNode> {
 type Index<'a> = &'a [(&'a Strategy, u64)];
 
 impl<'alloc, L: AsNode, R: AsNode> Cursor<'alloc, '_, '_, '_, '_, L, R> {
-    pub fn reduce(self) -> Result<(HeapNode<'alloc>, bool)> {
+    pub fn reduce(self) -> Result<(HeapNode<'alloc>, i32, bool)> {
         let (strategy, _) = self.tape.first().unwrap();
         strategy.apply(self)
     }
-}
-
-fn count_nodes_lazy<N: AsNode>(v: &LazyNode<'_, '_, N>) -> usize {
-    match v {
-        LazyNode::Node(doc) => count_nodes(*doc),
-        LazyNode::Heap(doc) => count_nodes(*doc),
-    }
-}
-
-fn count_nodes<N: AsNode>(node: &N) -> usize {
-    match node.as_node() {
-        Node::Bool(_)
-        | Node::Bytes(_)
-        | Node::Float(_)
-        | Node::NegInt(_)
-        | Node::Null
-        | Node::PosInt(_)
-        | Node::String(_) => 1,
-
-        Node::Array(v) => count_nodes_items(v),
-        Node::Object(v) => count_nodes_fields::<N>(v),
-    }
-}
-
-fn count_nodes_items<N: AsNode>(items: &[N]) -> usize {
-    items.iter().fold(1, |c, vv| c + count_nodes(vv))
-}
-
-fn count_nodes_fields<N: AsNode>(fields: &N::Fields) -> usize {
-    fields
-        .iter()
-        .fold(1, |c, field| c + count_nodes(field.value()))
 }
 
 fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
@@ -178,9 +146,12 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
     full: bool,
     eob: EitherOrBoth<LazyField<'alloc, '_, L>, LazyField<'alloc, '_, R>>,
     alloc: &'alloc bumpalo::Bump,
-) -> Result<(HeapField<'alloc>, bool)> {
+) -> Result<(HeapField<'alloc>, i32, bool)> {
     match eob {
-        EitherOrBoth::Left(lhs) => Ok((lhs.into_heap_field(alloc), false)),
+        EitherOrBoth::Left(lhs) => {
+            let (field, tape_length) = lhs.into_heap_field(alloc);
+            Ok((field, tape_length, false))
+        }
         EitherOrBoth::Right(rhs) => {
             let (property, rhs) = rhs.into_parts();
 
@@ -190,7 +161,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 Err(heap) => heap,
             };
 
-            let (value, delete) = Cursor::<'alloc, '_, '_, '_, '_, L, R> {
+            let (value, tape_length, delete) = Cursor::<'alloc, '_, '_, '_, '_, L, R> {
                 tape,
                 loc: loc.push_prop(property.as_str()),
                 full,
@@ -200,7 +171,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
             }
             .reduce()?;
 
-            Ok((HeapField { property, value }, delete))
+            Ok((HeapField { property, value }, tape_length, delete))
         }
         EitherOrBoth::Both(lhs, rhs) => {
             let (property, lhs, rhs) = match (lhs, rhs) {
@@ -226,7 +197,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 ),
             };
 
-            let (value, delete) = Cursor {
+            let (value, tape_length, delete) = Cursor {
                 tape,
                 loc: loc.push_prop(&property),
                 full,
@@ -236,7 +207,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
             }
             .reduce()?;
 
-            Ok((HeapField { property, value }, delete))
+            Ok((HeapField { property, value }, tape_length, delete))
         }
     }
 }
@@ -247,9 +218,12 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
     full: bool,
     eob: EitherOrBoth<(usize, LazyNode<'alloc, '_, L>), (usize, LazyNode<'alloc, '_, R>)>,
     alloc: &'alloc bumpalo::Bump,
-) -> Result<(HeapNode<'alloc>, bool)> {
+) -> Result<(HeapNode<'alloc>, i32, bool)> {
     match eob {
-        EitherOrBoth::Left((_, lhs)) => Ok((lhs.into_heap_node(alloc), false)),
+        EitherOrBoth::Left((_, lhs)) => {
+            let (node, tape_length) = lhs.into_heap_node(alloc);
+            Ok((node, tape_length, false))
+        }
         EitherOrBoth::Right((index, rhs)) => Cursor::<'alloc, '_, '_, '_, '_, L, R> {
             tape,
             loc: loc.push_item(index),
@@ -353,8 +327,11 @@ pub mod test {
         let alloc = HeapNode::new_allocator();
 
         let test_case = |fixture: Value, expect: usize| {
-            assert_eq!(count_nodes(&fixture), expect);
-            assert_eq!(count_nodes(&HeapNode::from_node(&fixture, &alloc)), expect);
+            assert_eq!(fixture.tape_length() as usize, expect);
+            assert_eq!(
+                HeapNode::from_node(&fixture, &alloc).tape_length() as usize,
+                expect
+            );
         };
 
         test_case(json!(true), 1);
