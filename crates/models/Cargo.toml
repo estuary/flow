@@ -12,7 +12,10 @@ license.workspace = true
 # NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
 
 anyhow = { workspace = true }
+async-graphql = { workspace = true, optional = true }
 bytes = { workspace = true }
+futures = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }
 caseless = { workspace = true }
 chrono = { workspace = true }
 humantime-serde = { workspace = true }
@@ -38,3 +41,4 @@ serde_yaml = { workspace = true }
 default = []
 
 sqlx-support = ["sqlx"]
+async-graphql = ["dep:async-graphql", "dep:futures", "dep:indexmap"]

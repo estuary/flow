@@ -25,12 +25,14 @@ pub use task_manager::{TaskManager, TaskState};
 mod session;
 pub use session::Session;
 
-pub mod connector;
 pub mod metrics_server;
 pub mod registry;
 
 mod api_client;
 pub use api_client::{KafkaApiClient, KafkaClientAuth};
+
+/// Re-export the dekaf-connector crate so it can be used as `crate::connector`.
+pub use dekaf_connector as connector;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};

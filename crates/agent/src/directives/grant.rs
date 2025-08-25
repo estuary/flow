@@ -9,7 +9,7 @@ use validator::Validate;
 pub struct Directive {
     #[validate]
     granted_prefix: models::Prefix,
-    capability: agent_sql::Capability,
+    capability: models::Capability,
 }
 
 #[derive(Deserialize, Validate, schemars::JsonSchema)]
@@ -57,7 +57,7 @@ pub async fn apply(
         .map(|r| r.as_str())
         .unwrap_or(granted_prefix.as_str());
 
-    agent_sql::directives::grant::upsert_user_grant(
+    control_plane_api::directives::grant::upsert_user_grant(
         row.user_id,
         granted_prefix,
         capability,

@@ -49,6 +49,11 @@ pub struct Catalog {
     derive(sqlx::Type),
     sqlx(type_name = "catalog_spec_type", rename_all = "lowercase")
 )]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "lowercase")
+)]
 pub enum CatalogType {
     Capture,
     Collection,
@@ -65,6 +70,11 @@ pub enum CatalogType {
     feature = "sqlx-support",
     derive(sqlx::Type),
     sqlx(type_name = "grant_capability", rename_all = "lowercase")
+)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "lowercase")
 )]
 pub enum Capability {
     /// Note that the discriminants here align with those in the database type.

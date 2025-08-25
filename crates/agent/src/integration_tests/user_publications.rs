@@ -1,6 +1,6 @@
 use super::harness::{draft_catalog, set_of, TestHarness};
 use crate::{controllers::ControllerState, ControlPlane};
-use agent_sql::Capability;
+use control_plane_api::Capability;
 use models::{CatalogType, Id};
 
 #[tokio::test]

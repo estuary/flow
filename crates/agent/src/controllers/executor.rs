@@ -14,6 +14,7 @@ use crate::{
 };
 use anyhow::Context;
 use automations::{Action, Executor, TaskType};
+use control_plane_api::live_specs;
 use models::{status::ControllerStatus, Id};
 use serde::{Deserialize, Serialize};
 
@@ -106,14 +107,14 @@ impl automations::Outcome for Outcome {
                 next_run.is_none(),
                 "expected next_run to be None because live spec was deleted"
             );
-            agent_sql::live_specs::hard_delete_live_spec(live_spec_id, txn)
+            live_specs::hard_delete_live_spec(live_spec_id, txn)
                 .await
                 .context("deleting live_specs row")?;
             tracing::debug!(%live_spec_id, "completed controller task for deleted live spec");
             return Ok(Action::Done);
         }
 
-        agent_sql::controllers::update_status(
+        control_plane_api::controllers::update_status(
             txn,
             live_spec_id,
             CONTROLLER_VERSION,

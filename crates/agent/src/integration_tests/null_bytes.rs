@@ -1,5 +1,5 @@
 use super::harness::{draft_catalog, md5_hash, TestHarness};
-use crate::publications::JobStatus;
+use models::publications::JobStatus;
 use tables::InferredSchema;
 
 #[tokio::test]
