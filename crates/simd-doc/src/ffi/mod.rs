@@ -37,19 +37,27 @@ mod ffi {
         type HeapNode<'a>; // Wraps doc::HeapNode.
         type Parsed<'a>; // Vec<(usize, doc::HeapNode)>
 
-        // Set `node` to an Array and return its items for initialization.
+        // Set `node` to an Array of the given `size`,
+        // and return its `items_out` (length `size`) for initialization,
+        // as well as its `tape_length_out` (initially 1) for further accumulation.
         unsafe fn set_array<'a>(
             alloc: &'a Allocator,
             node: &mut HeapNode<'a>,
             size: usize,
-        ) -> &'a mut [HeapNode<'a>];
+            items_out: &mut &'a mut [HeapNode<'a>],
+            tape_length_out: &mut *mut i32,
+        );
 
-        // Set `node` to an Object and return its fields for initialization.
+        // Set `node` to an Object of the given `size`,
+        // and return its `fields_out` (length `size`) for initialization,
+        // as well as its `tape_length_out` (initially 1) for further accumulation.
         unsafe fn set_object<'a>(
             alloc: &'a Allocator,
             node: &mut HeapNode<'a>,
             size: usize,
-        ) -> &'a mut [HeapField<'a>];
+            fields_out: &mut &'a mut [HeapField<'a>],
+            tape_length_out: &mut *mut i32,
+        );
 
         // Set the property of `field` and return is value Node for initialization.
         unsafe fn set_field<'a>(
@@ -120,18 +128,25 @@ fn set_array<'a>(
     alloc: &'a Allocator,
     node: &mut HeapNode<'a>,
     size: usize,
-) -> &'a mut [HeapNode<'a>] {
-    let mut array = doc::BumpVec::with_capacity_in(size, &alloc.0);
-    // Safety: Parser will fully initialize all `size` items,
-    // or will throw an exception which discards all partial work.
-    unsafe { array.set_len(size) };
+    items_out: &mut &'a mut [HeapNode<'a>],
+    tape_length_out: &mut *mut i32,
+) {
+    node.0 = doc::HeapNode::Array(1, doc::BumpVec::with_capacity_in(size, &alloc.0));
+
+    let doc::HeapNode::Array(tape_length, items) = &mut node.0 else {
+        unreachable!()
+    };
 
     // Safety: HeapNode is repr(transparent) with its inner doc::HeapNode.
-    // Parser will be responsible for initialization of contained items.
-    let ffi_array: &'a mut [HeapNode<'a>] = unsafe { std::mem::transmute(array.deref_mut()) };
+    // Parser will be responsible for initialization of all `size` items,
+    // or will throw an exception which discards all partial work.
+    let items: &'a mut [HeapNode<'a>] = unsafe {
+        items.set_len(size);
+        std::mem::transmute(items.deref_mut())
+    };
 
-    node.0 = doc::HeapNode::Array(array);
-    ffi_array
+    *items_out = items;
+    *tape_length_out = tape_length as *mut i32;
 }
 
 #[inline(always)]
@@ -139,18 +154,25 @@ fn set_object<'a>(
     alloc: &'a Allocator,
     node: &mut HeapNode<'a>,
     size: usize,
-) -> &'a mut [HeapField<'a>] {
-    let mut fields = doc::BumpVec::with_capacity_in(size, &alloc.0);
-    // Safety: Parser will fully initialize all `size` fields,
-    // or will throw an exception which discards all partial work.
-    unsafe { fields.set_len(size) };
+    fields_out: &mut &'a mut [HeapField<'a>],
+    tape_length_out: &mut *mut i32,
+) {
+    node.0 = doc::HeapNode::Object(1, doc::BumpVec::with_capacity_in(size, &alloc.0));
+
+    let doc::HeapNode::Object(tape_length, fields) = &mut node.0 else {
+        unreachable!()
+    };
 
     // Safety: HeapField is repr(transparent) with its inner doc::HeapField.
-    // Parser will be responsible for initialization of contained fields.
-    let ffi_fields: &'a mut [HeapField<'a>] = unsafe { std::mem::transmute(fields.deref_mut()) };
+    // Parser will be responsible for initialization of all `size` fields,
+    // or will throw an exception which discards all partial work.
+    let fields: &'a mut [HeapField<'a>] = unsafe {
+        fields.set_len(size);
+        std::mem::transmute(fields.deref_mut())
+    };
 
-    node.0 = doc::HeapNode::Object(fields);
-    ffi_fields
+    *fields_out = fields;
+    *tape_length_out = tape_length as *mut i32;
 }
 
 #[inline(always)]
