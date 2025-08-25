@@ -1,8 +1,9 @@
 use super::{
     lazy::{LazyField, LazyNode},
-    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Pointer, SerPolicy, Valid,
+    AsNode, BumpStr, Field, HeapField, HeapNode, Pointer, SerPolicy, Valid,
 };
-use itertools::EitherOrBoth;
+use itertools::{EitherOrBoth, Itertools};
+use json::validator::{self, Context};
 use std::cmp::Ordering;
 
 pub mod strategy;
@@ -39,6 +40,8 @@ pub enum Error {
         "'set' strategy expects objects having only 'add', 'remove', and 'intersect' properties with consistent object or array types"
     )]
     SetWrongType,
+    #[error("conflicting strategies at this location: {first:?} vs {second:?}")]
+    ConflictingStrategies { first: Strategy, second: Strategy },
 
     #[error("while reducing {:?}", .ptr)]
     WithLocation {
@@ -104,83 +107,99 @@ pub fn reduce<'alloc, N: AsNode>(
     alloc: &'alloc bumpalo::Bump,
     full: bool,
 ) -> Result<(HeapNode<'alloc>, bool)> {
-    let tape = rhs_valid.extract_reduce_annotations();
-    let tape = &mut tape.as_slice();
+    // Extract sparse tape of reduce annotations and their applicable [begin, end) spans.
+    let tape: Vec<(i32, i32, &Strategy)> = (rhs_valid.validator.outcomes().iter())
+        .filter_map(|(outcome, ctx)| {
+            if let validator::Outcome::Annotation(crate::Annotation::Reduce(strategy)) = outcome {
+                let span = ctx.span();
+                Some((span.begin as i32, span.end as i32, strategy))
+            } else {
+                None
+            }
+        })
+        // Order by span `begin`.
+        .sorted_by_key(|(begin, _, _)| *begin)
+        .collect();
 
-    let reduced = Cursor {
-        tape,
-        loc: json::Location::Root,
+    let mut tape_index = 0i32;
+
+    let (node, _tape_length, delete) = reduce_node(
+        &mut tape.as_slice(),
+        &mut tape_index,
+        json::Location::Root,
         full,
-        lhs: Some(lhs),
+        Some(lhs),
         rhs,
         alloc,
-    }
-    .reduce()?;
+    )?;
 
-    assert!(tape.is_empty());
-    Ok(reduced)
+    Ok((node, delete))
 }
 
-/// Cursor models a joint document location which is being reduced.
-pub struct Cursor<'alloc, 'schema, 'tmp, 'l, 'r, L: AsNode, R: AsNode> {
-    tape: &'tmp mut Index<'schema>,
-    loc: json::Location<'tmp>,
+// Slice of sparse (span-begin, span-end, reduce Strategy) annotations.
+// As reduction progresses, matched entries are discarded from the head.
+type Tape<'a> = &'a [(i32, i32, &'a Strategy)];
+
+fn reduce_node<'alloc, 'schema, L: AsNode, R: AsNode>(
+    tape: &mut Tape<'schema>,
+    tape_index: &mut i32,
+    loc: json::Location<'_>,
     full: bool,
-    lhs: Option<LazyNode<'alloc, 'l, L>>,
-    rhs: LazyNode<'alloc, 'r, R>,
+    lhs: Option<LazyNode<'alloc, '_, L>>,
+    rhs: LazyNode<'alloc, '_, R>,
     alloc: &'alloc bumpalo::Bump,
-}
-
-type Index<'a> = &'a [(&'a Strategy, u64)];
-
-impl<'alloc, L: AsNode, R: AsNode> Cursor<'alloc, '_, '_, '_, '_, L, R> {
-    pub fn reduce(self) -> Result<(HeapNode<'alloc>, bool)> {
-        let (strategy, _) = self.tape.first().unwrap();
-        strategy.apply(self)
+) -> Result<(HeapNode<'alloc>, i32, bool)> {
+    // Discard all entries prior to `tape_index`. This is rare but is very much
+    // possible. For example, an applied annotation may be discarded because its
+    // parent subtree was applied as lastWriteWins.
+    while !tape.is_empty() && tape[0].0 < *tape_index {
+        *tape = &tape[1..];
     }
-}
 
-fn count_nodes_lazy<N: AsNode>(v: &LazyNode<'_, '_, N>) -> usize {
-    match v {
-        LazyNode::Node(doc) => count_nodes(*doc),
-        LazyNode::Heap(doc) => count_nodes(*doc),
+    let mut span_end = -1;
+    let mut strategy = DEFAULT_STRATEGY;
+
+    // Check if a sparse strategy applies at this tape index.
+    if !tape.is_empty() && tape[0].0 == *tape_index {
+        (span_end, strategy) = (tape[0].1, tape[0].2);
+        *tape = &tape[1..];
+
+        // Pop additional strategies at the same tape index.
+        while !tape.is_empty() && tape[0].0 == *tape_index {
+            let (other_end, other_strategy) = (tape[0].1, tape[0].2);
+            assert_eq!(span_end, other_end);
+            *tape = &tape[1..];
+
+            if strategy != other_strategy {
+                return Err(Error::ConflictingStrategies {
+                    first: strategy.clone(),
+                    second: other_strategy.clone(),
+                }
+                .with_details(loc, lhs, rhs));
+            }
+        }
     }
-}
 
-fn count_nodes<N: AsNode>(node: &N) -> usize {
-    match node.as_node() {
-        Node::Bool(_)
-        | Node::Bytes(_)
-        | Node::Float(_)
-        | Node::NegInt(_)
-        | Node::Null
-        | Node::PosInt(_)
-        | Node::String(_) => 1,
+    let (node, built_length, delete) =
+        strategy.apply(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+    assert!(span_end == -1 || span_end == *tape_index);
 
-        Node::Array(v) => count_nodes_items(v),
-        Node::Object(v) => count_nodes_fields::<N>(v),
-    }
-}
-
-fn count_nodes_items<N: AsNode>(items: &[N]) -> usize {
-    items.iter().fold(1, |c, vv| c + count_nodes(vv))
-}
-
-fn count_nodes_fields<N: AsNode>(fields: &N::Fields) -> usize {
-    fields
-        .iter()
-        .fold(1, |c, field| c + count_nodes(field.value()))
+    Ok((node, built_length, delete))
 }
 
 fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
-    tape: &mut Index<'_>,
+    tape: &mut Tape<'_>,
+    tape_index: &mut i32,
     loc: json::Location<'_>,
     full: bool,
     eob: EitherOrBoth<LazyField<'alloc, '_, L>, LazyField<'alloc, '_, R>>,
     alloc: &'alloc bumpalo::Bump,
-) -> Result<(HeapField<'alloc>, bool)> {
+) -> Result<(HeapField<'alloc>, i32, bool)> {
     match eob {
-        EitherOrBoth::Left(lhs) => Ok((lhs.into_heap_field(alloc), false)),
+        EitherOrBoth::Left(lhs) => {
+            let (field, built_length) = lhs.into_heap_field(alloc);
+            Ok((field, built_length, false))
+        }
         EitherOrBoth::Right(rhs) => {
             let (property, rhs) = rhs.into_parts();
 
@@ -190,17 +209,17 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 Err(heap) => heap,
             };
 
-            let (value, delete) = Cursor::<'alloc, '_, '_, '_, '_, L, R> {
+            let (value, built_length, delete) = reduce_node::<L, R>(
                 tape,
-                loc: loc.push_prop(property.as_str()),
+                tape_index,
+                loc.push_prop(property.as_str()),
                 full,
-                lhs: None,
+                None,
                 rhs,
                 alloc,
-            }
-            .reduce()?;
+            )?;
 
-            Ok((HeapField { property, value }, delete))
+            Ok((HeapField { property, value }, built_length, delete))
         }
         EitherOrBoth::Both(lhs, rhs) => {
             let (property, lhs, rhs) = match (lhs, rhs) {
@@ -226,48 +245,52 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 ),
             };
 
-            let (value, delete) = Cursor {
+            let (value, built_length, delete) = reduce_node(
                 tape,
-                loc: loc.push_prop(&property),
+                tape_index,
+                loc.push_prop(&property),
                 full,
-                lhs: Some(lhs),
+                Some(lhs),
                 rhs,
                 alloc,
-            }
-            .reduce()?;
+            )?;
 
-            Ok((HeapField { property, value }, delete))
+            Ok((HeapField { property, value }, built_length, delete))
         }
     }
 }
 
 fn reduce_item<'alloc, L: AsNode, R: AsNode>(
-    tape: &mut Index<'_>,
+    tape: &mut Tape<'_>,
+    tape_index: &mut i32,
     loc: json::Location<'_>,
     full: bool,
     eob: EitherOrBoth<(usize, LazyNode<'alloc, '_, L>), (usize, LazyNode<'alloc, '_, R>)>,
     alloc: &'alloc bumpalo::Bump,
-) -> Result<(HeapNode<'alloc>, bool)> {
+) -> Result<(HeapNode<'alloc>, i32, bool)> {
     match eob {
-        EitherOrBoth::Left((_, lhs)) => Ok((lhs.into_heap_node(alloc), false)),
-        EitherOrBoth::Right((index, rhs)) => Cursor::<'alloc, '_, '_, '_, '_, L, R> {
+        EitherOrBoth::Left((_, lhs)) => {
+            let (node, built_length) = lhs.into_heap_node(alloc);
+            Ok((node, built_length, false))
+        }
+        EitherOrBoth::Right((index, rhs)) => reduce_node::<L, R>(
             tape,
-            loc: loc.push_item(index),
+            tape_index,
+            loc.push_item(index),
             full,
-            lhs: None,
+            None,
             rhs,
             alloc,
-        }
-        .reduce(),
-        EitherOrBoth::Both((_, lhs), (index, rhs)) => Cursor {
+        ),
+        EitherOrBoth::Both((_, lhs), (index, rhs)) => reduce_node(
             tape,
-            loc: loc.push_item(index),
+            tape_index,
+            loc.push_item(index),
             full,
-            lhs: Some(lhs),
+            Some(lhs),
             rhs,
             alloc,
-        }
-        .reduce(),
+        ),
     }
 }
 
@@ -353,8 +376,11 @@ pub mod test {
         let alloc = HeapNode::new_allocator();
 
         let test_case = |fixture: Value, expect: usize| {
-            assert_eq!(count_nodes(&fixture), expect);
-            assert_eq!(count_nodes(&HeapNode::from_node(&fixture, &alloc)), expect);
+            assert_eq!(fixture.tape_length() as usize, expect);
+            assert_eq!(
+                HeapNode::from_node(&fixture, &alloc).tape_length() as usize,
+                expect
+            );
         };
 
         test_case(json!(true), 1);
@@ -500,5 +526,49 @@ pub mod test {
         assert_eq!(compare_key(&["/b".into()], d1, d2), Ordering::Less);
         // Key exists at |d1| but not |d2|.
         assert_eq!(compare_key(&["/a".into()], d1, d2), Ordering::Greater);
+    }
+
+    #[test]
+    fn test_reduce_strategy_conflicts() {
+        run_reduce_cases(
+            json!({
+                "anyOf": [
+                    { "reduce": {"strategy": "sum"} },
+                    { "reduce": {"strategy": "sum"} }
+                ]
+            }),
+            vec![
+                Partial {
+                    rhs: json!(1),
+                    expect: Ok(json!(1)),
+                },
+                Partial {
+                    rhs: json!(1),
+                    expect: Ok(json!(2)),
+                },
+            ],
+        );
+
+        run_reduce_cases(
+            json!({
+                "anyOf": [
+                    { "reduce": {"strategy": "sum"} },
+                    { "reduce": {"strategy": "jsonSchemaMerge"} }
+                ]
+            }),
+            vec![
+                Partial {
+                    rhs: json!(1),
+                    expect: Ok(json!(1)),
+                },
+                Partial {
+                    rhs: json!(1),
+                    expect: Err(Error::ConflictingStrategies {
+                        first: Strategy::JsonSchemaMerge,
+                        second: Strategy::Sum,
+                    }),
+                },
+            ],
+        );
     }
 }

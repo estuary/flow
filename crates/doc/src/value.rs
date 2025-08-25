@@ -23,6 +23,13 @@ impl AsNode for serde_json::Value {
             Self::String(s) => Node::String(s),
         }
     }
+    fn tape_length(&self) -> i32 {
+        match self {
+            Self::Array(a) => 1 + a.iter().map(|v| v.tape_length()).sum::<i32>(),
+            Self::Object(o) => 1 + o.iter().map(|(_, v)| v.tape_length()).sum::<i32>(),
+            _ => 1,
+        }
+    }
 }
 
 impl Fields<serde_json::Value> for serde_json::Map<String, serde_json::Value> {
