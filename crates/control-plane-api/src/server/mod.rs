@@ -99,6 +99,10 @@ impl App {
         }
     }
 
+    pub fn snapshot(&self) -> &std::sync::RwLock<Snapshot> {
+        &self.snapshot
+    }
+
     /// Uses the current authorization snapshot to filter `unfiltered_results`
     /// to include only the items that the user has `min_capability` to. The
     /// authorization snapshot won't be refreshed, so if it is empty or missing

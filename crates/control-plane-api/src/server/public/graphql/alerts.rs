@@ -161,9 +161,7 @@ pub async fn alert_history(
         .await
         .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
 
-    // JFC, really?! ... yes, really. IDK why rustc couldn't infer the error
-    // type, or why pagination requires 10 generic type parameters, but here we are.
-    connection::query::<_, _, _, _, _, _, _, _, _, async_graphql::Error>(
+    connection::query(
         None,
         before_date,
         None,
@@ -207,7 +205,7 @@ pub async fn alert_history(
                 };
                 conn.edges.push(connection::Edge::new(fired_at, alert));
             }
-            async_graphql::Result::Ok(conn)
+            async_graphql::Result::<PaginatedAlerts>::Ok(conn)
         },
     )
     .await
