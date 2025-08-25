@@ -104,7 +104,7 @@ pub fn build_field_extractors(
                         source_shape.to_owned(),
                         required,
                     ),
-                    name: proj.field.to_owned(),
+                    name: super::field_fold(&proj.field),
                     doc: None,
                     aliases: None,
                     default,

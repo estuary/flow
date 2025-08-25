@@ -11,6 +11,15 @@ Record(
             ),
         ),
         (
+            "_meta_op",
+            Union(
+                0,
+                String(
+                    "c",
+                ),
+            ),
+        ),
+        (
             "flow_published_at",
             Union(
                 0,
