@@ -115,6 +115,9 @@ impl Default for PartitionOffset {
     }
 }
 
+const OFFSET_REQUEST_EARLIEST: i64 = -2;
+const OFFSET_REQUEST_LATEST: i64 = -1;
+
 impl Collection {
     /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
@@ -332,12 +335,12 @@ impl Collection {
     }
 
     /// Map a partition and timestamp into the newest covering fragment offset.
-    /// Request earliest offset
-    ///     - `suspend::Level::Full`: `suspend.offset`
-    ///     - `suspend::Level::Partial | suspend::Level::None`: fragment listing with `begin_mod_time = 0`, return 0th fragment’s begin
     /// Request latest offset
     ///     - `suspend::Level::Full | suspend::Level::Partial`: `suspend.offset`
     ///     - `suspend::Level::None`: write offset returned by non-blocking read at `offset = -1`
+    /// Request earliest offset
+    ///     - `suspend::Level::Full`: `suspend.offset`
+    ///     - `suspend::Level::Partial | suspend::Level::None`: fragment listing with `begin_mod_time = 0`, return 0th fragment’s begin
     pub async fn fetch_partition_offset(
         &self,
         partition_index: usize,
@@ -348,42 +351,51 @@ impl Collection {
         };
 
         let offset_data = match timestamp_millis {
-            // Request latest offset
-            -1 => {
+            OFFSET_REQUEST_LATEST => {
                 match partition.spec.suspend {
                     Some(suspend)
                         if suspend.level == journal_spec::suspend::Level::Full as i32
                             || suspend.level == journal_spec::suspend::Level::Partial as i32 =>
                     {
-                        PartitionOffset {
+                        Some(PartitionOffset {
                             fragment_start: suspend.offset,
                             offset: suspend.offset,
                             mod_time: -1, // UNKNOWN_TIMESTAMP
-                        }
+                        })
                     }
-                    _ => self
-                        .fetch_write_head(partition_index)
-                        .await?
-                        .unwrap_or_default(),
+                    // Not suspended, so return high-water mark.
+                    _ => self.fetch_write_head(partition_index).await?,
                 }
             }
-            // Request earliest offset
-            -2 => {
+            OFFSET_REQUEST_EARLIEST => {
                 match partition.spec.suspend {
                     Some(suspend) if suspend.level == journal_spec::suspend::Level::Full as i32 => {
-                        PartitionOffset {
+                        Some(PartitionOffset {
                             fragment_start: suspend.offset,
                             offset: suspend.offset,
                             mod_time: -1, // UNKNOWN_TIMESTAMP
-                        }
+                        })
                     }
-                    _ => self
-                        .fetch_earliest_offset(partition_index)
-                        .await?
-                        .unwrap_or_default(),
+                    // Not suspended or partially suspended, so return earliest available fragment offset.
+                    _ => self.fetch_earliest_offset(partition_index).await?,
                 }
             }
             _ => {
+                // If fully suspended, return the suspend offset. There will be no fragments.
+                if let Some(suspend) = &partition.spec.suspend {
+                    if suspend.level == journal_spec::suspend::Level::Full as i32 {
+                        return Ok(Some(PartitionOffset {
+                            fragment_start: suspend.offset,
+                            offset: suspend.offset,
+                            mod_time: -1, // UNKNOWN_TIMESTAMP
+                        }));
+                    }
+                }
+
+                // Otherwise, list fragments with begin_mod_time <= timestamp_millis and return the latest fragment's begin offset.
+                // This will return the currently open fragment if there is one and `timestamp_millis` is after any other fragment's
+                // `begin_mod_time` since because the fragment is still open and hasn't been persisted to cloud storage, it doesn't
+                // have a `begin_mod_time` at all. Not all journals will have an open fragment though, so we need to consider that.
                 let (not_before_sec, _) = self
                     .not_before
                     .map(|not_before| not_before.to_unix())
@@ -405,14 +417,21 @@ impl Collection {
                 let response = self.journal_client.list_fragments(request).await?;
 
                 match response.fragments.get(0) {
+                    // We found a fragment covering the requested timestamp, or we found the currently open fragment.
                     Some(broker::fragments_response::Fragment {
                         spec: Some(spec), ..
-                    }) => PartitionOffset {
+                    }) => Some(PartitionOffset {
                         fragment_start: spec.begin,
                         offset: spec.begin,
                         mod_time: spec.mod_time,
-                    },
-                    _ => PartitionOffset::default(),
+                    }),
+                    // No fragments found. This can happen if there are no fragments at all, or if the requested timestamp is
+                    // after the latest fragment's begin_mod_time and there is no currently open fragment. In this case, return
+                    // the high-water mark as the requested timestamp is beyond any known offset.
+                    None => self.fetch_write_head(partition_index).await?,
+                    Some(broker::fragments_response::Fragment { spec: None, .. }) => {
+                        anyhow::bail!("fragment missing spec");
+                    }
                 }
             }
         };
@@ -425,9 +444,10 @@ impl Collection {
             "fetched offset"
         );
 
-        return Ok(Some(offset_data));
+        Ok(offset_data)
     }
 
+    #[tracing::instrument(skip(self))]
     async fn fetch_earliest_offset(
         &self,
         partition_index: usize,
@@ -442,7 +462,11 @@ impl Collection {
             page_limit: 1,
             ..Default::default()
         };
-        let response = self.journal_client.list_fragments(request).await?;
+        let response = self
+            .journal_client
+            .list_fragments(request)
+            .await
+            .context("listing fragments to fetch earliest offset")?;
 
         match response.fragments.get(0) {
             Some(broker::fragments_response::Fragment {
@@ -457,6 +481,7 @@ impl Collection {
     }
 
     /// Fetch the write head of a journal by issuing a non-blocking read request at offset -1
+    #[tracing::instrument(skip(self))]
     async fn fetch_write_head(
         &self,
         partition_index: usize,
@@ -472,19 +497,33 @@ impl Collection {
         };
         let response_stream = self.journal_client.clone().read(request);
         tokio::pin!(response_stream);
-        let response = response_stream.next().await;
 
-        match response {
-            Some(Ok(ReadResponse {
-                write_head,
-                fragment,
-                ..
-            })) => Ok(Some(PartitionOffset {
-                fragment_start: fragment.map(|f| f.begin).unwrap_or(0),
-                offset: write_head,
-                mod_time: -1,
-            })),
-            _ => Ok(None),
+        // Continue polling the stream until we get Ok or a non-transient error
+        loop {
+            match response_stream.next().await {
+                Some(Ok(ReadResponse {
+                    write_head,
+                    fragment,
+                    ..
+                })) => {
+                    return Ok(Some(PartitionOffset {
+                        fragment_start: fragment.map(|f| f.begin).unwrap_or(0),
+                        offset: write_head,
+                        mod_time: -1,
+                    }))
+                }
+                Some(Err(e)) => {
+                    if e.inner.is_transient() {
+                        continue;
+                    } else {
+                        return Err(anyhow::Error::new(e.inner).context(format!(
+                            "failed to fetch write head after {} retries",
+                            e.attempt
+                        )));
+                    }
+                }
+                None => anyhow::bail!("read stream ended unexpectedly"),
+            }
         }
     }
 
