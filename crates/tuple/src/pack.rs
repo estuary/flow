@@ -940,10 +940,10 @@ impl<'a> TuplePack for Element<'a> {
             Element::Int(i) => i.pack(w, tuple_depth),
             Element::Float(f) => f.pack(w, tuple_depth),
             Element::Double(f) => f.pack(w, tuple_depth),
-            Element::String(ref c) => c.pack(w, tuple_depth),
-            Element::Bytes(ref b) => b.pack(w, tuple_depth),
-            Element::Versionstamp(ref b) => b.pack(w, tuple_depth),
-            Element::Tuple(ref v) => v.pack(w, tuple_depth),
+            Element::String(c) => c.pack(w, tuple_depth),
+            Element::Bytes(b) => b.pack(w, tuple_depth),
+            Element::Versionstamp(b) => b.pack(w, tuple_depth),
+            Element::Tuple(v) => v.pack(w, tuple_depth),
             #[cfg(feature = "uuid")]
             Element::Uuid(v) => v.pack(w, tuple_depth),
             #[cfg(feature = "num-bigint")]

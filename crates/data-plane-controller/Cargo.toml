@@ -21,7 +21,6 @@ clap = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
-ipnetwork = { workspace = true }
 itertools = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }

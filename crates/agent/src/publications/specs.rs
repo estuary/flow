@@ -13,11 +13,11 @@ pub async fn persist_updates(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<LockFailure>> {
     let UncommittedBuild {
-        ref publication_id,
-        ref build_id,
-        ref output,
-        ref user_id,
-        ref detail,
+        publication_id,
+        build_id,
+        output,
+        user_id,
+        detail,
         ..
     } = uncommitted;
 

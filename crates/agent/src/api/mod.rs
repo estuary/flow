@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse};
+use base64::Engine;
 use std::sync::{Arc, Mutex};
 
 mod authorize_dekaf;
@@ -236,7 +237,6 @@ async fn preflight_handler() -> impl IntoResponse {
     (StatusCode::NO_CONTENT, "")
 }
 
-#[axum::async_trait]
 impl<T, S> axum::extract::FromRequest<S> for Request<T>
 where
     T: serde::de::DeserializeOwned + validator::Validate,
@@ -325,7 +325,9 @@ async fn exchange_refresh_token(app: &App, refresh_token: &str) -> anyhow::Resul
         access_token: String,
     }
 
-    let bearer = base64::decode(refresh_token).context("failed to base64-decode bearer token")?;
+    let bearer = base64::engine::general_purpose::STANDARD
+        .decode(refresh_token)
+        .context("failed to base64-decode bearer token")?;
     let bearer: RefreshToken =
         serde_json::from_slice(&bearer).context("failed to decode refresh token")?;
 

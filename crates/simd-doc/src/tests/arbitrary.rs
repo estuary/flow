@@ -61,8 +61,8 @@ impl quickcheck::Arbitrary for ArbitraryValue {
     }
 }
 
-fn gen_range(gen: &mut quickcheck::Gen, range: Range<u64>) -> u64 {
-    u64::arbitrary(gen) % (range.end - range.start) + range.start
+fn gen_range(generator: &mut quickcheck::Gen, range: Range<u64>) -> u64 {
+    u64::arbitrary(generator) % (range.end - range.start) + range.start
 }
 
 fn gen_value(g: &mut quickcheck::Gen, n: usize) -> Value {

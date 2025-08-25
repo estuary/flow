@@ -14,7 +14,7 @@ pub async fn is_user_provisioned(
         "#,
         user_id as Uuid,
     )
-    .fetch_optional(txn)
+    .fetch_optional(&mut **txn)
     .await?;
 
     Ok(exists.is_some())
@@ -34,7 +34,7 @@ pub async fn tenant_exists(
         "#,
         prefix.clone() as String,
     )
-    .fetch_optional(&mut *txn)
+    .fetch_optional(&mut **txn)
     .await?;
 
     let exists = sqlx::query!(
@@ -44,7 +44,7 @@ pub async fn tenant_exists(
         "#,
         prefix as String,
     )
-    .fetch_optional(&mut *txn)
+    .fetch_optional(&mut **txn)
     .await?;
 
     Ok(illegal.is_some() || exists.is_some())
@@ -105,7 +105,7 @@ pub async fn provision_tenant(
         detail.clone() as Option<String>,
         accounts_user_email as &str,
     )
-    .execute(&mut *txn)
+    .execute(&mut **txn)
     .await?;
 
     Ok(())

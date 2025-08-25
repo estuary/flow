@@ -1,7 +1,8 @@
 use crate::format::{Output, ParseError, ParseResult, Parser};
 use crate::input::Input;
 use apache_avro::{schema::SchemaKind, types::Value as AvroValue, Reader, Schema};
-use chrono::{NaiveDateTime, NaiveTime};
+use base64::Engine;
+use chrono::{DateTime, NaiveTime};
 use serde_json::Value;
 use std::io;
 
@@ -141,7 +142,9 @@ fn avro_to_json(
                 column_name.to_string(),
             )),
         },
-        Bytes(b) | Fixed(_, b) => Ok(Value::String(base64::encode(&b))),
+        Bytes(b) | Fixed(_, b) => Ok(Value::String(
+            base64::engine::general_purpose::STANDARD.encode(&b),
+        )),
         String(s) => Ok(Value::String(s)),
         Enum(_, s) => Ok(Value::String(s)),
         // union is just a wrapper around a boxed avro Value, so we just unwrap it here and
@@ -175,7 +178,8 @@ fn avro_to_json(
             const SECS_PER_DAY: i64 = 86_400;
             let ts = (d as i64)
                 .checked_mul(SECS_PER_DAY)
-                .and_then(|secs| NaiveDateTime::from_timestamp_opt(secs, 0))
+                .and_then(|secs| DateTime::from_timestamp(secs, 0))
+                .map(|dt| dt.naive_utc())
                 .ok_or_else(|| {
                     AvroError::DateTimeOverflow(d as i64, "date", column_name.to_string())
                 })?;
@@ -286,7 +290,8 @@ fn timestamp_from_unix_epoch(
     units_per_second: i64,
 ) -> Result<Value, AvroError> {
     let (secs, nanos) = to_secs_and_nanos(duration, units_per_second);
-    let ts = NaiveDateTime::from_timestamp_opt(secs, nanos)
+    let ts = DateTime::from_timestamp(secs, nanos)
+        .map(|dt| dt.naive_utc())
         .ok_or_else(|| AvroError::DateTimeOverflow(duration, avro_type, column.to_string()))?;
     Ok(Value::String(ts.to_string()))
 }

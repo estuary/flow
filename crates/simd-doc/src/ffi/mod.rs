@@ -16,7 +16,7 @@ impl Transcoded {
         self.v.reserve(additional);
     }
     unsafe fn set_len(&mut self, len: usize) {
-        self.v.set_len(len)
+        unsafe { self.v.set_len(len) }
     }
 }
 
