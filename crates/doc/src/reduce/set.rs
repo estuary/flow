@@ -1,10 +1,7 @@
-use super::{
-    compare_key, compare_key_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop, Cursor,
-    Error, Index, Result,
-};
+use super::{compare_key, compare_key_lazy, reduce_item, reduce_prop, Error, Result, Tape};
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
-    AsNode, BumpVec, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
+    AsNode, BumpStr, BumpVec, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
 };
 use itertools::EitherOrBoth;
 use std::iter::Iterator;
@@ -133,7 +130,8 @@ const UNION: u8 = 7;
 
 // Builder assists in building a set's constituent terms (add, intersect, remove).
 struct Builder<'alloc, 'schema, 'tmp> {
-    tape: &'tmp mut Index<'schema>,
+    tape: &'tmp mut Tape<'schema>,
+    tape_index: &'tmp mut i32,
     loc: json::Location<'tmp>,
     full: bool,
     key: &'schema [Pointer],
@@ -154,9 +152,10 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         naught: bool,
         mask: u8,
         rhs: Option<LazyArray<'alloc, '_, R>>,
-    ) -> Result<Option<HeapNode<'alloc>>> {
+    ) -> Result<Option<(HeapNode<'alloc>, i32)>> {
         let Self {
             tape,
+            tape_index,
             loc,
             full,
             key,
@@ -164,7 +163,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         } = self;
 
         if rhs.is_some() {
-            **tape = &tape[1..]; // Consume |rhs| container.
+            **tape_index += 1; // Consume |rhs| container.
         } else if lhs.is_none() {
             return Ok(None);
         }
@@ -207,6 +206,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
             Some(LazyArray::Heap(arr)) => subtract(key, lhs, arr.iter(), naught),
             None => Box::new(lhs),
         };
+        let mut built_length = 1;
 
         for eob in itertools::merge_join_by(
             lhs_diff_sub.enumerate(),
@@ -215,26 +215,32 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) {
             match eob {
                 EitherOrBoth::Left((_, lhs)) if LEFT & mask != 0 => {
-                    arr.push(lhs.into_heap_node(alloc), alloc);
+                    let (node, child_delta) = lhs.into_heap_node(alloc);
+                    arr.push(node, alloc);
+                    built_length += child_delta;
                 }
                 EitherOrBoth::Right((_, rhs)) if RIGHT & mask != 0 => {
-                    let rhs = rhs.into_heap_node(alloc);
-                    **tape = &tape[count_nodes(&rhs)..];
-                    arr.push(rhs, alloc);
+                    let (node, child_delta) = rhs.into_heap_node(alloc);
+                    arr.push(node, alloc);
+                    built_length += child_delta;
+                    **tape_index += child_delta;
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    arr.push(reduce_item(*tape, *loc, *full, eob, alloc)?.0, alloc);
+                    let (node, child_delta, _) =
+                        reduce_item(tape, &mut **tape_index, *loc, *full, eob, alloc)?;
+                    arr.push(node, alloc);
+                    built_length += child_delta;
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
                 }
                 EitherOrBoth::Right((_, rhs)) | EitherOrBoth::Both(_, (_, rhs)) => {
-                    **tape = &tape[count_nodes_lazy(&rhs)..]; // Discard, but count nodes.
+                    **tape_index += rhs.tape_length(); // Discard.
                 }
             };
         }
 
-        Ok(Some(HeapNode::Array(arr)))
+        Ok(Some((HeapNode::Array(built_length, arr), built_length)))
     }
 
     // Build the map form of a term. Behaves just like vec_term.
@@ -245,9 +251,10 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         naught: bool,
         mask: u8,
         rhs: Option<LazyObject<'alloc, '_, R>>,
-    ) -> Result<Option<HeapNode<'alloc>>> {
+    ) -> Result<Option<(HeapNode<'alloc>, i32)>> {
         let Self {
             tape,
+            tape_index,
             loc,
             full,
             key: _,
@@ -255,7 +262,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         } = self;
 
         if rhs.is_some() {
-            **tape = &tape[1..]; // Consume |rhs| container.
+            **tape_index += 1; // Consume |rhs| container.
         } else if lhs.is_none() {
             return Ok(None);
         }
@@ -294,6 +301,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
             Some(LazyObject::Heap(fields)) => subtract(lhs, fields.iter(), naught),
             None => Box::new(lhs),
         };
+        let mut built_length = 1;
 
         for eob in itertools::merge_join_by(
             lhs_diff_sub,
@@ -302,48 +310,52 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) {
             match eob {
                 EitherOrBoth::Left(lhs) if LEFT & mask != 0 => {
-                    fields.push(lhs.into_heap_field(alloc), alloc);
+                    let (field, child_delta) = lhs.into_heap_field(alloc);
+                    fields.push(field, alloc);
+                    built_length += child_delta;
                 }
                 EitherOrBoth::Right(rhs) if RIGHT & mask != 0 => {
-                    let rhs: HeapField = rhs.into_heap_field(alloc);
-                    **tape = &tape[count_nodes(&rhs.value)..];
-                    fields.push(rhs, alloc);
+                    let (field, child_delta) = rhs.into_heap_field(alloc);
+                    fields.push(field, alloc);
+                    built_length += child_delta;
+                    **tape_index += child_delta;
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    fields.push(reduce_prop(*tape, *loc, *full, eob, alloc)?.0, alloc);
+                    let (field, child_delta, _) =
+                        reduce_prop(tape, &mut **tape_index, *loc, *full, eob, alloc)?;
+                    fields.push(field, alloc);
+                    built_length += child_delta;
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
                 }
                 EitherOrBoth::Right(rhs) | EitherOrBoth::Both(_, rhs) => {
                     let (_property, value) = rhs.into_parts();
-                    **tape = &tape[count_nodes_lazy(&value)..]; // Discard, but count nodes.
+                    **tape_index += value.tape_length(); // Discard.
                 }
             };
         }
 
-        Ok(Some(HeapNode::Object(fields)))
+        Ok(Some((HeapNode::Object(built_length, fields), built_length)))
     }
 }
 
 impl Set {
     pub fn apply<'alloc, 'schema, L: AsNode, R: AsNode>(
         &'schema self,
-        cur: Cursor<'alloc, 'schema, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
-        let Cursor {
-            tape,
-            loc,
-            lhs,
-            rhs,
-            alloc,
-            full,
-        } = cur;
-
-        *tape = &tape[1..]; // Consume object holding the set.
+        tape: &mut Tape<'schema>,
+        tape_index: &mut i32,
+        loc: json::Location<'_>,
+        full: bool,
+        lhs: Option<LazyNode<'alloc, '_, L>>,
+        rhs: LazyNode<'alloc, '_, R>,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> Result<(HeapNode<'alloc>, i32)> {
+        *tape_index += 1; // Consume object holding the set.
 
         let mut bld = Builder {
             tape,
+            tape_index,
             loc,
             full,
             key: &self.key,
@@ -354,6 +366,16 @@ impl Set {
         let add = "add";
         let intersect = "intersect";
         let remove = "remove";
+        let mut built_length = 1;
+
+        let mut push_term = |kind, (term, child_delta)| {
+            let value = HeapField {
+                property: BumpStr::from_str(kind, alloc),
+                value: term,
+            };
+            out.push(value, alloc);
+            built_length += child_delta;
+        };
 
         match Destructured::extract(loc, lhs, rhs)? {
             // I,A reduce I,A
@@ -363,7 +385,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.vec_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "intersect" as: LI & RI.
@@ -377,7 +399,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_property(intersect, alloc) = term;
+                    push_term(intersect, term);
                 }
             }
             // I,A reduce R,A
@@ -387,7 +409,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.vec_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "intersect" as: LI - RR.
@@ -401,7 +423,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_property(intersect, alloc) = term;
+                    push_term(intersect, term);
                 }
             }
             // R,A reduce I,A
@@ -411,7 +433,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.vec_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "intersect" as: RI - LR.
@@ -425,7 +447,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_property(intersect, alloc) = term;
+                    push_term(intersect, term);
                 }
             }
             // R,A reduce R,A
@@ -436,7 +458,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.vec_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "remove" as: LR U RR.
@@ -444,7 +466,7 @@ impl Set {
                     bld.vec_term(lr, None, false, if bld.full { NONE } else { UNION }, rr)?,
                     bld.full,
                 ) {
-                    *out.insert_property(remove, alloc) = term;
+                    push_term(remove, term);
                 }
             }
 
@@ -455,7 +477,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.map_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "intersect" as: LI & RI.
@@ -469,7 +491,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_property(intersect, alloc) = term;
+                    push_term(intersect, term);
                 }
             }
             // I,A reduce R,A
@@ -479,7 +501,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.map_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "intersect" as: LI - RR.
@@ -493,7 +515,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_property(intersect, alloc) = term;
+                    push_term(intersect, term);
                 }
             }
             // R,A reduce I,A
@@ -504,7 +526,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.map_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "intersect" as: RI - LR.
@@ -518,7 +540,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_property(intersect, alloc) = term;
+                    push_term(intersect, term);
                 }
             }
             // R,A reduce R,A
@@ -529,7 +551,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.map_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_property(add, alloc) = term;
+                    push_term(add, term);
                 }
 
                 // Reduce "remove" as: LR U RR.
@@ -537,14 +559,14 @@ impl Set {
                     bld.map_term(lr, None, false, if bld.full { NONE } else { UNION }, rr)?,
                     bld.full,
                 ) {
-                    *out.insert_property(remove, alloc) = term;
+                    push_term(remove, term);
                 }
             }
 
             _ => return Err(Error::with_location(Error::SetWrongType, loc)),
         };
 
-        Ok(HeapNode::Object(out))
+        Ok((HeapNode::Object(built_length, out), built_length))
     }
 }
 

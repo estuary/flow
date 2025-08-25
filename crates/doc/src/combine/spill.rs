@@ -503,22 +503,22 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..171]);
+        assert_eq!(ranges, vec![0..173]);
 
-        insta::assert_snapshot!(to_hex(&spill.get_ref()), @r###"
-        |5c000000 90000000 c0000000 00400000| \............@.. 00000000
+        insta::assert_snapshot!(to_hex(&spill.get_ref()), @r"
+        |5e000000 90000000 c0000000 00400000| ^............@.. 00000000
         |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
         |0010ff1c 0011760a 00031800 4370706c| ......v.....Cppl 00000020
-        |65180090 06000000 ccffffff 0225007c| e............%.| 00000030
-        |00000001 00008048 00306262 623b000d| .......H.0bbb;.. 00000040
-        |48006262 616e616e 61180007 48005000| H.bbanana...H.P. 00000050
-        |00000000 3f000000 48000000 c0020000| ....?...H....... 00000060
-        |80400000 006b6579 ff010070 08000000| .@...key...p.... 00000070
-        |6363630b 0061ff00 00000076 0a000318| ccc..a.....v.... 00000080
-        |00526172 726f7418 00f00106 000000cc| .Rarrot......... 00000090
-        |ffffff02 00000000 000000|            ...........      000000a0
-                                                               000000ab
-        "###);
+        |651800fc 05060000 00030000 00c8ffff| e............... 00000030
+        |ff020000 00010000 80480030 6262623b| .........H.0bbb; 00000040
+        |000d4800 6262616e 616e6118 00074800| ..H.bbanana...H. 00000050
+        |50ff0200 00003f00 00004800 0000c002| P.....?...H..... 00000060
+        |00008040 0000006b 6579ff01 00700800| ...@...key...p.. 00000070
+        |00006363 630b0061 ff000000 00760a00| ..ccc..a.....v.. 00000080
+        |03180052 6172726f 741800f0 01060000| ...Rarrot....... 00000090
+        |00030000 00c8ffff ff020000 00|       .............    000000a0
+                                                               000000ad
+        ");
 
         // Parse the region as a Segment.
         let mut segment = Segment::new(keys, &mut spill, ranges[0].clone()).unwrap();
@@ -528,7 +528,7 @@ mod test {
         assert_eq!(segment.head.meta.front(), false);
         assert!(crate::compare(segment.head.root.get(), &fixture[0].1).is_eq());
         assert!(!segment.tail.is_empty());
-        assert_eq!(segment.next, 100..171);
+        assert_eq!(segment.next, 102..173);
 
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
         segment = next_segment.unwrap();
@@ -537,7 +537,7 @@ mod test {
         assert_eq!(segment.head.meta.front(), true);
         assert!(crate::compare(segment.head.root.get(), &fixture[1].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
-        assert_eq!(segment.next, 100..171);
+        assert_eq!(segment.next, 102..173);
 
         // Next chunk is read and has one document.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
@@ -547,7 +547,7 @@ mod test {
         assert_eq!(segment.head.meta.front(), true);
         assert!(crate::compare(segment.head.root.get(), &fixture[2].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
-        assert_eq!(segment.next, 171..171);
+        assert_eq!(segment.next, 173..173);
 
         // Stepping the segment again consumes it, as no chunks remain.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();

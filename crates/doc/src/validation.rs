@@ -1,5 +1,4 @@
-use super::{reduce, walker::walk_document, Annotation, AsNode, SerPolicy};
-use json::validator::Context;
+use super::{walker::walk_document, Annotation, AsNode, SerPolicy};
 use std::pin::Pin;
 
 // Specialize json templates for the Flow `Annotation` type.
@@ -214,20 +213,3 @@ impl std::fmt::Display for FailedValidation {
     }
 }
 impl std::error::Error for FailedValidation {}
-
-impl<'schema> Valid<'schema, '_> {
-    pub fn extract_reduce_annotations(&self) -> Vec<(&'schema reduce::Strategy, u64)> {
-        let mut idx = std::iter::repeat((reduce::DEFAULT_STRATEGY, 0))
-            .take(self.span.end)
-            .collect::<Vec<_>>();
-
-        for (outcome, ctx) in self.validator.outcomes() {
-            let subspan = ctx.span();
-
-            if let ::json::validator::Outcome::Annotation(Annotation::Reduce(strategy)) = outcome {
-                idx[subspan.begin] = (strategy, subspan.hashed);
-            }
-        }
-        idx
-    }
-}
