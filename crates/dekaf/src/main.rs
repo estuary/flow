@@ -92,9 +92,13 @@ pub struct Cli {
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
 
-    /// How long to cache materialization specs and other task metadata for before re-refreshing
+    /// How long to cache materialization specs and other task metadata for before refreshing
     #[arg(long, env = "TASK_REFRESH_INTERVAL", value_parser = humantime::parse_duration, default_value = "30s")]
     task_refresh_interval: std::time::Duration,
+
+    /// How long before a request for materialization specs and other task metadata times out
+    #[arg(long, env = "TASK_REQUEST_TIMEOUT", value_parser = humantime::parse_duration, default_value = "20s")]
+    task_request_timeout: std::time::Duration,
 
     /// Timeout for TLS handshake completion
     #[arg(long, env = "TLS_HANDSHAKE_TIMEOUT", value_parser = humantime::parse_duration, default_value = "10s")]
@@ -286,6 +290,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     let task_manager = Arc::new(TaskManager::new(
         cli.task_refresh_interval,
+        cli.task_request_timeout,
         client_base.clone(),
         cli.data_plane_fqdn.clone(),
         signing_token.clone(),
