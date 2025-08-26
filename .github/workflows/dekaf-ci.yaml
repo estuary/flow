@@ -17,6 +17,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+  SQLX_OFFLINE: "1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
