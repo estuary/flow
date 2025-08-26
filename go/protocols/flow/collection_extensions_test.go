@@ -67,3 +67,58 @@ func TestIsSingleScalarType(t *testing.T) {
 	}
 
 }
+
+func TestIsRootLevelProjection(t *testing.T) {
+	testCases := []struct {
+		name     string
+		ptr      string
+		expected bool
+	}{
+		{
+			name:     "root document projection",
+			ptr:      "",
+			expected: false,
+		},
+		{
+			name:     "root level field",
+			ptr:      "/field",
+			expected: true,
+		},
+		{
+			name:     "root level field with special chars",
+			ptr:      "/user-name",
+			expected: true,
+		},
+		{
+			name:     "nested field",
+			ptr:      "/nested/field",
+			expected: false,
+		},
+		{
+			name:     "deeply nested field",
+			ptr:      "/deeply/nested/field",
+			expected: false,
+		},
+		{
+			name:     "array index",
+			ptr:      "/array/0",
+			expected: false,
+		},
+		{
+			name:     "root level array",
+			ptr:      "/array",
+			expected: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			projection := Projection{
+				Field: "test_field",
+				Ptr:   tc.ptr,
+			}
+			result := projection.IsRootLevelProjection()
+			require.Equal(t, tc.expected, result, "IsRootLevelProjection() for ptr %q", tc.ptr)
+		})
+	}
+}
