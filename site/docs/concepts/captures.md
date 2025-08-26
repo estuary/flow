@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 1
 ---
 # Captures
 
@@ -16,7 +16,7 @@ as soon as new documents are made available at the endpoint resources,
 Flow validates their schema and adds them to the appropriate collection.
 Captures can process [documents](./collections.md#documents) up to 16 MB in size.
 
-![](<captures-new.svg>)
+![Flow capture diagram](./concept-images/captures-new.svg)
 
 You define and configure captures in **Flow specifications**.
 
@@ -67,7 +67,7 @@ There are several options for controlling the behavior of `autoDiscover`:
 
 In the Flow web app, you can set these properties when you create or edit a capture.
 
-![](captures-auto-discover-ui.png)
+![Capture auto-discovery in the UI](./concept-images/captures-auto-discover-ui.png)
 
 The toggles in the web app correspond directly to the properties above:
 

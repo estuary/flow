@@ -1,3 +1,7 @@
+---
+sidebar_position: 2
+---
+
 # Quickstart for Flow
 
 <head>
@@ -19,7 +23,7 @@ When you register for Flow, your account will use Flow's secure cloud storage bu
 Data in Flow's cloud storage bucket is deleted 20 days after collection.
 
 For production use cases, you
-should [configure your own cloud storage bucket to use with Flow](../installation.mdx).
+should [configure your own cloud storage bucket to use with Flow](./installation.mdx).
 
 ## Step 1. Set up a Capture<a id="step-2-set-up-a-capture"></a>
 
@@ -44,7 +48,7 @@ refresher, let’s recap how Flow represents data on a high level.
 The documents of your flows are stored in collections: real-time data lakes of JSON documents in cloud storage.
 Documents being backed by an object storage mean that once you start capturing data, you won’t have to worry about it
 not being available to replay – object stores such as S3 can be configured to cheaply store data forever.
-See [docs page](https://docs.estuary.dev/concepts/collections/#documents) for more information.
+See [docs page](../concepts/collections.md#documents) for more information.
 
 **Schemas**
 
@@ -110,8 +114,8 @@ Now try it out on your own PostgreSQL database or other sources.
 
 If you want to learn more, make sure you read through the [Estuary documentation](https://docs.estuary.dev/).
 
-You’ll find instructions on how to use other connectors [here](https://docs.estuary.dev/). There are more
-tutorials [here](https://docs.estuary.dev/guides/).
+You’ll find instructions on how to use other connectors [here](../reference/Connectors/README.md). There are more
+tutorials [here](./tutorials/README.md).
 
 Also, don’t forget to join
 the [Estuary Slack Community](https://estuary-dev.slack.com/ssb/redirect#/shared-invite/email)!

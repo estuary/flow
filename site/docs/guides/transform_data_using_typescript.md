@@ -1,4 +1,4 @@
-# How to transform data using TypeScript
+# How to Transform Data Using TypeScript
 
 This guide will teach you how to write and publish a simple TypeScript derivation.
 

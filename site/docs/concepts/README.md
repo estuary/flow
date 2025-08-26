@@ -6,7 +6,7 @@ Data Flows are defined by a set of **Flow specifications** and deployed using ei
 This page introduces concepts and terms that will help you begin working with Flow and better understand its underlying mechanisms.
 These concepts are discussed in more detail on subsequent pages.
 
-![](<at-a-glance.png>)
+![Flow at a glance](./concept-images/at-a-glance.png)
 
 ## Working with Flow
 

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 ---
-# Working with logs and statistics
+# Working with Logs and Statistics
 
 Your [`logs` and `stats` collections](../concepts/advanced/logs-stats.md)
 are useful for debugging and monitoring catalog tasks.

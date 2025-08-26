@@ -1,4 +1,4 @@
-# How to join two collections (TypeScript)
+# How to Join Two Collections (TypeScript)
 
 This guide will teach you how to write and publish a TypeScript derivation, which will join two collections together on a common key.
 

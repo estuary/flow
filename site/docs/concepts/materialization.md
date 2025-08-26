@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 8
 ---
 # Materializations
 
@@ -15,7 +15,7 @@ Materializations can process [documents](./collections.md#documents) up to 16 MB
 
 Materializations are the conceptual inverse of [captures](captures.md).
 
-![](<materialization-new.svg>)
+![Flow materialization diagram](./concept-images/materialization-new.svg)
 
 You define and configure materializations in **Flow specifications**.
 
@@ -164,7 +164,7 @@ Its materialization into a database table will have a single row for each unique
 As documents arrive in the collection, the row `total` is updated within the
 materialized table so that it reflects the overall count:
 
-![](materialization.gif)
+![Materialization reduction](./concept-images/materialization.gif)
 
 Flow does _not_ keep separate internal copies of collection or reduction states,
 as some other systems do. The endpoint resource is the one and only place

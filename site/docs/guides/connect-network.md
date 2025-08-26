@@ -1,8 +1,8 @@
 ---
-sidebar_position: 8
+sidebar_position: 7
 ---
 
-# Secure connections
+# Secure Connections
 
 There are various options for more securely connecting to your endpoints depending on your environment and needs.
 

@@ -2,7 +2,7 @@
 sidebar_position: 1
 ---
 
-# Editing considerations
+# Editing Considerations
 
 You can edit the components of your Data Flows in the Flow web app and with flowctl, but before you do so, it's important to consider the implications of your changes.
 

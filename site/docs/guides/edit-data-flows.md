@@ -1,7 +1,7 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 ---
-# Edit Data Flows in the web app
+# Edit Data Flows in the Web App
 
 You can edit existing captures, collection schemas, and materializations in the Flow web app.
 For a tour of the web app, [start here](../concepts/web-app.md).

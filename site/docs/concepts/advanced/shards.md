@@ -1,4 +1,4 @@
-# Task shards
+# Task Shards
 
 Catalog [tasks](../README.md#tasks) — captures, derivations, and materializations —
 are executed by one or more task **shards**.

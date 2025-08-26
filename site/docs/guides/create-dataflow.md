@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# Create a basic Data Flow
+# Create a Basic Data Flow
 
 This guide walks you through the process of creating an end-to-end Data Flow.
 

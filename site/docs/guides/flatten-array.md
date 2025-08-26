@@ -1,4 +1,4 @@
-# How to flatten an array using TypeScript
+# How to Flatten an Array Using TypeScript
 
 This guide will show you how to flatten an array field in a collection by creating a TypeScript derivation in Estuary Flow.
 

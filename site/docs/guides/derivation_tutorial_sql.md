@@ -1,4 +1,4 @@
-# How to transform data using SQL
+# How to Transform Data Using SQL
 
 This guide will teach you how to write and publish a simple SQL derivation that you can use to transform data from one collection to another.
 

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 5
 ---
-# Organizing a Flow catalog
+# Organizing a Flow Catalog
 
 :::caution Beta
 This page is outdated. It does not reflect the current state of the Flow web application and the

@@ -1,9 +1,9 @@
 ---
-sidebar_position: 3
+sidebar_position: 1
 description: Common pain points you might have, and how Flow addresses them.
 ---
 
-# Who should use Flow?
+# Who Should Use Flow?
 
 Flow is a data movement and transformation platform designed for all members of your data team. Its powerful command-line interface gives backend engineers data integration superpowers.
 At the same time, Flow allows data analysts and other user cohorts to meaningfully contribute to and manage the same data pipelines, or **data flows**, using the web application.

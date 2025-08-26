@@ -1,8 +1,8 @@
 ---
-sidebar_position: 6
+sidebar_position: 12
 ---
 
-# Web application
+# Web Application
 
 Flow's web application is at [dashboard.estuary.dev](https://dashboard.estuary.dev).
 

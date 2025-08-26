@@ -36,7 +36,7 @@ To start using Flow for free, visit the [dashboard](https://go.estuary.dev/dashb
 
 Start using Flow with these recommended resources.
 
-- **[Quickstart](quickstart/quickstart.md)**: Take a look at the Quickstart to see how easy it is to set up a real-time
+- **[Quickstart](./quickstart.md)**: Take a look at the Quickstart to see how easy it is to set up a real-time
   data flow.
 
 - **[User guides](../guides/README.md)**: Get familiar with Flow concepts by reading these byte-sized user guides.

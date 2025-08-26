@@ -2,7 +2,7 @@
 sidebar_position: 1
 ---
 
-# Authorizing users and authenticating with Flow
+# Authorizing Users and Authenticating with Flow
 
 Read, write, and admin capabilities over Flow catalogs and the [collections](../concepts/collections.md) that comprise them
 are granted to Flow users through **capabilities**.

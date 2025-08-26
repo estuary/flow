@@ -1,4 +1,4 @@
-# Logs and statistics
+# Logs and Statistics
 
 Flow collects logs and statistics of catalog tasks to aid in debugging and refinement of your workflows.
 

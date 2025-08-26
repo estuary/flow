@@ -1,4 +1,4 @@
-# Schema evolution
+# Schema Evolution
 
 **Schema evolutions** are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components.
 

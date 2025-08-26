@@ -1,4 +1,4 @@
-# Materialization sync schedule
+# Materialization Sync Schedule
 
 For some systems you might prefer to have data sync'd less frequently to reduce
 compute costs in the destination if some delay in new data is acceptable. For

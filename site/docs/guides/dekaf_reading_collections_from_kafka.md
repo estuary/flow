@@ -1,4 +1,4 @@
-# Connecting to Estuary Flow from Kafka using Dekaf
+# Connecting to Kafka Using Dekaf
 
 **Dekaf** is Estuary Flow's Kafka API compatibility layer, allowing consumers to read data from Estuary Flow collections
 as if they were Kafka topics. Additionally, Dekaf provides a schema registry API for managing schemas. This guide will
