@@ -201,7 +201,7 @@ impl TaskAuth {
     }
     pub async fn authenticated_client(&mut self) -> Result<&flow_client::Client, DekafError> {
         // Check if the task has been redirected
-        match self.task_state_listener.get().await? {
+        match self.task_state_listener.get().await?.as_ref() {
             TaskState::Authorized {
                 access_token: token,
                 access_token_claims: claims,
@@ -212,7 +212,7 @@ impl TaskAuth {
                     self.client = self
                         .client
                         .clone()
-                        .with_user_access_token(Some(token))
+                        .with_user_access_token(Some(token.to_owned()))
                         .with_fresh_gazette_client();
                     self.exp = time::OffsetDateTime::UNIX_EPOCH
                         + time::Duration::seconds(claims.exp as i64);
@@ -223,7 +223,10 @@ impl TaskAuth {
                 target_dataplane_fqdn,
                 spec,
                 ..
-            } => Err(DekafError::from_redirect(target_dataplane_fqdn, spec).await?),
+            } => Err(
+                DekafError::from_redirect(target_dataplane_fqdn.to_owned(), spec.to_owned())
+                    .await?,
+            ),
         }
     }
 
@@ -234,12 +237,12 @@ impl TaskAuth {
             .await
             .context("failed to fetch task spec")?;
 
-        let spec = match task_state {
+        let spec = match task_state.as_ref() {
             TaskState::Authorized { spec, .. } => spec,
             TaskState::Redirect { spec, .. } => spec,
         };
 
-        utils::fetch_all_collection_names(&spec)
+        utils::fetch_all_collection_names(spec)
     }
 
     pub async fn get_binding_for_topic(
@@ -252,12 +255,12 @@ impl TaskAuth {
             .await
             .context("failed to fetch task spec")?;
 
-        let spec = match task_state {
+        let spec = match task_state.as_ref() {
             TaskState::Authorized { spec, .. } => spec,
             TaskState::Redirect { spec, .. } => spec,
         };
 
-        utils::get_binding_for_topic(&spec, topic_name)
+        utils::get_binding_for_topic(spec, topic_name)
     }
 }
 
@@ -314,7 +317,7 @@ impl App {
             let listener = self.task_manager.get_listener(&username);
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
-            match listener.get().await? {
+            match listener.get().await?.as_ref() {
                 TaskState::Authorized {
                     access_token: token,
                     access_token_claims: claims,
@@ -353,7 +356,7 @@ impl App {
                     Ok(SessionAuthentication::Task(TaskAuth::new(
                         self.client_base
                             .clone()
-                            .with_user_access_token(Some(token))
+                            .with_user_access_token(Some(token.to_owned()))
                             .with_fresh_gazette_client(),
                         username,
                         config,
@@ -380,8 +383,8 @@ impl App {
                     // Return a redirect authentication that will taint
                     // the session to cause it to redirected its consumer.
                     Ok(SessionAuthentication::Redirect {
-                        target_dataplane_fqdn,
-                        spec,
+                        target_dataplane_fqdn: target_dataplane_fqdn.to_owned(),
+                        spec: spec.to_owned(),
                         config,
                         task_state_listener: listener,
                     })
