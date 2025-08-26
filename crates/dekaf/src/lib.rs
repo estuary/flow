@@ -8,6 +8,7 @@ use tracing::instrument;
 
 pub mod log_appender;
 pub mod logging;
+pub mod otel;
 
 mod topology;
 pub use topology::extract_dekaf_config;
@@ -34,16 +35,13 @@ pub use api_client::{KafkaApiClient, KafkaClientAuth};
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};
-use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
 use std::{
-    any,
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tracing_record_hierarchical::SpanExt;
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -460,9 +458,8 @@ async fn handle_api(
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
             if let Some(client_id) = &header.client_id {
-                tracing::Span::current()
-                    .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, client_id.to_string());
-                tracing::info!("Got client ID!");
+                session.set_client_id(client_id.to_string());
+                tracing::info!(?client_id, "Got client ID!");
             }
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }

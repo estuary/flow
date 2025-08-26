@@ -1,11 +1,15 @@
-use crate::log_appender::{self, GazetteWriter, TaskForwarder};
+use crate::{
+    log_appender::{self, GazetteWriter, TaskForwarder},
+    otel::OtelConfig,
+};
+use anyhow::Context;
 use futures::Future;
 use lazy_static::lazy_static;
 use rand::Rng;
 use tracing::level_filters::LevelFilter;
 use tracing::Instrument;
 use tracing_subscriber::filter::Targets;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer, Registry};
 
 // These are accessible anywhere inside the call stack of a future wrapped with [`forward_logs()`].
 // The relationship between LogForwarder and log journal is one-to-one. That means that all logs
@@ -15,7 +19,7 @@ tokio::task_local! {
     static LOG_LEVEL: std::cell::Cell<&'static tracing_subscriber::filter::Targets>;
 }
 
-pub fn install() {
+pub fn install(otel_cfg: Option<OtelConfig>) -> anyhow::Result<()> {
     // Build a tracing_subscriber::Filter which uses our dynamic log level.
     let log_filter = tracing_subscriber::filter::DynFilterFn::new(move |metadata, ctx| {
         if metadata
@@ -40,8 +44,27 @@ pub fn install() {
                 .from_env_lossy(),
         );
 
+    let otel_layer = if let Some(cfg) = otel_cfg {
+        let layer = crate::otel::init_tracer_provider(&cfg)
+            .context("Failed to initialize OpenTelemetry")?;
+        Some(
+            layer.with_filter(
+                tracing_subscriber::EnvFilter::builder()
+                    .with_default_directive(LevelFilter::WARN.into())
+                    .from_env_lossy()
+                    .add_directive("hyper=off".parse().unwrap())
+                    .add_directive("tonic=off".parse().unwrap())
+                    .add_directive("h2=off".parse().unwrap())
+                    .add_directive("reqwest=off".parse().unwrap())
+                    .add_directive("dekaf=debug".parse().unwrap()),
+            ),
+        )
+    } else {
+        None
+    };
+
     let registry = tracing_subscriber::registry()
-        .with(tracing_record_hierarchical::HierarchicalRecord::default())
+        .with(otel_layer)
         .with(fmt_layer)
         .with(
             ops::tracing::Layer::new(
@@ -54,6 +77,7 @@ pub fn install() {
         );
 
     registry.init();
+    Ok(())
 }
 
 lazy_static! {
@@ -102,16 +126,7 @@ where
 
     LOG_LEVEL.scope(
         std::cell::Cell::new(build_log_filter(ops::LogLevel::Info)),
-        TASK_FORWARDER.scope(
-            forwarder,
-            fut.instrument(tracing::info_span!(
-                // Attach these empty fields so that later on we can use tracing_record_hierarchical
-                // to set them, effectively adding a field to every event emitted inside a Session.
-                "dekaf_session",
-                { log_appender::SESSION_CLIENT_ID_FIELD_MARKER } = tracing::field::Empty,
-                { log_appender::SESSION_TASK_NAME_FIELD_MARKER } = tracing::field::Empty,
-            )),
-        ),
+        TASK_FORWARDER.scope(forwarder, fut),
     )
 }
 
