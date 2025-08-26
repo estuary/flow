@@ -151,7 +151,7 @@ impl GazetteWriter {
 
         let initial_state = task_listener.get().await?;
 
-        let (ops_logs_journal, ops_stats_journal) = match initial_state {
+        let (ops_logs_journal, ops_stats_journal) = match initial_state.as_ref() {
             crate::task_manager::TaskState::Authorized {
                 ops_logs_journal,
                 ops_stats_journal,
@@ -226,10 +226,11 @@ impl GazetteAppender {
 
     async fn get_client(&self) -> anyhow::Result<journal::Client> {
         match self {
-            GazetteAppender::OpsStats(state) => match state.task_listener.get().await? {
+            GazetteAppender::OpsStats(state) => match state.task_listener.get().await?.as_ref() {
                 crate::task_manager::TaskState::Authorized {
                     ops_stats_client, ..
                 } => ops_stats_client
+                    .clone()
                     .map(|(client, _claims)| client)
                     .map_err(|err| err.into()),
                 crate::task_manager::TaskState::Redirect {
@@ -239,10 +240,11 @@ impl GazetteAppender {
                     anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
                 }
             },
-            GazetteAppender::OpsLogs(state) => match state.task_listener.get().await? {
+            GazetteAppender::OpsLogs(state) => match state.task_listener.get().await?.as_ref() {
                 crate::task_manager::TaskState::Authorized {
                     ops_logs_client, ..
                 } => ops_logs_client
+                    .clone()
                     .map(|(client, _claims)| client)
                     .map_err(|err| err.into()),
                 crate::task_manager::TaskState::Redirect {
