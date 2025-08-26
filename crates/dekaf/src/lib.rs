@@ -117,22 +117,13 @@ impl SessionAuthentication {
         }
     }
 
-    pub async fn flow_client(&mut self) -> Result<&flow_client::Client, DekafError> {
+    pub async fn flow_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         match self {
-            SessionAuthentication::User(auth) => {
-                auth.authenticated_client().await.map_err(|e| e.into())
-            }
+            SessionAuthentication::User(auth) => auth.authenticated_client().await,
             SessionAuthentication::Task(auth) => auth.authenticated_client().await,
-            SessionAuthentication::Redirect {
-                target_dataplane_fqdn,
-                spec,
-                config,
-                ..
-            } => Err(DekafError::TaskRedirected {
-                target_dataplane_fqdn: target_dataplane_fqdn.clone(),
-                spec: spec.clone(),
-                config: config.clone(),
-            }),
+            SessionAuthentication::Redirect { .. } => {
+                anyhow::bail!("Cannot get flow client for redirected task")
+            }
         }
     }
 
@@ -160,7 +151,7 @@ impl SessionAuthentication {
 }
 
 impl UserAuth {
-    pub async fn authenticated_client(&mut self) -> Result<&flow_client::Client, DekafError> {
+    pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         let (access, refresh) = refresh_authorizations(
             &self.client,
             Some(self.access_token.to_owned()),
@@ -199,16 +190,14 @@ impl TaskAuth {
             exp,
         }
     }
-    pub async fn authenticated_client(&mut self) -> Result<&flow_client::Client, DekafError> {
-        // Check if the task has been redirected
-        match self.task_state_listener.get().await? {
-            TaskState::Authorized {
-                access_token: token,
-                access_token_claims: claims,
-                ..
-            } => {
-                // Update token if it's about to expire
-                if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
+    pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
+        if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
+            match self.task_state_listener.get().await? {
+                TaskState::Authorized {
+                    access_token: token,
+                    access_token_claims: claims,
+                    ..
+                } => {
                     self.client = self
                         .client
                         .clone()
@@ -217,14 +206,13 @@ impl TaskAuth {
                     self.exp = time::OffsetDateTime::UNIX_EPOCH
                         + time::Duration::seconds(claims.exp as i64);
                 }
-                Ok(&self.client)
+                TaskState::Redirect { .. } => {
+                    anyhow::bail!("Task was just moved to a different dataplane, consumer must reconnect to get redirected");
+                }
             }
-            TaskState::Redirect {
-                target_dataplane_fqdn,
-                spec,
-                ..
-            } => Err(DekafError::from_redirect(target_dataplane_fqdn, spec).await?),
         }
+
+        Ok(&self.client)
     }
 
     pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
@@ -262,37 +250,15 @@ impl TaskAuth {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DekafError {
+enum DekafError {
     #[error("Authentication failed: {0}")]
     Authentication(String),
-    #[error("Task redirected to {target_dataplane_fqdn}")]
-    TaskRedirected {
-        target_dataplane_fqdn: String,
-        spec: MaterializationSpec,
-        config: connector::DekafConfig,
-    },
     #[error("{0}")]
     Unknown(
         #[from]
         #[source]
         anyhow::Error,
     ),
-}
-
-impl DekafError {
-    pub async fn from_redirect(
-        target_dataplane_fqdn: String,
-        spec: MaterializationSpec,
-    ) -> anyhow::Result<Self> {
-        let config = topology::extract_dekaf_config(&spec)
-            .await
-            .context("Failed to extract Dekaf config from spec")?;
-        Ok(DekafError::TaskRedirected {
-            target_dataplane_fqdn,
-            spec,
-            config,
-        })
-    }
 }
 
 impl App {
