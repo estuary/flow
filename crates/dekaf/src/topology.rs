@@ -173,18 +173,19 @@ impl Collection {
             SessionAuthentication::Task(task_auth) => {
                 let state = task_auth.task_state_listener.get().await?;
 
-                let partitions = match state {
+                let partitions = match state.as_ref() {
                     TaskState::Authorized { partitions, .. } => partitions,
                     TaskState::Redirect {
                         target_dataplane_fqdn,
                         spec,
                         ..
                     } => {
-                        return Err(
-                            crate::DekafError::from_redirect(target_dataplane_fqdn, spec)
-                                .await?
-                                .into(),
-                        );
+                        return Err(crate::DekafError::from_redirect(
+                            target_dataplane_fqdn.to_owned(),
+                            spec.clone(),
+                        )
+                        .await?
+                        .into());
                     }
                 };
 
@@ -194,6 +195,7 @@ impl Collection {
                     .context("missing partition template")?;
 
                 parts
+                    .clone()
                     .map(|(client, _, parts)| (client, parts))
                     .map_err(|e| anyhow::Error::from(e))?
             }

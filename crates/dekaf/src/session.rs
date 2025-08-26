@@ -97,7 +97,7 @@ impl Session {
     async fn get_redirect_address(&self) -> anyhow::Result<Option<(String, i32)>> {
         let fqdn = match self.auth.as_ref() {
             Some(SessionAuthentication::Task(auth)) => {
-                match auth.task_state_listener.get().await? {
+                match auth.task_state_listener.get().await?.as_ref() {
                     TaskState::Redirect {
                         target_dataplane_fqdn,
                         ..
