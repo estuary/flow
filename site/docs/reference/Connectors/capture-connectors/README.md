@@ -44,6 +44,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Apache Kafka
   - [Configuration](./apache-kafka.md)
   - Package — ghcr.io/estuary/source-kafka:dev
+- Apple App Store
+  - [Configuration](./apple-app-store.md)
+  - Package - ghcr.io/estuary/source-apple-app-store:dev
 - Asana
   - [Configuration](./asana.md)
   - Package - ghcr.io/estuary/source-asana:dev
