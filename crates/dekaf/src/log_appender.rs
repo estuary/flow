@@ -282,6 +282,7 @@ const WELL_KNOWN_LOG_FIELDS: &'static [&'static str] = &[
     SESSION_CLIENT_ID_FIELD_MARKER,
 ];
 pub const LOG_MESSAGE_QUEUE_SIZE: usize = 500;
+const MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
     pub fn new(
@@ -365,6 +366,8 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
         let mut log_append_state: MaybeDone<PinnedAppendFuture> = MaybeDone::Gone;
         let mut stats_append_state: MaybeDone<PinnedAppendFuture> = MaybeDone::Gone;
 
+        let mut backoff_duration = std::time::Duration::from_millis(100);
+
         loop {
             // First check if we can start a new log append
             if log_append_state.is_terminated() && !pending_logs.is_empty() {
@@ -383,14 +386,24 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
                 // Poll log and stats appends, if running
                 _ = &mut log_append_state, if !log_append_state.is_terminated() => {
                     if let Some(Err(e)) = Pin::new(&mut log_append_state).take_output(){
-                        tracing::error!(error = ?e, "Error appending logs");
+                        tracing::error!(error = ?e, ?backoff_duration, "Error appending logs");
+
+                        tokio::time::sleep(backoff_duration).await;
+                        backoff_duration = (backoff_duration * 2).min(MAX_BACKOFF);
+                    } else {
+                        backoff_duration = std::time::Duration::from_millis(100);
                     }
                     log_append_state = MaybeDone::Gone;
                 }
 
                 _ = &mut stats_append_state, if !stats_append_state.is_terminated() => {
                     if let Some(Err(e)) = Pin::new(&mut stats_append_state).take_output(){
-                        tracing::error!(error = ?e, "Error appending stats");
+                        tracing::error!(error = ?e, ?backoff_duration, "Error appending stats");
+
+                        tokio::time::sleep(backoff_duration).await;
+                        backoff_duration = (backoff_duration * 2).min(MAX_BACKOFF);
+                    } else {
+                        backoff_duration = std::time::Duration::from_millis(100);
                     }
                     stats_append_state = MaybeDone::Gone;
                 }
