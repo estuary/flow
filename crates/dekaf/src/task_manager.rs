@@ -75,18 +75,21 @@ pub enum TaskState {
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
 /// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
 #[derive(Clone)]
-pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
+pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<Arc<TaskState>>>>>);
 impl TaskStateListener {
     /// Gets the current state, waiting if it's not yet available.
-    /// Returns a clone of the state or the cached error.
-    pub async fn get(&self) -> anyhow::Result<TaskState> {
+    /// Returns a reference to the state or the cached error.
+    pub async fn get(&self) -> anyhow::Result<Arc<TaskState>> {
         let mut temp_rx = (*self.0).clone();
         loop {
             // Scope to force the borrow to end before awaiting
             {
                 let current_value = temp_rx.borrow_and_update();
                 if let Some(ref result) = *current_value {
-                    return result.clone().map_err(anyhow::Error::from);
+                    return result
+                        .as_ref()
+                        .map(|arc| Arc::clone(arc))
+                        .map_err(|e| anyhow::Error::from(e.clone()));
                 }
             }
 
@@ -117,7 +120,7 @@ pub struct TaskManager {
             (
                 // Activity signal to keep the task manager alive
                 Arc<AtomicBool>,
-                std::sync::Weak<watch::Receiver<Option<Result<TaskState>>>>,
+                std::sync::Weak<watch::Receiver<Option<Result<Arc<TaskState>>>>>,
             ),
         >,
     >,
@@ -202,8 +205,8 @@ impl TaskManager {
     async fn run_task_manager(
         self: std::sync::Arc<Self>,
         // Hold onto a strong reference to the receiver so we can keep it alive until the timeout runs out
-        receiver: Arc<watch::Receiver<Option<Result<TaskState>>>>,
-        sender: watch::Sender<Option<Result<TaskState>>>,
+        receiver: Arc<watch::Receiver<Option<Result<Arc<TaskState>>>>>,
+        sender: watch::Sender<Option<Result<Arc<TaskState>>>>,
         stop_signal: tokio_util::sync::CancellationToken,
         activity_signal: Arc<AtomicBool>,
         task_name: String,
@@ -281,10 +284,10 @@ impl TaskManager {
                             );
                         }
 
-                        let _ = sender.send(Some(Ok(TaskState::Redirect {
+                        let _ = sender.send(Some(Ok(Arc::new(TaskState::Redirect {
                             target_dataplane_fqdn: target_dataplane_fqdn,
                             spec,
-                        })));
+                        }))));
 
                         Ok(())
                     }
@@ -348,7 +351,7 @@ impl TaskManager {
                         .map_err(SharedError::from);
                         cached_ops_stats_client = Some(stats_client_result);
 
-                        let _ = sender.send(Some(Ok(TaskState::Authorized {
+                        let _ = sender.send(Some(Ok(Arc::new(TaskState::Authorized {
                             access_token,
                             access_token_claims,
                             ops_logs_journal,
@@ -375,7 +378,7 @@ impl TaskManager {
                                 .as_ref()
                                 .expect("this is guarinteed to be present")
                                 .clone(),
-                        })));
+                        }))));
 
                         Ok(())
                     }
