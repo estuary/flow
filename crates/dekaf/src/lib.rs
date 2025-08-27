@@ -33,13 +33,10 @@ mod api_client;
 pub use api_client::{KafkaApiClient, KafkaClientAuth};
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
-use flow_client::client::{refresh_authorizations, RefreshToken};
 use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow::MaterializationSpec;
-use serde::{Deserialize, Serialize};
 use std::{
-    any,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -62,23 +59,7 @@ pub struct App {
     pub task_manager: Arc<TaskManager>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
-#[serde(deny_unknown_fields)]
-pub struct DeprecatedConfigOptions {
-    #[serde(default = "bool::<false>")]
-    pub strict_topic_names: bool,
-    #[serde(default)]
-    pub deletions: connector::DeletionMode,
-}
 
-#[derive(Clone)]
-pub struct UserAuth {
-    client: flow_client::Client,
-    refresh_token: RefreshToken,
-    access_token: String,
-    claims: models::authorizations::ControlClaims,
-    config: DeprecatedConfigOptions,
-}
 
 #[derive(Clone)]
 pub struct TaskAuth {
@@ -93,7 +74,6 @@ pub struct TaskAuth {
 
 #[derive(Clone)]
 pub enum SessionAuthentication {
-    User(UserAuth),
     Task(TaskAuth),
     Redirect {
         target_dataplane_fqdn: String,
@@ -106,9 +86,6 @@ pub enum SessionAuthentication {
 impl SessionAuthentication {
     pub fn valid_until(&self) -> SystemTime {
         match self {
-            SessionAuthentication::User(user) => {
-                std::time::UNIX_EPOCH + std::time::Duration::new(user.claims.exp, 0)
-            }
             SessionAuthentication::Task(task) => task.exp.into(),
             SessionAuthentication::Redirect { .. } => {
                 // Redirects are valid for a short duration
@@ -119,9 +96,6 @@ impl SessionAuthentication {
 
     pub async fn flow_client(&mut self) -> Result<&flow_client::Client, DekafError> {
         match self {
-            SessionAuthentication::User(auth) => {
-                auth.authenticated_client().await.map_err(|e| e.into())
-            }
             SessionAuthentication::Task(auth) => auth.authenticated_client().await,
             SessionAuthentication::Redirect {
                 target_dataplane_fqdn,
@@ -138,9 +112,6 @@ impl SessionAuthentication {
 
     pub fn refresh_gazette_clients(&mut self) {
         match self {
-            SessionAuthentication::User(auth) => {
-                auth.client = auth.client.clone().with_fresh_gazette_client();
-            }
             SessionAuthentication::Task(auth) => {
                 auth.client = auth.client.clone().with_fresh_gazette_client();
             }
@@ -152,36 +123,12 @@ impl SessionAuthentication {
 
     pub fn deletions(&self) -> connector::DeletionMode {
         match self {
-            SessionAuthentication::User(user_auth) => user_auth.config.deletions,
             SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
             SessionAuthentication::Redirect { config, .. } => config.deletions,
         }
     }
 }
 
-impl UserAuth {
-    pub async fn authenticated_client(&mut self) -> Result<&flow_client::Client, DekafError> {
-        let (access, refresh) = refresh_authorizations(
-            &self.client,
-            Some(self.access_token.to_owned()),
-            Some(self.refresh_token.to_owned()),
-        )
-        .await?;
-
-        if access != self.access_token {
-            self.access_token = access.clone();
-            self.refresh_token = refresh;
-
-            self.client = self
-                .client
-                .clone()
-                .with_user_access_token(Some(access))
-                .with_fresh_gazette_client();
-        }
-
-        Ok(&self.client)
-    }
-}
 
 impl TaskAuth {
     pub fn new(
@@ -390,41 +337,6 @@ impl App {
                     })
                 }
             }
-        } else if username.contains("{") {
-            // Since we don't have a task, we also don't have a logs journal to write to,
-            // so we should disable log forwarding for this session.
-            logging::get_log_forwarder().map(|f| f.shutdown());
-
-            let raw_token = String::from_utf8(
-                base64::decode(password)
-                    .map_err(anyhow::Error::from)?
-                    .to_vec(),
-            )
-            .map_err(anyhow::Error::from)?;
-            let refresh: RefreshToken =
-                serde_json::from_str(raw_token.as_str()).map_err(anyhow::Error::from)?;
-
-            let (access, refresh) =
-                refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
-
-            let client = self
-                .client_base
-                .clone()
-                .with_user_access_token(Some(access.clone()))
-                .with_fresh_gazette_client();
-
-            let claims = flow_client::client::client_claims(&client)?;
-
-            let config: DeprecatedConfigOptions = serde_json::from_str(&username)
-                .context("failed to parse username as a JSON object")?;
-
-            Ok(SessionAuthentication::User(UserAuth {
-                client,
-                access_token: access,
-                refresh_token: refresh,
-                claims,
-                config,
-            }))
         } else {
             return Err(DekafError::Authentication(
                 "Invalid username or password".into(),
@@ -783,15 +695,6 @@ fn dekaf_shard_template_id(task_name: &str) -> String {
     format!("materialize/{task_name}/0000000000000000/")
 }
 
-/// Modified from [this](https://github.com/serde-rs/serde/issues/368#issuecomment-1579475447)
-/// comment in a thread requesting literal default values in Serde, this method uses
-/// const generics to let you specify a default boolean value for Serde to use when
-/// deserializing a struct field.
-///
-/// ex: `#[serde(default = "bool::<false>")]`
-fn bool<const U: bool>() -> bool {
-    U
-}
 
 // field_fold maps a projection field name to its folded AVRO-compatible name.
 // Currently this is the most basic possible transform that provides somewhat
