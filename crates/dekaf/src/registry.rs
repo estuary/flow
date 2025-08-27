@@ -40,7 +40,6 @@ async fn all_subjects(
 ) -> Response {
     wrap(async move {
         let strict_topic_names = match &auth {
-            SessionAuthentication::User(auth) => auth.config.strict_topic_names,
             SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
             SessionAuthentication::Redirect { config, .. } => config.strict_topic_names,
         };
@@ -87,7 +86,6 @@ async fn get_subject_latest(
 
         let collection = super::Collection::new(
             &auth,
-            client,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),

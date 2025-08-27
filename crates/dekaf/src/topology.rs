@@ -1,6 +1,5 @@
-use crate::{connector, utils, SessionAuthentication, TaskAuth, TaskState, UserAuth};
+use crate::{connector, utils, SessionAuthentication, TaskState};
 use anyhow::{anyhow, bail, Context};
-use futures::{StreamExt, TryStreamExt};
 use gazette::{
     broker::{self, journal_spec},
     journal, uuid,
@@ -8,34 +7,9 @@ use gazette::{
 use models::RawValue;
 use proto_flow::flow;
 
-impl UserAuth {
-    /// Fetch the names of all collections which the current user may read.
-    /// Each is mapped into a kafka topic.
-    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
-        let client = self.authenticated_client().await?.pg_client();
-        #[derive(serde::Deserialize)]
-        struct Row {
-            catalog_name: String,
-        }
-        let rows_builder = client
-            .from("live_specs_ext")
-            .eq("spec_type", "collection")
-            .select("catalog_name");
-
-        let items = flow_client::pagination::into_items::<Row>(rows_builder)
-            .map(|res| res.map(|Row { catalog_name }| catalog_name))
-            .try_collect()
-            .await
-            .context("listing current catalog specifications")?;
-
-        Ok(items)
-    }
-}
-
 impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
-            SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
             SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
             SessionAuthentication::Redirect { spec, .. } => utils::fetch_all_collection_names(spec),
         }
@@ -43,7 +17,6 @@ impl SessionAuthentication {
 
     pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
         match self {
-            SessionAuthentication::User(_) => Ok(topic_name.to_string()),
             SessionAuthentication::Task(auth) => {
                 let binding = auth
                     .get_binding_for_topic(topic_name)
@@ -119,40 +92,34 @@ impl Collection {
     /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
         auth: &SessionAuthentication,
-        pg_client: &postgrest::Postgrest,
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
         let binding = match auth {
             SessionAuthentication::Task(task_auth) => {
                 if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                    Some(binding)
+                    binding
                 } else {
-                    bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+                    tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
+                    return Ok(None);
                 }
             }
-            SessionAuthentication::User(_) => None,
             SessionAuthentication::Redirect { spec, .. } => {
-                utils::get_binding_for_topic(spec, topic_name)
+                let Some(binding) = utils::get_binding_for_topic(spec, topic_name)
                     .context("failed to get binding for topic in redirected session")?
+                else {
+                    tracing::warn!("{topic_name} is not a binding of {}", spec.name);
+                    return Ok(None);
+                };
+                binding
             }
         };
+
+        let collection_spec = binding
+            .collection
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("missing collection in materialization binding"))?;
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;
-
-        let collection_spec = if let Some(binding) = &binding {
-            if let Some(collection) = binding.collection.as_ref() {
-                collection.clone()
-            } else {
-                anyhow::bail!("missing collection in materialization binding")
-            }
-        } else {
-            let fetched_spec = Self::fetch_spec(&pg_client, collection_name).await?;
-            if let Some(fetched_spec) = fetched_spec {
-                fetched_spec
-            } else {
-                return Ok(None);
-            }
-        };
 
         let partition_template_name = collection_spec
             .partition_template
@@ -161,15 +128,6 @@ impl Collection {
             .ok_or(anyhow!("missing partition template"))?;
 
         let (journal_client, partitions) = match auth {
-            SessionAuthentication::User(user_auth) => {
-                let journal_client =
-                    Self::build_journal_client(&user_auth, collection_name).await?;
-                let parts =
-                    crate::task_manager::fetch_partitions(&journal_client, collection_name, None)
-                        .await?;
-
-                (journal_client, parts)
-            }
             SessionAuthentication::Task(task_auth) => {
                 let state = task_auth.task_state_listener.get().await?;
 
@@ -234,42 +192,28 @@ impl Collection {
         let collection_schema_shape =
             doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        let (value_schema, extractors) = if let Some(ref binding) = binding {
-            let selection = binding
-                .field_selection
-                .clone()
-                .context("missing field selection in materialization binding")?;
+        let selection = binding
+            .field_selection
+            .clone()
+            .context("missing field selection in materialization binding")?;
 
-            utils::build_field_extractors(
-                collection_schema_shape.clone(),
-                selection,
-                collection_spec.projections.clone(),
-                auth.deletions(),
-            )?
-        } else {
-            utils::build_LEGACY_field_extractors(collection_schema_shape.clone(), auth.deletions())?
-        };
+        let (value_schema, extractors) = utils::build_field_extractors(
+            collection_schema_shape.clone(),
+            selection,
+            collection_spec.projections.clone(),
+            auth.deletions(),
+        )?;
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
-        let (not_before, not_after) = if let Some(binding) = binding {
-            (
-                binding.not_before.map(|b| {
-                    uuid::Clock::from_unix(
-                        b.seconds.try_into().unwrap(),
-                        b.nanos.try_into().unwrap(),
-                    )
-                }),
-                binding.not_after.map(|b| {
-                    uuid::Clock::from_unix(
-                        b.seconds.try_into().unwrap(),
-                        b.nanos.try_into().unwrap(),
-                    )
-                }),
-            )
-        } else {
-            (None, None)
-        };
+        let (not_before, not_after) = (
+            binding.not_before.map(|b| {
+                uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
+            }),
+            binding.not_after.map(|b| {
+                uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
+            }),
+        );
 
         tracing::debug!(
             collection_name,
@@ -304,33 +248,6 @@ impl Collection {
             Self::registered_schema_id(client, &self.spec.name, &self.value_schema),
         )?;
         Ok((key_id, value_id))
-    }
-
-    /// Fetch the built spec for a collection.
-    async fn fetch_spec(
-        client: &postgrest::Postgrest,
-        collection: &str,
-    ) -> anyhow::Result<Option<flow::CollectionSpec>> {
-        #[derive(serde::Deserialize)]
-        struct Row {
-            built_spec: flow::CollectionSpec,
-        }
-
-        let mut rows: Vec<Row> = handle_postgrest_response(
-            client
-                .from("live_specs_ext")
-                .eq("spec_type", "collection")
-                .eq("catalog_name", collection)
-                .select("built_spec"),
-        )
-        .await
-        .context("listing current collection specifications")?;
-
-        if let Some(Row { built_spec }) = rows.pop() {
-            Ok(Some(built_spec))
-        } else {
-            Ok(None)
-        }
     }
 
     /// Map a partition and timestamp into the newest covering fragment offset.
@@ -411,21 +328,6 @@ impl Collection {
                 return Ok(Some(offset_data));
             }
         }
-    }
-
-    /// Build a journal client by resolving the collections data-plane gateway and an access token.
-    async fn build_journal_client(
-        user_auth: &UserAuth,
-        collection_name: &str,
-    ) -> anyhow::Result<journal::Client> {
-        let (_, journal_client) = flow_client::fetch_user_collection_authorization(
-            &user_auth.client,
-            collection_name,
-            false,
-        )
-        .await?;
-
-        Ok(journal_client)
     }
 
     async fn registered_schema_id(
