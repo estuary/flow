@@ -1,9 +1,9 @@
 pub mod avro;
 pub mod character_separated;
 pub mod json;
+pub mod parquet;
 pub mod protobuf;
 pub mod sanitize;
-pub mod parquet;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -11,6 +11,7 @@ use crate::input::{detect_compression, CompressionError, Input};
 use crate::{Compression, Format, JsonPointer, ParseConfig};
 
 use ::parquet::errors::ParquetError;
+use bytes::Bytes;
 use serde_json::Value;
 use std::io::{self, Write};
 use std::path::Path;
@@ -180,9 +181,10 @@ fn parse_file(
     dest: &mut impl io::Write,
     starting_offset: u64,
 ) -> Result<u64, ParseError> {
+    let (peek, input) = input.peek(128)?;
     let output = parser.parse(input)?;
     let sanitized_output = sanitize::sanitize_output(&config, output)?;
-    format_output(&config, sanitized_output, dest, starting_offset)
+    format_output(&config, sanitized_output, dest, starting_offset, peek)
 }
 
 fn parser_for(format: Format) -> Box<dyn Parser> {
@@ -232,17 +234,33 @@ pub trait Parser {
 }
 
 /// Takes the output of a parser and writes it to the given destination, generally stdout.
+/// The `peek` argument should be an initial prefix of the file content. It will be logged
+/// only in the case that the parser fails to emit any records, in order to help diagnose
+/// issues with unexpected file content.
 fn format_output(
     config: &ParseConfig,
     output: Output,
     dest: &mut impl io::Write,
     starting_offset: u64,
+    peek: Bytes,
 ) -> Result<u64, ParseError> {
     let decorator = Decorator::from_config(config);
     let mut buffer = io::BufWriter::new(dest);
     let mut record_count = 0u64;
 
     for result in output {
+        // If we fail to parse on the very first record, then log out a prefix
+        // of the file content. There's certainly room for improvement here.
+        // Ideally, we'd be able to log the file content at whatever location
+        // the parser fails to parse. But this is easy, and seems helpful in
+        // many situations. This content is intentionally _not_ part of the
+        // error message itself, since the file content is considered sensitive.
+        if result.is_err() && record_count == 0 {
+            let peek_hex = format!("{:02x?}", peek.as_ref());
+            let peek_str = String::from_utf8_lossy(&peek);
+            tracing::error!(content_prefix_utf8 = ?peek_str, content_prefix_hex = %peek_hex, "failed to parse any records from file");
+        }
+
         let mut value = result?;
 
         decorator.add_fields(starting_offset + record_count, &mut value)?;
