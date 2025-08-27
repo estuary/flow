@@ -5,8 +5,8 @@ exclude = ["crates/derive-typescript"]
 
 [workspace.package]
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.65"
+edition = "2024"
+rust-version = "1.88"
 authors = ["Estuary developers <engineering@estuary.dev>"]
 readme = "./README.md"
 homepage = "https://estuary.dev/"
@@ -14,119 +14,107 @@ repository = "https://github.com/estuary/flow"
 license = "BSL"
 
 [workspace.dependencies]
-addr = { version = "0.15.4", default-features = false, features = ["std"] }
-aide = { version = "0.13", features = [
+addr = { version = "0", default-features = false, features = ["std"] }
+aide = { version = "0", features = [
     "axum",
+    "axum-json",
     "macros",
     "scalar",
     "redoc",
     "axum-extra",
     "axum-extra-query",
 ] }
-anyhow = "1.0"
-async-compression = { version = "0.3", features = [
+anyhow = "1"
+async-compression = { version = "0", features = [
     "futures-io",
     "gzip",
     "tokio",
     "zstd",
 ] }
-async-stripe = { version = "0.41", features = ["runtime-tokio-hyper"] }
-async-trait = "0.1"
-atty = "0.2"
-apache-avro = { version = "0.17.0", features = ["snappy"] }
+async-stripe = { version = "0", features = ["runtime-tokio-hyper"] }
+async-trait = "0"
+atty = "0"
+apache-avro = { version = "0.19.0", default-features = false }
 
-base64 = "0.13"
-bigdecimal = "0.3.0"
+base64 = "0"
+bigdecimal = { version = "0", default-features = false }
 # TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
-bitvec = "0.19"
-bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
-bytes = "1.6"
-bytesize = "1.1.0"
-bumpalo = { version = "3.14", features = ["collections"] }
-bytelines = "2.4"
-byteorder = "1.4"
-caseless = "0.2"
-chardetng = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
+bitvec = "1"
+# bytecount = { version = "0", features = ["runtime-dispatch-simd"] }
+bytes = "1"
+bumpalo = { version = "3", features = ["collections"] }
+caseless = "0"
+chardetng = "0"
+chrono = { version = "0", features = ["serde"] }
 clap = { package = "clap", version = "4", features = ["derive", "env"] }
-colored_json = "3"
-comfy-table = "6.1"
+colored_json = "5"
+comfy-table = "7"
 # The `console_error_panic_hook` crate causes panics in a Rust WASM module to be logged
 # with `console.error`.
-console_error_panic_hook = { version = "0.1.6" }
-aes-siv = "0.7.0"
-crypto-common = "0.1.6"
-crossterm = "0.25"
-csv = "1.1"
-dirs = "4.0"
-deadpool = "0.12.1"
-encoding_rs = { version = "0.8", features = ["serde"] }
-exponential-backoff = "1.1.0"
-flate2 = "1.0"
-futures = "0.3"
-futures-core = "0.3"
-futures-util = "0.3"
-fxhash = "0.2" # Used in `json` crate. Replace with xxhash.
-hex = "0.4.3"
-hexdump = "0.1"
-humantime = "2.1"
-humantime-serde = "1.1"
-itertools = "0.10"
-indexmap = { version = "1.8", features = ["serde"] }
-ipnetwork = { version = "0.19", features = ["serde"] }
-iri-string = "0.6.0"
-jemallocator = { version = "0.3", features = ["profiling"] }
-jemalloc-ctl = "0.3"
-json-patch = "0.3"
-jsonschema = "0.30.0"
-jsonwebtoken = { version = "9", features = ["use_pem"] }
-js-sys = "0.3.60"
-kafka-protocol = "0.13.0"
-lazy_static = "1.4"
-libc = "0.2"
-librocksdb-sys = { version = "0.16.0", default-features = false, features = [
+console_error_panic_hook = { version = "0" }
+aes-siv = "0"
+crossterm = "0"
+csv = "1"
+dirs = "6"
+encoding_rs = { version = "0", features = ["serde"] }
+flate2 = "1"
+futures = "0"
+futures-core = "0"
+futures-util = "0"
+fxhash = "0" # Used in `json` crate. Replace with xxhash.
+hex = "0"
+hexdump = "0"
+humantime = "2"
+humantime-serde = "1"
+itertools = "0"
+iri-string = "0"
+jemallocator = { version = "0", features = ["profiling"] }
+jemalloc-ctl = "0"
+json-patch = "4"
+jsonschema = "0"
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+kafka-protocol = "0"
+lazy_static = "1"
+libc = "0"
+librocksdb-sys = { version = "0", default-features = false, features = [
     "snappy",
-    "rtti",
+    #"rtti",
 ] }
-log = "0.4" # only used to configure logging of dependencies
-lz4 = "1.24.0"
-lz4_flex = "0.11.0"
-mime = "0.3"
-memchr = "2.5"
-metrics = "0.23.0"
-metrics-exporter-prometheus = "0.15.3"
-prometheus = "0.13.4"
-md5 = "0.7.0"
-num-bigint = "0.4"
-num-format = "0.4"
-indicatif = "0.17"
+lz4 = "1"
+lz4_flex = "0"
+mime = "0"
+memchr = "2"
+metrics = "0"
+metrics-exporter-prometheus = "0"
+prometheus = "0"
+md5 = "0"
+num-bigint = "0"
+num-format = "0"
+indicatif = "0"
 
-open = "3"
+open = "5"
 
-parquet = { version = "53", features = ["json"] }
-pathfinding = "3.0"
-pbjson = "0.7"
-pbjson-types = "0.7"
-percent-encoding = "2.1"
-pin-project-lite = "0.2"
-postgrest = "1.6"
-page-turner = "0.8.2"
-prost = "0.13"
-protobuf = "3.1"
-protobuf-json-mapping = "3.1"
-protobuf-parse = "3.1"
-regex = "1.5"
-reqwest = { version = "0.11", default-features = false, features = [
+parquet = { version = "55", features = ["json"] }
+pathfinding = "4"
+percent-encoding = "2"
+pin-project-lite = "0"
+postgrest = "1"
+page-turner = "0"
+protobuf = "3"
+protobuf-json-mapping = "3"
+protobuf-parse = "3"
+regex = "1"
+reqwest = { version = "0", default-features = false, features = [
     "json",
     "rustls-tls",
     "stream",
 ] }
-rocksdb = { version = "0.22", default-features = false, features = [
+rocksdb = { version = "0", default-features = false, features = [
     "snappy",
     "rtti",
 ] }
-rkyv = { version = "0.7", features = ["archive_le"] }
-rsasl = { version = "2.1.0", default-features = false, features = [
+rkyv = { version = "0" } #, features = ["archive_le"] }
+rsasl = { version = "2", default-features = false, features = [
     "provider",
     "config_builder",
     "scram-sha-1",
@@ -134,47 +122,43 @@ rsasl = { version = "2.1.0", default-features = false, features = [
     "oauthbearer",
     "plain",
 ] }
-rusqlite = { version = "0.29", features = ["bundled-full"] }
-rustyline = "11.0"
-schemars = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
-serde_yaml = "0.8"
-serde-transcode = "1.1"
-serde-wasm-bindgen = "0.6.5"
-size = "0.4"
-socket2 = "0.5.7"
-strsim = "0.10"
-strum = { version = "0.24", features = ["derive"] }
-strum_macros = "0.24"
-superslice = "1.0"
-sqlx = { version = "0.6", features = [
+rusqlite = { version = "0", features = ["bundled", "url"] }
+rustyline = "16"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
+serde_yaml = "0"
+serde-transcode = "1"
+serde-wasm-bindgen = "0"
+size = "0"
+socket2 = "0"
+strsim = "0"
+strum = { version = "0", features = ["derive"] }
+strum_macros = "0"
+superslice = "1"
+sqlx = { version = "0", features = [
     "chrono",
+    "postgres",
     "ipnetwork",
     "json",
     "macros",
-    "offline",
-    "postgres",
     "runtime-tokio-native-tls",
     "uuid",
 ] }
 
-typestate = "0.8.0"
-tokio-rustls = "0.26.0"
-rustls = { version = "0.23.10", features = ["aws_lc_rs"] }
-rustls-pemfile = "2.1.3"
-webpki = "0.22.4"
-tempfile = "3.3"
-portpicker = "0.1.1"
-tempdir = "0.3"
-thiserror = "1.0"
-time = { version = "0.3", features = [
+tokio-rustls = "0"
+rustls = { version = "0" }
+rustls-pemfile = "2"
+webpki = "0"
+tempfile = "3"
+tempdir = "0"
+thiserror = "2"
+time = { version = "0", features = [
     "serde-well-known",
     "macros",
     "formatting",
     "parsing",
 ] }
-tinyvec = { version = "1.6", features = ["alloc"] }
 # We CANNOT enable the tokio "process" feature: https://github.com/tokio-rs/tokio/issues/3520
 # Instead, use the async-process crate which encapsulates a work-around.
 tokio = { version = "1", features = [
@@ -187,81 +171,91 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
-tokio-util = { version = "0.7", features = ["io", "compat", "rt"] }
-tokio-stream = { version = "0.1.17" }
-tonic = { version = "0.12", features = ["tls", "tls-roots"] }
-hyper-util = "0.1"
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = [
+tokio-util = { version = "0", features = ["io", "compat", "rt"] }
+tokio-stream = { version = "0" }
+hyper-util = "0"
+tower = { version = "0", features = ["util"] }
+tower-http = { version = "0", features = ["cors", "trace"] }
+tracing = "0"
+tracing-subscriber = { version = "0", features = [
     "time",
     "json",
     "env-filter",
     "fmt",
 ] }
-tracing-record-hierarchical = "0.1.1"
-rustls-native-certs = "0.7.2"
-zeroize = "1.6"
+tracing-record-hierarchical = "0"
+rustls-native-certs = "0"
+zeroize = "1"
 
-unicode-bom = "1.1"
-unicode-normalization = "0.1"
-url = { version = "2.2", features = ["serde"] }
-uuid = { version = "1.1", features = ["serde", "v4"] }
-validator = { version = "0.15", features = ["derive"] }
-quickcheck = "1.0"
-quickcheck_macros = "1.0"
-wasm-bindgen = "0.2.100"
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
-yaml-merge-keys = { version = "0.5", features = ["serde_yaml"] }
-zip = "0.5"
-zstd = "0.11.2"
-derivative = "2.2.0"
+unicode-bom = "2"
+unicode-normalization = "0"
+url = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+validator = { version = "0", features = ["derive"] }
+quickcheck = "1"
+quickcheck_macros = "1"
+wasm-bindgen = "0"
+xxhash-rust = { version = "0", features = ["xxh3"] }
+yaml-merge-keys = { version = "0", features = ["serde_yaml"] }
+zip = "4"
+zstd = "0"
+derivative = "2"
 
 # AWS packages
-aws-config = "1.5.16"
-aws-types = "1.3.5"
-aws-credential-types = "1.2.0"
-aws-msk-iam-sasl-signer = "1.0.0"
-aws-sdk-sts = "1.16"
+aws-config = "1"
+aws-types = "1"
+aws-credential-types = "1"
+aws-msk-iam-sasl-signer = "1"
+aws-sdk-sts = "1"
+
+# v0.13 is the current latest tonic. It's pinned to prost@v0.13
+tonic = { version = "0.13", features = ["tls-native-roots"] }
+tonic-build = "0.13"
+pbjson = "0.7" # 0.8 is available but uses prost@v0.14
+pbjson-types = "0.7"
+pbjson-build = "0.7"
+prost = "0.13" # 0.14 is available, but tonic@v0.13 is still on v0.13
+prost-build = "0.13"
 
 # Used exclusively as dev-dependencies
-assert_cmd = "2.0"
-criterion = "0.3"
-glob = "0.3"
-insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
-pretty_assertions = "1.4.0"
-rand = { version = "0.8", features = ["small_rng"] }
-rand_distr = { version = "0.4" }
-rdkafka = "0.37"
-schema_registry_converter = { version = "4.2.0", features = [
+assert_cmd = "2"
+criterion = "0"
+glob = "0"
+insta = { version = "1", features = ["redactions", "json", "yaml"] }
+rand = { version = "0", features = ["small_rng"] }
+rand_distr = { version = "0" }
+rdkafka = "0"
+schema_registry_converter = { version = "4", features = [
     "easy",
     "avro",
     "json",
 ] }
-serial_test = "0.9"
-tracing-test = "0.2.5"
-wasm-bindgen-test = "0.3.50"
+serial_test = "3"
+tracing-test = "0"
+wasm-bindgen-test = "0"
 
 # Used exclusively as build-dependencies
-cbindgen = "0.23"
-pbjson-build = "0.7"
-prost-build = "0.13"
-tonic-build = "0.12"
+cbindgen = "0"
 
-warp = "0.3.3" # TODO(johnny) remove me in favor of axum
 # Used for the agent http server
-axum = { version = "0.7", features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-axum-extra = { version = "0.9", features = ["typed-header", "query"] }
+axum = { version = "0", features = ["macros"] }
+axum-server = { version = "0", features = ["tls-rustls"] }
+axum-extra = { version = "0", features = ["typed-header", "query"] }
 
 [profile.release]
 incremental = true
 debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugger.
 
 [patch.'crates-io']
-rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
-librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
+
+# TODO: Remove patch after next apache-avro release (>0.19.0)
+# Using git commit to get fix for bigdecimal feature regression where apache-avro
+# incorrectly depended on "serde-json" instead of "serde" feature
+apache-avro = { git = "https://github.com/apache/avro-rs.git", rev = "0c38f3f" }
+
+# TODO: Remove patch after next aide release (>0.15.0)
+# Using git commit to get schemars 1.0.4 support
+aide = { git = "https://github.com/tamasfe/aide.git", rev = "59fad2349419dc1f6fe43f6abf7dac22ee4792e7" }
 
 # Recommended by sqlx authors to speed up build-time checks.
 # https://github.com/launchbadge/sqlx#compile-time-verification

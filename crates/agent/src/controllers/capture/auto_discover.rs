@@ -51,10 +51,8 @@ pub async fn update<C: ControlPlane>(
     // Do we need to auto-discover now?
     let now = control_plane.current_time();
     let AutoDiscoverStatus {
-        ref next_at,
-        ref failure,
-        ..
-    } = status;
+        next_at, failure, ..
+    } = &status;
     match (next_at, failure) {
         // Either the spec or autoDiscover is disabled
         (None, _) => return Ok(false),

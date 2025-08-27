@@ -7,7 +7,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use warp::{http::Response, Filter};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -277,23 +276,26 @@ where
     let (tx, rx) = tokio::sync::oneshot::channel::<HashMap<String, String>>();
     // All this because a oneshot Sender's `.send()` method consumes `self`
     let wrapped = Arc::new(Mutex::new(Some(tx)));
-    let service = warp::get()
-        .and(warp::query::<HashMap<String, String>>())
-        .map({
-            let tx = wrapped.clone();
-            move |query| {
-                let mut maybe_sender = tx.try_lock().unwrap();
-                if let Some(tx) = maybe_sender.take() {
-                    tx.send(query).unwrap();
-                    Response::builder().body("You may close this window now.")
-                } else {
-                    Response::builder().body("Something went wrong")
-                }
+
+    let app = axum::Router::new().route("/", axum::routing::get({
+        let tx = wrapped.clone();
+        move |axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>| async move {
+            let mut maybe_sender = tx.try_lock().unwrap();
+            if let Some(tx) = maybe_sender.take() {
+                tx.send(query).unwrap();
+                axum::response::Html("You may close this window now.")
+            } else {
+                axum::response::Html("Something went wrong")
             }
-        });
+        }
+    }));
+
+    let addr = std::net::SocketAddr::from(listen_addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tokio::select! {
-        _ = warp::serve(service).run(listen_addr) => {
+        result = axum::serve(listener, app) => {
+            result?;
             bail!("Server exited early")
         }
         _ = tokio::time::sleep(Duration::from_secs(90)) => {

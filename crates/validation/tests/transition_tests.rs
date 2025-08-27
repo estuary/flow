@@ -66,6 +66,7 @@ driver:
         transforms:
           - name: fromCollection
             source: the/collection
+            shuffle: any
             backfill: 456
 
   liveMaterializations:
@@ -452,6 +453,7 @@ test://example/catalog.yaml:
         transforms:
           - name: fromCollection
             source: { name: the/collection }
+            shuffle: any
             lambda: the lambda
             disable: true
   captures:

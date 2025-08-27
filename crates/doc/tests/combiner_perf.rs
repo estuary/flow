@@ -1,6 +1,7 @@
 use doc::{Extractor, Validator};
 use json::schema::build::build_schema;
-use rand::{distributions::Distribution, Rng, SeedableRng};
+use rand::{Rng, SeedableRng};
+use rand_distr::Distribution;
 use serde_json::{json, value::RawValue, Value};
 use std::io::Write;
 use std::time::Instant;
@@ -97,7 +98,7 @@ pub fn combiner_perf() {
 
     // Assemble parts for document generation and validation.
     let mut rng = rand::rngs::SmallRng::seed_from_u64(8675309);
-    let key_dist = rand_distr::Zipf::new(u64::MAX, ZIPF_PARAM).unwrap();
+    let key_dist = rand_distr::Zipf::new(u64::MAX as f64, ZIPF_PARAM).unwrap();
 
     // Initialize the combiner itself.
     let spec = doc::combine::Spec::with_one_binding(
@@ -124,28 +125,28 @@ pub fn combiner_perf() {
         )
         .unwrap();
 
-        if rng.gen_bool(PROB_SAMPLE_CITI) {
+        if rng.random::<f64>() < PROB_SAMPLE_CITI {
             write!(
                 &mut buf,
                 ",\"citi\":{}",
-                ride_docs[rng.gen::<usize>() % ride_docs.len()].get()
+                ride_docs[(rng.random::<f64>() * ride_docs.len() as f64) as usize].get()
             )
             .unwrap();
         }
-        if rng.gen_bool(PROB_SAMPLE_GH) {
+        if rng.random::<f64>() < PROB_SAMPLE_GH {
             write!(
                 &mut buf,
                 ",\"gh\":{}",
-                github_docs[rng.gen::<usize>() % github_docs.len()].clone(),
+                github_docs[(rng.random::<f64>() * github_docs.len() as f64) as usize].clone(),
             )
             .unwrap();
         }
-        if rng.gen_bool(PROB_SAMPLE_SET) {
+        if rng.random::<f64>() < PROB_SAMPLE_SET {
             write!(
                 &mut buf,
                 ",\"set\":{{\"add\":{{\"s{}\":1}},\"remove\":{{\"s{}\":1}}}}",
-                rng.gen::<u16>() % 1024,
-                rng.gen::<u16>() % 1024,
+                rng.random::<u16>() % 1024,
+                rng.random::<u16>() % 1024,
             )
             .unwrap();
         }
