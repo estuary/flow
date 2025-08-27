@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// A generic error that can be associated with a particular draft spec for a given operation.
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct Error {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub catalog_name: String,

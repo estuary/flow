@@ -1,0 +1,53 @@
+---
+source: crates/control-plane-api/src/discovers/specs.rs
+expression: json!(out)
+---
+[
+  {
+    "disable": true,
+    "documentSchema": {
+      "properties": {
+        "croak": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "croak"
+      ],
+      "type": "object"
+    },
+    "key": [
+      "/croak"
+    ],
+    "recommendedName": "frogs",
+    "resourceConfig": {
+      "stream": "greetings",
+      "syncMode": "incremental"
+    }
+  },
+  {
+    "documentSchema": {
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "count",
+        "message"
+      ],
+      "type": "object"
+    },
+    "key": [
+      "/count"
+    ],
+    "recommendedName": "some_greetings",
+    "resourceConfig": {
+      "stream": "greetings",
+      "syncMode": "incremental"
+    }
+  }
+]
