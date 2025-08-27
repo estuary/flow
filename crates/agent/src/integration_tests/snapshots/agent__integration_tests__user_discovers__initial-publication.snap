@@ -14,25 +14,19 @@ expression: published_specs
                     String("/id"),
                 ],
                 "schema": Object {
-                    "$defs": Object {
-                        "flow://connector-schema": Object {
-                            "$id": String("flow://connector-schema"),
-                            "properties": Object {
-                                "id": Object {
-                                    "type": String("string"),
-                                },
-                                "nuttiness": Object {
-                                    "maximum": Number(1),
-                                    "type": String("number"),
-                                },
-                            },
-                            "required": Array [
-                                String("id"),
-                            ],
-                            "type": String("object"),
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("string"),
+                        },
+                        "nuttiness": Object {
+                            "maximum": Number(1),
+                            "type": String("number"),
                         },
                     },
-                    "$ref": String("flow://connector-schema"),
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
                 },
             },
         ),
@@ -101,25 +95,19 @@ expression: published_specs
                     String("/id"),
                 ],
                 "schema": Object {
-                    "$defs": Object {
-                        "flow://connector-schema": Object {
-                            "$id": String("flow://connector-schema"),
-                            "properties": Object {
-                                "id": Object {
-                                    "type": String("string"),
-                                },
-                                "nuttiness": Object {
-                                    "maximum": Number(1),
-                                    "type": String("number"),
-                                },
-                            },
-                            "required": Array [
-                                String("id"),
-                            ],
-                            "type": String("object"),
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("string"),
+                        },
+                        "nuttiness": Object {
+                            "maximum": Number(1),
+                            "type": String("number"),
                         },
                     },
-                    "$ref": String("flow://connector-schema"),
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
                 },
             },
         ),
