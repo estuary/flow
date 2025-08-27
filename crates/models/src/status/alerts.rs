@@ -61,10 +61,14 @@ impl<'de> serde::Deserialize<'de> for AlertType {
     }
 }
 
+// TODO(phil): The aliases here can be removed once controllers have run for all currently alerting live specs.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum AlertState {
+    #[serde(alias = "Firing")]
     /// The alert is currently firing.
     Firing,
+    #[serde(alias = "Resolved")]
     /// The alert has resolved. Resolved alerts may be retained in the status for a short while.
     Resolved,
 }

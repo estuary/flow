@@ -64,14 +64,14 @@ expression: schema
         {
           "description": "The alert is currently firing.",
           "enum": [
-            "Firing"
+            "firing"
           ],
           "type": "string"
         },
         {
           "description": "The alert has resolved. Resolved alerts may be retained in the status for a short while.",
           "enum": [
-            "Resolved"
+            "resolved"
           ],
           "type": "string"
         }
