@@ -27,6 +27,7 @@ impl Task {
             recovery_log_template: _,
             shard_template: _,
             inactive_bindings: _,
+            redact_salt: _,
         } = spec.as_ref().context("missing capture")?;
         let range = range.context("missing range")?;
 

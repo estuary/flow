@@ -324,3 +324,38 @@ fn is_u32_zero(u: &u32) -> bool {
 fn is_i32_zero(i: &i32) -> bool {
     *i == 0
 }
+
+/// Serde helper for Option<Vec<u8>> that uses base64 encoding
+pub mod serde_opt_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &Option<bytes::Bytes>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match bytes {
+            Some(b) => serializer.serialize_str(&base64::encode(b)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<bytes::Bytes>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt_str: Option<String> = Option::deserialize(deserializer)?;
+        match opt_str {
+            Some(s) => base64::decode(s)
+                .map(|b| Some(b.into()))
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
+}
+
+/// JsonSchema helper for Option<Vec<u8>> that represents as base64 string
+pub fn schema_opt_bytes(
+    schema_gen: &mut schemars::gen::SchemaGenerator,
+) -> schemars::schema::Schema {
+    schema_gen.subschema_for::<Option<String>>()
+}

@@ -4923,6 +4923,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-graphql",
+ "base64 0.13.1",
  "bytes",
  "caseless",
  "chrono",
