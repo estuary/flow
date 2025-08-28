@@ -1,6 +1,6 @@
 /// This module implements various inspections which can be performed over Shapes.
 use super::*;
-use crate::reduce::Strategy;
+use crate::{redact, reduce};
 use json::{schema::formats::Format, LocatedProperty, Location};
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
@@ -25,6 +25,10 @@ pub enum Error {
     InvalidDefaultValue(String, crate::FailedValidation),
     #[error("'{0}' is required to prohibit additional properties, but instead allows them")]
     AllowsAdditionalProperties(String),
+    #[error("`block` redact strategy cannot be applied at '{0}' because it must exist")]
+    BlockRedactionMustExist(String),
+    #[error("{0} has 'sha256' redact strategy but cannot be a string (types are {1:?})")]
+    Sha256RedactionNotString(String, types::Set),
 }
 
 impl Shape {
@@ -88,6 +92,21 @@ impl Shape {
             out.push(Error::ImpossibleMustExist(loc.pointer_str().to_string()));
         }
 
+        if matches!(self.redact, Redact::Strategy(redact::Strategy::Block)) && must_exist {
+            out.push(Error::BlockRedactionMustExist(
+                loc.pointer_str().to_string(),
+            ));
+        }
+
+        if matches!(self.redact, Redact::Strategy(redact::Strategy::Sha256))
+            && !self.type_.overlaps(types::STRING)
+        {
+            out.push(Error::Sha256RedactionNotString(
+                loc.pointer_str().to_string(),
+                self.type_,
+            ));
+        }
+
         if must_be_closed
             && self.type_.overlaps(types::OBJECT)
             && !(self.object.properties.is_empty() && self.object.pattern_properties.is_empty())
@@ -114,7 +133,7 @@ impl Shape {
             }
         };
 
-        if matches!(self.reduction, Reduction::Strategy(Strategy::Sum)) {
+        if matches!(self.reduce, Reduce::Strategy(reduce::Strategy::Sum)) {
             match (self.type_ - types::INT_OR_FRAC, &self.string.format) {
                 (types::INVALID, _) => (), // Okay (native numeric only).
                 (types::STRING, Some(Format::Number) | Some(Format::Integer)) => (), // Okay (string-formatted numeric).
@@ -123,7 +142,7 @@ impl Shape {
                 }
             }
         }
-        if matches!(self.reduction, Reduction::Strategy(Strategy::Merge(_)))
+        if matches!(self.reduce, Reduce::Strategy(reduce::Strategy::Merge(_)))
             && self.type_ - (types::OBJECT | types::ARRAY) != types::INVALID
         {
             out.push(Error::MergeNotObjectOrArray(
@@ -131,7 +150,7 @@ impl Shape {
                 self.type_,
             ));
         }
-        if matches!(self.reduction, Reduction::Strategy(Strategy::Set(_))) {
+        if matches!(self.reduce, Reduce::Strategy(reduce::Strategy::Set(_))) {
             if self.type_ != types::OBJECT {
                 out.push(Error::SetNotObject(
                     loc.pointer_str().to_string(),
@@ -154,9 +173,7 @@ impl Shape {
             .chain(patterns)
             .chain(addl_props)
         {
-            if matches!(self.reduction, Reduction::Unset)
-                && !matches!(child.reduction, Reduction::Unset)
-            {
+            if matches!(self.reduce, Reduce::Unset) && !matches!(child.reduce, Reduce::Unset) {
                 out.push(Error::ChildWithoutParentReduction(
                     loc.pointer_str().to_string(),
                 ))
@@ -179,6 +196,7 @@ mod test {
             r#"
         type: object
         reduce: {strategy: merge}
+        redact: {strategy: block}  # Block at root should error
         properties:
             sum-right-type:
                 reduce: {strategy: sum}
@@ -191,6 +209,25 @@ mod test {
 
             must-exist-but-cannot: false
             may-not-exist: false
+
+            # Sha256 redaction on non-string types
+            redact-sha256-on-number:
+                type: number
+                redact: {strategy: sha256}
+
+            redact-sha256-on-object:
+                type: object
+                redact: {strategy: sha256}
+
+            # Block redaction on nested optional property (this is OK)
+            redact-block-nested-optional:
+                type: string
+                redact: {strategy: block}
+
+            # Block redaction on nested required property (should error)
+            redact-block-nested-required:
+                type: string
+                redact: {strategy: block}
 
             nested-obj-or-string:
                 type: [object, string]
@@ -213,7 +250,12 @@ mod test {
                 reduce: {strategy: merge}
                 type: boolean
 
-        required: [must-exist-but-cannot, nested-obj-or-string, nested-array, nested-array-or-string]
+        required:
+            - must-exist-but-cannot
+            - nested-obj-or-string
+            - nested-array
+            - nested-array-or-string
+            - redact-block-nested-required
 
         additionalProperties:
             type: object
@@ -242,11 +284,21 @@ mod test {
         assert_eq!(
             obj.inspect(),
             vec![
+                Error::BlockRedactionMustExist("".to_owned()),
                 Error::SetNotObject("/0".to_owned(), types::ANY),
                 Error::SetInvalidProperty("/-/whoops1".to_owned()),
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::ImpossibleMustExist("/nested-array/1".to_owned()),
+                Error::BlockRedactionMustExist("/redact-block-nested-required".to_owned()),
+                Error::Sha256RedactionNotString(
+                    "/redact-sha256-on-number".to_owned(),
+                    types::INT_OR_FRAC
+                ),
+                Error::Sha256RedactionNotString(
+                    "/redact-sha256-on-object".to_owned(),
+                    types::OBJECT
+                ),
                 Error::SumNotNumber("/sum-wrong-type".to_owned(), types::STRING),
                 Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
