@@ -78,16 +78,6 @@ pub struct PartitionOffset {
     pub mod_time: i64,
 }
 
-impl Default for PartitionOffset {
-    fn default() -> Self {
-        Self {
-            mod_time: -1, // UNKNOWN_TIMESTAMP
-            fragment_start: 0,
-            offset: 0,
-        }
-    }
-}
-
 const OFFSET_REQUEST_EARLIEST: i64 = -2;
 const OFFSET_REQUEST_LATEST: i64 = -1;
 
@@ -300,12 +290,13 @@ impl Collection {
                 }
             }
             _ => {
-                // If fully suspended, return the suspend offset. There will be no fragments.
+                // If fully suspended, there are no actual fragments to search through, so we have no way to correlate
+                // timestamps with offsets. Kafka returns UNKNOWN_OFFSET in this case, so we do the same.
                 if let Some(suspend) = &partition.spec.suspend {
                     if suspend.level == journal_spec::suspend::Level::Full as i32 {
                         return Ok(Some(PartitionOffset {
                             fragment_start: suspend.offset,
-                            offset: suspend.offset,
+                            offset: -1,   // UNKNOWN_OFFSET
                             mod_time: -1, // UNKNOWN_TIMESTAMP
                         }));
                     }
@@ -344,10 +335,20 @@ impl Collection {
                         offset: spec.begin,
                         mod_time: spec.mod_time,
                     }),
-                    // No fragments found. This can happen if there are no fragments at all, or if the requested timestamp is
-                    // after the latest fragment's begin_mod_time and there is no currently open fragment. In this case, return
-                    // the high-water mark as the requested timestamp is beyond any known offset.
-                    None => self.fetch_write_head(partition_index).await?,
+                    // The cases where this line hits are:
+                    // * `suspend::Level::Partial` so there is no open fragment, and the provided timestamp is after any
+                    //    existing persisted fragment's `mod_time` (and there cannot be an open fragment since the journal is partially suspended)
+                    // * Not suspended, and either all fragments have expired from cloud storage, no data has ever been written,
+                    //   or the provided timestamp is after any persisted fragment's `mod_time` and there is no open fragment
+                    //   (maybe the collection hasn't seen any new data for longer than its flush interval?)
+                    // Both of these cases are the same case as above when the journal is fully suspended: a request for offsets
+                    // when there are no covering fragments. As I discovered above, Kafka returns `UNKNOWN_OFFSET` (-1) in this case,
+                    // so I believe that Dekaf should too.
+                    None => Some(PartitionOffset {
+                        fragment_start: -1,
+                        offset: -1,   // UNKNOWN_OFFSET
+                        mod_time: -1, // UNKNOWN_TIMESTAMP
+                    }),
                     Some(broker::fragments_response::Fragment { spec: None, .. }) => {
                         anyhow::bail!("fragment missing spec");
                     }
