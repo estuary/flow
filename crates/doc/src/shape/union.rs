@@ -4,7 +4,20 @@
 use super::*;
 use itertools::{EitherOrBoth, Itertools};
 
-impl Reduction {
+impl Reduce {
+    fn union(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (lhs, rhs) if lhs == rhs => lhs,
+            // If either side is Unset (unconstrained), so is the union.
+            (Self::Unset, _) => Self::Unset,
+            (_, Self::Unset) => Self::Unset,
+            // Both sides are unequal but also not Unset.
+            (_, _) => Self::Multiple,
+        }
+    }
+}
+
+impl Redact {
     fn union(self, rhs: Self) -> Self {
         match (self, rhs) {
             (lhs, rhs) if lhs == rhs => lhs,
@@ -250,7 +263,8 @@ impl Shape {
         let enum_ = union_enum(lhs.enum_, rhs.enum_);
         let title = union_option(lhs.title, rhs.title);
         let description = union_option(lhs.description, rhs.description);
-        let reduction = lhs.reduction.union(rhs.reduction);
+        let reduce = lhs.reduce.union(rhs.reduce);
+        let redact = lhs.redact.union(rhs.redact);
         let provenance = lhs.provenance.union(rhs.provenance);
         let default = union_option(lhs.default, rhs.default);
         let secret = union_option(lhs.secret, rhs.secret);
@@ -298,7 +312,8 @@ impl Shape {
             enum_,
             title,
             description,
-            reduction,
+            reduce,
+            redact,
             provenance,
             default,
             secret,
@@ -312,11 +327,7 @@ impl Shape {
 }
 
 fn union_option<T: Eq>(lhs: Option<T>, rhs: Option<T>) -> Option<T> {
-    if lhs == rhs {
-        lhs
-    } else {
-        None
-    }
+    if lhs == rhs { lhs } else { None }
 }
 
 fn union_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Option<Box<Shape>> {

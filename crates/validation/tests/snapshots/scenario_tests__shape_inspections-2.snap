@@ -1,0 +1,34 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
+        error: `block` redact strategy cannot be applied at '' because it must exist,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
+        error: `block` redact strategy cannot be applied at '/int' because it must exist,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/key/0,
+        error: location /int has a `redact` strategy, which is disallowed because the location is used as a key,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: `block` redact strategy cannot be applied at '' because it must exist,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: `block` redact strategy cannot be applied at '/int' because it must exist,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
+        error: location /int has a `redact` strategy, which is disallowed because the location is used as a key,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0/shuffle/key/1,
+        error: location /str has a `redact` strategy, which is disallowed because the location is used as a key,
+    },
+]
