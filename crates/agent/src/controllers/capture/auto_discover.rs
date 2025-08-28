@@ -69,9 +69,20 @@ pub async fn update<C: ControlPlane>(
                 f.count,
             );
         }
-        // next_at <= now, so proceed with the auto-discover
-        (Some(n), _) => {
+        // next_at <= now, so proceed with the auto-discover as long as the
+        // control plane says it's okay.
+        (Some(n), _) if control_plane.can_auto_discover() => {
             tracing::debug!(due_at = %n, "starting auto-discover");
+        }
+        (Some(n), _) => {
+            // The control plane has indicated that we may not auto-discover at this time.
+            // Schedule another attempt after another interval.
+            let was_for = *n;
+            let interval = get_auto_discover_interval(status, model, control_plane).await?;
+            let new_next = was_for + interval;
+            tracing::warn!(%new_next, was_for = %n, "deferring auto-discover");
+            status.next_at = Some(new_next);
+            return Ok(false);
         }
     }
 
@@ -137,17 +148,8 @@ async fn update_next_run<C: ControlPlane>(
     if status.next_at.is_none() || last_attempt_successful {
         // `next_at` is `None` or else we've successfully completed a
         // discover since, so determine the next auto-discover time.
-        // If there's no `connector_tags` row for this capture connector
-        // then we cannot discover, so this is an error.
-        let connector_spec = try_connector_spec(model, control_plane)
-            .await
-            .context("fetching connector spec")?;
-
-        let auto_discover_interval = status
-            .interval
-            .and_then(|i| chrono::Duration::from_std(i).ok())
-            .unwrap_or(connector_spec.auto_discover_interval)
-            .abs();
+        let auto_discover_interval =
+            get_auto_discover_interval(status, model, control_plane).await?;
 
         let prev = status
             .last_success
@@ -174,6 +176,22 @@ async fn update_next_run<C: ControlPlane>(
 
     // There's not been an attempted auto-discover since `next_at`, so keep the current value
     Ok(())
+}
+
+async fn get_auto_discover_interval<C: ControlPlane>(
+    status: &AutoDiscoverStatus,
+    model: &models::CaptureDef,
+    control_plane: &C,
+) -> anyhow::Result<chrono::Duration> {
+    if let Some(interval) = status.interval {
+        return Ok(chrono::Duration::from_std(interval)?);
+    }
+    // If there's no `connector_tags` row for this capture connector
+    // then we cannot discover, so this is an error.
+    let connector_spec = try_connector_spec(model, control_plane)
+        .await
+        .context("fetching connector spec")?;
+    Ok(connector_spec.auto_discover_interval)
 }
 
 pub fn next_run(status: &AutoDiscoverStatus) -> Option<NextRun> {

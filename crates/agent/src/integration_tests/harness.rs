@@ -178,6 +178,7 @@ impl TestHarness {
             discover_handler.clone(),
             logs_tx.clone(),
             std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            1.0, // auto_discover_probability
         ));
 
         let controller_exec =
@@ -1398,6 +1399,7 @@ struct ControlPlaneMocks {
 /// activation calls and simulating failures of activations and publications.
 #[derive(Clone)]
 pub struct TestControlPlane {
+    pub auto_discover_enabled: bool,
     inner: PGControlPlane<MockDiscoverConnectors>,
     mocks: Arc<Mutex<ControlPlaneMocks>>,
 }
@@ -1438,6 +1440,7 @@ impl TestControlPlane {
                 build_failures: InjectBuildFailures(Arc::new(Mutex::new(BTreeMap::new()))),
                 shards: BTreeMap::new(),
             })),
+            auto_discover_enabled: true,
         }
     }
 
@@ -1528,6 +1531,10 @@ pub fn get_collection_generation_id(state: &ControllerState) -> models::Id {
 
 #[async_trait::async_trait]
 impl ControlPlane for TestControlPlane {
+    fn can_auto_discover(&self) -> bool {
+        self.auto_discover_enabled
+    }
+
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         self.inner.notify_dependents(live_spec_id).await

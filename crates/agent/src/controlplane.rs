@@ -61,6 +61,9 @@ pub trait ControlPlane: Send + Sync {
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
+    /// Returns whether an auto-discover is allowed to happen at this time.
+    fn can_auto_discover(&self) -> bool;
+
     async fn get_config_updates(
         &self,
         catalog_name: String,
@@ -200,6 +203,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
     pub decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    pub auto_discover_probability: f64,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -211,6 +215,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,
         decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+        auto_discover_probability: f64,
     ) -> Self {
         Self {
             pool,
@@ -220,6 +225,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             discovers_handler,
             logs_tx,
             decrypted_hmac_keys,
+            auto_discover_probability,
         }
     }
 
@@ -298,6 +304,15 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 
 #[async_trait::async_trait]
 impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
+    fn can_auto_discover(&self) -> bool {
+        if self.auto_discover_probability == 1.0 {
+            return true;
+        } else if self.auto_discover_probability == 0.0 {
+            return false;
+        }
+        rand::random::<f64>() < self.auto_discover_probability
+    }
+
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;

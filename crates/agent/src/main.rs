@@ -80,6 +80,18 @@ struct Args {
 
     #[clap(long = "log-format", env = "LOG_FORMAT", default_value = "json")]
     log_format: LogFormat,
+
+    /// Probability of running an auto-discover when one is due, expressed as a
+    /// decimal value between 0 and 1. 1 means a 100% chance of running an
+    /// auto-discover when one is due, and 0 disables auto-discovers completely.
+    /// This is intended to allow globally throttling down our overall rate of
+    /// auto-discover tasks, or to disable them entirely.
+    #[clap(
+        long = "auto-discover-probability",
+        env = "AUTO_DISCOVER_PROBABILITY",
+        default_value = "1.0"
+    )]
+    auto_discover_probability: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -238,6 +250,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         discover_handler.clone(),
         logs_tx.clone(),
         decrypted_hmac_keys,
+        args.auto_discover_probability,
     );
     let connector_tags_executor =
         agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);
