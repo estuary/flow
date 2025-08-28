@@ -1,8 +1,10 @@
-# Customize materialized fields
+# Customize Materialized Fields
 
-When you first materialize a collection to an endpoint like a database or data warehouse,
-the resulting table columns might not be formatted how you want.
-You might notice missing columns, extra columns, or columns with names you don't like.
+Estuary Flow can auto-discover data resources and schemas, and implements a priority-based system that intelligently selects fields to materialize.
+However, you may wish to override these defaults to customize the final format of your materialized tables.
+For example, columns you require may be missing or may need specific names to work with downstream systems.
+Or you might wish to keep columns with sensitive data from materializing entirely.
+
 This happens when the collection's JSON schema doesn't map to a table schema appropriate for your use case.
 
 You can control the shape and appearance of materialized tables using a two-step process.
@@ -13,11 +15,13 @@ JSON pointers that turn locations in a document's JSON structure into custom nam
 
 Then, you add the `fields` stanza to the materialization specification, telling Flow which fields to materialize.
 
+You can manage both of these options through Estuary's dashboard or modify them directly in the resource specification file.
+
 The following sections break down the process in more detail.
 
 :::info Hint
 If you just need to add a field that isn't included by default and it's already present in the schema
-with a name you like, skip ahead to [include desired fields in your materialization](#include-desired-fields-in-your-materialization).
+with a name you like, skip ahead to [include desired fields in your materialization](#field-selection-for-materializations).
 :::
 
 ## Capture desired fields and generate projections
@@ -37,21 +41,23 @@ If the collection you're using was captured directly, follow these steps.
 1. Go to the [Captures](https://dashboard.estuary.dev/captures) page of the Flow web app
 and locate the capture that produced the collection.
 
-2. Click the **Options** button and choose **Edit Specification**.
+2. Select your capture and click the **Edit** button.
 
-3. Under **Output Collections**, choose the binding that corresponds to the collection.
+3. Under **Target Collections**, choose the binding that corresponds to the collection.
 Then, click the **Collection** tab.
 
 4. In the list of fields, look for the fields you want to materialize.
 If they're present and correctly named, you can skip to
-[including them in the materialization](#include-desired-fields-in-your-materialization).
+[including them in the materialization](#field-selection-for-materializations).
 
-:::info hint:
+:::info hint
 Compare the field name and pointer.
 For nested pointers, you'll probably want to change the field name to omit slashes.
 :::
 
-5. If your desired fields aren't present or need to be re-named, edit the collection schema manually:
+5. If you need to change your fields, you can edit the collection schema.
+
+   If your desired fields aren't present and your capture does not automatically keep schemas up to date, you can edit the schema directly:
 
    1. Click **Edit**.
 
@@ -59,24 +65,25 @@ For nested pointers, you'll probably want to change the field name to omit slash
 
    3. Click **Close**.
 
-6. Generate projections for new or incorrectly named fields.
+   If you simply want to rename existing fields, you can provide alternate names for individual fields:
 
-   1. If available, click the **Schema Inference** button. The Schema Inference Window appears. Flow cleans up your schema and adds projections for new fields.
+   1. In the Schema table, click the **Rename** button for the field you wish to change.
 
-   2. Manually change the names of projected fields. These names will be used by the materialization and shown in the endpoint system as column names or the equivalent.
+   2. In the **Alternate Name** modal, provide the field's **New Name**.
 
-   3. Click **Next**.
+   3. Click **Apply**.
 
-   :::info
-   Schema Inference isn't available for all capture types.
-   You can also add projections manually with `flowctl`.
-   Refer to the guide to [editing with flowctl](./flowctl/edit-specification-locally.md) and
-   [how to format projections](../concepts/collections.md#projections).
-   :::
+6. Repeat steps 3 through 5 with other collections, if necessary.
 
-7. Repeat steps 3 through 6 with other collections, if necessary.
+7. You can [backfill](../reference/backfilling-data.md) affected collections to ensure historical data is populated with your new projections.
 
 8. Click **Save and Publish**.
+
+:::info
+You can also add projections manually with `flowctl`.
+Refer to the guide to [editing with flowctl](./flowctl/edit-specification-locally.md) and
+[how to format projections](../concepts/collections.md#projections).
+:::
 
 ### Derived collections
 
@@ -89,7 +96,7 @@ flowctl catalog pull-specs --name <yourOrg/full/collectionName>
 ```
 
 2. Review the collection's schema to see if the fields of interest are included. If they're present, you can skip to
-[including them in the materialization](#include-desired-fields-in-your-materialization).
+[including them in the materialization](#field-selection-for-materializations).
 
 3. If your desired fields aren't present or are incorrectly named, add any missing fields to the schema in the correct location based on the source data structure.
 
@@ -103,10 +110,15 @@ flowctl preview --infer-schema --source <full\path\to\flow.yaml> --collection <y
 
 6. [Re-publish the collection specification](./flowctl/edit-specification-locally.md#edit-source-files-and-re-publish-specifications).
 
-## Include desired fields in your materialization
+## Field selection for materializations
 
 Now that all your fields are present in the collection schema as projections,
 you can choose which ones to include in the materialization.
+
+Estuary automatically detects fields and uses a priority-based selection system to determine the fields to include or exclude in the materialization.
+
+This means that, for each field, a stronger selection reason will override a weaker rejection reason, and vice versa.
+This helps ensure that critical fields get materialized.
 
 Every included field will be mapped to a table column or equivalent in the endpoint system.
 
@@ -114,37 +126,38 @@ Every included field will be mapped to a table column or equivalent in the endpo
 
    If your materialization already exists, navigate to the [edit materialization](./edit-data-flows.md#edit-a-materialization) page.
 
-2. In the Collection Selector, choose the collection whose output fields you want to change. Click its **Collection** tab.
+2. In the Collection Selector, choose the collection whose output fields you want to change.
 
-3. Review the listed fields.
+3. In the **Config** tab, scroll down to the **Field Selection** table.
 
-   In most cases, Flow automatically detects all fields to materialize, projected or otherwise. However, a projected field may still be missing, or you may want to exclude other fields.
+4. Review the listed fields in the field selection table.
 
-   By default, Estuary's recommended field selection generally includes:
-      * **Scalars** (simple data types including strings, numbers, booleans, nulls), and
-      * **Natively supported types** for the destination (e.g. arrays in the case of SQL destinations)
+   Estuary checks each field against a number of selection and rejection criteria to inform the default materialized fields.
+   You can customize this behavior further with **modes** and individual **field overrides**.
 
-   When dealing with objects in your data, Estuary:
-      * **Flattens objects:** Estuary flattens nested structures and includes the scalar fields within them by default.
-      * **Excludes top-level objects:** Top-level objects need to be explicitly selected to be included in the materialization.
+   The field selection table will provide an **Outcome** for each field:
 
-   Complex data structures like nested objects and maps are excluded by default.
+   * **Field included**: The field will be included in the materialization. Symbolized by a filled bookmark.
+   * **Field excluded**: The field will not be included in the materialization. Symbolized by an empty bookmark.
+   * **Conflict**: The field matches criteria for both selection and rejection.
+   Symbolized by a warning sign. The outcome tooltip provides detailed information on the conflict.
 
-4. Choose whether to start with one of Flow's field selection **modes**. You can customize individual fields later. Available modes include:
+5. Choose whether to start with one of Flow's field selection **modes**. You can customize individual fields later. Modes include and exclude fields based on field depth:
 
-   * **Select Scalars:** Include all scalar fields using the default setting
-   * **Exclude All:** Only required fields
+   * **Depth Zero:** Only selects top-level fields
+   * **Depth One:** Selects object fields with one degree of nesting
+   * **Depth Two:** Selects object fields with two degrees of nesting
+   * **Unlimited Depth:** Selects all fields
 
-5. For each individual field, you can choose one of these options:
+   Selecting a depth limit can help prevent over-materializing complex document structures.
+   If you don't select a mode, Estuary will default to **Depth One**.
 
-   * **Select:** The field is included based on the chosen mode; if the field becomes unavailable, it may be dropped silently.
-   * **Require:** Ensure the field is materialized; Flow will raise an error if the field cannot be materialized.
-   * **Exclude:** Prevent the field from being materialized to the destination.
+6. You can modify individual fields by choosing to **require** or **exclude** them.
 
    ![Field selection modes and individual options](./guide-images/field-selection.png)
 
-6. Repeat steps 2 through 5 with other collections, if necessary.
+7. Repeat steps 2 through 5 with other collections, if necessary.
 
-7. Click **Save and Publish**.
+8. Click **Save and Publish**.
 
 The named, included fields will be reflected in the endpoint system.
