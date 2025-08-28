@@ -2776,6 +2776,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "tempfile",
  "thiserror 1.0.63",
  "time 0.3.36",

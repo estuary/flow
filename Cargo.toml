@@ -135,21 +135,22 @@ rsasl = { version = "2.1.0", default-features = false, features = [
     "oauthbearer",
     "plain",
 ] }
-rusqlite = { version = "0.29", features = ["bundled-full"] }
-rustyline = "11.0"
-schemars = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
-serde_yaml = "0.8"
-serde-transcode = "1.1"
-serde-wasm-bindgen = "0.6.5"
-size = "0.4"
-socket2 = "0.5.7"
-strsim = "0.10"
-strum = { version = "0.24", features = ["derive"] }
-strum_macros = "0.24"
-superslice = "1.0"
-sqlx = { version = "0.6", features = [
+rusqlite = { version = "0", features = ["bundled", "url"] }
+rustyline = "16"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
+serde_yaml = "0"
+serde-transcode = "1"
+serde-wasm-bindgen = "0"
+sha2 = "0"
+size = "0"
+socket2 = "0"
+strsim = "0"
+strum = { version = "0", features = ["derive"] }
+strum_macros = "0"
+superslice = "1"
+sqlx = { version = "0", features = [
     "chrono",
     "ipnetwork",
     "json",
