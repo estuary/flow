@@ -183,6 +183,7 @@ impl Shape {
                     Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
                     Annotation::Discriminator(_) => {}
+                    Annotation::Redact(_) => {}
                 },
 
                 // Array constraints.
