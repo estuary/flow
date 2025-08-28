@@ -277,6 +277,7 @@ async fn prepare_discover(
                     evolve_incompatible_collections: true,
                 }),
                 interval: models::CaptureDef::default_interval(),
+                redact_salt: None,
                 shards: models::ShardTemplate::default(),
                 expect_pub_id: None,
                 bindings: Vec::new(),

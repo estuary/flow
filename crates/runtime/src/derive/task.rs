@@ -43,6 +43,7 @@ impl Task {
             shuffle_key_types: _,
             transforms,
             inactive_transforms: _,
+            redact_salt: _,
         } = derivation.as_ref().context("missing derivation")?;
 
         if key.is_empty() {

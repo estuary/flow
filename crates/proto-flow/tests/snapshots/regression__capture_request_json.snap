@@ -64,7 +64,13 @@ expression: json_test(msg)
                     "null",
                     "integer"
                   ]
-                }
+                },
+                "enum": [
+                  "const-one",
+                  "const-two"
+                ],
+                "reduce": "REDUCE_MERGE",
+                "redact": "REDACT_SHA256"
               }
             }
           ],
@@ -160,7 +166,13 @@ expression: json_test(msg)
                       "null",
                       "integer"
                     ]
-                  }
+                  },
+                  "enum": [
+                    "const-one",
+                    "const-two"
+                  ],
+                  "reduce": "REDUCE_MERGE",
+                  "redact": "REDACT_SHA256"
                 }
               }
             ],
@@ -242,7 +254,8 @@ expression: json_test(msg)
         {
           "number": 9000
         }
-      ]
+      ],
+      "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ="
     },
     "version": "11:22:33:44",
     "lastVersion": "00:11:22:33"
@@ -304,7 +317,13 @@ expression: json_test(msg)
                       "null",
                       "integer"
                     ]
-                  }
+                  },
+                  "enum": [
+                    "const-one",
+                    "const-two"
+                  ],
+                  "reduce": "REDUCE_MERGE",
+                  "redact": "REDACT_SHA256"
                 }
               }
             ],
@@ -386,7 +405,8 @@ expression: json_test(msg)
         {
           "number": 9000
         }
-      ]
+      ],
+      "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ="
     },
     "version": "11:22:33:44",
     "range": {

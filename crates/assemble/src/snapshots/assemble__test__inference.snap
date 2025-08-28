@@ -23,6 +23,9 @@ expression: "&[out1, out2, out3, out4]"
         exists: Must,
         numeric: None,
         array: None,
+        enum_json_vec: [],
+        reduce: Unset,
+        redact: Unset,
     },
     Inference {
         types: [
@@ -36,6 +39,9 @@ expression: "&[out1, out2, out3, out4]"
         exists: May,
         numeric: None,
         array: None,
+        enum_json_vec: [],
+        reduce: Unset,
+        redact: Unset,
     },
     Inference {
         types: [
@@ -64,6 +70,9 @@ expression: "&[out1, out2, out3, out4]"
             },
         ),
         array: None,
+        enum_json_vec: [],
+        reduce: Unset,
+        redact: Unset,
     },
     Inference {
         types: [
@@ -88,5 +97,8 @@ expression: "&[out1, out2, out3, out4]"
                 ],
             },
         ),
+        enum_json_vec: [],
+        reduce: Unset,
+        redact: Unset,
     },
 ]

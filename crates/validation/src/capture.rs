@@ -102,6 +102,7 @@ async fn walk_capture<C: Connectors>(
         endpoint,
         bindings: bindings_model,
         interval,
+        redact_salt: model_redact_salt,
         shards,
         expect_pub_id: _,
         delete: _,
@@ -414,12 +415,14 @@ async fn walk_capture<C: Connectors>(
         shard_template: Some(shard_template),
         network_ports,
         inactive_bindings,
+        redact_salt: bytes::Bytes::new(),
     };
     let model = models::CaptureDef {
         auto_discover,
         endpoint,
         bindings: bindings_model,
         interval,
+        redact_salt: model_redact_salt,
         shards,
         expect_pub_id: None,
         delete: false,
