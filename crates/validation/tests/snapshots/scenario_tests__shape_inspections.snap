@@ -21,7 +21,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/key/0,
-        error: location /int has a reduction strategy, which is disallowed because the location is used as a key,
+        error: location /int has a `reduce` strategy, which is disallowed because the location is used as a key,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
@@ -41,10 +41,10 @@ expression: errors
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
-        error: location /int has a reduction strategy, which is disallowed because the location is used as a key,
+        error: location /int has a `reduce` strategy, which is disallowed because the location is used as a key,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0/shuffle/key/1,
-        error: location /str has a reduction strategy, which is disallowed because the location is used as a key,
+        error: location /str has a `reduce` strategy, which is disallowed because the location is used as a key,
     },
 ]

@@ -1,12 +1,18 @@
 /// This module is concerned with mapping JSON Schemas into a most-equivalent Shape.
 /// It builds on the union and intersection operations defined over Shape.
 use super::*;
-use crate::{reduce, Annotation, Schema, SchemaIndex};
+use crate::{Annotation, Schema, SchemaIndex, redact, reduce};
 use itertools::Itertools;
 use json::schema::{Application, CoreAnnotation, Keyword, Validation};
 
-impl From<&reduce::Strategy> for Reduction {
+impl From<&reduce::Strategy> for Reduce {
     fn from(s: &reduce::Strategy) -> Self {
+        Self::Strategy(s.clone())
+    }
+}
+
+impl From<&redact::Strategy> for Redact {
+    fn from(s: &redact::Strategy) -> Self {
         Self::Strategy(s.clone())
     }
 }
@@ -135,7 +141,10 @@ impl Shape {
 
                 Keyword::Annotation(annot) => match annot {
                     Annotation::Reduce(s) => {
-                        shape.reduction = s.into();
+                        shape.reduce = s.into();
+                    }
+                    Annotation::Redact(s) => {
+                        shape.redact = s.into();
                     }
                     Annotation::Core(CoreAnnotation::Title(t)) => {
                         shape.title = Some(t.as_str().into());
@@ -183,7 +192,6 @@ impl Shape {
                     Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
                     Annotation::Discriminator(_) => {}
-                    Annotation::Redact(_) => {}
                 },
 
                 // Array constraints.
@@ -383,6 +391,7 @@ mod test {
                 title: a-title
                 description: a-description
                 reduce: {strategy: firstWriteWins}
+                redact: {strategy: sha256}
                 contentEncoding: base64
                 contentMediaType: some/thing
                 default: john.doe@gmail.com
@@ -399,6 +408,7 @@ mod test {
                 - title: a-title
                 - description: a-description
                 - reduce: {strategy: firstWriteWins}
+                - redact: {strategy: sha256}
                 - default: john.doe@gmail.com
                 anyOf:
                 - contentEncoding: base64
@@ -431,6 +441,9 @@ mod test {
                     - reduce: {strategy: firstWriteWins}
                     - reduce: {strategy: firstWriteWins}
                   - anyOf:
+                    - redact: {strategy: sha256}
+                    - redact: {strategy: sha256}
+                  - anyOf:
                     - contentEncoding: base64
                     - contentEncoding: base64
                   - anyOf:
@@ -460,9 +473,8 @@ mod test {
                 type_: types::STRING | types::ARRAY,
                 title: Some("a-title".into()),
                 description: Some("a-description".into()),
-                reduction: Reduction::Strategy(
-                    reduce::Strategy::FirstWriteWins(Default::default()),
-                ),
+                reduce: Reduce::Strategy(reduce::Strategy::FirstWriteWins(Default::default())),
+                redact: Redact::Strategy(redact::Strategy::Sha256),
                 provenance: Provenance::Inline,
                 default: Some(Box::new((
                     Value::String("john.doe@gmail.com".to_owned()),
@@ -482,29 +494,36 @@ mod test {
     }
 
     #[test]
-    fn test_multiple_reductions() {
+    fn test_multiple_reduce_and_redact() {
         infer_test(
             &[
                 r#"
                 oneOf:
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 "#,
                 r#"
                 anyOf:
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 "#,
                 r#"
                 if: true
-                then: {reduce: {strategy: firstWriteWins}}
-                else: {reduce: {strategy: firstWriteWins}}
+                then:
+                  reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
+                else:
+                  reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 "#,
             ],
             Shape {
-                reduction: Reduction::Strategy(
-                    reduce::Strategy::FirstWriteWins(Default::default()),
-                ),
+                reduce: Reduce::Strategy(reduce::Strategy::FirstWriteWins(Default::default())),
+                redact: Redact::Strategy(redact::Strategy::Sha256),
                 provenance: Provenance::Inline,
                 ..Shape::anything()
             },
@@ -515,21 +534,30 @@ mod test {
                 r#"
                 oneOf:
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: block}
                 - reduce: {strategy: lastWriteWins}
+                  redact: {strategy: sha256}
                 "#,
                 r#"
                 anyOf:
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: block}
                 - reduce: {strategy: lastWriteWins}
+                  redact: {strategy: sha256}
                 "#,
                 r#"
                 if: true
-                then: {reduce: {strategy: firstWriteWins}}
-                else: {reduce: {strategy: lastWriteWins}}
+                then:
+                  reduce: {strategy: firstWriteWins}
+                  redact: {strategy: block}
+                else:
+                  reduce: {strategy: lastWriteWins}
+                  redact: {strategy: sha256}
                 "#,
             ],
             Shape {
-                reduction: Reduction::Multiple,
+                reduce: Reduce::Multiple,
+                redact: Redact::Multiple,
                 provenance: Provenance::Inline,
                 ..Shape::anything()
             },
@@ -540,21 +568,26 @@ mod test {
                 r#"
                 oneOf:
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 - {}
                 "#,
                 r#"
                 anyOf:
                 - reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 - {}
                 "#,
                 r#"
                 if: true
-                then: {reduce: {strategy: firstWriteWins}}
+                then:
+                  reduce: {strategy: firstWriteWins}
+                  redact: {strategy: sha256}
                 else: {}
                 "#,
             ],
             Shape {
-                reduction: Reduction::Unset,
+                reduce: Reduce::Unset,
+                redact: Redact::Unset,
                 provenance: Provenance::Unset,
                 ..Shape::anything()
             },
@@ -637,7 +670,8 @@ mod test {
                 ),
                 title: None,
                 description: None,
-                reduction: Unset,
+                reduce: Unset,
+                redact: Unset,
                 provenance: Inline,
                 default: None,
                 secret: None,
@@ -1242,8 +1276,8 @@ mod test {
             obj.description.as_deref().unwrap_or_default()
         );
         assert!(matches!(
-            obj.reduction,
-            Reduction::Strategy(reduce::Strategy::Merge(_))
+            obj.reduce,
+            Reduce::Strategy(reduce::Strategy::Merge(_))
         ));
         assert!(obj.object.additional_properties.is_some());
     }

@@ -86,14 +86,20 @@ impl Schema {
         }
 
         if !matches!(
-            read_shape.reduction,
-            shape::Reduction::Unset
-                | shape::Reduction::Strategy(reduce::Strategy::LastWriteWins(_)),
+            read_shape.reduce,
+            shape::Reduce::Unset | shape::Reduce::Strategy(reduce::Strategy::LastWriteWins(_)),
         ) {
-            return Err(Error::KeyHasReduction {
+            return Err(Error::KeyHasReduce {
                 ptr: ptr.to_string(),
                 schema: read.curi.clone(),
-                strategy: read_shape.reduction.clone(),
+                strategy: read_shape.reduce.clone(),
+            });
+        }
+        if !matches!(read_shape.redact, shape::Redact::Unset) {
+            return Err(Error::KeyHasRedact {
+                ptr: ptr.to_string(),
+                schema: read.curi.clone(),
+                strategy: read_shape.redact.clone(),
             });
         }
 
