@@ -89,6 +89,27 @@ message Inference {
     // array bounds, or is a disallowed property, or has an impossible type.
     CANNOT = 4;
   };
+  // Reduce enumerates the possible `reduce` strategies for a location.
+  enum Reduce {
+    REDUCE_UNSET = 0;
+    REDUCE_MULTIPLE = 1;
+    REDUCE_APPEND = 2;
+    REDUCE_FIRST_WRITE_WINS = 3;
+    REDUCE_LAST_WRITE_WINS = 4;
+    REDUCE_MAXIMIZE = 5;
+    REDUCE_MERGE = 6;
+    REDUCE_MINIMIZE = 7;
+    REDUCE_SET = 8;
+    REDUCE_SUM = 9;
+    REDUCE_JSON_SCHEMA_MERGE = 10;
+  }
+  // Redact enumerates the possible `redact` strategies for a location.
+  enum Redact {
+    REDACT_UNSET = 0;
+    REDACT_MULTIPLE = 1;
+    REDACT_BLOCK = 2;
+    REDACT_SHA256 = 3;
+  }
 
   // The possible types for this location.
   // Subset of ["null", "boolean", "object", "array", "integer", "numeric",
@@ -156,6 +177,15 @@ message Inference {
     repeated string item_types = 4;
   }
   Array array = 10;
+  // Possible enum values from the schema, or empty if the location is not an enum.
+  repeated bytes enum_json_vec = 11 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "enum"
+  ];
+  // Applied `reduce` strategy.
+  Reduce reduce = 12;
+  // Applied `redact` strategy.
+  Redact redact = 13;
 }
 
 message NetworkPort {
@@ -284,6 +314,8 @@ message CollectionSpec {
     // Inactive transforms are unique by their transform name, and have no
     // overlap with active transforms.
     repeated Transform inactive_transforms = 8;
+    // Salt used for redacting sensitive fields in derived documents.
+    bytes redact_salt = 9;
   }
   Derivation derivation = 12;
 }
@@ -357,6 +389,8 @@ message CaptureSpec {
   // Inactive bindings are unique by their resource path, and have no
   // overlap with active bindings.
   repeated Binding inactive_bindings = 9;
+  // Salt used for redacting sensitive fields in captured documents.
+  bytes redact_salt = 10;
 }
 
 // MaterializationSpec describes a collection and its materialization to an

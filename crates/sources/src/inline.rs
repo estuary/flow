@@ -140,6 +140,7 @@ fn inline_derivation(
         transforms,
         shuffle_key_types: _,
         shards: _,
+        redact_salt: _,
     } = derivation;
 
     match using {

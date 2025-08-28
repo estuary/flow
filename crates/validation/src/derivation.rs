@@ -214,6 +214,7 @@ async fn walk_derivation<C: Connectors>(
         using,
         transforms: transforms_model,
         shuffle_key_types: shuffle_key_types_model,
+        redact_salt: model_redact_salt,
         shards,
     } = model;
 
@@ -660,12 +661,14 @@ async fn walk_derivation<C: Connectors>(
         shard_template: Some(shard_template),
         network_ports,
         inactive_transforms,
+        redact_salt: bytes::Bytes::new(),
     };
     let model = models::Derivation {
-        shards,
-        shuffle_key_types: shuffle_key_types_model,
-        transforms: transforms_model,
         using,
+        transforms: transforms_model,
+        shuffle_key_types: shuffle_key_types_model,
+        redact_salt: model_redact_salt,
+        shards,
     };
 
     std::mem::drop(request_tx);

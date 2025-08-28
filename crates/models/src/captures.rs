@@ -35,6 +35,15 @@ pub struct CaptureDef {
     )]
     #[schemars(schema_with = "super::duration_schema")]
     pub interval: Duration,
+    /// # Salt used for redacting sensitive fields in captured documents.
+    /// When provided, this salt is used instead of a generated one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_opt_bytes"
+    )]
+    #[schemars(schema_with = "crate::schema_opt_bytes")]
+    pub redact_salt: Option<bytes::Bytes>,
     /// # Template for shards of this capture task.
     #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
@@ -124,6 +133,7 @@ impl CaptureDef {
             shards: ShardTemplate::default(),
             expect_pub_id: None,
             delete: false,
+            redact_salt: None,
         }
     }
 }
