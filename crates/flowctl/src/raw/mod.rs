@@ -16,6 +16,7 @@ mod materialize_fixture;
 mod oauth;
 mod shards;
 mod spec;
+mod stats;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -63,7 +64,7 @@ pub enum Command {
     /// Emit the Flow specification JSON-Schema.
     JsonSchema,
     /// Read stats collection documents
-    Stats(Stats),
+    Stats(stats::Stats),
     /// Stream logs associated with the given bearer token.
     BearerLogs(BearerLogs),
     /// Print information about the shards for a given task
@@ -152,33 +153,6 @@ pub struct Combine {
     /// Name of a collection in the Flow specification file.
     #[clap(long)]
     collection: String,
-}
-
-#[derive(clap::Args, Debug)]
-pub struct Stats {
-    #[clap(flatten)]
-    pub task: TaskSelector,
-
-    #[clap(flatten)]
-    pub bounds: ReadBounds,
-
-    /// Read raw data from stats journals, including possibly uncommitted or rolled back transactions.
-    /// This flag is currently required, but will be made optional in the future as we add support for
-    /// committed reads, which will become the default.
-    #[clap(long)]
-    pub uncommitted: bool,
-}
-
-impl Stats {
-    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        crate::ops::read_task_ops_journal(
-            &ctx.client,
-            &self.task.task,
-            OpsCollection::Stats,
-            &self.bounds,
-        )
-        .await
-    }
 }
 
 #[derive(clap::Args, Debug)]
