@@ -7,6 +7,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use gazette::{broker, journal};
 use itertools::Itertools;
+use models::LabelSelector;
 use proto_flow::flow::MaterializationSpec;
 use rand::Rng;
 use std::{
@@ -427,13 +428,24 @@ async fn update_partition_info(
             .as_ref()
             .context("expected partition template")?;
 
-        let partition_selector = binding
-            .partition_selector
-            .as_ref()
-            .context("expected partition selector")?;
-
         let template_name = partition_template.name.clone();
         let task_name_clone = task_name.to_string();
+
+        let partition_selector = binding
+            .partition_selector
+            .clone()
+            .map(|selector| {
+                let include = labels::set_value(
+                    selector.include.unwrap_or_default(),
+                    "name:prefix",
+                    &template_name,
+                );
+                proto_gazette::LabelSelector {
+                    include: Some(include),
+                    exclude: selector.exclude,
+                }
+            })
+            .context("expected partition selector")?;
 
         let existing_client = match info.remove(template_name.as_str()) {
             Some(Ok((client, claims, _))) => Some((client, claims)),
@@ -466,7 +478,7 @@ async fn update_partition_info(
             let partition_result = fetch_partitions(
                 &journal_client,
                 &collection_spec.name,
-                Some(partition_selector.clone()),
+                partition_selector
             )
             .await
             .map(|partitions| {
@@ -526,13 +538,10 @@ async fn get_or_refresh_journal_client(
 pub async fn fetch_partitions(
     journal_client: &journal::Client,
     collection: &str,
-    partition_selector: Option<broker::LabelSelector>,
+    partition_selector: proto_gazette::LabelSelector,
 ) -> anyhow::Result<Vec<topology::Partition>> {
     let request = broker::ListRequest {
-        selector: Some(partition_selector.unwrap_or(broker::LabelSelector {
-            include: Some(labels::build_set([(labels::COLLECTION, collection)])),
-            exclude: None,
-        })),
+        selector: Some(partition_selector),
         ..Default::default()
     };
 
