@@ -338,6 +338,11 @@ Outcome {
                                                         value: "the/collection",
                                                         prefix: false,
                                                     },
+                                                    Label {
+                                                        name: "name",
+                                                        value: "the/collection/pass-through/partition_name_prefix/",
+                                                        prefix: true,
+                                                    },
                                                 ],
                                             },
                                         ),

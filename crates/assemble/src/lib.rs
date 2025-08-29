@@ -431,14 +431,10 @@ pub fn journal_selector(
 ) -> broker::LabelSelector {
     let mut include = labels::build_set([
         (labels::COLLECTION, collection.name.as_ref()),
-        // TODO(johnny): Enable this as soon as the label prefix change has propagated
-        // to all connectors, such as derive-typescript.
-        /*
         (
             "name:prefix",
             format!("{}/", collection.partition_template.as_ref().unwrap().name).as_ref(),
         ),
-        */
     ]);
     let mut exclude = broker::LabelSet::default();
 
