@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+slug: /reference/backfilling-data/
+---
 
 # Backfilling Data
 
@@ -11,7 +15,7 @@ Also see how [schema evolution](https://docs.estuary.dev/concepts/advanced/evolu
 
 ## Backfill types
 
-![Backfill options](./reference-images/backfill-options.png)
+![Backfill options](./guide-images/backfill-options.png)
 
 ### Incremental backfill
 
@@ -36,7 +40,7 @@ To perform an incremental backfill:
 This option is ideal when you want to ensure your collections have the most up-to-date data without
 disrupting your destination systems.
 
-This includes [**Dekaf**](./Connectors/materialization-connectors/Dekaf/dekaf.md) materializations:
+This includes [**Dekaf**](/reference/Connectors/materialization-connectors/Dekaf/dekaf) materializations:
 because Dekaf simply provides a Kafka interface, the destination schema is managed via the connected service, such as ClickHouse or Tinybird, rather than Estuary.
 To ensure you don't disrupt your setup with these systems, you can use an incremental backfill.
 Using a dataflow reset may require you to manually update your schemas in the 3rd party system as on initial creation for these connectors.
@@ -116,7 +120,7 @@ This option is ideal when you need a complete refresh of your entire data pipeli
 you suspect data inconsistencies between source, collections, and destinations.
 
 :::warning
-If your source is connected to a [**Dekaf**](./Connectors/materialization-connectors/Dekaf/dekaf.md) materialization (including ClickHouse, Tinybird, StarTree, and more), consider using an **incremental backfill** instead of a dataflow reset to avoid schema mismatches.
+If your source is connected to a [**Dekaf**](/reference/Connectors/materialization-connectors/Dekaf/dekaf) materialization (including ClickHouse, Tinybird, StarTree, and more), consider using an **incremental backfill** instead of a dataflow reset to avoid schema mismatches.
 :::
 
 ### Backfill Selection
@@ -126,7 +130,7 @@ Backfills can be a powerful tool to recover data, but can also result in unneces
 When deciding which backfill type to use, consider:
 
 * **Data retention:** If using Estuary's trial buckets, data expires after approximately 20
-days. For full historical data, [configure your own storage bucket](../getting-started/installation.mdx).
+days. For full historical data, [configure your own storage bucket](/getting-started/installation).
 * **Table size:** For very large tables (TBs of data), consider the impact (time, data, cost) of
 dropping and recreating tables.
 * **Downtime tolerance:** Materialization and dataflow resets involve dropping destination

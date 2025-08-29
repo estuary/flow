@@ -1,3 +1,7 @@
+---
+slug: /guides/system-specific-dataflows/firestore-to-dwh/
+---
+
 # Google Cloud Firestore to Snowflake
 
 This guide walks you through the process of creating an
@@ -7,7 +11,7 @@ end-to-end real-time Data Flow from Google Cloud Firestore to Snowflake using Es
 
 You'll need:
 
-* (Recommended) understanding of the [basic Flow concepts](../../concepts/README.md#essential-concepts).
+* (Recommended) understanding of the [basic Flow concepts](/concepts/#essential-concepts).
 
 * Access to the [**Flow web application**](http://dashboard.estuary.dev) through an Estuary account.
 If you don't have one, visit the web app to register for free.
@@ -24,7 +28,7 @@ If you don't have one, visit the web app to register for free.
 * A Snowflake account with:
 
   * A target **database**, **schema**, and virtual **warehouse**; and a **user** with a **role** assigned that grants the appropriate access levels to these resources.
-  [You can use a script to quickly create all of these items.](../../reference/Connectors/materialization-connectors/Snowflake.md#setup) Have these details on hand for setup with Flow.
+  [You can use a script to quickly create all of these items.](/reference/Connectors/materialization-connectors/Snowflake/#setup) Have these details on hand for setup with Flow.
 
   * The account identifier and host URL noted. [The URL is formatted using the account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used). For example, you might have the account identifier `orgname-accountname.snowflakecomputing.com`.
 
@@ -40,7 +44,7 @@ After following this guide, you'll have a Data Flow that comprises:
 * A **materialization**, which pushes the collections to Snowflake
 
 The capture and materialization rely on plug-in components called **connectors**.
-We'll walk through how to configure the [Firestore](../../reference/Connectors/capture-connectors/google-firestore.md) and [Snowflake](../../reference/Connectors/materialization-connectors/Snowflake.md) connectors to integrate these systems with Flow.
+We'll walk through how to configure the [Firestore](/reference/Connectors/capture-connectors/google-firestore) and [Snowflake](/reference/Connectors/materialization-connectors/Snowflake) connectors to integrate these systems with Flow.
 
 ## Capture from Firestore
 
@@ -57,7 +61,7 @@ credentials provided by your Estuary account manager.
 
 4. Type a name for your capture.
 
-    Your capture name must begin with a [prefix](../../concepts/catalogs.md#namespace) to which you [have access](../../reference/authentication.md).
+    Your capture name must begin with a [prefix](/concepts/catalogs/#namespace) to which you [have access](/reference/authentication).
 
     In the **Name** field, use the drop-down to select your prefix.
     Append a unique capture name after the `/` to create the full name, for example, `acmeCo/myFirestoreCapture`.
@@ -123,7 +127,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
    These will be the names of the output tables in Snowflake.
 
-6. For each table, choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
+6. For each table, choose whether to [enable delta updates](/reference/Connectors/materialization-connectors/Snowflake/#delta-updates).
 
 7. For each collection, apply a stricter schema to be used for the materialization.
 
@@ -148,4 +152,4 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 Your Data Flow has been deployed, and will run continuously until it's stopped. Updates in your Firestore database will be reflected in your Snowflake table as they occur.
 
 You can advance your Data Flow by adding a **derivation**. Derivations are real-time data transformations.
-See the [guide to create a derivation](../flowctl/create-derivation.md).
+See the [guide to create a derivation](/guides/flowctl/create-derivation).

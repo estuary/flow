@@ -233,7 +233,7 @@ To achieve this, edit the collection, re-naming the standard `schema` to `writeS
 Make sure that the field used as the collection key is defined in both schemas.
 
 You can either perform this manually, or use Flow's **Schema Inference** tool to infer a read schema.
-Schema Inference is available in the web app when you [edit a capture or materialization](../guides/edit-data-flows.md) and [create a materialization](../guides/create-dataflow.md#create-a-materialization).
+Schema Inference is available in the web app when you [edit a capture or materialization](/guides/edit-data-flows) and [create a materialization](../guides/create-dataflow.md#create-a-materialization).
 
 **Before separating your write and read schemas, have the following in mind:**
 

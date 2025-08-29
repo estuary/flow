@@ -8,7 +8,7 @@ import Mermaid from '@theme/Mermaid';
 The [Flow web application](../../concepts/web-app.md) is designed to make the most common Flow tasks quick and easy.
 With the app, you're able to create, monitor, and manage captures, materializations, and more.
 For [creating basic Data Flows](../create-dataflow.md), the web app is by far the most efficient option,
-and [basic editing capabilities](../edit-data-flows.md) are provided.
+and [basic editing capabilities](/guides/edit-data-flows) are provided.
 
 However, advanced editing tasks are only possible using flowctl. These include:
 

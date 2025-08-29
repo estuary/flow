@@ -1,3 +1,7 @@
+---
+slug: /guides/dbt-integration/
+---
+
 # dbt Cloud Integration
 
 Estuary Flow offers an integration with dbt Cloud, enabling users to trigger dbt jobs automatically when new data

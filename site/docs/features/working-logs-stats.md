@@ -1,9 +1,11 @@
 ---
 sidebar_position: 3
+slug: /reference/working-logs-stats/
 ---
+
 # Working with Logs and Statistics
 
-Your [`logs` and `stats` collections](../concepts/advanced/logs-stats.md)
+Your [`logs` and `stats` collections](/concepts/advanced/logs-stats)
 are useful for debugging and monitoring catalog tasks.
 
 ## Accessing logs and statistics
@@ -16,7 +18,7 @@ You can view a subset of logs and statistics for individual tasks in the Flow we
 
 #### Logs
 
-After you publish a new [capture](../guides/create-dataflow.md#create-a-capture) or [materialization](../guides/create-dataflow.md#create-a-materialization), a pop-up window appears that displays the task's logs.
+After you publish a new [capture](/guides/create-dataflow/#create-a-capture) or [materialization](/guides/create-dataflow/#create-a-materialization), a pop-up window appears that displays the task's logs.
 Once you close the window, you can't regain access to the full logs in the web app.
 For a complete view of logs, use [flowctl](#accessing-logs-and-statistics-from-the-command-line).
 
@@ -59,7 +61,7 @@ flowctl stats --task acmeCo/anvils/capture-one --uncommitted
 ```
 
 :::info Beta
-The `--uncommitted` flag is currently required for `flowctl stats`. This means that all statistics are read, regardless of whether they are about a successfully committed [transaction](../concepts/advanced/shards.md#transactions), or a transaction that was rolled back or uncommitted.
+The `--uncommitted` flag is currently required for `flowctl stats`. This means that all statistics are read, regardless of whether they are about a successfully committed [transaction](/concepts/advanced/shards/#transactions), or a transaction that was rolled back or uncommitted.
 In the future, committed reads will be the default.
 :::
 
@@ -71,7 +73,7 @@ To limit output, you can retrieve logs are stats starting at a specific time in 
 flowctl stats --task acmeCo/anvils/materialization-one --since 1h
 ```
 
-...will retrieve stats from approximately the last hour. The actual start time will always be at the previous [fragment](../concepts/advanced/journals.md#fragment-files) boundary, so it can be significantly before the requested time period.
+...will retrieve stats from approximately the last hour. The actual start time will always be at the previous [fragment](/concepts/advanced/journals/#fragment-files) boundary, so it can be significantly before the requested time period.
 
 Additional options for `flowctl logs` and `flowctl stats` can be accessed through command-line help.
 
@@ -79,7 +81,7 @@ Additional options for `flowctl logs` and `flowctl stats` can be accessed throug
 
 Available statistics include information about the amount of data in inputs and outputs of each transaction. They also include temporal information about the transaction. Statistics vary by task type (capture, materialization, or derivation).
 
-A thorough knowledge of Flow's [advanced concepts](../concepts/README.md#advanced-concepts) is necessary to effectively leverage these statistics.
+A thorough knowledge of Flow's [advanced concepts](/concepts/#advanced-concepts) is necessary to effectively leverage these statistics.
 
 `stats` collection documents include the following properties.
 
@@ -114,7 +116,7 @@ and that the amount of data processed matches your expectations.
 | `/materialize` | Materialization stats, organized by collection | object | Materialization |
 | `/derive` | Derivation statistics | object | Derivation |
 | `/<task-type>/<collection-name>/right/`| Input documents from a the task's source | object | Capture, materialization |
-| `/<task-type>/<collection-name>/left/`| Input documents from an external destination; used for [reduced updates](../concepts/materialization.md#how-continuous-materialization-works) in materializations | object | Materialization |
+| `/<task-type>/<collection-name>/left/`| Input documents from an external destination; used for [reduced updates](/concepts/materialization/#how-continuous-materialization-works) in materializations | object | Materialization |
 | `/<task-type>/<collection-name>/out/`| Output documents from the transaction | object | All |
 | `/<task-type>/{}/docsTotal` | Total number of documents| integer| All |
 | `/<task-type>/{}/bytesTotal` | Total number of bytes representing the JSON encoded documents | integer | All |

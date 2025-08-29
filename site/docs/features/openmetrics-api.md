@@ -1,3 +1,6 @@
+---
+slug: /reference/openmetrics-api/
+---
 
 # OpenMetrics API
 
@@ -16,7 +19,7 @@ The prefix may be for your entire tenant (such as `acmeCo/`) or a subset (such a
 Don't forget the trailing slash on your tenant or subpath: it's part of your prefix.
 :::
 
-To authenticate the API, you will need an [Estuary refresh token](../guides/how_to_generate_refresh_token.md). You can generate one in the [Admin panel](https://dashboard.estuary.dev/admin/api) of your dashboard.
+To authenticate the API, you will need an [Estuary refresh token](/guides/how_to_generate_refresh_token). You can generate one in the [Admin panel](https://dashboard.estuary.dev/admin/api) of your dashboard.
 
 See the sections below for specific instructions on working with the API in relation to:
 * [Prometheus](#prometheus)

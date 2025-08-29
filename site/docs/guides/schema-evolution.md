@@ -152,7 +152,7 @@ If your materialization binding is set to `recommended: false`, or if the new fi
 
 To manually add a field:
 
-* **In the Flow web app,** [edit the materialization](./edit-data-flows.md#edit-a-materialization), find the affected binding, and click **Show Fields**.
+* **In the Flow web app,** [edit the materialization](/guides/edit-data-flows/#edit-a-materialization), find the affected binding, and click **Show Fields**.
 * **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](../concepts/materialization.md#projected-fields).
 
 :::info

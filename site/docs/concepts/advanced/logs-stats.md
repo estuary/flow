@@ -56,8 +56,8 @@ Use stats to:
 * Access the same information used by Estuary for billing.
 * Optimize your tasks for increased efficiency.
 
-[See a detailed table of the properties included in `stats` documents.](../../reference/working-logs-stats.md#available-statistics)
+[See a detailed table of the properties included in `stats` documents.](/reference/working-logs-stats/#available-statistics)
 
 ## Working with logs and statistics
 
-[Learn more about working with logs and statistics](../../reference/working-logs-stats.md)
+[Learn more about working with logs and statistics](/reference/working-logs-stats)

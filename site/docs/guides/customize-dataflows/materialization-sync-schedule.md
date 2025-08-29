@@ -1,3 +1,7 @@
+---
+slug: /reference/materialization-sync-schedule/
+---
+
 # Materialization Sync Schedule
 
 For some systems you might prefer to have data sync'd less frequently to reduce
@@ -14,19 +18,19 @@ takes to load data to it.
 :::
 
 These materialization connectors support configuring a sync schedule:
-- [materialize-bigquery](Connectors/materialization-connectors/BigQuery.md)
-- [materialize-databricks](Connectors/materialization-connectors/databricks.md)
-- [materialize-motherduck](Connectors/materialization-connectors/motherduck.md)
-- [materialize-redshift](Connectors/materialization-connectors/amazon-redshift.md)
-- [materialize-snowflake](Connectors/materialization-connectors/Snowflake.md)
-- [materialize-starburst](Connectors/materialization-connectors/starburst.md)
+- [materialize-bigquery](/reference/Connectors/materialization-connectors/BigQuery)
+- [materialize-databricks](/reference/Connectors/materialization-connectors/databricks)
+- [materialize-motherduck](/reference/Connectors/materialization-connectors/motherduck)
+- [materialize-redshift](/reference/Connectors/materialization-connectors/amazon-redshift)
+- [materialize-snowflake](/reference/Connectors/materialization-connectors/Snowflake)
+- [materialize-starburst](/reference/Connectors/materialization-connectors/starburst)
 
 ## How transactions are used to sync data to a destination
 
 Estuary Flow processes data in
-[transactions](../concepts/advanced/shards.md#transactions). Materialization
+[transactions](/concepts/advanced/shards/#transactions). Materialization
 connectors use the [materialization
-protocol](Connectors/materialization-protocol.md) to process transactions and
+protocol](/reference/Connectors/materialization-protocol) to process transactions and
 sync data to the destination.
 
 When a materialization is caught up to its source collections, it runs frequent
@@ -44,7 +48,7 @@ transaction is delayed, Estuary Flow will continue batching and combining new
 documents so that the next transaction contains all of the latest data.
 
 You can read about [how continuous materialization
-works](../concepts/materialization.md#how-continuous-materialization-works) for
+works](/concepts/materialization/#how-continuous-materialization-works) for
 more background information.
 
 ## Configuring a sync schedule
@@ -64,7 +68,7 @@ schedule:
 
 :::warning
 Changes to a [materialization's
-specification](../concepts/materialization.md#specification) are only applied
+specification](/concepts/materialization/#specification) are only applied
 after the materialization task has completed and acknowledged all of its
 outstanding transactions. This means that if a task is running with a 4 hour
 sync frequency, it may take up to 8 hours for a change to the specification to
@@ -143,7 +147,7 @@ hypothetical example, if you have set a **Sync Frequency** of `15m`, transaction
 acknowledgements might be sent at times like `00:00`, `00:15`, `00:30`, `00:45`
 and so on, where each acknowledgement is sent at a multiple of the **Sync
 Frequency** relative to the hour. This means that if the materialization [task
-shard](../concepts/advanced/shards.md) restarts and completes its first
+shard](/concepts/advanced/shards) restarts and completes its first
 transaction at `00:13`, it will run its next transaction at `00:15` rather than
 `00:28`.
 

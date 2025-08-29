@@ -1,9 +1,11 @@
 ---
 sidebar_position: 2
+slug: /reference/Configuring-task-shards/
 ---
+
 # Configuring Task Shards
 
-For some catalog tasks, it's helpful to control the behavior of [shards](../concepts/advanced/shards.md).
+For some catalog tasks, it's helpful to control the behavior of [shards](/concepts/advanced/shards).
 You do this by adding the `shards` configuration to the capture or materialization configuration.
 
 ## Properties
@@ -17,8 +19,8 @@ You do this by adding the `shards` configuration to the capture or materializati
 
 For more information about these controls and when you might need to use them, see:
 
-* [Transactions](../concepts/advanced/shards.md#transactions)
-* [Log level](../concepts/advanced/logs-stats.md#log-level)
+* [Transactions](/concepts/advanced/shards/#transactions)
+* [Log level](/concepts/advanced/logs-stats/#log-level)
 
 ## Sample
 

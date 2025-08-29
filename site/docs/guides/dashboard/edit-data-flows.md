@@ -1,10 +1,12 @@
 ---
-sidebar_position: 4
+sidebar_position: 1
+slug: /guides/edit-data-flows/
 ---
+
 # Edit Data Flows in the Web App
 
 You can edit existing captures, collection schemas, and materializations in the Flow web app.
-For a tour of the web app, [start here](../concepts/web-app.md).
+For a tour of the web app, [start here](/concepts/web-app).
 
 There are separate workflows for editing [captures](#edit-a-capture) and [materializations](#edit-a-materialization).
 You can edit a collection schema using Flow's **Schema Inference** tool by editing either a capture or materialization associated
@@ -12,7 +14,7 @@ with that collection.
 
 :::caution
 Although you edit components of your Data Flows separately, they are all connected.
-Flow's [schema evolution](../concepts/advanced/evolutions.md) and [AutoDiscover](../concepts/captures.md#automatically-update-captures) features help prevent common errors, but it's still important to be mindful of your edits' potential effects.
+Flow's [schema evolution](/concepts/advanced/evolutions) and [AutoDiscover](/concepts/captures/#automatically-update-captures) features help prevent common errors, but it's still important to be mindful of your edits' potential effects.
 :::
 
 ## Edit a capture
@@ -43,7 +45,7 @@ You may have to re-authenticate with the source system. Be sure to have current 
 
    2. Click **Schema Inference**
 
-      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the [`readSchema`](../concepts/schemas.md#write-and-read-schemas), to use for
+      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the [`readSchema`](/concepts/schemas/#write-and-read-schemas), to use for
       downstream tasks like materializations and derivations.
 
    3. Review the new schema and click **Apply Inferred Schema**.
@@ -82,7 +84,7 @@ You may have to re-authenticate with the destination system. Be sure to have cur
 
    2. Click **Schema Inference**
 
-      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the [`readSchema`](../concepts/schemas.md#write-and-read-schemas), to use for the materialization.
+      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the [`readSchema`](/concepts/schemas/#write-and-read-schemas), to use for the materialization.
 
    3. Review the new schema and click **Apply Inferred Schema**.
 
@@ -96,4 +98,4 @@ Data that was materialized before editing will reflect the original configuratio
 ## Advanced editing
 
 For more fine-grain control over editing, you can use flowctl and work directly on specification files in your local environment.
-[View the tutorial.](./flowctl/edit-specification-locally.md)
+[View the tutorial.](/guides/flowctl/edit-specification-locally)

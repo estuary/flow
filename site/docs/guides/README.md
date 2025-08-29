@@ -10,31 +10,31 @@ If you'd prefer a tailored learning experience with sample data, check out the [
 
 ### Using the platform
 
-* [Create a basic data flow](./create-dataflow.md)
-* [Edit data flows in the web app](./edit-data-flows.md)
-* [How to generate a refresh token](./how_to_generate_refresh_token.md)
+* [Create a basic data flow](/guides/create-dataflow)
+* [Edit data flows in the web app](/guides/edit-data-flows)
+* [How to generate a refresh token](/guides/how_to_generate_refresh_token)
 
 ### Customizing data flows
 
-* [Secure connections](./connect-network.md)
-* [Customize materialized fields](./customize-materialization-fields.md)
-* [dbt cloud integration](./dbt-integration.md)
-* [Schema evolution](./schema-evolution.md)
-* [How to read collections as Kafka topics using Dekaf](./dekaf_reading_collections_from_kafka.md)
+* [Secure connections](/guides/connect-network)
+* [Customize materialized fields](/guides/customize-materialization-fields)
+* [dbt cloud integration](/guides/dbt-integration)
+* [Schema evolution](/guides/schema-evolution)
+* [How to read collections as Kafka topics using Dekaf](/guides/dekaf_reading_collections_from_kafka)
 
 ### Using `flowctl`
 
-* [Getting started with `flowctl`](./get-started-with-flowctl.md)
-* [Edit a Flow specification locally](./flowctl/edit-specification-locally.md)
-* [Edit a draft created in the web app](./flowctl/edit-draft-from-webapp.md)
-* [Using `flowctl` for automation](./flowctl/ci-cd.md)
-* [Troubleshoot a task with `flowctl`](./flowctl/troubleshoot-task.md)
+* [Getting started with `flowctl`](/guides/get-started-with-flowctl)
+* [Edit a Flow specification locally](/guides/flowctl/edit-specification-locally)
+* [Edit a draft created in the web app](/guides/flowctl/edit-draft-from-webapp)
+* [Using `flowctl` for automation](/guides/flowctl/ci-cd)
+* [Troubleshoot a task with `flowctl`](/guides/flowctl/troubleshoot-task)
 
 ### Derivations
 
-* [Create a derivation with `flowctl`](./flowctl/create-derivation.md)
-* [How to transform data using SQL](./derivation_tutorial_sql.md)
-* [How to transform data using TypeScript](./transform_data_using_typescript.md)
-* [How to flatten an array using TypeScript](./flatten-array.md)
-* [How to join two collections using TypeScript](./howto_join_two_collections_typescript.md)
-* [Implementing derivations for AcmeBank](../getting-started/tutorials/derivations_acmebank.md)
+* [Create a derivation with `flowctl`](/guides/flowctl/create-derivation)
+* [How to transform data using SQL](/guides/derivation_tutorial_sql)
+* [How to transform data using TypeScript](/guides/transform_data_using_typescript)
+* [How to flatten an array using TypeScript](/guides/flatten-array)
+* [How to join two collections using TypeScript](/guides/howto_join_two_collections_typescript)
+* [Implementing derivations for AcmeBank](/getting-started/tutorials/derivations_acmebank)

@@ -99,7 +99,7 @@ mapping, configure the [field selection](../../../concepts/materialization.md#pr
 the binding to indicate which fields should having keyword mappings created for them using the key
 and value of `"keyword": true`. This can be changed by updating the JSON in the **Advanced
 Specification Editor** in the web app or by using `flowctl` to edit the specification directly, see
-[edit a materialization](../../../guides/edit-data-flows.md#edit-a-materialization) for more details.
+[edit a materialization](/guides/edit-data-flows/#edit-a-materialization) for more details.
 
 An example JSON configuration for a binding that materializes `stringField` as a `keyword` mapping
 is shown below:

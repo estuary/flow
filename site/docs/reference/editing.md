@@ -14,8 +14,8 @@ As you edit, you'll also have to account for any updates to the configuration fo
 
 In the Flow web app, you can edit captures and materializations, and use the **Schema Inference** tool to edit collection schemas.
 
-* [Editing captures and associated collections](../guides/edit-data-flows.md#edit-a-capture)
-* [Editing materializations and associated collections](../guides/edit-data-flows.md#edit-a-materialization)
+* [Editing captures and associated collections](/guides/edit-data-flows/#edit-a-capture)
+* [Editing materializations and associated collections](/guides/edit-data-flows/#edit-a-materialization)
 
 With flowctl, you can edit captures, materializations, collections, derivations, and tests.
 You do this by pulling the desired specification locally, editing, and re-publishing.

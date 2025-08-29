@@ -1,3 +1,7 @@
+---
+slug: /guides/howto_join_two_collections_typescript/
+---
+
 # How to Join Two Collections (TypeScript)
 
 This guide will teach you how to write and publish a TypeScript derivation, which will join two collections together on a common key.
@@ -10,7 +14,7 @@ This tutorial will show you how to implement a stateless transformation using Ty
 ### Prerequisites
 
 * An [Estuary](https://dashboard.estuary.dev/register) account
-* `flowctl` [installed](../concepts/flowctl.md#installation-and-setup) and [authenticated](../reference/authentication.md#authenticating-flow-using-the-cli)
+* `flowctl` [installed](/concepts/flowctl/#installation-and-setup) and [authenticated](/reference/authentication/#authenticating-flow-using-the-cli)
 * A Google Drive account to work with Google Sheets
 * [Docker](https://www.docker.com/)
 
@@ -44,7 +48,7 @@ As you can see, both tables contain a field called `customer_id`. This is what w
 
 Let’s say you want to see all customers and all of their orders in the results. This means you’ll want to implement a full outer join.
 
-To create the collections in Estuary Flow, head over to the dashboard and [create](https://dashboard.estuary.dev/captures/create) a new [Google Sheet capture](../reference/Connectors/capture-connectors/google-sheets.md). Give it a name and add one of the previously copied sheet’s URLs as the “Spreadsheet Link”. Authenticate your Google account and Save and Publish the capture. Repeat this process for the other sheet, which should leave you with 2 collections.
+To create the collections in Estuary Flow, head over to the dashboard and [create](https://dashboard.estuary.dev/captures/create) a new [Google Sheet capture](/reference/Connectors/capture-connectors/google-sheets). Give it a name and add one of the previously copied sheet’s URLs as the “Spreadsheet Link”. Authenticate your Google account and Save and Publish the capture. Repeat this process for the other sheet, which should leave you with 2 collections.
 
 You can take a look into each via the data preview window on the Collections page to verify that the sample data has already landed in Flow.
 
@@ -311,7 +315,7 @@ After it’s successfully published, head over to the Flow dashboard to see the 
 
 If you take a look at the preview window at the bottom of the page, you might notice that the documents are not yet in their final, reduced form. As mentioned earlier, the reduction happens during materialization. Let's create one to show the results!
 
-Head over to the [materialization creation page](https://dashboard.estuary.dev/materializations/create), search for [Google Sheets](../reference/Connectors/materialization-connectors/Google-sheets.md) and configure a new connector. Create a fresh Google Sheet and copy its URL as the Spreadsheet Link.
+Head over to the [materialization creation page](https://dashboard.estuary.dev/materializations/create), search for [Google Sheets](/reference/Connectors/materialization-connectors/Google-sheets) and configure a new connector. Create a fresh Google Sheet and copy its URL as the Spreadsheet Link.
 
 In the third configuration step, select the derivation you created as the source collection.
 

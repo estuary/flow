@@ -5,7 +5,7 @@ import Mermaid from '@theme/Mermaid';
 
 # Edit a draft created in the web app
 
-When you [create](../create-dataflow.md) or [edit](../edit-data-flows.md) tasks in the web app, your work is periodically saved as a **draft**.
+When you [create](../create-dataflow.md) or [edit](/guides/edit-data-flows) tasks in the web app, your work is periodically saved as a **draft**.
 Specifically, each time you click the **Next** button to reveal the **Save and Publish** button, a draft is saved.
 
 If you navigate away from your workflow in the web app before publishing, or if you simply prefer to finish up with flowctl,
@@ -89,5 +89,5 @@ Next, you'll make changes to the specification(s), test, and publish the draft.
 If you're not satisfied with the published entities, you can continue to edit them.
 See the other guides for help:
 
-* [Edit in the web app](../edit-data-flows.md).
+* [Edit in the web app](/guides/edit-data-flows).
 * [Edit with flowctl](./edit-specification-locally.md).

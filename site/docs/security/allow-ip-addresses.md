@@ -1,3 +1,7 @@
+---
+slug: /reference/allow-ip-addresses/
+---
+
 # Allowlisting IP Addresses for Estuary Flow
 
 When configuring systems that interact with Estuary Flow, it's crucial to ensure that the necessary IP addresses are

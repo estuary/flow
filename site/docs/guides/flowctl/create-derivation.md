@@ -199,7 +199,7 @@ Using the example above, it'd be called `anvil-status.ts`.
 4. In the TypeScript file, write your transformation.
 
 :::info Tip
-For help writing a TypeScript derivation, start with [this example](../transform_data_using_typescript.md).
+For help writing a TypeScript derivation, start with [this example](/guides/transform_data_using_typescript).
 
 The main [derivations page](../../concepts/derivations.md) includes many other examples and in-depth explanations of how derivations work.
 :::

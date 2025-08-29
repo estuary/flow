@@ -123,7 +123,7 @@ Now that you've captured data into one or more collections, you can materialize 
    3. Review the new schema and click **Apply Inferred Schema**.
 
    You can exert even more control over the output data structure using the **Field Selector** on the **Config tab**.
-   [Learn how.](../guides/customize-materialization-fields.md)
+   [Learn how.](/guides/customize-materialization-fields)
 
 7. If you've made any changes to source fields, click **Next** again.
 

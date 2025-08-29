@@ -1,3 +1,6 @@
+---
+slug: /guides/system-specific-dataflows/s3-to-snowflake/
+---
 
 # Amazon S3 to Snowflake
 
@@ -8,7 +11,7 @@ end-to-end real-time Data Flow from Amazon S3 to Snowflake using Estuary Flow.
 
 You'll need:
 
-* (Recommended) understanding of the [basic Flow concepts](../../concepts/README.md#essential-concepts).
+* (Recommended) understanding of the [basic Flow concepts](/concepts/#essential-concepts).
 
 * Access to the [**Flow web application**](http://dashboard.estuary.dev) through an Estuary account.
 If you don't have one, visit the web app to register for free.
@@ -23,7 +26,7 @@ If you don't have one, visit the web app to register for free.
 * A Snowflake account with:
 
   * A target **database**, **schema**, and virtual **warehouse**; and a **user** with a **role** assigned that grants the appropriate access levels to these resources.
-  [You can use a script to quickly create all of these items.](../../reference/Connectors/materialization-connectors/Snowflake.md#setup) Have these details on hand for setup with Flow.
+  [You can use a script to quickly create all of these items.](/reference/Connectors/materialization-connectors/Snowflake/#setup) Have these details on hand for setup with Flow.
 
   * The account identifier and host URL noted. [The URL is formatted using the account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used). For example, you might have the account identifier `orgname-accountname.snowflakecomputing.com`.
 
@@ -39,7 +42,7 @@ After following this guide, you'll have a Data Flow that comprises:
 * A **materialization**, which pushes the data to Snowflake
 
 The capture and materialization rely on plug-in components called **connectors**.
-We'll walk through how to configure the [S3](../../reference/Connectors/capture-connectors/amazon-s3.md) and [Snowflake](../../reference/Connectors/materialization-connectors/Snowflake.md) connectors to integrate these systems with Flow.
+We'll walk through how to configure the [S3](/reference/Connectors/capture-connectors/amazon-s3) and [Snowflake](/reference/Connectors/materialization-connectors/Snowflake) connectors to integrate these systems with Flow.
 
 ## Capture from S3
 
@@ -56,7 +59,7 @@ credentials provided by your Estuary account manager.
 
 4. Type a name for your capture.
 
-    Your capture name must begin with a [prefix](../../concepts/catalogs.md#namespace) to which you [have access](../../reference/authentication.md).
+    Your capture name must begin with a [prefix](/concepts/catalogs/#namespace) to which you [have access](/reference/authentication).
 
     In the **Name** field, use the drop-down to select your prefix.
     Append a unique capture name after the `/` to create the full name, for example, `acmeCo/myS3Capture`.
@@ -71,7 +74,7 @@ credentials provided by your Estuary account manager.
 
    * **Match Keys**: Filters to apply to the objects in the S3 bucket. If provided, only data whose absolute path matches the filter will be captured. For example, `*\.json` will only capture JSON files.
 
-   See the S3 connector documentation for information on [advanced fields](../../reference/Connectors/capture-connectors/amazon-s3.md#endpoint) and [parser settings](../../reference/Connectors/capture-connectors/amazon-s3.md#advanced-parsing-cloud-storage-data). (You're unlikely to need these for most use cases.)
+   See the S3 connector documentation for information on [advanced fields](/reference/Connectors/capture-connectors/amazon-s3/#endpoint) and [parser settings](/reference/Connectors/capture-connectors/amazon-s3/#advanced-parsing-cloud-storage-data). (You're unlikely to need these for most use cases.)
 
 6. Click **Next**.
 
@@ -123,7 +126,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
    This will be the name of the output table in Snowflake.
 
-6. Choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
+6. Choose whether to [enable delta updates](/reference/Connectors/materialization-connectors/Snowflake/#delta-updates).
 
 7. Apply a stricter schema to the collection for the materialization.
 
@@ -148,4 +151,4 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 Your Data Flow has been deployed, and will run continuously until it's stopped. Updates in your S3 bucket will be reflected in your Snowflake table as they occur.
 
 You can advance your Data Flow by adding a **derivation**. Derivations are real-time data transformations.
-See the [guide to create a derivation](../flowctl/create-derivation.md).
+See the [guide to create a derivation](/guides/flowctl/create-derivation).

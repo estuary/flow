@@ -1,3 +1,7 @@
+---
+slug: /guides/transform_data_using_typescript/
+---
+
 # How to Transform Data Using TypeScript
 
 This guide will teach you how to write and publish a simple TypeScript derivation.

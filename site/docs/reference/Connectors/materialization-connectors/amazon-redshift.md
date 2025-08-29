@@ -83,7 +83,7 @@ materializations:
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read
-about how to configure this [here](../../materialization-sync-schedule.md).
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Setup
 
@@ -142,7 +142,7 @@ The maximum size of a single input document is 4 MB. Attempting to materialize c
 documents larger than 4 MB will result in an error. To materialize this data you can use a
 [derivation](../../../concepts/derivations.md) to create a derived collection with smaller
 documents, or exclude fields containing excessive amounts of data by [customizing the materialized
-fields](../../../../guides/customize-materialization-fields/#include-desired-fields-in-your-materialization).
+fields](/guides/customize-materialization-fields/#field-selection-for-materializations).
 
 ## Delta updates
 

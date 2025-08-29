@@ -212,7 +212,7 @@ materializations:
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read
-about how to configure this [here](../../materialization-sync-schedule.md).
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 Snowflake compute is [priced](https://www.snowflake.com/pricing/) per second of
 activity, with a minimum of 60 seconds. Inactive warehouses don't incur charges.

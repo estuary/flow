@@ -107,7 +107,7 @@ When you click **Edit specification** for a capture, you're taken to the **Edit 
 
 This page is similar to the [**Create Capture**](#creating-a-capture) page as it was filled out just before the capture was published.
 
-For detailed steps to edit a capture, see the [guide](../guides/edit-data-flows.md#edit-a-capture).
+For detailed steps to edit a capture, see the [guide](/guides/edit-data-flows/#edit-a-capture).
 
 ### Creating a capture
 
@@ -207,7 +207,7 @@ When you click **Edit specification** for a materialization, you're taken to the
 
 This page is similar to the [**Create Materialization**](#creating-a-materialization) page as it was filled out just before the materialization was published.
 
-For detailed steps to edit a materialization, see the [guide](../guides/edit-data-flows.md#edit-a-materialization).
+For detailed steps to edit a materialization, see the [guide](/guides/edit-data-flows/#edit-a-materialization).
 
 ### Creating a materialization
 
@@ -352,7 +352,7 @@ The **Settings** tab includes additional configuration, such as organization not
 
 #### Organization Notifications
 
-Here, you are able to configure which email address(es) will receive notifications related to your organization or prefix.
+Here, you are able to configure which email address(es) will receive [notifications](/reference/notifications) related to your organization or prefix.
 
 #### Cloud Storage
 
@@ -369,7 +369,7 @@ If you're a trial user, your data is stored temporarily in Estuary's cloud stora
 
 The **Data Planes** section provides a table of all available data plane options, broken out by **Private** and **Public** data planes.
 
-You can find information here related to connecting and allowing access to your data plane of choice. See [Allowlisting IP Addresses](../reference/allow-ip-addresses.md) for more.
+You can find information here related to connecting and allowing access to your data plane of choice. See [Allowlisting IP Addresses](/reference/allow-ip-addresses) for more.
 
 ### Billing
 
