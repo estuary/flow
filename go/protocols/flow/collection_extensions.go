@@ -3,6 +3,7 @@ package flow
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -113,6 +114,12 @@ func (m *CollectionSpec_Derivation_Transform) Validate() error {
 // meaning that the json pointer is the empty string.
 func (projection *Projection) IsRootDocumentProjection() bool {
 	return len(projection.Ptr) == 0
+}
+
+// IsRootLevelProjection returns true if this projection represents a root-level 
+// property of the document
+func (projection *Projection) IsRootLevelProjection() bool {
+	return strings.Count(projection.Ptr, "/") == 1
 }
 
 // IsSingleType returns true if this inference may only hold a single type besides null For
