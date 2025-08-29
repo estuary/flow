@@ -1,5 +1,6 @@
 use crate::{connector, utils, SessionAuthentication, TaskState};
 use anyhow::{anyhow, bail, Context};
+use futures::StreamExt;
 use gazette::{
     broker::{self, journal_spec, ReadResponse},
     journal, uuid,
