@@ -232,6 +232,9 @@ impl Read {
             if timeout_at > self.stream_exp {
                 timeout_at = self.stream_exp;
             }
+            if timeout_at < now {
+                anyhow::bail!("Encountered a read stream with token expiring in the past. This should not happen, cancelling the read.");
+            }
             tokio::time::Instant::now() + timeout_at.duration_since(now)?
         };
 
