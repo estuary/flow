@@ -357,8 +357,11 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 .validate(schema.as_ref(), next.head.root.get())
                 .map_err(Error::SchemaError)?
                 .ok()
-                .map_err(|err| {
-                    Error::FailedValidation(self.spec.names[next.head.meta.binding()].clone(), err)
+                .map_err(|invalid| {
+                    Error::FailedValidation(
+                        self.spec.names[next.head.meta.binding()].clone(),
+                        invalid.revalidate_with_context(next.head.root.get()),
+                    )
                 })?;
 
             match reduce::reduce::<crate::ArchivedNode>(
@@ -386,7 +389,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                     meta.set_not_associative();
                     break;
                 }
-                Err(err) => return Err(Error::Reduction(err)),
+                Err(err) => return Err(Error::Reduce(err)),
             }
         }
 
@@ -401,8 +404,11 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                         .validate(schema.as_ref(), root.get())
                         .map_err(Error::SchemaError)?
                         .ok()
-                        .map_err(|err| {
-                            Error::FailedValidation(self.spec.names[meta.binding()].clone(), err)
+                        .map_err(|invalid| {
+                            Error::FailedValidation(
+                                self.spec.names[meta.binding()].clone(),
+                                invalid.revalidate_with_context(root.get()),
+                            )
                         })?;
                 }
 
@@ -414,8 +420,11 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                     .validate(schema.as_ref(), &reduced)
                     .map_err(Error::SchemaError)?
                     .ok()
-                    .map_err(|err| {
-                        Error::FailedValidation(self.spec.names[meta.binding()].clone(), err)
+                    .map_err(|invalid| {
+                        Error::FailedValidation(
+                            self.spec.names[meta.binding()].clone(),
+                            invalid.revalidate_with_context(&reduced),
+                        )
                     })?;
 
                 // Safety: we allocated `reduced` out of `self.alloc`.
@@ -586,6 +595,7 @@ mod test {
                 )
             })
             .take(3),
+            Vec::new(),
         );
 
         let alloc = Bump::new();
@@ -731,6 +741,7 @@ mod test {
                 )
             })
             .take(1),
+            Vec::new(),
         );
 
         let alloc = Bump::new();

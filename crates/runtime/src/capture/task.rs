@@ -121,6 +121,7 @@ impl Task {
                     None,
                     state_validator,
                 ))),
+            Vec::new(),
         );
 
         Ok(combiner_spec)

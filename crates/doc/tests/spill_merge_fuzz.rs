@@ -55,6 +55,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
             )
         })
         .take(2),
+        Vec::new(),
     );
 
     let mut spill = combine::SpillWriter::new(std::io::Cursor::new(Vec::new())).unwrap();

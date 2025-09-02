@@ -1,4 +1,4 @@
-use super::{AsNode, HeapField, HeapNode, Valid};
+use super::{AsNode, HeapField, HeapNode};
 use crate::{BumpStr, BumpVec};
 use itertools::Itertools;
 use json::validator::{self, Context};
@@ -128,12 +128,12 @@ impl std::convert::TryFrom<&serde_json::Value> for Strategy {
 /// Returns an Outcome indicating the modification state of the document.
 pub fn redact<'alloc>(
     doc: &mut HeapNode<'alloc>,
-    valid: Valid,
+    outcomes: &[crate::validation::Outcome<'_>],
     alloc: &'alloc bumpalo::Bump,
     salt: &[u8],
 ) -> Result<Outcome> {
     // Extract sparse tape of redact annotations and their applicable [begin, end) spans.
-    let tape: Vec<(i32, i32, &Strategy)> = (valid.validator.outcomes().iter())
+    let tape: Vec<(i32, i32, &Strategy)> = (outcomes.iter())
         .filter_map(|(outcome, ctx)| {
             if let validator::Outcome::Annotation(crate::Annotation::Redact(strategy)) = outcome {
                 let span = ctx.span();
@@ -633,7 +633,7 @@ mod test {
         for (name, input, expected, expected_outcome) in cases {
             let mut heap_doc = HeapNode::from_node(&input, &alloc);
             let valid = validator.validate(None, &input).unwrap().ok().unwrap();
-            let outcome = redact(&mut heap_doc, valid, &alloc, TEST_SALT).unwrap();
+            let outcome = redact(&mut heap_doc, valid.outcomes(), &alloc, TEST_SALT).unwrap();
 
             assert_eq!(
                 outcome, expected_outcome,
@@ -661,7 +661,7 @@ mod test {
 
         let mut doc = HeapNode::from_node(&json!("conflict"), &alloc);
         let valid = validator.validate(None, &doc).unwrap().ok().unwrap();
-        let result = redact(&mut doc, valid, &alloc, &[]);
+        let result = redact(&mut doc, valid.outcomes(), &alloc, &[]);
 
         insta::assert_debug_snapshot!(result, @r###"
         Err(
