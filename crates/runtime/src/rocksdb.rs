@@ -325,7 +325,7 @@ fn do_merge(
 ) -> anyhow::Result<Vec<u8>> {
     let bundle = doc::validation::build_bundle(schema.as_bytes()).unwrap();
     let validator = doc::Validator::new(bundle).unwrap();
-    let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", None, validator);
+    let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", Vec::new(), None, validator);
     let memtable = doc::combine::MemTable::new(spec);
 
     let key = String::from_utf8_lossy(key);

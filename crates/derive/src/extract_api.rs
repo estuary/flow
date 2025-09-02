@@ -142,7 +142,7 @@ impl cgo::Service for API {
                     validator
                         .validate(None, &doc)?
                         .ok()
-                        .map_err(Error::FailedValidation)?;
+                        .map_err(|invalid| Error::FailedValidation(invalid.revalidate_with_context(&doc)))?;
                 }
 
                 // Send extracted UUID.

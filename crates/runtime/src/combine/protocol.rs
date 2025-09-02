@@ -49,7 +49,7 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
     }
 
     Ok((
-        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter()))?,
+        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter(), Vec::new()))?,
         bindings,
     ))
 }

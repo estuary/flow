@@ -1,7 +1,7 @@
 /// This module is concerned with mapping JSON Schemas into a most-equivalent Shape.
 /// It builds on the union and intersection operations defined over Shape.
 use super::*;
-use crate::{Annotation, Schema, SchemaIndex, redact, reduce};
+use crate::{redact, reduce, Annotation, Schema, SchemaIndex};
 use itertools::Itertools;
 use json::schema::{Application, CoreAnnotation, Keyword, Validation};
 
@@ -162,7 +162,8 @@ impl Shape {
                         )
                         .unwrap()
                         .ok()
-                        .err();
+                        .err()
+                        .map(|invalid| invalid.revalidate_with_context(&default_value));
 
                         shape.default = Some(Box::new((default_value, validation_err)));
                     }
