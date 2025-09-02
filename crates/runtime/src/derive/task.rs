@@ -95,6 +95,7 @@ impl Task {
             false,
             self.key_extractors.clone(),
             "derived",
+            Vec::new(),
             None,
             validator,
         ))
