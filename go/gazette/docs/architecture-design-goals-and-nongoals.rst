@@ -7,7 +7,7 @@ influences.
 
 **Journals provide global record ordering and publish/subscribe**
 
-Much like Kakfa, LogDevice, Apache BookKeeper, and others. These properties are
+Much like Kafka, LogDevice, Apache BookKeeper, and others. These properties are
 the basic building blocks for assembling platforms composed of streaming,
 decoupled, and event-sourced services.
 
