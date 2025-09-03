@@ -1,6 +1,7 @@
 use anyhow::Context;
 use futures::{future::BoxFuture, FutureExt, StreamExt};
 use proto_flow::{capture, derive, flow, materialize};
+use rand::RngCore;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -91,8 +92,7 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
 }
 
 /// Perform validations and produce built specifications for `draft` and `live`.
-/// * If `generate_ops_collections` is set, then ops collections are added into `sources`.
-/// * If any of `noop_*` is true, then validations are skipped for connectors of that type.
+/// If any of `noop_*` is true, then validations are skipped for connectors of that type.
 pub async fn validate(
     pub_id: models::Id,
     build_id: models::Id,
@@ -117,6 +117,11 @@ pub async fn validate(
     );
     let connectors = RuntimeConnectors { runtime };
 
+    // Generate a random initialization vector for the validation.
+    // Currently, this is used to derive unique but deterministic redact salts.
+    let mut init_vector: [u8; 16] = Default::default();
+    rand::thread_rng().fill_bytes(&mut init_vector);
+
     let built = validation::validate(
         pub_id,
         build_id,
@@ -128,6 +133,7 @@ pub async fn validate(
         noop_captures,
         noop_derivations,
         noop_materializations,
+        &init_vector,
     )
     .await;
 
