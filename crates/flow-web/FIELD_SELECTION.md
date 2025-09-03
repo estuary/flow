@@ -4,7 +4,7 @@ This document describes the field selection functionality exposed through the `f
 
 ## Overview
 
-The `evaluate_field_selection` function provides access to Estuary's improved field selection logic from web interfaces. It evaluates which fields should be materialized based on collection projections, user configuration, connector constraints, and existing materializations.
+The `evaluate_field_selection` function runs field selection logic within web interfaces. It evaluates which fields should be materialized based on collection projections, user configuration, connector constraints, and existing materializations.
 
 ## Function Signature
 
@@ -16,11 +16,15 @@ function evaluate_field_selection(input: FieldSelectionInput): FieldSelectionRes
 
 ```typescript
 interface FieldSelectionInput {
-  collectionKey: string[];                    // Collection key JSON pointers (e.g., ["/id", "/timestamp"])
-  collectionProjections: Projection[];        // Available fields from the collection
-  liveSpec?: BuiltMaterializationBinding;     // Existing materialization (if updating)
-  model: MaterializationBinding;              // User's desired configuration
-  validated: ValidatedBinding;                // Connector validation results
+  collection: {
+    name: string;                             // Collection name (e.g., "acmeCo/users")
+    model: CollectionDef;                     // Collection definition with schema, key, and projections
+  };
+  binding: {
+    live?: BuiltMaterializationBinding;       // Existing materialization (if updating)
+    model: MaterializationBinding;             // User's desired configuration
+    validated: ValidatedBinding;              // Connector validation results
+  }
 }
 ```
 
@@ -90,34 +94,34 @@ interface FieldSelection {
 import { evaluate_field_selection } from 'flow-web';
 
 const input = {
-  collectionKey: ["/id"],
-  collectionProjections: [
-    {
-      ptr: "/id",
-      field: "id",
-      inference: { types: ["integer"], exists: "must" },
-      is_primary_key: true
-    },
-    {
-      ptr: "/name",
-      field: "name",
-      inference: { types: ["string"], exists: "may" },
-      is_primary_key: false
-    }
-  ],
-  model: {
-    fields: {
-      groupBy: [],
-      recommended: { Bool: true },
-      require: {},
-      exclude: []
+  collection: {
+    name: "acmeCo/users",
+    model: {
+      schema: { /* JSON schema definition */ },
+      key: ["/id"],
+      projections: {
+        /* optional projection configuration */
+      }
+      // ... other collection properties
     }
   },
-  validated: {
-    resourcePath: ["users"],
-    constraints: {
-      "id": { type: "FIELD_REQUIRED", reason: "Primary key" },
-      "name": { type: "FIELD_OPTIONAL", reason: "User data" }
+  binding: {
+    live: undefined, // or existing materialization binding if updating
+    model: {
+      fields: {
+        groupBy: [],
+        recommended: 1,
+        require: {},
+        exclude: []
+      }
+    },
+    validated: {
+      resourcePath: ["users"],
+      constraints: {
+        "id": { type: "FIELD_REQUIRED", reason: "Primary key" },
+        "name": { type: "FIELD_OPTIONAL", reason: "User data" }
+      },
+      caseInsensitiveFields: false
     }
   }
 };
