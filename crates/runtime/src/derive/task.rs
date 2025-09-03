@@ -1,6 +1,6 @@
 use super::{Task, Transform};
 use anyhow::Context;
-use proto_flow::derive::{request, response, Request, Response};
+use proto_flow::derive::{Request, Response, request, response};
 use proto_flow::flow;
 
 impl Task {
@@ -43,7 +43,7 @@ impl Task {
             shuffle_key_types: _,
             transforms,
             inactive_transforms: _,
-            redact_salt: _,
+            redact_salt,
         } = derivation.as_ref().context("missing derivation")?;
 
         if key.is_empty() {
@@ -78,6 +78,7 @@ impl Task {
             document_uuid_ptr,
             key_extractors,
             partition_extractors,
+            redact_salt: redact_salt.clone(),
             ser_policy,
             shard_ref,
             transforms,
@@ -95,7 +96,7 @@ impl Task {
             false,
             self.key_extractors.clone(),
             "derived",
-            Vec::new(),
+            self.redact_salt.to_vec(),
             None,
             validator,
         ))
