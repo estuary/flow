@@ -21,6 +21,7 @@ validation = { path = "../validation" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 tokio = { workspace = true }

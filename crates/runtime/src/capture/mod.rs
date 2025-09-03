@@ -20,6 +20,8 @@ pub struct Task {
     bindings: Vec<Binding>,
     // Does the capture connector want explicit acknowledgements?
     explicit_acknowledgements: bool,
+    // Salt used for redacting sensitive fields.
+    redact_salt: bytes::Bytes,
     // Instant at which this Task is eligible for restart.
     restart: tokio::time::Instant,
     // ShardRef of this task.
