@@ -100,7 +100,7 @@ effects](https://cloud.google.com/blog/products/data-analytics/cloud-pub-sub-exa
 If you materialize the collections using standard updates, duplicate documents
 will automatically be de-duplicated in the destination based on the ID of the
 documents. Materializations that use [delta
-updates](../../../concepts/materialization.md#delta-updates) need to consider
+updates](/concepts/materialization/#delta-updates) need to consider
 the potential for more than one document with the same ID.
 
 ### Message Format

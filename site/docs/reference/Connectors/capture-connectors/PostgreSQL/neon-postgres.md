@@ -205,7 +205,7 @@ to fill in the previous known TOASTed value in cases when that value is omitted 
 
 However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
 
-- When you materialize the captured data to another system using a connector that requires [delta updates](../../../../concepts/materialization.md#delta-updates)
+- When you materialize the captured data to another system using a connector that requires [delta updates](/concepts/materialization/#delta-updates)
 - When you perform a [derivation](../../../../concepts/derivations.md) that uses TOASTed values
 
 ### Troubleshooting

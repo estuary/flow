@@ -110,7 +110,7 @@ As new documents become available within bound collections, the materialization
 keeps the destination up to date within milliseconds, or as fast as that system allows.
 Materializations interface with destinations using [connectors](#connectors).
 
-[Learn more about materializations](materialization.md)
+[Learn more about materializations](/concepts/materialization)
 
 ***
 
