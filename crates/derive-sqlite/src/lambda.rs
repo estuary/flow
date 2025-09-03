@@ -1,4 +1,5 @@
 use super::{Error, Param};
+use base64::Engine;
 
 /// Lambda wraps a rusqlite::Statement with $parameters that map into document
 /// Projections. It invokes the statement with novel documents, mapping bound
@@ -174,7 +175,7 @@ fn bind_parameter_node<N: doc::AsNode>(
                 }
             }
             if *is_content_encoding_base64 {
-                if let Ok(b) = base64::decode(s) {
+                if let Ok(b) = base64::engine::general_purpose::STANDARD.decode(s) {
                     return stmt.raw_bind_parameter(index + 1, b);
                 }
             }
@@ -238,7 +239,7 @@ fn convert_value_ref(value: rusqlite::types::ValueRef<'_>) -> serde_json::Value 
             }
             serde_json::Value::String(String::from_utf8(s.to_vec()).unwrap())
         }
-        ValueRef::Blob(b) => Value::String(base64::encode(b)),
+        ValueRef::Blob(b) => Value::String(base64::engine::general_purpose::STANDARD.encode(b)),
         ValueRef::Integer(i) => Value::Number(Number::from(i)),
         ValueRef::Real(f) => match Number::from_f64(f) {
             Some(n) => Value::Number(n),

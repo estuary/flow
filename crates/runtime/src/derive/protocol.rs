@@ -127,7 +127,8 @@ pub fn recv_client_read_or_flush(
             let doc: serde_json::Value = serde_json::from_slice(&read.doc_json)?;
             let _valid = validators[read.transform as usize]
                 .validate(None, &doc)?
-                .ok()?;
+                .ok()
+                .map_err(|invalid| anyhow::anyhow!(invalid.revalidate_with_context(&doc)))?;
             Ok(())
         }()
         .with_context(|| {
@@ -199,9 +200,13 @@ pub fn recv_connector_published_or_flushed(
     let uuid_ptr = &task.document_uuid_ptr;
 
     if !uuid_ptr.0.is_empty() {
-        if let Some(node) = uuid_ptr.create_heap_node(&mut doc, alloc) {
-            *node = doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
-        }
+        let Ok(_) = uuid_ptr.create_heap_node(
+            &mut doc,
+            doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
+            alloc,
+        ) else {
+            anyhow::bail!("unable to create document UUID placeholder");
+        };
     }
     memtable.add(0, doc, false)?;
 

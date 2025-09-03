@@ -325,7 +325,7 @@ fn do_merge(
 ) -> anyhow::Result<Vec<u8>> {
     let bundle = doc::validation::build_bundle(schema.as_bytes()).unwrap();
     let validator = doc::Validator::new(bundle).unwrap();
-    let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", None, validator);
+    let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", Vec::new(), None, validator);
     let memtable = doc::combine::MemTable::new(spec);
 
     let key = String::from_utf8_lossy(key);
@@ -342,10 +342,10 @@ fn do_merge(
                 )
             })?;
 
-            let doc = doc::HeapNode::Array(doc::BumpVec::with_contents(
+            let doc = doc::HeapNode::new_array(
                 memtable.alloc(),
                 [doc::HeapNode::String(key), op].into_iter(),
-            ));
+            );
             memtable.add(0, doc, false)?;
         }
         Ok(())

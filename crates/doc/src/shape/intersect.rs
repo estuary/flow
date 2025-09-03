@@ -5,13 +5,15 @@ use super::*;
 use crate::FailedValidation;
 use itertools::{EitherOrBoth, Itertools};
 
-impl Reduction {
+impl Reduce {
     fn intersect(self, rhs: Self) -> Self {
-        if let Self::Unset = self {
-            rhs
-        } else {
-            self
-        }
+        if let Self::Unset = self { rhs } else { self }
+    }
+}
+
+impl Redact {
+    fn intersect(self, rhs: Self) -> Self {
+        if let Self::Unset = self { rhs } else { self }
     }
 }
 
@@ -234,7 +236,8 @@ impl Shape {
 
         let title = lhs.title.or(rhs.title);
         let description = lhs.description.or(rhs.description);
-        let reduction = lhs.reduction.intersect(rhs.reduction);
+        let reduce = lhs.reduce.intersect(rhs.reduce);
+        let redact = lhs.redact.intersect(rhs.redact);
         let provenance = lhs.provenance.intersect(rhs.provenance);
         let default = intersect_default(type_, lhs.default, rhs.default);
         let secret = lhs.secret.or(rhs.secret);
@@ -276,7 +279,8 @@ impl Shape {
             enum_,
             title,
             description,
-            reduction,
+            reduce,
+            redact,
             provenance,
             default,
             secret,

@@ -13,8 +13,11 @@ use std::sync::{Arc, Mutex};
 pub enum TraceEntry {
     Log(&'static str, String),
     Cmd(&'static str, String),
+    #[allow(dead_code)]
     Status(stack::Status),
+    #[allow(dead_code)]
     Exports(stack::ControlExports),
+    #[allow(dead_code)]
     Stack(stack::PulumiStack),
 }
 

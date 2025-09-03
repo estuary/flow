@@ -57,8 +57,8 @@ impl Iterator for Iter {
     type Item = &'static str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Iter {
-            types,
+        let &mut Iter {
+            ref types,
             ref mut index,
         } = self;
 

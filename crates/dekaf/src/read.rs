@@ -262,7 +262,7 @@ impl Read {
                 Some(resp) => match resp {
                     Ok(data @ ReadJsonLine::Meta(_)) => Ok(data),
                     Ok(ReadJsonLine::Doc { root, next_offset }) => match root.get() {
-                        doc::heap::ArchivedNode::Object(_) => {
+                        doc::heap::ArchivedNode::Object(_, _) => {
                             Ok(ReadJsonLine::Doc { root, next_offset })
                         }
                         non_object => {
@@ -450,8 +450,13 @@ impl Read {
             compression: Compression::None,
             version: 2,
         };
-        RecordBatchEncoder::encode(&mut buf, records.iter(), &opts, Some(compressor))
-            .expect("record encoding cannot fail");
+        RecordBatchEncoder::encode_with_custom_compression(
+            &mut buf,
+            records.iter(),
+            &opts,
+            Some(compressor),
+        )
+        .expect("record encoding cannot fail");
 
         tracing::debug!(
             count = records.len(),

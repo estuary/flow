@@ -1,6 +1,6 @@
 use super::{Binding, Task};
 use anyhow::Context;
-use proto_flow::capture::{request, response, Request, Response};
+use proto_flow::capture::{Request, Response, request, response};
 use proto_flow::flow;
 use std::collections::BTreeMap;
 
@@ -27,6 +27,7 @@ impl Task {
             recovery_log_template: _,
             shard_template: _,
             inactive_bindings: _,
+            redact_salt,
         } = spec.as_ref().context("missing capture")?;
         let range = range.context("missing range")?;
 
@@ -56,6 +57,7 @@ impl Task {
         Ok(Self {
             bindings,
             explicit_acknowledgements,
+            redact_salt: redact_salt.clone(),
             restart,
             shard_ref,
         })
@@ -120,6 +122,7 @@ impl Task {
                     None,
                     state_validator,
                 ))),
+            self.redact_salt.to_vec(),
         );
 
         Ok(combiner_spec)

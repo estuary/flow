@@ -145,6 +145,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             interval: std::time::Duration::from_secs(32),
             shards: models::ShardTemplate::default(),
             delete: false,
+            redact_salt: None,
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
             id: format!("capture/{capture}/0000000000000001"),
@@ -185,6 +186,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             shard_template: Some(shard_template),
             config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
+            redact_salt: b"pass-through-capture-salt".as_slice().into(),
         };
         live.captures.insert_row(
             capture,
@@ -260,6 +262,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 shuffle_key_types: Vec::new(),
                 transforms,
                 inactive_transforms: Vec::new(),
+                redact_salt: b"pass-through-derivation-salt".as_slice().into(),
             })
         } else {
             None
@@ -398,6 +401,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .insert_row(models::Prefix::new(""), models::Id::zero(), vec![store]);
     }
 
+    // Use a constant initialization vector for deterministic test output.
+    const TEST_INIT_VECTOR: &[u8] = b"test-init-vector";
+
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
         models::Id::new([33; 8]),
@@ -409,6 +415,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
+        TEST_INIT_VECTOR,
     ));
 
     let tables::DraftCatalog {

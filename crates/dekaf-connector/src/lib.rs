@@ -58,22 +58,20 @@ pub struct DekafResourceConfig {
     pub topic_name: String,
 }
 
-fn collection_name(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
+fn collection_name(_gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
         "x-collection-name": true,
         "type": "string"
-    }))
-    .unwrap()
+    })
 }
 
-fn token_secret(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
+fn token_secret(_gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
         "title": "Auth Token",
         "secret": true,
         "type": "string",
         "order": 0
-    }))
-    .unwrap()
+    })
 }
 
 pub fn connector<R>(

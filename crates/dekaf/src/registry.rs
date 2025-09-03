@@ -139,17 +139,19 @@ async fn get_schema_by_id(
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap();
 
-        let mut rows: Vec<Row> = client
-            .from("registered_avro_schemas")
-            .eq("registry_id", format!("{id}"))
-            .update(serde_json::json!({"updated_at": now}).to_string())
-            .select("avro_schema")
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("querying for an already-registered schema")?
-            .json()
-            .await?;
+        let mut rows: Vec<Row> = serde_json::from_slice(
+            &client
+                .from("registered_avro_schemas")
+                .eq("registry_id", format!("{id}"))
+                .update(serde_json::json!({"updated_at": now}).to_string())
+                .select("avro_schema")
+                .execute()
+                .await
+                .and_then(|r| r.error_for_status())
+                .context("querying for an already-registered schema")?
+                .bytes()
+                .await?,
+        )?;
 
         let Some(Row { avro_schema }) = rows.pop() else {
             anyhow::bail!("could not find schema with registry id {id}");

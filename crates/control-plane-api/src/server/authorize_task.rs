@@ -121,7 +121,7 @@ async fn do_authorize_task(
             // The request predates our latest snapshot, so the client cannot
             // have prior knowledge of a generation ID we don't yet know about.
             // Implication: the referenced collection was reset or deleted.
-            claims.exp = claims.iat + rand::thread_rng().gen_range(1800..3600);
+            claims.exp = claims.iat + rand::rng().random_range(1800..3600);
 
             ok
         }

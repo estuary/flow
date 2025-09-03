@@ -203,7 +203,7 @@ impl Snapshot {
         // Snapshot was taken. Jitter to smooth the load of re-authorizations.
         use rand::Rng;
         let exp = snapshot.taken
-            + chrono::TimeDelta::seconds(rand::thread_rng().gen_range(
+            + chrono::TimeDelta::seconds(rand::rng().random_range(
                 (Snapshot::MAX_AUTHORIZATION.num_seconds() / 2)
                     ..Snapshot::MAX_AUTHORIZATION.num_seconds(),
             ));
@@ -239,7 +239,7 @@ impl Snapshot {
             )
             // We don't know how long a Snapshot fetch will take. Currently it's ~1-5 seconds,
             // but our real objective here is to smooth the herd of retries awaiting a refresh.
-            + chrono::TimeDelta::milliseconds(rand::thread_rng().gen_range(500..10_000));
+            + chrono::TimeDelta::milliseconds(rand::rng().random_range(500..10_000));
 
         Self::signal_refresh(snapshot, mu);
 
@@ -615,13 +615,17 @@ impl Snapshot {
         })
         .collect::<Vec<_>>();
 
+        use base64::Engine;
         let data_planes = vec![
             tables::DataPlane {
                 control_id: models::Id::new([1; 8]),
                 data_plane_name: "ops/dp/public/plane-one".to_string(),
                 data_plane_fqdn: "fqdn1".to_string(),
                 is_default: false,
-                hmac_keys: vec![base64::encode("key1"), base64::encode("key2")],
+                hmac_keys: vec![
+                    base64::engine::general_purpose::STANDARD.encode("key1"),
+                    base64::engine::general_purpose::STANDARD.encode("key2"),
+                ],
                 encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
                 broker_address: "broker.1".to_string(),
                 reactor_address: "reactor.1".to_string(),
@@ -633,7 +637,7 @@ impl Snapshot {
                 data_plane_name: "ops/dp/public/plane-two".to_string(),
                 data_plane_fqdn: "fqdn2".to_string(),
                 is_default: false,
-                hmac_keys: vec![base64::encode("key3")],
+                hmac_keys: vec![base64::engine::general_purpose::STANDARD.encode("key3")],
                 encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
                 broker_address: "broker.2".to_string(),
                 reactor_address: "reactor.2".to_string(),

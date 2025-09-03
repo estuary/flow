@@ -258,7 +258,7 @@ pub fn recv_client_load_or_flush(
 
             memtable.add(binding_index, doc, false)?;
 
-            let (ref prev_max, next_max) = &mut max_keys[binding_index as usize];
+            let &mut (ref prev_max, ref mut next_max) = &mut max_keys[binding_index as usize];
 
             // Is `key_packed` larger than the largest key previously stored
             // to the connector? If so, then it cannot possibly exist.

@@ -89,7 +89,7 @@ pub async fn check_resource_quotas(
 
     let tenant_names = deltas.keys().map(|k| *k).collect::<Vec<_>>();
 
-    let errors = db::find_tenant_quotas(&tenant_names, txn)
+    let errors = db::find_tenant_quotas(&tenant_names, &mut **txn)
         .await?
         .into_iter()
         .flat_map(|tenant| {

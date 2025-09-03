@@ -6,8 +6,7 @@ use crate::{
     SessionAuthentication, TaskState,
 };
 use anyhow::{bail, Context};
-use bytes::{BufMut, Bytes, BytesMut};
-use itertools::Itertools;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -18,7 +17,7 @@ use kafka_protocol::{
         ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
         RequestHeader, TopicName,
     },
-    protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
+    protocol::{Decodable, Encodable, Message, StrBytes},
 };
 use std::{cmp::max, sync::Arc};
 use std::{
@@ -360,7 +359,7 @@ impl Session {
                                 .with_replica_nodes(vec![messages::BrokerId(1)])
                                 .with_isr_nodes(vec![messages::BrokerId(1)])])
                     })
-                    .collect_vec())
+                    .collect::<Vec<_>>())
             }
             Err(e) => Err(e),
         }
@@ -1562,17 +1561,17 @@ impl Session {
                 .with_min_version(T::VERSIONS.min)
         }
         let res = ApiVersionsResponse::default().with_api_keys(vec![
-            version::<ApiVersionsRequest>(ApiKey::ApiVersionsKey),
-            version::<SaslHandshakeRequest>(ApiKey::SaslHandshakeKey),
-            version::<SaslAuthenticateRequest>(ApiKey::SaslAuthenticateKey),
-            version::<MetadataRequest>(ApiKey::MetadataKey),
+            version::<ApiVersionsRequest>(ApiKey::ApiVersions),
+            version::<SaslHandshakeRequest>(ApiKey::SaslHandshake),
+            version::<SaslAuthenticateRequest>(ApiKey::SaslAuthenticate),
+            version::<MetadataRequest>(ApiKey::Metadata),
             ApiVersion::default()
-                .with_api_key(ApiKey::FindCoordinatorKey as i16)
+                .with_api_key(ApiKey::FindCoordinator as i16)
                 .with_min_version(0)
                 .with_max_version(2),
-            version::<ListOffsetsRequest>(ApiKey::ListOffsetsKey),
+            version::<ListOffsetsRequest>(ApiKey::ListOffsets),
             ApiVersion::default()
-                .with_api_key(ApiKey::FetchKey as i16)
+                .with_api_key(ApiKey::Fetch as i16)
                 // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
                 // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
                 // just the consequence of convergent development, where some implicit requirement got encoded both in the client
@@ -1581,30 +1580,30 @@ impl Session {
                 // Version >= 13 did away with topic names in favor of unique topic UUIDs, so we need to stick below that.
                 .with_max_version(12),
             // Needed by `kaf`.
-            version::<DescribeConfigsRequest>(ApiKey::DescribeConfigsKey),
+            version::<DescribeConfigsRequest>(ApiKey::DescribeConfigs),
             ApiVersion::default()
-                .with_api_key(ApiKey::ProduceKey as i16)
+                .with_api_key(ApiKey::Produce as i16)
                 .with_min_version(3)
                 .with_max_version(9),
-            version::<JoinGroupRequest>(ApiKey::JoinGroupKey),
-            version::<LeaveGroupRequest>(ApiKey::LeaveGroupKey),
-            version::<ListGroupsRequest>(ApiKey::ListGroupsKey),
-            version::<SyncGroupRequest>(ApiKey::SyncGroupKey),
-            version::<DeleteGroupsRequest>(ApiKey::DeleteGroupsKey),
-            version::<HeartbeatRequest>(ApiKey::HeartbeatKey),
-            version::<OffsetCommitRequest>(ApiKey::OffsetCommitKey),
+            version::<JoinGroupRequest>(ApiKey::JoinGroup),
+            version::<LeaveGroupRequest>(ApiKey::LeaveGroup),
+            version::<ListGroupsRequest>(ApiKey::ListGroups),
+            version::<SyncGroupRequest>(ApiKey::SyncGroup),
+            version::<DeleteGroupsRequest>(ApiKey::DeleteGroups),
+            version::<HeartbeatRequest>(ApiKey::Heartbeat),
+            version::<OffsetCommitRequest>(ApiKey::OffsetCommit),
             ApiVersion::default()
-                .with_api_key(ApiKey::OffsetFetchKey as i16)
+                .with_api_key(ApiKey::OffsetFetch as i16)
                 .with_min_version(0)
                 .with_max_version(7),
         ]);
 
         // UNIMPLEMENTED:
         /*
-            ApiKey::LeaderAndIsrKey,
-            ApiKey::StopReplicaKey,
-            ApiKey::CreateTopicsKey,
-            ApiKey::DeleteTopicsKey,
+            ApiKey::LeaderAndIsr,
+            ApiKey::StopReplica,
+            ApiKey::CreateTopics,
+            ApiKey::DeleteTopics,
         */
 
         Ok(res)

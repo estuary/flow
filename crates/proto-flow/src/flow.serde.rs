@@ -454,6 +454,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.inactive_bindings.is_empty() {
             len += 1;
         }
+        if !self.redact_salt.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -486,6 +489,11 @@ impl serde::Serialize for CaptureSpec {
         if !self.inactive_bindings.is_empty() {
             struct_ser.serialize_field("inactiveBindings", &self.inactive_bindings)?;
         }
+        if !self.redact_salt.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("redactSalt", pbjson::private::base64::encode(&self.redact_salt).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -512,6 +520,8 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "networkPorts",
             "inactive_bindings",
             "inactiveBindings",
+            "redact_salt",
+            "redactSalt",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -525,6 +535,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             RecoveryLogTemplate,
             NetworkPorts,
             InactiveBindings,
+            RedactSalt,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -555,6 +566,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             "recoveryLogTemplate" | "recovery_log_template" => Ok(GeneratedField::RecoveryLogTemplate),
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
                             "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
+                            "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -583,6 +595,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut recovery_log_template__ = None;
                 let mut network_ports__ = None;
                 let mut inactive_bindings__ = None;
+                let mut redact_salt__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -643,6 +656,14 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             inactive_bindings__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::RedactSalt => {
+                            if redact_salt__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("redactSalt"));
+                            }
+                            redact_salt__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(CaptureSpec {
@@ -655,6 +676,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     recovery_log_template: recovery_log_template__,
                     network_ports: network_ports__.unwrap_or_default(),
                     inactive_bindings: inactive_bindings__.unwrap_or_default(),
+                    redact_salt: redact_salt__.unwrap_or_default(),
                 })
             }
         }
@@ -1197,6 +1219,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.inactive_transforms.is_empty() {
             len += 1;
         }
+        if !self.redact_salt.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1230,6 +1255,11 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.inactive_transforms.is_empty() {
             struct_ser.serialize_field("inactiveTransforms", &self.inactive_transforms)?;
         }
+        if !self.redact_salt.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("redactSalt", pbjson::private::base64::encode(&self.redact_salt).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -1255,6 +1285,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "networkPorts",
             "inactive_transforms",
             "inactiveTransforms",
+            "redact_salt",
+            "redactSalt",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1267,6 +1299,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             RecoveryLogTemplate,
             NetworkPorts,
             InactiveTransforms,
+            RedactSalt,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1296,6 +1329,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             "recoveryLogTemplate" | "recovery_log_template" => Ok(GeneratedField::RecoveryLogTemplate),
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
                             "inactiveTransforms" | "inactive_transforms" => Ok(GeneratedField::InactiveTransforms),
+                            "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1323,6 +1357,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut recovery_log_template__ = None;
                 let mut network_ports__ = None;
                 let mut inactive_transforms__ = None;
+                let mut redact_salt__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1375,6 +1410,14 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             inactive_transforms__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::RedactSalt => {
+                            if redact_salt__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("redactSalt"));
+                            }
+                            redact_salt__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(collection_spec::Derivation {
@@ -1386,6 +1429,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     recovery_log_template: recovery_log_template__,
                     network_ports: network_ports__.unwrap_or_default(),
                     inactive_transforms: inactive_transforms__.unwrap_or_default(),
+                    redact_salt: redact_salt__.unwrap_or_default(),
                 })
             }
         }
@@ -2539,6 +2583,15 @@ impl serde::Serialize for Inference {
         if self.array.is_some() {
             len += 1;
         }
+        if !self.enum_json_vec.is_empty() {
+            len += 1;
+        }
+        if self.reduce != 0 {
+            len += 1;
+        }
+        if self.redact != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.Inference", len)?;
         if !self.types.is_empty() {
             struct_ser.serialize_field("types", &self.types)?;
@@ -2571,6 +2624,19 @@ impl serde::Serialize for Inference {
         if let Some(v) = self.array.as_ref() {
             struct_ser.serialize_field("array", v)?;
         }
+        if !self.enum_json_vec.is_empty() {
+            struct_ser.serialize_field("enum", &crate::as_raw_json_vec(&self.enum_json_vec)?)?;
+        }
+        if self.reduce != 0 {
+            let v = inference::Reduce::try_from(self.reduce)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.reduce)))?;
+            struct_ser.serialize_field("reduce", &v)?;
+        }
+        if self.redact != 0 {
+            let v = inference::Redact::try_from(self.redact)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.redact)))?;
+            struct_ser.serialize_field("redact", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -2591,6 +2657,10 @@ impl<'de> serde::Deserialize<'de> for Inference {
             "exists",
             "numeric",
             "array",
+            "enum_json_vec",
+            "enum",
+            "reduce",
+            "redact",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2604,6 +2674,9 @@ impl<'de> serde::Deserialize<'de> for Inference {
             Exists,
             Numeric,
             Array,
+            EnumJsonVec,
+            Reduce,
+            Redact,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2634,6 +2707,9 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             "exists" => Ok(GeneratedField::Exists),
                             "numeric" => Ok(GeneratedField::Numeric),
                             "array" => Ok(GeneratedField::Array),
+                            "enum" | "enum_json_vec" => Ok(GeneratedField::EnumJsonVec),
+                            "reduce" => Ok(GeneratedField::Reduce),
+                            "redact" => Ok(GeneratedField::Redact),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2662,6 +2738,9 @@ impl<'de> serde::Deserialize<'de> for Inference {
                 let mut exists__ = None;
                 let mut numeric__ = None;
                 let mut array__ = None;
+                let mut enum_json_vec__ = None;
+                let mut reduce__ = None;
+                let mut redact__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Types => {
@@ -2720,6 +2799,27 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             }
                             array__ = map_.next_value()?;
                         }
+                        GeneratedField::EnumJsonVec => {
+                            if enum_json_vec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("enum"));
+                            }
+                            enum_json_vec__ = 
+                                Some(map_.next_value::<Vec<crate::RawJSONDeserialize>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
+                        GeneratedField::Reduce => {
+                            if reduce__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reduce"));
+                            }
+                            reduce__ = Some(map_.next_value::<inference::Reduce>()? as i32);
+                        }
+                        GeneratedField::Redact => {
+                            if redact__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("redact"));
+                            }
+                            redact__ = Some(map_.next_value::<inference::Redact>()? as i32);
+                        }
                     }
                 }
                 Ok(Inference {
@@ -2732,6 +2832,9 @@ impl<'de> serde::Deserialize<'de> for Inference {
                     exists: exists__.unwrap_or_default(),
                     numeric: numeric__,
                     array: array__,
+                    enum_json_vec: enum_json_vec__.unwrap_or_default(),
+                    reduce: reduce__.unwrap_or_default(),
+                    redact: redact__.unwrap_or_default(),
                 })
             }
         }
@@ -3114,6 +3217,181 @@ impl<'de> serde::Deserialize<'de> for inference::Numeric {
             }
         }
         deserializer.deserialize_struct("flow.Inference.Numeric", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for inference::Redact {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unset => "REDACT_UNSET",
+            Self::Multiple => "REDACT_MULTIPLE",
+            Self::Block => "REDACT_BLOCK",
+            Self::Sha256 => "REDACT_SHA256",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for inference::Redact {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "REDACT_UNSET",
+            "REDACT_MULTIPLE",
+            "REDACT_BLOCK",
+            "REDACT_SHA256",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = inference::Redact;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "REDACT_UNSET" => Ok(inference::Redact::Unset),
+                    "REDACT_MULTIPLE" => Ok(inference::Redact::Multiple),
+                    "REDACT_BLOCK" => Ok(inference::Redact::Block),
+                    "REDACT_SHA256" => Ok(inference::Redact::Sha256),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for inference::Reduce {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unset => "REDUCE_UNSET",
+            Self::Multiple => "REDUCE_MULTIPLE",
+            Self::Append => "REDUCE_APPEND",
+            Self::FirstWriteWins => "REDUCE_FIRST_WRITE_WINS",
+            Self::LastWriteWins => "REDUCE_LAST_WRITE_WINS",
+            Self::Maximize => "REDUCE_MAXIMIZE",
+            Self::Merge => "REDUCE_MERGE",
+            Self::Minimize => "REDUCE_MINIMIZE",
+            Self::Set => "REDUCE_SET",
+            Self::Sum => "REDUCE_SUM",
+            Self::JsonSchemaMerge => "REDUCE_JSON_SCHEMA_MERGE",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for inference::Reduce {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "REDUCE_UNSET",
+            "REDUCE_MULTIPLE",
+            "REDUCE_APPEND",
+            "REDUCE_FIRST_WRITE_WINS",
+            "REDUCE_LAST_WRITE_WINS",
+            "REDUCE_MAXIMIZE",
+            "REDUCE_MERGE",
+            "REDUCE_MINIMIZE",
+            "REDUCE_SET",
+            "REDUCE_SUM",
+            "REDUCE_JSON_SCHEMA_MERGE",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = inference::Reduce;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "REDUCE_UNSET" => Ok(inference::Reduce::Unset),
+                    "REDUCE_MULTIPLE" => Ok(inference::Reduce::Multiple),
+                    "REDUCE_APPEND" => Ok(inference::Reduce::Append),
+                    "REDUCE_FIRST_WRITE_WINS" => Ok(inference::Reduce::FirstWriteWins),
+                    "REDUCE_LAST_WRITE_WINS" => Ok(inference::Reduce::LastWriteWins),
+                    "REDUCE_MAXIMIZE" => Ok(inference::Reduce::Maximize),
+                    "REDUCE_MERGE" => Ok(inference::Reduce::Merge),
+                    "REDUCE_MINIMIZE" => Ok(inference::Reduce::Minimize),
+                    "REDUCE_SET" => Ok(inference::Reduce::Set),
+                    "REDUCE_SUM" => Ok(inference::Reduce::Sum),
+                    "REDUCE_JSON_SCHEMA_MERGE" => Ok(inference::Reduce::JsonSchemaMerge),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for inference::String {

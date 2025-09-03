@@ -49,7 +49,7 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
     }
 
     Ok((
-        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter()))?,
+        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter(), Vec::new()))?,
         bindings,
     ))
 }
@@ -102,9 +102,13 @@ pub fn recv_client_add(
             }
         }
 
-        if let Some(node) = uuid_ptr.create_heap_node(&mut doc, alloc) {
-            *node = doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
-        }
+        let Ok(_) = uuid_ptr.create_heap_node(
+            &mut doc,
+            doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
+            alloc,
+        ) else {
+            anyhow::bail!("unable to create document UUID placeholder");
+        };
     }
 
     memtable.add(binding_index, doc, front)?;

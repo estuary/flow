@@ -47,7 +47,13 @@ expression: json_test(msg)
             "null",
             "integer"
           ]
-        }
+        },
+        "enum": [
+          "const-one",
+          "const-two"
+        ],
+        "reduce": "REDUCE_MERGE",
+        "redact": "REDACT_SHA256"
       }
     }
   ],
@@ -131,7 +137,13 @@ expression: json_test(msg)
                     "null",
                     "integer"
                   ]
-                }
+                },
+                "enum": [
+                  "const-one",
+                  "const-two"
+                ],
+                "reduce": "REDUCE_MERGE",
+                "redact": "REDACT_SHA256"
               }
             }
           ],
@@ -250,6 +262,7 @@ expression: json_test(msg)
       {
         "number": 9000
       }
-    ]
+    ],
+    "redactSalt": "dGVzdC1kZXJpdmF0aW9uLXNhbHQ="
   }
 }

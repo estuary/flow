@@ -362,7 +362,7 @@ pub async fn recv_client_start_commit(
 
         let complexity_limit = complexity_limit_for_binding(*binding, bindings_with_sourced_schema);
 
-        serialized.schema.extensions.insert(
+        serialized.as_object_mut().unwrap().insert(
             X_COMPLEXITY_LIMIT.to_string(),
             serde_json::Value::Number(serde_json::Number::from(complexity_limit)),
         );
@@ -418,9 +418,13 @@ pub fn recv_connector_captured(
         .document_uuid_ptr;
 
     if !uuid_ptr.0.is_empty() {
-        if let Some(node) = uuid_ptr.create_heap_node(&mut doc, alloc) {
-            *node = doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
-        }
+        let Ok(_) = uuid_ptr.create_heap_node(
+            &mut doc,
+            doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
+            alloc,
+        ) else {
+            anyhow::bail!("unable to create document UUID placeholder");
+        };
     }
     memtable.add(binding_index, doc, false)?;
 

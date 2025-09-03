@@ -1,4 +1,4 @@
-use super::{count_nodes, Cursor, Error, Result};
+use super::{Error, Result, Tape};
 use crate::{
     shape::limits,
     shape::{
@@ -11,23 +11,21 @@ use json::schema::index::IndexBuilder;
 use serde_json::Value as JsonValue;
 
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
-    cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-) -> Result<HeapNode<'alloc>> {
-    let Cursor {
-        tape,
-        loc,
-        full: _,
-        lhs,
-        rhs,
-        alloc,
-    } = cur;
+    _tape: &mut Tape<'_>,
+    tape_index: &mut i32,
+    loc: json::Location<'_>,
+    _full: bool,
+    lhs: Option<crate::lazy::LazyNode<'alloc, '_, L>>,
+    rhs: crate::lazy::LazyNode<'alloc, '_, R>,
+    alloc: &'alloc bumpalo::Bump,
+) -> Result<(HeapNode<'alloc>, i32)> {
+    *tape_index += rhs.tape_length();
 
-    let lhs = lhs
+    // For historical $reasons, JSON schemas parse from serde_json::Value.
+    let lhs: serde_json::Value = lhs
         .map(|n| serde_json::to_value(SerPolicy::noop().on_lazy(&n)).unwrap())
         .unwrap_or(serde_json::Value::Bool(false));
-    let rhs = serde_json::to_value(SerPolicy::noop().on_lazy(&rhs)).unwrap();
-
-    *tape = &tape[count_nodes(&rhs)..];
+    let rhs: serde_json::Value = serde_json::to_value(SerPolicy::noop().on_lazy(&rhs)).unwrap();
 
     let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
     let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
@@ -80,8 +78,7 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
 
     // Convert back from `Shape` into `HeapNode`.
     let merged_doc = serde_json::to_value(to_schema(merged_shape)).unwrap();
-    let merged_doc = HeapNode::from_serde(merged_doc, alloc).unwrap();
-    Ok(merged_doc)
+    Ok(HeapNode::from_node_with_length(&merged_doc, alloc))
 }
 
 fn shape_from_node(node: serde_json::Value) -> Result<Shape> {
@@ -146,7 +143,6 @@ mod test {
                         "maxLength": 10
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "minLength": 5,
                         "maxLength": 10,
@@ -185,7 +181,6 @@ mod test {
                         "minimum": 4.0
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "integer",
                         "maximum": 5.0,
                         "minimum": 4.0
@@ -199,7 +194,6 @@ mod test {
                         "minimum": 4
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "integer",
                         "maximum": 5.0,
                         "minimum": 4.0
@@ -213,7 +207,6 @@ mod test {
                         "minimum": 3
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "integer",
                         "maximum": 6,
                         "minimum": 3
@@ -250,7 +243,6 @@ mod test {
                         "x-collection-generation-id": "0011223344556677",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 6,
                         "minLength": 5,
@@ -266,7 +258,6 @@ mod test {
                         "x-collection-generation-id": "0011223344556677",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 6,
                         "minLength": 4,
@@ -282,7 +273,6 @@ mod test {
                         "x-collection-generation-id": "1122334455667788",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 10,
                         "minLength": 10,
@@ -298,7 +288,6 @@ mod test {
                         "x-collection-generation-id": "0011223344556677",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 10,
                         "minLength": 10,
@@ -314,7 +303,6 @@ mod test {
                         "x-collection-generation-id": "1122334455667788",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 10,
                         "minLength": 5,
@@ -330,7 +318,6 @@ mod test {
                         "x-collection-generation-id": "2233445566778899",
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 100,
                         "minLength": 100,
@@ -345,7 +332,6 @@ mod test {
                         "minLength": 200,
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 200,
                         "minLength": 100,
@@ -361,7 +347,6 @@ mod test {
                         "x-collection-generation-id": null,
                     }),
                     expect: Ok(json!({
-                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "maxLength": 200,
                         "minLength": 50,

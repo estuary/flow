@@ -319,7 +319,7 @@ impl NextRun {
             let delta_millis = self.after_seconds * 1000;
             let jitter_mul = self.jitter_percent as f64 / 100.0;
             let jitter_max = (delta_millis as f64 * jitter_mul) as u64;
-            let jitter_add = rand::thread_rng().gen_range(0..jitter_max);
+            let jitter_add = rand::rng().random_range(0..jitter_max);
             dur = dur + std::time::Duration::from_millis(jitter_add);
         }
         dur

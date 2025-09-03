@@ -163,3 +163,47 @@ pub async fn insert_error(
 
     Ok(())
 }
+
+pub async fn delete_spec(
+    draft_spec_id: Id,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"delete from draft_specs where id = $1 returning 1 as "must_exist";"#,
+        draft_spec_id as Id,
+    )
+    .fetch_one(txn)
+    .await?;
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct PrunedDraftSpec {
+    pub catalog_name: String,
+    pub spec_type: Option<CatalogType>,
+    pub live_spec_md5: String,
+    pub draft_spec_md5: String,
+    pub inferred_schema_md5: Option<String>,
+    pub live_inferred_schema_md5: Option<String>,
+}
+
+pub async fn prune_unchanged_draft_specs(
+    draft_id: Id,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<PrunedDraftSpec>> {
+    sqlx::query_as!(
+        PrunedDraftSpec,
+        r#"select
+        catalog_name as "catalog_name!: String",
+        spec_type as "spec_type: CatalogType",
+        live_spec_md5 as "live_spec_md5!: String",
+        draft_spec_md5 as "draft_spec_md5!: String",
+        inferred_schema_md5,
+        live_inferred_schema_md5
+        from prune_unchanged_draft_specs($1)"#,
+        draft_id as Id,
+    )
+    .fetch_all(txn)
+    .await
+}

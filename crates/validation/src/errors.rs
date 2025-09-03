@@ -111,11 +111,17 @@ pub enum Error {
     },
     #[error("location {ptr} is unknown in schema {schema}")]
     PtrIsImplicit { ptr: String, schema: Url },
-    #[error("location {ptr} has a reduction strategy, which is disallowed because the location is used as a key")]
-    KeyHasReduction {
+    #[error("location {ptr} has a `reduce` strategy, which is disallowed because the location is used as a key")]
+    KeyHasReduce {
         ptr: String,
         schema: Url,
-        strategy: doc::shape::Reduction,
+        strategy: doc::shape::Reduce,
+    },
+    #[error("location {ptr} has a `redact` strategy, which is disallowed because the location is used as a key")]
+    KeyHasRedact {
+        ptr: String,
+        schema: Url,
+        strategy: doc::shape::Redact,
     },
     #[error("{category} projection {field} does not exist in collection {collection}")]
     NoSuchProjection {
@@ -163,8 +169,6 @@ pub enum Error {
         types: Vec<ShuffleType>,
         given_types: Vec<ShuffleType>,
     },
-    #[error("transform {transform} is missing `shuffle`, which is now a required field (https://go.estuary.dev/LK19Py). If you're unsure of what shuffle to use, try `shuffle: any`")]
-    ShuffleUnset { transform: String },
     #[error("connector returned an invalid generated file URL {url:?}")]
     InvalidGeneratedFileUrl {
         url: String,

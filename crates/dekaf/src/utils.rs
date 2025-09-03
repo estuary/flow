@@ -161,6 +161,67 @@ pub fn build_field_extractors(
     ))
 }
 
+<<<<<<< HEAD
+=======
+pub fn build_legacy_field_extractors(
+    mut schema: doc::Shape,
+    deletions: DeletionMode,
+) -> anyhow::Result<(avro::Schema, Vec<(avro::Schema, CustomizableExtractor)>)> {
+    if matches!(deletions, DeletionMode::CDC) {
+        if let Some(meta) = schema
+            .object
+            .properties
+            .iter_mut()
+            .find(|prop| prop.name.to_string() == "_meta".to_string())
+        {
+            if let Err(idx) = meta
+                .shape
+                .object
+                .properties
+                .binary_search_by(|prop| prop.name.to_string().cmp(&"is_deleted".to_string()))
+            {
+                meta.shape.object.properties.insert(
+                    idx,
+                    doc::shape::ObjProperty {
+                        name: "is_deleted".into(),
+                        is_required: true,
+                        shape: doc::Shape {
+                            type_: json::schema::types::INTEGER,
+                            ..doc::Shape::nothing()
+                        },
+                    },
+                );
+            } else {
+                tracing::warn!(
+                    "This collection's schema already has a /_meta/is_deleted location!"
+                );
+            }
+        } else {
+            return Err(anyhow::anyhow!("Schema missing /_meta"));
+        }
+
+        let schema = avro::shape_to_avro(schema.clone());
+
+        Ok((
+            schema.clone(),
+            vec![(schema, CustomizableExtractor::RootExtractorWithIsDeleted)],
+        ))
+    } else {
+        let schema = avro::shape_to_avro(schema.clone());
+
+        Ok((
+            schema.clone(),
+            vec![(
+                schema,
+                CustomizableExtractor::Extractor(doc::Extractor::new(
+                    doc::Pointer::empty(),
+                    &doc::SerPolicy::noop(),
+                )),
+            )],
+        ))
+    }
+}
+>>>>>>> 6a10084407 (Update the world WIP)
 
 pub fn fetch_all_collection_names(spec: &MaterializationSpec) -> anyhow::Result<Vec<String>> {
     spec.bindings

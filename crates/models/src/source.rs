@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 /// Determines how to handle incompatible schema changes for a given binding.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(example = "OnIncompatibleSchemaChange::example")]
+#[schemars(example = OnIncompatibleSchemaChange::example())]
 pub enum OnIncompatibleSchemaChange {
     /// Fail the publication of the incompatible schema change. This prevents any schema change
     /// from being applied if it is incompatible with the existing schema, as determined by the
@@ -42,7 +42,7 @@ impl OnIncompatibleSchemaChange {
 /// A source collection and details of how it's read.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "Source::example")]
+#[schemars(example = Source::example())]
 pub enum Source {
     Source(FullSource),
     Collection(Collection),
@@ -51,13 +51,13 @@ pub enum Source {
 /// A source collection and details of how it's read.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "FullSource::example")]
+#[schemars(example = FullSource::example())]
 pub struct FullSource {
     /// # Name of the collection to be read.
     pub name: Collection,
     /// # Selector over partition of the source collection to read.
-    #[schemars(example = "PartitionSelector::example")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "PartitionSelector", example = PartitionSelector::example())]
     pub partitions: Option<PartitionSelector>,
     /// # Lower bound date-time for documents which should be processed.
     /// Source collection documents published before this date-time are filtered.
@@ -109,7 +109,7 @@ impl Source {
 
     pub fn set_collection(&mut self, new_collection: Collection) {
         match self {
-            Self::Collection(ref mut name) => *name = new_collection,
+            Self::Collection(name) => *name = new_collection,
             Self::Source(FullSource { name, .. }) => *name = new_collection,
         }
     }
@@ -133,7 +133,7 @@ impl Into<FullSource> for Source {
 /// available logical partitions of a collection.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "PartitionSelector::example")]
+#[schemars(example = PartitionSelector::example())]
 pub struct PartitionSelector {
     /// Partition field names and corresponding values which must be matched
     /// from the Source collection. Only documents having one of the specified

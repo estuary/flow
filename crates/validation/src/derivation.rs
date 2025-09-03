@@ -1,6 +1,6 @@
 use super::{
-    collection, indexed, reference, schema, storage_mapping, Connectors, Error, NoOpConnectors,
-    Scope,
+    Connectors, Error, NoOpConnectors, Scope, collection, indexed, reference, schema,
+    storage_mapping,
 };
 use futures::SinkExt;
 use proto_flow::{
@@ -11,6 +11,7 @@ use proto_flow::{
 use std::collections::BTreeMap;
 use superslice::Ext;
 use tables::EitherOrBoth as EOB;
+use xxhash_rust::xxh3::Xxh3;
 
 pub async fn walk_all_derivations<C: Connectors>(
     pub_id: models::Id,
@@ -26,6 +27,7 @@ pub async fn walk_all_derivations<C: Connectors>(
     noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    init_vector: &[u8],
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
@@ -62,6 +64,7 @@ pub async fn walk_all_derivations<C: Connectors>(
                 noop_derivations,
                 project_root,
                 storage_mappings,
+                init_vector,
                 &mut local_errors,
             )
             .await;
@@ -95,6 +98,7 @@ async fn walk_derivation<C: Connectors>(
     noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    init_vector: &[u8],
     errors: &mut tables::Errors,
 ) -> Option<(
     usize,
@@ -214,6 +218,7 @@ async fn walk_derivation<C: Connectors>(
         using,
         transforms: transforms_model,
         shuffle_key_types: shuffle_key_types_model,
+        redact_salt: model_redact_salt,
         shards,
     } = model;
 
@@ -635,6 +640,23 @@ async fn walk_derivation<C: Connectors>(
         .map(|v| (*v).clone())
         .collect();
 
+    // Use manual salt if provided, otherwise existing salt, otherwise generate a new one.
+    let redact_salt = model_redact_salt
+        .clone()
+        .map(bytes::Bytes::from)
+        .or_else(|| {
+            live_spec
+                .and_then(|spec| spec.derivation.as_ref())
+                .and_then(|spec| (!spec.redact_salt.is_empty()).then(|| spec.redact_salt.clone()))
+        })
+        .unwrap_or_else(|| {
+            // Generate deterministic salt using xxhash of init_vector + derivation name.
+            let mut hasher = Xxh3::new();
+            hasher.update(init_vector);
+            hasher.update(shard_id_prefix.as_bytes());
+            hasher.digest128().to_be_bytes().to_vec().into()
+        });
+
     let recovery_log_template = assemble::recovery_log_template(
         build_id,
         collection,
@@ -660,12 +682,14 @@ async fn walk_derivation<C: Connectors>(
         shard_template: Some(shard_template),
         network_ports,
         inactive_transforms,
+        redact_salt,
     };
     let model = models::Derivation {
-        shards,
-        shuffle_key_types: shuffle_key_types_model,
-        transforms: transforms_model,
         using,
+        transforms: transforms_model,
+        shuffle_key_types: shuffle_key_types_model,
+        redact_salt: model_redact_salt,
+        shards,
     };
 
     std::mem::drop(request_tx);
@@ -820,14 +844,6 @@ fn walk_derive_transform<'a>(
         models::Shuffle::Lambda(lambda) => (Vec::new(), lambda.to_string()),
         // Source documents may be processed by any shard.
         models::Shuffle::Any => (Vec::new(), String::new()),
-        // Shuffle is unset.
-        models::Shuffle::Unset => {
-            Error::ShuffleUnset {
-                transform: model.name.to_string(),
-            }
-            .push(scope, errors);
-            (Vec::new(), String::new())
-        }
     };
 
     super::temporary_cross_data_plane_read_check(scope, source_built, data_plane_id, errors);

@@ -262,7 +262,6 @@ static SENTINEL_SHAPE: Shape = Shape::anything();
 #[cfg(test)]
 mod test {
     use super::*;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_locate() {
@@ -348,8 +347,8 @@ mod test {
             (&arr2, "/-", ("<missing>", Exists::Cannot)),
         ];
 
-        for (&ref shape, ptr, expect) in cases {
-            let mut_shape = &mut shape.clone();
+        for &(shape, ptr, expect) in cases {
+            let mut_shape = &mut (*shape).clone();
 
             let actual = mut_shape.locate(&Pointer::from(ptr));
             let actual = (
@@ -361,7 +360,7 @@ mod test {
                     .unwrap_or("<missing>"),
                 actual.1,
             );
-            assert_eq!(*expect, actual, "case {:?}", ptr);
+            assert_eq!(expect, actual, "case {:?}", ptr);
         }
 
         let obj_locations = obj.locations();

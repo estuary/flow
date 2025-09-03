@@ -26,6 +26,7 @@ rkyv = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
@@ -39,7 +40,6 @@ allocator = { path = "../allocator" }
 hexdump = { workspace = true }
 insta = { workspace = true }
 json-patch = { workspace = true }
-pretty_assertions = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 rand = { workspace = true }
@@ -49,6 +49,6 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 
 [features]
-default = []
+default = ["combine"]
 
 combine = ["lz4"]

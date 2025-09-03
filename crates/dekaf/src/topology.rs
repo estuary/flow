@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 use crate::{connector, utils, SessionAuthentication, TaskState};
+=======
+use crate::{connector, utils, SessionAuthentication, TaskState, UserAuth};
+>>>>>>> 6a10084407 (Update the world WIP)
 use anyhow::{anyhow, bail, Context};
 use futures::StreamExt;
 use gazette::{
@@ -191,12 +195,24 @@ impl Collection {
             .clone()
             .context("missing field selection in materialization binding")?;
 
+<<<<<<< HEAD
         let (value_schema, extractors) = utils::build_field_extractors(
             collection_schema_shape.clone(),
             selection,
             collection_spec.projections.clone(),
             auth.deletions(),
         )?;
+=======
+            utils::build_field_extractors(
+                collection_schema_shape.clone(),
+                selection,
+                collection_spec.projections.clone(),
+                auth.deletions(),
+            )?
+        } else {
+            utils::build_legacy_field_extractors(collection_schema_shape.clone(), auth.deletions())?
+        };
+>>>>>>> 6a10084407 (Update the world WIP)
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
@@ -507,7 +523,9 @@ async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
             resp.text().await?
         )
     } else {
-        Ok(resp.json().await?)
+        let bytes = resp.bytes().await?;
+        let result: T = serde_json::from_slice(&bytes)?;
+        Ok(result)
     }
 }
 

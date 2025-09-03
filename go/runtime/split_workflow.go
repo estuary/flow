@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path"
 
@@ -287,7 +288,7 @@ func CompleteSplit(svc *consumer.Service, shard consumer.Shard, rec *recoverylog
 		Commit()
 
 	if err == nil && !txnResp.Succeeded {
-		err = fmt.Errorf(pc.Status_ETCD_TRANSACTION_FAILED.String())
+		err = errors.New(pc.Status_ETCD_TRANSACTION_FAILED.String())
 	}
 	if err != nil {
 		return fmt.Errorf("etcd transaction: %w", err)

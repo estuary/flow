@@ -1,5 +1,5 @@
 use crate::{
-    reduce,
+    redact, reduce,
     validation::{FailedValidation, Validator},
     Extractor, HeapNode, OwnedNode,
 };
@@ -8,8 +8,10 @@ use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("failed to redact portions of the document")]
+    Redact(#[from] redact::Error),
     #[error("failed to combine documents having shared key")]
-    Reduction(#[from] reduce::Error),
+    Reduce(#[from] reduce::Error),
     #[error("{0} document failed validation against its collection JSON Schema")]
     FailedValidation(String, #[source] FailedValidation),
     #[error(transparent)]
@@ -24,6 +26,7 @@ pub struct Spec {
     is_full: Vec<bool>,
     keys: Arc<[Box<[Extractor]>]>,
     names: Vec<String>,
+    redact_salt: Vec<u8>,
     validators: Vec<(Validator, Option<url::Url>)>,
 }
 
@@ -40,6 +43,7 @@ impl Spec {
         full: bool,
         key: impl Into<Box<[Extractor]>>,
         name: impl Into<String>,
+        redact_salt: Vec<u8>,
         schema: Option<url::Url>,
         validator: Validator,
     ) -> Self {
@@ -47,12 +51,13 @@ impl Spec {
             is_full: vec![full],
             keys: vec![key.into()].into(),
             names: vec![name.into()],
+            redact_salt,
             validators: vec![(validator, schema)],
         }
     }
 
     /// Build a Spec from an Iterator of (is-full-reduction, key, schema, validator).
-    pub fn with_bindings<I, K, N>(bindings: I) -> Self
+    pub fn with_bindings<I, K, N>(bindings: I, redact_salt: Vec<u8>) -> Self
     where
         I: IntoIterator<Item = (bool, K, N, Option<url::Url>, Validator)>,
         K: Into<Box<[Extractor]>>,
@@ -74,6 +79,7 @@ impl Spec {
             is_full: full,
             keys: keys.into(),
             names,
+            redact_salt,
             validators,
         }
     }

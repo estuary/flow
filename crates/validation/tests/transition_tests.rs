@@ -66,6 +66,7 @@ driver:
         transforms:
           - name: fromCollection
             source: the/collection
+            shuffle: any
             backfill: 456
 
   liveMaterializations:
@@ -452,6 +453,7 @@ test://example/catalog.yaml:
         transforms:
           - name: fromCollection
             source: { name: the/collection }
+            shuffle: any
             lambda: the lambda
             disable: true
   captures:
@@ -575,4 +577,40 @@ driver:
         &outcome.built_materializations[0].model,
         &outcome.built_materializations[0].model_fixes
     ));
+}
+
+#[test]
+fn test_manual_redact_salt_override() {
+    // Test that manually specified redact_salt overrides existing salt
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  captures:
+    the/capture:
+      # Manually specify a redact salt (base64 encoded)
+      redactSalt: bWFudWFsLWNhcHR1cmUtc2FsdA==
+
+  collections:
+    the/derivation:
+      derive:
+        redactSalt: bWFudWFsLWRlcml2YXRpb24tc2FsdA==
+    "#,
+    );
+
+    // Verify that the manual salts are used in the built specs
+    let capture_salt = &outcome.built_captures[0].spec.as_ref().unwrap().redact_salt;
+    let derivation_salt = &outcome.built_collections[1]
+        .spec
+        .as_ref()
+        .unwrap()
+        .derivation
+        .as_ref()
+        .unwrap()
+        .redact_salt;
+
+    assert_eq!(capture_salt.as_ref(), b"manual-capture-salt");
+    assert_eq!(derivation_salt.as_ref(), b"manual-derivation-salt");
+
+    insta::assert_debug_snapshot!(outcome);
 }
