@@ -4,7 +4,7 @@ description: This connector materializes delta updates of Flow collections into 
 
 # Apache Parquet Files in Amazon S3
 
-This connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of
+This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
 Flow collections into an S3 bucket in the Apache Parquet format.
 
 The delta updates are batched within Flow, converted to Parquet files, and then pushed to the S3 bucket

@@ -7,7 +7,7 @@ import Mermaid from '@theme/Mermaid';
 
 There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
 flowctl gives you more direct control over the files and directories that comprise your Data Flows.
-You can work with any catalog to which you have [access](../reference/authentication.md), regardless of whether it was created from the command line or in the web app.
+You can work with any catalog to which you have [access](/reference/authentication), regardless of whether it was created from the command line or in the web app.
 
 You can also authorize Flow users and roles and generate TypeScript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
 
@@ -39,7 +39,7 @@ flowctl binaries for MacOS and Linux are available. For Windows, [install Window
    You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
 
-2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
+2. To connect to your Flow account and start a session, [use an authentication token](/reference/authentication/#authenticating-flow-using-the-cli) from the web app.
 
 ## User guides
 
@@ -51,7 +51,7 @@ flowctl includes several top-level subcommands representing different functional
 Important top-level flowctl subcommands are described below.
 
 * `auth` allows you to authenticate your development session in your local development environment.
-It's also how you provision Flow roles and users. Learn more about [authentication](../reference/authentication.md).
+It's also how you provision Flow roles and users. Learn more about [authentication](/reference/authentication).
 
 * `catalog` allows you to work with your organization's current active catalog entities. You can investigate the current Data Flows,
 pull specifications for local editing, test and publish specifications that you wrote or edited locally,

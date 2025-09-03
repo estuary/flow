@@ -10,7 +10,7 @@ The data in a collection may be [captured](./captures.md) from an external syste
 or [derived](./derivations.md) as a transformation of one or more other collections.
 When you [create a new capture in a typical workflow](../guides/create-dataflow.md#create-a-capture),
 you define one or more new collections as part of that process.
-[Materializations](./materialization.md) then read data from collections.
+[Materializations](/concepts/materialization) then read data from collections.
 
 Every collection has a key and an associated [schema](#schemas)
 that its documents must validate against.
@@ -91,7 +91,7 @@ The collection documents are displayed by key. Click the desired key to preview 
 
 #### Using the flowctl CLI
 
-In your [authenticated flowctl session](../reference/authentication.md#authenticating-flow-using-the-cli), issue the command `flowctl collections read --collection <full/collection-name> --uncommitted`. For example, `flowctl collections read --collection acmeCo/inventory/anvils --uncommitted`.
+In your [authenticated flowctl session](/reference/authentication/#authenticating-flow-using-the-cli), issue the command `flowctl collections read --collection <full/collection-name> --uncommitted`. For example, `flowctl collections read --collection acmeCo/inventory/anvils --uncommitted`.
 
 Options are available to read a subset of data from collections.
 For example, `--since` allows you to specify an approximate start time from which to read data, and

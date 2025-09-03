@@ -53,7 +53,7 @@ Flow mixes a variety of architectural techniques to deliver high throughput, avo
 * Optimistic pipelining and vectorization of internal remote procedure calls (RPCs) and operations
 * A cloud-native design that optimizes for public cloud pricing models
 
-Flow also makes it easy to [**materialize**](../concepts/materialization.md) focused data views directly into your warehouse, so you don't need to repeatedly query the much larger source datasets. This can dramatically lower warehouse costs.
+Flow also makes it easy to [**materialize**](/concepts/materialization) focused data views directly into your warehouse, so you don't need to repeatedly query the much larger source datasets. This can dramatically lower warehouse costs.
 
 ### Powerful transformations
 

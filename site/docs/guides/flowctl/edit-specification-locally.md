@@ -99,7 +99,7 @@ Next, you'll complete your edits, test that they were performed correctly, and r
 
    * [Captures](../../concepts/captures.md#specification)
    * [Collections](../../concepts/collections.md#specification)
-   * [Materializations](../../concepts/materialization.md#specification)
+   * [Materializations](/concepts/materialization/#specification)
    * [Derivations](../../concepts/derivations.md#specification)
    * [Tests](../../concepts/tests.md)
 

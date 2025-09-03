@@ -43,7 +43,7 @@ credentials provided by your Estuary account manager.
 
 4. Type a name for your capture.
 
-   Your capture name must begin with a [prefix](../concepts/catalogs.md#namespace) to which you [have access](../reference/authentication.md).
+   Your capture name must begin with a [prefix](../concepts/catalogs.md#namespace) to which you [have access](/reference/authentication).
 
     In the **Name** field, click the drop-down arrow and select an available prefix.
     Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.

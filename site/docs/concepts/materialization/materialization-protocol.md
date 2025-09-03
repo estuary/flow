@@ -1,3 +1,7 @@
+---
+slug: /reference/Connectors/materialization-protocol/
+---
+
 import Mermaid from '@theme/Mermaid';
 
 # Materialization Protocol

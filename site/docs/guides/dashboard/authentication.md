@@ -1,13 +1,14 @@
 ---
 sidebar_position: 1
+slug: /reference/authentication/
 ---
 
-# Authorizing Users and Authenticating with Flow
+# Authorizing Users
 
-Read, write, and admin capabilities over Flow catalogs and the [collections](../concepts/collections.md) that comprise them
+Read, write, and admin capabilities over Flow catalogs and the [collections](/concepts/collections) that comprise them
 are granted to Flow users through **capabilities**.
 
-Capabilities are granted in terms of **prefixes** within the Flow [namespace](../concepts/catalogs.md#namespace).
+Capabilities are granted in terms of **prefixes** within the Flow [namespace](/concepts/catalogs/#namespace).
 By default, each organization has a unique top-level prefix.
 For example, if you worked for Acme Co, your assigned organization prefix would be `acmeCo/`.
 You may further divide your namespace however you'd like; for example `acmeCo/anvils` and `acmeCo/roadrunners`.
@@ -53,7 +54,7 @@ You can view the capabilities currently provisioned in your organization on the 
 
 ## Authenticating Flow using the CLI
 
-You can use the [flowctl](../concepts/flowctl.md) CLI to work with your organization's catalogs and drafts in your local development environment.
+You can use the [flowctl](/concepts/flowctl) CLI to work with your organization's catalogs and drafts in your local development environment.
 
 To authenticate a local development session using the CLI, do the following:
 

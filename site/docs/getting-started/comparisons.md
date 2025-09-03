@@ -80,7 +80,7 @@ In Flow, you instead define a **capture** of data from the source, which runs co
 Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the world in terms of independent scheduled jobs that copy data from source to destination, Data Flows model a directed graph of
 [**captures**](../../concepts/captures) (reads from sources),
 [**derivations**](../../concepts/derivations) (transforms), and
-[**materializations**](../../concepts/materialization) (writes to destinations).
+[**materializations**](/concepts/materialization) (writes to destinations).
 Collectively, these are called _tasks_.
 
 Tasks in Flow are only indirectly linked. Captures read data from a source and output to **collections**. Flow collections store all the data in cloud storage, with configurable retention for historical data. You can then materialize each collection to any number of destination systems. Each one will be kept up to date in real time, and new materializations can automatically backfill all your historical data. Collections in Flow always have an associated JSON schema, and they use that to ensure the validity of all collection data. Tasks are also transactional and generally guarantee end-to-end exactly-once processing (so long as the endpoint system can accommodate them).

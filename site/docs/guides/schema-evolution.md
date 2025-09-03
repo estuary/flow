@@ -144,7 +144,7 @@ If you enabled the option to [**Automatically keep schemas up to date** (`autoDi
 
 *Scenario: this is one way in which the schema can change.*
 
-When a new field appears in the collection schema, it _may_ automatically be added to any materializations that use `recommended` fields. Recommended fields are enabled by default in each binding. See [the materialization docs](../concepts/materialization.md#projected-fields) for more info about how to enable or disable `recommended` fields.
+When a new field appears in the collection schema, it _may_ automatically be added to any materializations that use `recommended` fields. Recommended fields are enabled by default in each binding. See [the materialization docs](/concepts/materialization/#projected-fields) for more info about how to enable or disable `recommended` fields.
 
 When recommended fields are enabled, new fields are added automatically if they meet the criteria for the particular materialization connector. For example, scalar fields (strings, numbers, and booleans) are considered "recommended" fields when materializing to database tables.
 
@@ -153,7 +153,7 @@ If your materialization binding is set to `recommended: false`, or if the new fi
 To manually add a field:
 
 * **In the Flow web app,** [edit the materialization](/guides/edit-data-flows/#edit-a-materialization), find the affected binding, and click **Show Fields**.
-* **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](../concepts/materialization.md#projected-fields).
+* **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](/concepts/materialization/#projected-fields).
 
 :::info
 Newly added fields will not be set for rows that have already been materialized. If you want to ensure that all rows have the new field, just increment the `backfill` counter in the affected binding to have it re-start from the beginning.
@@ -166,7 +166,7 @@ Newly added fields will not be set for rows that have already been materialized.
 When a field's data type has changed, the effect on your materialization depends on the specific connector you're using.
 
 :::warning
-Note that these restrictions only apply to fields that are actively being materialized. If a field is [excluded from your materialization](../concepts/materialization.md#projected-fields), either explicitly or because it's not recommended, then the data types may change in any way.
+Note that these restrictions only apply to fields that are actively being materialized. If a field is [excluded from your materialization](/concepts/materialization/#projected-fields), either explicitly or because it's not recommended, then the data types may change in any way.
 
 Regardless of whether the field is materialized or not, it must still pass schema validation tests. Therefore, you must still make sure existing data remains valid against the new schema. For example, if you changed `excluded_field: { type: string }` to `type: integer` while there was existing data with string values, your materialization would fail due to a schema validation error.
 :::

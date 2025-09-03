@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 ---
-# Create your first dataflow with Amazon S3 and Snowflake
+# Create Your First Dataflow with Amazon S3 and Snowflake
 
 In this tutorial, you'll create your first complete **Data Flow** with Estuary Flow using publicly available data.
 

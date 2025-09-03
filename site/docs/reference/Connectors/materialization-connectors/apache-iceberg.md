@@ -219,7 +219,7 @@ aws lakeformation grant-permissions \
 
 :::info
 If you have enabled
-[sourceCapture](../../../concepts/materialization.md#using-sourcecapture-to-synchronize-capture-and-materialization-bindings)
+[sourceCapture](/concepts/materialization/#using-sourcecapture-to-synchronize-capture-and-materialization-bindings)
 for your materialization and a new binding is added with a new namespace, you
 will need the repeat step 7 to grant access to that database to the EMR
 execution role.

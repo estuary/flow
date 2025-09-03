@@ -76,4 +76,4 @@ As a Flow customer, you're provisioned one or more high-level prefixes for your 
 Further division of the namespace into prefixes is up to you.
 
 Prefixes of the namespace, like `acmeCo/teams/manufacturing/`,
-are the foundation for Flow's [authorization model](../reference/authentication.md).
+are the foundation for Flow's [authorization model](/reference/authentication).

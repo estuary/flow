@@ -1,3 +1,7 @@
+---
+slug: /guides/dekaf_reading_collections_from_kafka/
+---
+
 # Connecting to Kafka Using Dekaf
 
 **Dekaf** is Estuary Flow's Kafka API compatibility layer, allowing consumers to read data from Estuary Flow collections
@@ -20,7 +24,7 @@ walk you through the steps to connect to Estuary Flow using Dekaf and its schema
 ## Connection Details
 
 To connect to Estuary Flow via Dekaf, use the following connection details in conjunction with a
-[Dekaf materialization connector](../reference/Connectors/materialization-connectors/Dekaf/dekaf.md):
+[Dekaf materialization connector](/reference/Connectors/materialization-connectors/Dekaf):
 
 - **Broker Address**: `dekaf.estuary-data.com`
 - **Schema Registry Address**: `https://dekaf.estuary-data.com`

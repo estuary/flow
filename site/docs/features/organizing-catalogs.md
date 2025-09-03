@@ -1,16 +1,17 @@
 ---
-sidebar_position: 5
+slug: /reference/organizing-catalogs/
 ---
+
 # Organizing a Flow Catalog
 
 :::caution Beta
 This page is outdated. It does not reflect the current state of the Flow web application and the
-[authorization model](./authentication.md) used to share
+[authorization model](/reference/authentication) used to share
 entities in Flow catalogs. Updates are coming soon.
 :::
 
 It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files, which can be managed independently.
-You can leverage this capability when you [run Flow from the command line](../concepts/flowctl.md). You may want to do so if:
+You can leverage this capability when you [run Flow from the command line](/concepts/flowctl). You may want to do so if:
 
 * You want to ensure shared collections remain easy to find
 * You use group data that's managed by different teams
@@ -19,7 +20,7 @@ You can leverage this capability when you [run Flow from the command line](../co
 
 ### `import`
 
-Flow's [`import`](../concepts/import.md) directive can help you easily handle all of these scenarios while keeping your catalogs well organized. Each catalog spec file may import any number of other files, and each import may refer to either relative or an absolute URL.
+Flow's [`import`](/concepts/import) directive can help you easily handle all of these scenarios while keeping your catalogs well organized. Each catalog spec file may import any number of other files, and each import may refer to either relative or an absolute URL.
 
 When you use `import` in a catalog spec, you're conceptually bringing the entirety of another catalog — as well as the schemas and typescript files it uses — into your catalog. Imports are also transitive, so when you import another catalog, you're _also_ importing everything that other catalog has imported. This allows you to keep your catalogs organized, and is flexible enough to support collaboration between separate teams and organizations.
 
@@ -171,4 +172,4 @@ Every Flow collection has a name, and that name _must_ be unique within a runnin
 
 For example, imagine your catalog for the inside sales team has a collection just named `customers`. If you later try to import a catalog from the outside sales team that also contains a `customers` collection, 💥 there's a collision. A better collection name would be `acme/inside-sales/customers`. This allows a catalog to include customer data from separate teams, and also separate organizations.
 
-[Learn more about the Flow namespace.](../concepts/catalogs.md#namespace)
+[Learn more about the Flow namespace.](/concepts/catalogs/#namespace)

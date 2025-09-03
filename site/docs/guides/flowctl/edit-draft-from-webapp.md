@@ -72,7 +72,7 @@ Next, you'll make changes to the specification(s), test, and publish the draft.
 
    * [Captures](../../concepts/captures.md#specification)
    * [Collections](../../concepts/collections.md#specification)
-   * [Materializations](../../concepts/materialization.md#specification)
+   * [Materializations](/concepts/materialization/#specification)
 
 3. When you're done, sync the local work to the global draft: `flowctl draft author --source flow.yaml`.
 

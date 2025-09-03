@@ -107,7 +107,7 @@ about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](/concepts/materialization/#delta-updates).
 The default is to use standard updates.
 
 Enabling delta updates will prevent Flow from querying for documents in your Databricks table, which can reduce latency and costs for large datasets.

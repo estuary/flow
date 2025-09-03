@@ -30,7 +30,7 @@ on the collection fields.
 
 By default, fields of a single scalar type are including in the embedding: strings, integers,
 numbers, and booleans. You can include additional array or object type fields using [projected
-fields](../../../../concepts/materialization/#projected-fields).
+fields](/concepts/materialization/#projected-fields).
 
 The text generated for the embedding has this structure, with field names and their values separated
 by newlines:
@@ -93,7 +93,7 @@ materializations:
 
 ## Delta Updates
 
-This connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
+This connector operates only in [delta updates](/concepts/materialization/#delta-updates) mode.
 
 Pinecone [upserts](https://docs.pinecone.io/reference/upsert) vectors based on their `id`. The `id`
 for materialized vectors is based on the Flow Collection key.

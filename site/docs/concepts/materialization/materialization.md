@@ -1,6 +1,7 @@
 ---
-sidebar_position: 8
+slug: /concepts/materialization/
 ---
+
 # Materializations
 
 A **materialization** is how Flow pushes data to an external destination.
@@ -11,19 +12,19 @@ or **endpoint**, and bind one or more Flow collections to resources at the endpo
 
 As documents added to the bound collections,
 the materialization continuously pushes it to the destination resources, where it is reflected with very low latency.
-Materializations can process [documents](./collections.md#documents) up to 16 MB in size.
+Materializations can process [documents](/concepts/collections#documents) up to 16 MB in size.
 
-Materializations are the conceptual inverse of [captures](captures.md).
+Materializations are the conceptual inverse of [captures](/concepts/captures).
 
-![Flow materialization diagram](./concept-images/materialization-new.svg)
+![Flow materialization diagram](../concept-images/materialization-new.svg)
 
 You define and configure materializations in **Flow specifications**.
 
-[See the guide to create a materialization](../guides/create-dataflow.md#create-a-materialization)
+[See the guide to create a materialization](/guides/create-dataflow/#create-a-materialization)
 
 ## Discovery
 
-Materializations use real-time [connectors](./connectors.md) to connect to many endpoint types.
+Materializations use real-time [connectors](/concepts/connectors) to connect to many endpoint types.
 
 When you use a materialization connector in the Flow web app,
 Flow helps you configure it through the **discovery** workflow.
@@ -113,9 +114,9 @@ materializations:
 Flow materializations are **continuous materialized views**.
 They maintain a representation of the collection within the endpoint system
 that is updated in near real-time. It's indexed on the
-[collection key](collections.md#keys).
+[collection key](/concepts/collections#keys).
 As the materialization runs, it ensures that all collection documents
-and their accumulated [reductions](../#reductions) are reflected in this
+and their accumulated [reductions](/concepts/#reductions) are reflected in this
 managed endpoint resource.
 
 When you first publish a materialization,
@@ -164,7 +165,7 @@ Its materialization into a database table will have a single row for each unique
 As documents arrive in the collection, the row `total` is updated within the
 materialized table so that it reflects the overall count:
 
-![Materialization reduction](./concept-images/materialization.gif)
+![Materialization reduction](../concept-images/materialization.gif)
 
 Flow does _not_ keep separate internal copies of collection or reduction states,
 as some other systems do. The endpoint resource is the one and only place
@@ -179,7 +180,7 @@ with collections of JSON documents.
 Others are table-oriented and require an up-front declaration
 of columns and types to be most useful, such as a SQL `CREATE TABLE` definition.
 
-Flow uses collection [projections](./advanced/projections.md) to relate locations within
+Flow uses collection [projections](/concepts/advanced/projections) to relate locations within
 a hierarchical JSON document to equivalent named fields.
 A materialization can in turn select a subset of available projected fields
 where, for example, each field becomes a column in a SQL table created by
@@ -231,7 +232,7 @@ materializations:
 ## Partition selectors
 
 Partition selectors let you materialize only a subset of a collection that has
-[logical partitions](./advanced/projections.md#logical-partitions).
+[logical partitions](/concepts/advanced/projections#logical-partitions).
 For example, you might have a large collection that is logically partitioned
 on each of your customers:
 
@@ -264,7 +265,7 @@ materializations:
         resource: { table: coyote_orders }
 ```
 
-[Learn more about partition selectors](./advanced/projections.md#partition-selectors).
+[Learn more about partition selectors](/concepts/advanced/projections/#partition-selectors).
 
 ## Destination-specific performance
 
@@ -314,7 +315,7 @@ Some systems may reduce documents similar to Flow; others use a different
 mechanism; still others may not perform reductions at all.
 
 A given endpoint may support standard updates, delta updates, or both.
-This depends on the [materialization connector](../reference/Connectors/materialization-connectors/README.md). Expect that a connector will use
+This depends on the [materialization connector](/reference/Connectors/materialization-connectors). Expect that a connector will use
 standard updates only unless otherwise noted in its documentation.
 
 ### Delta updates for every binding in a Materialization
@@ -376,23 +377,40 @@ Materializations with a concept of schema additionally include a choice between 
 These options, under **Collection Settings**, provide different default naming behaviors for tables and schemas.
 Selecting or changing the naming convention will only apply to new (not existing) bindings on the materialization.
 
+You can also specify this option in a YAML or JSON configuration as the `source/targetNaming` field. For example:
+
+```json
+"source": {
+  "capture": null,
+  "targetNaming": "withSchema"
+}
+```
+
 Target resource naming conventions include:
 
 * **Prefix Schema**
 
    Always prefixes the table name with the second-to-last part of the collection name, regardless of what the schema is. If the schema field remains empty, the default is used.
 
+   `prefixSchema` for the `targetNaming` field.
+
 * **Prefix Non-Default Schema**
 
    Prefixes the table name with the second-to-last part of the collection name **only if it's not the default schema** (such as `public` or `dbo`). The schema itself is left unspecified.
+
+   `prefixNonDefaultSchema` for the `targetNaming` field.
 
 * **Mirror Schemas**
 
    Sets the schema name to the second-to-last part of the collection name, and uses the last part as the table name.
 
+   `withSchema` for the `targetNaming` field.
+
 * **Use Table Name Only**
 
    Only uses the last part of the collection name as the table name. If the schema is left empty, the default schema is used.
+
+   `noSchema` for the `targetNaming` field.
 
 For example, consider how the different naming conventions affect the final table and schema names for these collections:
 

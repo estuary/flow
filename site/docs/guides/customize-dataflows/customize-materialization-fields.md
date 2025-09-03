@@ -128,7 +128,7 @@ Every included field will be mapped to a table column or equivalent in the endpo
 
 1. If you haven't created the materialization, [begin the process](/guides/create-dataflow/#create-a-materialization). Pause once you've selected the collections to materialize.
 
-   If your materialization already exists, navigate to the [edit materialization](/edit-data-flows/#edit-a-materialization) page.
+   If your materialization already exists, navigate to the [edit materialization](/guides/edit-data-flows/#edit-a-materialization) page.
 
 2. In the Collection Selector, choose the collection whose output fields you want to change.
 
