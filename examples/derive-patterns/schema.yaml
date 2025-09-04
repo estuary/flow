@@ -30,4 +30,3 @@ $defs:
         type: array
         items: { type: string }
         reduce: { strategy: append }
-    reduce: { strategy: merge }
