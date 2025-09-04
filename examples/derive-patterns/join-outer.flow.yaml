@@ -5,6 +5,7 @@ collections:
   patterns/outer-join:
     schema:
       $ref: schema.yaml#Join
+      reduce: { strategy: merge }
       required: [Key]
     key: [/Key]
 
@@ -26,6 +27,7 @@ collections:
   patterns/outer-join-sql:
     schema:
       $ref: schema.yaml#Join
+      reduce: { strategy: merge }
       required: [Key]
     key: [/Key]
     derive:
@@ -47,39 +49,40 @@ collections:
 
 tests:
   patterns/test/outer-join:
-    - ingest:
-        collection: patterns/ints
-        documents: [{ Key: key, Int: 5 }]
-    - verify:
-        collection: patterns/outer-join
-        documents: [{ Key: key, LHS: 5 }]
-    - verify:
-        collection: patterns/outer-join-sql
-        documents: [{ Key: key, LHS: 5 }]
+    steps:
+      - ingest:
+          collection: patterns/ints
+          documents: [{ Key: key, Int: 5 }]
+      - verify:
+          collection: patterns/outer-join
+          documents: [{ Key: key, LHS: 5 }]
+      - verify:
+          collection: patterns/outer-join-sql
+          documents: [{ Key: key, LHS: 5 }]
 
-    - ingest:
-        collection: patterns/strings
-        documents: [{ Key: key, String: hello }]
-    - verify:
-        description: Expect outer join reflects documents so far.
-        collection: patterns/outer-join
-        documents: [{ Key: key, LHS: 5, RHS: [hello] }]
-    - verify:
-        description: Expect outer join reflects documents so far.
-        collection: patterns/outer-join-sql
-        documents: [{ Key: key, LHS: 5, RHS: [hello] }]
+      - ingest:
+          collection: patterns/strings
+          documents: [{ Key: key, String: hello }]
+      - verify:
+          description: Expect outer join reflects documents so far.
+          collection: patterns/outer-join
+          documents: [{ Key: key, LHS: 5, RHS: [hello] }]
+      - verify:
+          description: Expect outer join reflects documents so far.
+          collection: patterns/outer-join-sql
+          documents: [{ Key: key, LHS: 5, RHS: [hello] }]
 
-    - ingest:
-        collection: patterns/ints
-        documents: [{ Key: key, Int: 7 }]
-    - ingest:
-        collection: patterns/strings
-        documents: [{ Key: key, String: goodbye }]
-    - verify:
-        description: Expect outer join reflects all accumulated documents.
-        collection: patterns/outer-join
-        documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
-    - verify:
-        description: Expect outer join reflects all accumulated documents.
-        collection: patterns/outer-join-sql
-        documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
+      - ingest:
+          collection: patterns/ints
+          documents: [{ Key: key, Int: 7 }]
+      - ingest:
+          collection: patterns/strings
+          documents: [{ Key: key, String: goodbye }]
+      - verify:
+          description: Expect outer join reflects all accumulated documents.
+          collection: patterns/outer-join
+          documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
+      - verify:
+          description: Expect outer join reflects all accumulated documents.
+          collection: patterns/outer-join-sql
+          documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
