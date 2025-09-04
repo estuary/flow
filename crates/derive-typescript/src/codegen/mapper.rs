@@ -11,7 +11,7 @@ pub struct Mapper {
 }
 
 impl Mapper {
-    pub fn new(bundle: &str, anchor_prefix: &str) -> Self {
+    pub fn new(bundle: &[u8], anchor_prefix: &str) -> Self {
         let schema = doc::validation::build_bundle(bundle).unwrap();
         let validator = doc::validation::Validator::new(schema).unwrap();
 
@@ -267,7 +267,7 @@ mod test {
 
     #[test]
     fn schema_generation() {
-        let fixture = serde_yaml::from_slice(include_bytes!("mapper_test.yaml")).unwrap();
+        let fixture = serde_json::from_slice(include_bytes!("mapper_test.json")).unwrap();
         let mut sources = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
         sources::inline_draft_catalog(&mut sources);
 
@@ -284,7 +284,7 @@ mod test {
 
         for collection in collections.iter() {
             let m = Mapper::new(
-                collection.model.clone().unwrap().schema.unwrap().get(),
+                collection.model.clone().unwrap().schema.unwrap().get().as_bytes(),
                 "Doc",
             );
             writeln!(
@@ -297,7 +297,7 @@ mod test {
             m.map(m.root()).render(&mut Context::new(&mut w));
             w.push_str("\n\n");
 
-            let m = Mapper::new(collection.model.clone().unwrap().schema.unwrap().get(), "");
+            let m = Mapper::new(collection.model.clone().unwrap().schema.unwrap().get().as_bytes(), "");
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} without anchors:",
