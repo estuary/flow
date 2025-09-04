@@ -71,6 +71,11 @@ LabelSelector {
                     value: "simple",
                     prefix: false,
                 },
+                Label {
+                    name: "name",
+                    value: "data-plane/the/collection/xyz/",
+                    prefix: true,
+                },
             ],
         },
     ),
