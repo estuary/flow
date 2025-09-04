@@ -2,7 +2,7 @@ use crate::{
     publish::{BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY},
     stripe_utils::{Invoice, fetch_invoices},
 };
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use clap::Args;
 use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -15,7 +15,7 @@ const PROGRESS_BAR_TEMPLATE: &str = "{spinner} [{elapsed_precise}] [{bar:40}] {p
 
 #[derive(Debug, Args)]
 #[clap(rename_all = "kebab-case")]
-/// Send all invoices for a specific billing period, charging cards or sending for payment.
+/// Process and finalize invoices for a specific billing period. Invoices with auto_advance enabled will be charged automatically by Stripe.
 pub struct SendInvoices {
     /// Stripe API key.
     #[clap(long)]
@@ -32,6 +32,9 @@ pub struct SendInvoices {
     /// Whether to run on all tenants
     #[clap(long, conflicts_with = "tenants")]
     pub all_tenants: bool,
+    /// Check for and fix invoices with auto_advance turned off
+    #[clap(long)]
+    pub fix_auto_advance: bool,
 }
 
 pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
@@ -39,19 +42,70 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
         .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4));
     let month_start = cmd.month.format("%Y-%m-%d").to_string();
     let month_human_repr = cmd.month.format("%B %Y");
-    tracing::info!("Fetching Stripe invoices to send for {month_human_repr}");
+    tracing::info!("Fetching Stripe invoices to process for {month_human_repr}");
 
-    let base_metadata = format!(
+    let base_final_metadata = format!(
         "metadata[\"{INVOICE_TYPE_KEY}\"]:'final' AND metadata[\"{BILLING_PERIOD_START_KEY}\"]:'{month_start}'"
     );
-    let draft_query = format!("status:'draft' AND {base_metadata}");
-    let open_query = format!("status:'open' AND {base_metadata}");
+    let draft_final_query = format!("status:'draft' AND {base_final_metadata}");
+    let open_final_query = format!("status:'open' AND {base_final_metadata}");
 
-    // 1. Fetch any draft invoices. We will endeavor to finalize them so that they can be sent
-    let (mut draft_invoices, mut finalized_invoices) = futures::try_join!(
-        fetch_invoices(&stripe_client, &draft_query),
-        fetch_invoices(&stripe_client, &open_query)
+    // Separate queries for manual invoices (we'll filter dates client-side)
+    let draft_manual_query =
+        format!("status:'draft' AND metadata[\"{INVOICE_TYPE_KEY}\"]:'manual'");
+    let open_manual_query = format!("status:'open' AND metadata[\"{INVOICE_TYPE_KEY}\"]:'manual'");
+
+    // 1. Fetch invoices: final invoices with exact date match + all manual invoices
+    let (
+        mut draft_final_invoices,
+        mut finalized_final_invoices,
+        draft_manual_invoices,
+        finalized_manual_invoices,
+    ) = futures::try_join!(
+        fetch_invoices(&stripe_client, &draft_final_query),
+        fetch_invoices(&stripe_client, &open_final_query),
+        fetch_invoices(&stripe_client, &draft_manual_query),
+        fetch_invoices(&stripe_client, &open_manual_query)
     )?;
+
+    // Filter manual invoices by date range client-side
+    let month_start_date = cmd.month;
+    let month_end_date = if month_start_date.month0() == 11 {
+        // December is month0 = 11
+        NaiveDate::from_ymd_opt(month_start_date.year() + 1, 1, 1).unwrap() - Duration::days(1)
+    } else {
+        NaiveDate::from_ymd_opt(month_start_date.year(), month_start_date.month0() + 2, 1).unwrap()
+            - Duration::days(1)
+    };
+
+    let filter_manual_invoices =
+        |invoices: Vec<crate::stripe_utils::Invoice>| -> Vec<crate::stripe_utils::Invoice> {
+            invoices
+                .into_iter()
+                .filter(|inv| {
+                    if let Some(period_start_str) = inv.period_start() {
+                        if let Ok(period_start_date) =
+                            NaiveDate::parse_from_str(&period_start_str, "%Y-%m-%d")
+                        {
+                            return period_start_date >= month_start_date
+                                && period_start_date <= month_end_date;
+                        }
+                    }
+                    false
+                })
+                .collect()
+        };
+
+    let filtered_draft_manual = filter_manual_invoices(draft_manual_invoices);
+    let filtered_finalized_manual = filter_manual_invoices(finalized_manual_invoices);
+
+    // Combine final and manual invoices
+    draft_final_invoices.extend(filtered_draft_manual);
+    finalized_final_invoices.extend(filtered_finalized_manual);
+
+    // Rename for consistency with rest of function
+    let mut draft_invoices = draft_final_invoices;
+    let mut finalized_invoices = finalized_final_invoices;
 
     tracing::info!(
         "Fetched {} draft invoices for {month_human_repr}.",
@@ -90,31 +144,19 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // 3. Send or charge open invoices
-    print_invoice_table("Invoices to send", &finalized_invoices);
-    prompt_to_continue("Enter Y to send these invoices, or anything else to abort: ").await?;
+    // 2c. Check for and fix auto_advance if flag is set
+    if cmd.fix_auto_advance {
+        finalized_invoices = check_and_fix_auto_advance(&stripe_client, finalized_invoices).await?;
+    }
 
-    // We still could theoretically have `open` invoices that are `charge_automatically`
-    // but don't have a default payment method. There's not much we can do about these
-    // since `open` invoices are finalized and cannot be updated. So we show them in the table
-    // but filter them out before the collection step as they'll throw an error if we try.
-    collect_invoices(
-        &stripe_client,
-        finalized_invoices
-            .into_iter()
-            .filter(|inv| {
-                if inv.collection_method().map_or(false, |cm| {
-                    cm == stripe::CollectionMethod::ChargeAutomatically
-                }) && !inv.has_cc()
-                {
-                    return false;
-                } else {
-                    return true;
-                }
-            })
-            .collect::<Vec<_>>(),
-    )
-    .await;
+    // 3. Show final status of invoices (auto-advance will handle charging automatically)
+    if !finalized_invoices.is_empty() {
+        print_invoice_table("Final invoice status", &finalized_invoices);
+        tracing::info!(
+            "Processed {} invoices for {month_human_repr}. Invoices with auto_advance enabled will be charged automatically by Stripe.",
+            finalized_invoices.len()
+        );
+    }
     Ok(())
 }
 
@@ -272,54 +314,108 @@ async fn finalize_invoices(
     Ok(finalize_results)
 }
 
-async fn collect_invoices(stripe_client: &Client, to_send: Vec<Invoice>) {
-    let pb = ProgressBar::new(to_send.len() as u64);
-    pb.set_message("sending invoices");
+async fn check_and_fix_auto_advance(
+    stripe_client: &Client,
+    invoices: Vec<Invoice>,
+) -> anyhow::Result<Vec<Invoice>> {
+    // Find invoices with auto_advance turned off
+    let needs_auto_advance_fix: Vec<Invoice> = invoices
+        .iter()
+        .filter(|inv| {
+            inv.auto_advance.map_or(false, |aa| !aa)
+                && matches!(inv.status(), Some(stripe::InvoiceStatus::Open))
+        })
+        .cloned()
+        .collect();
+
+    if needs_auto_advance_fix.is_empty() {
+        return Ok(invoices);
+    }
+
+    // Show table of invoices that need auto_advance fixed
+    let table_rows: Vec<_> = needs_auto_advance_fix
+        .iter()
+        .map(|inv| {
+            let mut row = inv.to_table_row();
+            row.push(
+                comfy_table::Cell::new("auto_advance: false => true")
+                    .fg(comfy_table::Color::Yellow)
+                    .add_attribute(comfy_table::Attribute::Bold),
+            );
+            row
+        })
+        .collect();
+
+    if !table_rows.is_empty() {
+        let mut table = comfy_table::Table::new();
+        table
+            .load_preset(comfy_table::presets::UTF8_FULL)
+            .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+            .apply_modifier(comfy_table::modifiers::UTF8_SOLID_INNER_BORDERS);
+
+        let mut header = Invoice::table_header();
+        header.push("Auto Advance Update");
+        table.set_header(header);
+
+        for row in table_rows {
+            table.add_row(row);
+        }
+
+        println!("\nThe following open invoices have auto_advance turned off and will be updated:");
+        println!("{}", table);
+
+        prompt_to_continue(
+            "Enter Y to turn on auto_advance for these invoices, or anything else to skip: ",
+        )
+        .await?;
+
+        // Update auto_advance to true
+        update_auto_advance(stripe_client, needs_auto_advance_fix).await?;
+    }
+
+    Ok(invoices)
+}
+
+async fn update_auto_advance(stripe_client: &Client, invoices: Vec<Invoice>) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct UpdateAutoAdvance {
+        auto_advance: bool,
+    }
+
+    let pb = ProgressBar::new(invoices.len() as u64);
+    pb.set_message("updating auto_advance");
     pb.set_style(ProgressStyle::with_template(PROGRESS_BAR_TEMPLATE).unwrap());
-    let send_futs = to_send.into_iter().map(|row| {
-        let stripe_client = stripe_client;
-        let pb = pb.clone();
-        async move {
-            let res = if row.has_cc() {
-                StripeInvoice::pay(stripe_client, row.id()).await
-            } else {
-                stripe_client
-                    .post(&format!("/invoices/{}/send", row.id()))
-                    .await
-            };
-            pb.inc(1);
-            match res {
-                Ok(_) => {
-                    if row.has_cc() {
-                        pb.println(format!(
-                            "Charged card for tenant {} (invoice {})",
-                            row.tenant(),
-                            row.id()
-                        ));
-                    } else {
-                        pb.println(format!(
-                            "Sent invoice for tenant {} (invoice {})",
-                            row.tenant(),
-                            row.id()
-                        ));
-                    }
-                }
-                Err(e) => {
-                    pb.println(format!(
-                        "Error sending/paying invoice {} (invoice {}): {:?}",
-                        row.tenant(),
-                        row.id(),
-                        e
-                    ));
-                }
+
+    for inv in invoices {
+        let res: Result<stripe::Invoice, _> = stripe_client
+            .post_form(
+                &format!("/invoices/{}", inv.id()),
+                UpdateAutoAdvance { auto_advance: true },
+            )
+            .await;
+
+        match res {
+            Ok(_) => {
+                pb.println(format!(
+                    "Updated auto_advance for invoice {} (tenant: {})",
+                    inv.id(),
+                    inv.tenant()
+                ));
+            }
+            Err(e) => {
+                pb.println(format!(
+                    "Failed to update auto_advance for invoice {} (tenant: {}): {}",
+                    inv.id(),
+                    inv.tenant(),
+                    e
+                ));
             }
         }
-    });
-    stream::iter(send_futs)
-        .buffer_unordered(10)
-        .collect::<Vec<_>>()
-        .await;
-    pb.finish_with_message("All invoices sent/paid");
+        pb.inc(1);
+    }
+
+    pb.finish_with_message("Auto-advance updates complete");
+    Ok(())
 }
 
 fn build_invoice_table<I>(rows: I, subtotal: Option<f64>) -> comfy_table::Table
