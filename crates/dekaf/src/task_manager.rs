@@ -541,7 +541,7 @@ async fn get_or_refresh_journal_client(
     if let Some((cached_client, claims)) = cached_client_and_claims {
         let now_unix = time::OffsetDateTime::now_utc().unix_timestamp();
         // Refresh the client if its token is closer than REFRESH_START_AT to its expiration.
-        let refresh_from = (claims.exp - REFRESH_START_AT.as_millis() as u64) as i64;
+        let refresh_from = (claims.exp - REFRESH_START_AT.as_secs()) as i64;
         if now_unix < refresh_from {
             tracing::debug!(task=%task_name, "Re-using existing journal client.");
             return Ok((cached_client.clone(), claims.clone()));
@@ -657,7 +657,7 @@ impl DekafTaskAuth {
     }
     fn refresh_at(&self) -> u64 {
         // Refresh the client if its token is closer than REFRESH_START_AT to its expiration.
-        self.exp() - REFRESH_START_AT.as_millis() as u64
+        self.exp() - REFRESH_START_AT.as_secs()
     }
 }
 
