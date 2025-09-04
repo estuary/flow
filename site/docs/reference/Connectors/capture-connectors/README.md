@@ -44,6 +44,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Apache Kafka
   - [Configuration](./apache-kafka.md)
   - Package — ghcr.io/estuary/source-kafka:dev
+- Apple App Store
+  - [Configuration](./apple-app-store.md)
+  - Package - ghcr.io/estuary/source-apple-app-store:dev
 - Asana
   - [Configuration](./asana.md)
   - Package - ghcr.io/estuary/source-asana:dev
@@ -272,6 +275,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Chargebee (deprecated)
   - [Configuration](./chargebee.md)
   - Package - ghcr.io/estuary/source-chargebee:dev
+- Chargebee Native
+  - [Configuration](./chargebee-native.md)
+  - Package - ghcr.io/estuary/source-chargebee-native:dev
 - Confluence
   - [Configuration](./confluence.md)
   - Package - ghcr.io/estuary/source-confluence:dev

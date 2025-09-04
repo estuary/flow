@@ -1,41 +1,16 @@
-use crate::{connector, utils, SessionAuthentication, TaskAuth, TaskState, UserAuth};
+use crate::{connector, utils, SessionAuthentication, TaskState};
 use anyhow::{anyhow, bail, Context};
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use gazette::{
-    broker::{self, journal_spec},
+    broker::{self, journal_spec, ReadResponse},
     journal, uuid,
 };
 use models::RawValue;
 use proto_flow::flow;
 
-impl UserAuth {
-    /// Fetch the names of all collections which the current user may read.
-    /// Each is mapped into a kafka topic.
-    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
-        let client = self.authenticated_client().await?.pg_client();
-        #[derive(serde::Deserialize)]
-        struct Row {
-            catalog_name: String,
-        }
-        let rows_builder = client
-            .from("live_specs_ext")
-            .eq("spec_type", "collection")
-            .select("catalog_name");
-
-        let items = flow_client::pagination::into_items::<Row>(rows_builder)
-            .map(|res| res.map(|Row { catalog_name }| catalog_name))
-            .try_collect()
-            .await
-            .context("listing current catalog specifications")?;
-
-        Ok(items)
-    }
-}
-
 impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
-            SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
             SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
             SessionAuthentication::Redirect { spec, .. } => utils::fetch_all_collection_names(spec),
         }
@@ -43,7 +18,6 @@ impl SessionAuthentication {
 
     pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
         match self {
-            SessionAuthentication::User(_) => Ok(topic_name.to_string()),
             SessionAuthentication::Task(auth) => {
                 let binding = auth
                     .get_binding_for_topic(topic_name)
@@ -105,54 +79,41 @@ pub struct PartitionOffset {
     pub mod_time: i64,
 }
 
-impl Default for PartitionOffset {
-    fn default() -> Self {
-        Self {
-            mod_time: -1, // UNKNOWN_TIMESTAMP
-            fragment_start: 0,
-            offset: 0,
-        }
-    }
-}
+const OFFSET_REQUEST_EARLIEST: i64 = -2;
+const OFFSET_REQUEST_LATEST: i64 = -1;
 
 impl Collection {
     /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
         auth: &SessionAuthentication,
-        pg_client: &postgrest::Postgrest,
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
         let binding = match auth {
             SessionAuthentication::Task(task_auth) => {
                 if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                    Some(binding)
+                    binding
                 } else {
-                    bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+                    tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
+                    return Ok(None);
                 }
             }
-            SessionAuthentication::User(_) => None,
             SessionAuthentication::Redirect { spec, .. } => {
-                utils::get_binding_for_topic(spec, topic_name)
+                let Some(binding) = utils::get_binding_for_topic(spec, topic_name)
                     .context("failed to get binding for topic in redirected session")?
+                else {
+                    tracing::warn!("{topic_name} is not a binding of {}", spec.name);
+                    return Ok(None);
+                };
+                binding
             }
         };
+
+        let collection_spec = binding
+            .collection
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("missing collection in materialization binding"))?;
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;
-
-        let collection_spec = if let Some(binding) = &binding {
-            if let Some(collection) = binding.collection.as_ref() {
-                collection.clone()
-            } else {
-                anyhow::bail!("missing collection in materialization binding")
-            }
-        } else {
-            let fetched_spec = Self::fetch_spec(&pg_client, collection_name).await?;
-            if let Some(fetched_spec) = fetched_spec {
-                fetched_spec
-            } else {
-                return Ok(None);
-            }
-        };
 
         let partition_template_name = collection_spec
             .partition_template
@@ -161,30 +122,22 @@ impl Collection {
             .ok_or(anyhow!("missing partition template"))?;
 
         let (journal_client, partitions) = match auth {
-            SessionAuthentication::User(user_auth) => {
-                let journal_client =
-                    Self::build_journal_client(&user_auth, collection_name).await?;
-                let parts =
-                    crate::task_manager::fetch_partitions(&journal_client, collection_name, None)
-                        .await?;
-
-                (journal_client, parts)
-            }
             SessionAuthentication::Task(task_auth) => {
                 let state = task_auth.task_state_listener.get().await?;
 
-                let partitions = match state {
+                let partitions = match state.as_ref() {
                     TaskState::Authorized { partitions, .. } => partitions,
                     TaskState::Redirect {
                         target_dataplane_fqdn,
                         spec,
                         ..
                     } => {
-                        return Err(
-                            crate::DekafError::from_redirect(target_dataplane_fqdn, spec)
-                                .await?
-                                .into(),
-                        );
+                        return Err(crate::DekafError::from_redirect(
+                            target_dataplane_fqdn.to_owned(),
+                            spec.clone(),
+                        )
+                        .await?
+                        .into());
                     }
                 };
 
@@ -194,6 +147,7 @@ impl Collection {
                     .context("missing partition template")?;
 
                 parts
+                    .clone()
                     .map(|(client, _, parts)| (client, parts))
                     .map_err(|e| anyhow::Error::from(e))?
             }
@@ -232,42 +186,28 @@ impl Collection {
         let collection_schema_shape =
             doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        let (value_schema, extractors) = if let Some(ref binding) = binding {
-            let selection = binding
-                .field_selection
-                .clone()
-                .context("missing field selection in materialization binding")?;
+        let selection = binding
+            .field_selection
+            .clone()
+            .context("missing field selection in materialization binding")?;
 
-            utils::build_field_extractors(
-                collection_schema_shape.clone(),
-                selection,
-                collection_spec.projections.clone(),
-                auth.deletions(),
-            )?
-        } else {
-            utils::build_LEGACY_field_extractors(collection_schema_shape.clone(), auth.deletions())?
-        };
+        let (value_schema, extractors) = utils::build_field_extractors(
+            collection_schema_shape.clone(),
+            selection,
+            collection_spec.projections.clone(),
+            auth.deletions(),
+        )?;
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
-        let (not_before, not_after) = if let Some(binding) = binding {
-            (
-                binding.not_before.map(|b| {
-                    uuid::Clock::from_unix(
-                        b.seconds.try_into().unwrap(),
-                        b.nanos.try_into().unwrap(),
-                    )
-                }),
-                binding.not_after.map(|b| {
-                    uuid::Clock::from_unix(
-                        b.seconds.try_into().unwrap(),
-                        b.nanos.try_into().unwrap(),
-                    )
-                }),
-            )
-        } else {
-            (None, None)
-        };
+        let (not_before, not_after) = (
+            binding.not_before.map(|b| {
+                uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
+            }),
+            binding.not_after.map(|b| {
+                uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
+            }),
+        );
 
         tracing::debug!(
             collection_name,
@@ -304,34 +244,13 @@ impl Collection {
         Ok((key_id, value_id))
     }
 
-    /// Fetch the built spec for a collection.
-    async fn fetch_spec(
-        client: &postgrest::Postgrest,
-        collection: &str,
-    ) -> anyhow::Result<Option<flow::CollectionSpec>> {
-        #[derive(serde::Deserialize)]
-        struct Row {
-            built_spec: flow::CollectionSpec,
-        }
-
-        let mut rows: Vec<Row> = handle_postgrest_response(
-            client
-                .from("live_specs_ext")
-                .eq("spec_type", "collection")
-                .eq("catalog_name", collection)
-                .select("built_spec"),
-        )
-        .await
-        .context("listing current collection specifications")?;
-
-        if let Some(Row { built_spec }) = rows.pop() {
-            Ok(Some(built_spec))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Map a partition and timestamp into the newest covering fragment offset.
+    /// Request latest offset
+    ///     - `suspend::Level::Full | suspend::Level::Partial`: `suspend.offset`
+    ///     - `suspend::Level::None`: write offset returned by non-blocking read at `offset = -1`
+    /// Request earliest offset
+    ///     - `suspend::Level::Full`: `suspend.offset`
+    ///     - `suspend::Level::Partial | suspend::Level::None`: fragment listing with `begin_mod_time = 0`, return 0th fragment’s begin
     pub async fn fetch_partition_offset(
         &self,
         partition_index: usize,
@@ -341,31 +260,63 @@ impl Collection {
             return Ok(None);
         };
 
-        match partition.spec.suspend {
-            Some(suspend) if suspend.level == journal_spec::suspend::Level::Full as i32 => {
-                return Ok(Some(PartitionOffset {
-                    fragment_start: suspend.offset,
-                    offset: suspend.offset,
-                    mod_time: -1, //UNKNOWN_TIMESTAMP
-                }));
+        let offset_data = match timestamp_millis {
+            OFFSET_REQUEST_LATEST => {
+                match partition.spec.suspend {
+                    Some(suspend)
+                        if suspend.level == journal_spec::suspend::Level::Full as i32
+                            || suspend.level == journal_spec::suspend::Level::Partial as i32 =>
+                    {
+                        Some(PartitionOffset {
+                            fragment_start: suspend.offset,
+                            offset: suspend.offset,
+                            mod_time: -1, // UNKNOWN_TIMESTAMP
+                        })
+                    }
+                    // Not suspended, so return high-water mark.
+                    _ => self.fetch_write_head(partition_index).await?,
+                }
+            }
+            OFFSET_REQUEST_EARLIEST => {
+                match partition.spec.suspend {
+                    Some(suspend) if suspend.level == journal_spec::suspend::Level::Full as i32 => {
+                        Some(PartitionOffset {
+                            fragment_start: suspend.offset,
+                            offset: suspend.offset,
+                            mod_time: -1, // UNKNOWN_TIMESTAMP
+                        })
+                    }
+                    // Not suspended or partially suspended, so return earliest available fragment offset.
+                    _ => self.fetch_earliest_offset(partition_index).await?,
+                }
             }
             _ => {
+                // If fully suspended, there are no actual fragments to search through, so we have no way to correlate
+                // timestamps with offsets. Kafka returns UNKNOWN_OFFSET in this case, so we do the same.
+                if let Some(suspend) = &partition.spec.suspend {
+                    if suspend.level == journal_spec::suspend::Level::Full as i32 {
+                        return Ok(Some(PartitionOffset {
+                            fragment_start: suspend.offset,
+                            offset: -1,   // UNKNOWN_OFFSET
+                            mod_time: -1, // UNKNOWN_TIMESTAMP
+                        }));
+                    }
+                }
+
+                // Otherwise, list fragments with begin_mod_time <= timestamp_millis and return the latest fragment's begin offset.
+                // This will return the currently open fragment if there is one and `timestamp_millis` is after any other fragment's
+                // `begin_mod_time` since because the fragment is still open and hasn't been persisted to cloud storage, it doesn't
+                // have a `begin_mod_time` at all. Not all journals will have an open fragment though, so we need to consider that.
                 let (not_before_sec, _) = self
                     .not_before
                     .map(|not_before| not_before.to_unix())
                     .unwrap_or((0, 0));
 
-                let begin_mod_time = if timestamp_millis == -1 {
-                    i64::MAX // Sentinel for "largest available offset",
-                } else if timestamp_millis == -2 {
-                    0 // Sentinel for "first available offset"
+                let timestamp = timestamp_millis / 1_000;
+                let begin_mod_time = if timestamp < not_before_sec as i64 {
+                    not_before_sec as i64
                 } else {
-                    let timestamp = timestamp_millis / 1_000;
-                    if timestamp < not_before_sec as i64 {
-                        not_before_sec as i64
-                    } else {
-                        timestamp as i64
-                    }
+                    timestamp as i64
                 };
 
                 let request = broker::FragmentsRequest {
@@ -376,54 +327,125 @@ impl Collection {
                 };
                 let response = self.journal_client.list_fragments(request).await?;
 
-                let offset_data = match response.fragments.get(0) {
+                match response.fragments.get(0) {
+                    // We found a fragment covering the requested timestamp, or we found the currently open fragment.
                     Some(broker::fragments_response::Fragment {
                         spec: Some(spec), ..
-                    }) => {
-                        if timestamp_millis == -1 {
-                            PartitionOffset {
-                                fragment_start: spec.begin,
-                                // Subtract one to reflect the largest fetch-able offset of the fragment.
-                                offset: spec.end - 1,
-                                mod_time: spec.mod_time,
-                            }
-                        } else {
-                            PartitionOffset {
-                                fragment_start: spec.begin,
-                                offset: spec.begin,
-                                mod_time: spec.mod_time,
-                            }
-                        }
+                    }) => Some(PartitionOffset {
+                        fragment_start: spec.begin,
+                        offset: spec.begin,
+                        mod_time: spec.mod_time,
+                    }),
+                    // The cases where this line hits are:
+                    // * `suspend::Level::Partial` so there is no open fragment, and the provided timestamp is after any
+                    //    existing persisted fragment's `mod_time` (and there cannot be an open fragment since the journal is partially suspended)
+                    // * Not suspended, and either all fragments have expired from cloud storage, no data has ever been written,
+                    //   or the provided timestamp is after any persisted fragment's `mod_time` and there is no open fragment
+                    //   (maybe the collection hasn't seen any new data for longer than its flush interval?)
+                    // Both of these cases are the same case as above when the journal is fully suspended: a request for offsets
+                    // when there are no covering fragments. As I discovered above, Kafka returns `UNKNOWN_OFFSET` (-1) in this case,
+                    // so I believe that Dekaf should too.
+                    None => Some(PartitionOffset {
+                        fragment_start: -1,
+                        offset: -1,   // UNKNOWN_OFFSET
+                        mod_time: -1, // UNKNOWN_TIMESTAMP
+                    }),
+                    Some(broker::fragments_response::Fragment { spec: None, .. }) => {
+                        anyhow::bail!("fragment missing spec");
                     }
-                    _ => PartitionOffset::default(),
-                };
-
-                tracing::debug!(
-                    collection = self.spec.name,
-                    ?offset_data,
-                    partition_index,
-                    timestamp_millis,
-                    "fetched offset"
-                );
-
-                return Ok(Some(offset_data));
+                }
             }
+        };
+
+        tracing::debug!(
+            collection = self.spec.name,
+            ?offset_data,
+            partition_index,
+            timestamp_millis,
+            "fetched offset"
+        );
+
+        Ok(offset_data)
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn fetch_earliest_offset(
+        &self,
+        partition_index: usize,
+    ) -> anyhow::Result<Option<PartitionOffset>> {
+        let Some(partition) = self.partitions.get(partition_index) else {
+            return Ok(None);
+        };
+
+        let request = broker::FragmentsRequest {
+            journal: partition.spec.name.clone(),
+            begin_mod_time: 0, // Fetch earliest offset
+            page_limit: 1,
+            ..Default::default()
+        };
+        let response = self
+            .journal_client
+            .list_fragments(request)
+            .await
+            .context("listing fragments to fetch earliest offset")?;
+
+        match response.fragments.get(0) {
+            Some(broker::fragments_response::Fragment {
+                spec: Some(spec), ..
+            }) => Ok(Some(PartitionOffset {
+                fragment_start: spec.begin,
+                offset: spec.begin,
+                mod_time: spec.mod_time,
+            })),
+            _ => Ok(None),
         }
     }
 
-    /// Build a journal client by resolving the collections data-plane gateway and an access token.
-    async fn build_journal_client(
-        user_auth: &UserAuth,
-        collection_name: &str,
-    ) -> anyhow::Result<journal::Client> {
-        let (_, journal_client) = flow_client::fetch_user_collection_authorization(
-            &user_auth.client,
-            collection_name,
-            false,
-        )
-        .await?;
+    /// Fetch the write head of a journal by issuing a non-blocking read request at offset -1
+    #[tracing::instrument(skip(self))]
+    async fn fetch_write_head(
+        &self,
+        partition_index: usize,
+    ) -> anyhow::Result<Option<PartitionOffset>> {
+        let Some(partition) = self.partitions.get(partition_index) else {
+            return Ok(None);
+        };
 
-        Ok(journal_client)
+        let request = broker::ReadRequest {
+            journal: partition.spec.name.clone(),
+            offset: -1, // Fetch write head
+            ..Default::default()
+        };
+        let response_stream = self.journal_client.clone().read(request);
+        tokio::pin!(response_stream);
+
+        // Continue polling the stream until we get Ok or a non-transient error
+        loop {
+            match response_stream.next().await {
+                Some(Ok(ReadResponse {
+                    write_head,
+                    fragment,
+                    ..
+                })) => {
+                    return Ok(Some(PartitionOffset {
+                        fragment_start: fragment.map(|f| f.begin).unwrap_or(0),
+                        offset: write_head,
+                        mod_time: -1,
+                    }))
+                }
+                Some(Err(e)) => {
+                    if e.inner.is_transient() {
+                        continue;
+                    } else {
+                        return Err(anyhow::Error::new(e.inner).context(format!(
+                            "failed to fetch write head after {} retries",
+                            e.attempt
+                        )));
+                    }
+                }
+                None => anyhow::bail!("read stream ended unexpectedly"),
+            }
+        }
     }
 
     async fn registered_schema_id(

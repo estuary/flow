@@ -123,9 +123,6 @@ impl Read {
             collection_name: collection.name.to_owned(),
             task_name: match auth {
                 SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
-                SessionAuthentication::User(user_auth) => {
-                    format!("user-auth: {:?}", user_auth.claims.email)
-                }
                 SessionAuthentication::Redirect { .. } => {
                     bail!("Redirected sessions cannot read data")
                 }
@@ -150,7 +147,7 @@ impl Read {
 
         let task_state = listener.get().await?;
 
-        let partitions = match task_state {
+        let partitions = match task_state.as_ref() {
             crate::task_manager::TaskState::Authorized { partitions, .. } => partitions,
             crate::task_manager::TaskState::Redirect {
                 target_dataplane_fqdn,
@@ -161,6 +158,7 @@ impl Read {
         };
 
         let (client, claims, _) = partitions
+            .to_owned()
             .into_iter()
             .find_map(|(k, v)| {
                 if k == partition_template_name {
