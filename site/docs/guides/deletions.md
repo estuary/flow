@@ -1,3 +1,7 @@
+---
+slug: /reference/deletions/
+---
+
 # Handling Deletions in Estuary Flow
 
 Estuary supports two categories of deletions: **soft deletes** and **hard deletes**. These deletion types determine how documents are marked and treated within the system. Below is an explanation of each category.

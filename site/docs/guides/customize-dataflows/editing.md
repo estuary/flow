@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+slug: /reference/editing/
 ---
 
 # Editing Considerations
@@ -20,7 +20,7 @@ In the Flow web app, you can edit captures and materializations, and use the **S
 With flowctl, you can edit captures, materializations, collections, derivations, and tests.
 You do this by pulling the desired specification locally, editing, and re-publishing.
 
-* [Editing with flowctl](../concepts/flowctl.md#editing-data-flows-with-flowctl)
+* [Editing with flowctl](/concepts/flowctl/#editing-data-flows-with-flowctl)
 
 ## Endpoint configuration changes
 
@@ -52,7 +52,7 @@ but new data will be written to the new collection.
 Before editing, check if a connector has been updated:
 
 * Go to the **Admin** tab and view the list of connectors. Each tile shows the date it was last updated.
-* Check the connector's [documentation](./Connectors/README.md). Pertinent updates, if any, are noted in the **Changelog** section.
+* Check the connector's [documentation](/reference/Connectors). Pertinent updates, if any, are noted in the **Changelog** section.
 
 ## Considerations for name changes
 
