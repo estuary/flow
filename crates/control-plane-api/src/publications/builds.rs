@@ -1,6 +1,7 @@
 use crate::{jobs, logs};
 use anyhow::Context;
 use models::Id;
+use rand::RngCore;
 use sqlx::types::Uuid;
 use std::path;
 use tables::BuiltRow;
@@ -30,6 +31,11 @@ pub async fn build_catalog<Conn: Connectors>(
     let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
 
+    // Generate a random initialization vector for the validation.
+    // Currently, this is used to derive unique but deterministic redact salts.
+    let mut init_vector: [u8; 16] = Default::default();
+    rand::thread_rng().fill_bytes(&mut init_vector);
+
     let built = validation::validate(
         pub_id,
         build_id,
@@ -37,12 +43,11 @@ pub async fn build_catalog<Conn: Connectors>(
         connectors,
         &draft,
         &live,
-        true, // fail_fast
-        // These are a hack to allow us to test publications without actually
-        // needing to dial connectors for validate RPCs:
-        false,
-        false,
-        false,
+        true,  // Fail_fast.
+        false, // Don't no-op capture validation.
+        false, // Don't no-op derivation validation.
+        false, // Don't no-op materialization validation.
+        &init_vector,
     )
     .await;
     let output = build::Output { draft, live, built };

@@ -8,6 +8,10 @@ pub type SchemaIndex<'sm> = json::schema::index::Index<'sm, Annotation>;
 pub type FullContext = json::validator::FullContext;
 pub type SpanContext = json::validator::SpanContext;
 pub type RawValidator<'sm> = json::validator::Validator<'sm, Annotation, SpanContext>;
+pub type Outcome<'sm> = (
+    json::validator::Outcome<'sm, Annotation>,
+    json::validator::SpanContext,
+);
 
 // Re-export build_schema for lower-level usages.
 pub use json::schema::build::build_schema;
@@ -100,7 +104,7 @@ impl Validator {
         &'v mut self,
         schema: Option<&'v url::Url>,
         document: &'doc N,
-    ) -> Result<Validation<'static, 'doc, 'v, N>, json::schema::index::Error> {
+    ) -> Result<Validation<'static, 'v>, json::schema::index::Error> {
         let effective_schema = match schema {
             Some(schema) => schema,
             None if self.schemas.len() == 1 => &self.schemas[0].curi,
@@ -114,7 +118,6 @@ impl Validator {
         let span = walk_document(document, &mut self.inner, &root, 0);
 
         Ok(Validation {
-            document,
             schema: effective_schema,
             span,
             validator: &mut self.inner,
@@ -123,30 +126,37 @@ impl Validator {
 }
 
 /// Validation represents the outcome of a document validation.
-pub struct Validation<'schema, 'doc, 'tmp, N: AsNode> {
-    /// Document which was validated.
-    pub document: &'doc N,
+#[must_use]
+pub struct Validation<'schema, 'tmp> {
     /// Schema which was validated.
-    pub schema: &'tmp url::Url,
+    schema: &'tmp url::Url,
     /// Walked document span.
-    pub span: json::Span,
+    span: json::Span,
     /// Validator which holds the validation outcome.
     // Note use of Validator in a loop requires that we separate these lifetimes.
-    pub validator: &'tmp mut RawValidator<'schema>,
+    validator: &'tmp mut RawValidator<'schema>,
 }
 
-// Valid is a Validation known to have had a valid outcome.
+// Valid is a validation known to have had a valid outcome.
 pub struct Valid<'schema, 'tmp> {
     /// Validator which holds the validation outcome.
-    pub validator: &'tmp mut RawValidator<'schema>,
-    /// Walked document span.
-    pub span: json::Span,
+    validator: &'tmp mut RawValidator<'schema>,
 }
 
-impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
+// Invalid is a validation known to have had an invalid outcome.
+pub struct Invalid<'schema, 'tmp> {
+    /// Schema which was validated.
+    schema: &'tmp url::Url,
+    /// Walked document span.
+    span: json::Span,
+    /// Validator which holds the validation outcome.
+    validator: &'tmp mut RawValidator<'schema>,
+}
+
+impl<'schema, 'tmp> Validation<'schema, 'tmp> {
     /// Validate is a lower-level API for verifying a given document against the given schema.
     /// You probably want to use Validator::validate() instead of this function.
-    pub fn validate(
+    pub fn validate<'doc, N: AsNode>(
         validator: &'tmp mut RawValidator<'schema>,
         schema: &'tmp url::Url,
         document: &'doc N,
@@ -157,27 +167,59 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
         let span = walk_document(document, validator, &root, 0);
 
         Ok(Self {
-            document,
             schema,
             span,
             validator,
         })
     }
 
-    /// Ok returns returns FailedValidation if the validation failed, or Valid otherwise.
-    pub fn ok(self) -> Result<Valid<'schema, 'tmp>, FailedValidation> {
-        if !self.validator.invalid() {
-            return Ok(Valid {
-                span: self.span,
-                validator: self.validator,
-            });
-        }
+    #[inline(always)]
+    pub fn outcomes(&self) -> &[Outcome<'schema>] {
+        self.validator.outcomes()
+    }
 
+    /// Ok splits a Validation into either Valid or Invalid.
+    #[inline]
+    pub fn ok(self) -> Result<Valid<'schema, 'tmp>, Invalid<'schema, 'tmp>> {
         let Self {
             schema,
-            document,
-            validator,
             span,
+            validator,
+        } = self;
+
+        if validator.invalid() {
+            Err(Invalid {
+                schema,
+                span,
+                validator,
+            })
+        } else {
+            Ok(Valid { validator })
+        }
+    }
+}
+
+impl<'schema, 'tmp> Valid<'schema, 'tmp> {
+    #[inline(always)]
+    pub fn outcomes(&self) -> &[Outcome<'schema>] {
+        self.validator.outcomes()
+    }
+}
+
+impl<'schema, 'tmp> Invalid<'schema, 'tmp> {
+    #[inline(always)]
+    pub fn outcomes(&self) -> &[Outcome<'schema>] {
+        self.validator.outcomes()
+    }
+
+    pub fn revalidate_with_context<'doc, N>(self, document: &'doc N) -> FailedValidation
+    where
+        N: AsNode,
+    {
+        let Self {
+            schema,
+            validator,
+            span: _,
         } = self;
 
         // Repeat the validation, but this time with FullContext for better error generation.
@@ -186,18 +228,24 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
         full_validator.prepare(schema).unwrap();
 
         let root = json::Location::Root;
-        let full_span = walk_document(document, &mut full_validator, &root, 0);
+        let _span = walk_document(document, &mut full_validator, &root, 0);
 
-        // Sanity check that we got the same validation result.
-        assert!(full_validator.invalid());
-        assert_eq!(span, full_span);
-
-        Err(FailedValidation {
+        FailedValidation {
             // TODO: It might be a good idea to add a field on `FailedValidation` to indicate
             // whether the document serialized here has been truncated.
             document: serde_json::to_value(SerPolicy::debug().on(document)).unwrap(),
             basic_output: json::validator::build_basic_output(full_validator.outcomes()),
-        })
+        }
+    }
+}
+
+impl<'schema, 'tmp> std::fmt::Debug for Invalid<'schema, 'tmp> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut builder = f.debug_struct("Invalid");
+        builder.field("schema", &self.schema);
+        builder.field("span", &self.span);
+        builder.field("outcomes", &self.validator.outcomes());
+        builder.finish()
     }
 }
 

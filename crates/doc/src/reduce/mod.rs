@@ -108,7 +108,7 @@ pub fn reduce<'alloc, N: AsNode>(
     full: bool,
 ) -> Result<(HeapNode<'alloc>, bool)> {
     // Extract sparse tape of reduce annotations and their applicable [begin, end) spans.
-    let tape: Vec<(i32, i32, &Strategy)> = (rhs_valid.validator.outcomes().iter())
+    let tape: Vec<(i32, i32, &Strategy)> = (rhs_valid.outcomes().iter())
         .filter_map(|(outcome, ctx)| {
             if let validator::Outcome::Annotation(crate::Annotation::Reduce(strategy)) = outcome {
                 let span = ctx.span();

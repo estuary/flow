@@ -11,6 +11,7 @@ use proto_flow::{
 use std::collections::BTreeMap;
 use superslice::Ext;
 use tables::EitherOrBoth as EOB;
+use xxhash_rust::xxh3::Xxh3;
 
 pub async fn walk_all_derivations<C: Connectors>(
     pub_id: models::Id,
@@ -26,6 +27,7 @@ pub async fn walk_all_derivations<C: Connectors>(
     noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    init_vector: &[u8],
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
@@ -62,6 +64,7 @@ pub async fn walk_all_derivations<C: Connectors>(
                 noop_derivations,
                 project_root,
                 storage_mappings,
+                init_vector,
                 &mut local_errors,
             )
             .await;
@@ -95,6 +98,7 @@ async fn walk_derivation<C: Connectors>(
     noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    init_vector: &[u8],
     errors: &mut tables::Errors,
 ) -> Option<(
     usize,
@@ -636,6 +640,19 @@ async fn walk_derivation<C: Connectors>(
         .map(|v| (*v).clone())
         .collect();
 
+    // Use manual salt if provided, otherwise the live salt, otherwise generate a new one.
+    let redact_salt = if let Some(salt) = &model_redact_salt {
+        salt.clone()
+    } else if let Some(live_derivation) = live_spec.and_then(|l| l.derivation.as_ref()) {
+        live_derivation.redact_salt.clone()
+    } else {
+        // Generate deterministic salt using xxhash of init_vector + derivation name.
+        let mut hasher = Xxh3::new();
+        hasher.update(init_vector);
+        hasher.update(shard_id_prefix.as_bytes());
+        hasher.digest128().to_be_bytes().to_vec().into()
+    };
+
     let recovery_log_template = assemble::recovery_log_template(
         build_id,
         collection,
@@ -661,7 +678,7 @@ async fn walk_derivation<C: Connectors>(
         shard_template: Some(shard_template),
         network_ports,
         inactive_transforms,
-        redact_salt: bytes::Bytes::new(),
+        redact_salt,
     };
     let model = models::Derivation {
         using,

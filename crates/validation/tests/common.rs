@@ -401,6 +401,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .insert_row(models::Prefix::new(""), models::Id::zero(), vec![store]);
     }
 
+    // Use a constant initialization vector for deterministic test output.
+    const TEST_INIT_VECTOR: &[u8] = b"test-init-vector";
+
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
         models::Id::new([33; 8]),
@@ -412,6 +415,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
+        TEST_INIT_VECTOR,
     ));
 
     let tables::DraftCatalog {

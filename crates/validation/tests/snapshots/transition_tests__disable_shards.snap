@@ -194,7 +194,7 @@ Outcome {
                         state_key: "",
                     },
                 ],
-                redact_salt: b"",
+                redact_salt: b"pass-through-capture-salt",
             },
             previous_spec: CaptureSpec {
                 name: "the/capture",
@@ -1073,7 +1073,7 @@ Outcome {
                                 backfill: 0,
                             },
                         ],
-                        redact_salt: b"",
+                        redact_salt: b"pass-through-derivation-salt",
                     },
                 ),
             },

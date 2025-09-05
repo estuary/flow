@@ -61,6 +61,7 @@ pub async fn validate<C: Connectors>(
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
+    init_vector: &[u8],
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
@@ -143,6 +144,7 @@ pub async fn validate<C: Connectors>(
         &dependencies,
         noop_captures,
         &live.storage_mappings,
+        init_vector,
         &mut capture_errors,
     );
 
@@ -161,6 +163,7 @@ pub async fn validate<C: Connectors>(
         noop_derivations,
         project_root,
         &live.storage_mappings,
+        init_vector,
         &mut derive_errors,
     );
 

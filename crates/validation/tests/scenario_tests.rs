@@ -931,6 +931,20 @@ test://example/int-string-len.schema:
 "#,
     );
     insta::assert_debug_snapshot!(errors);
+
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+test://example/int-string-len.schema:
+  redact: { strategy: block }
+  properties:
+    int:
+      redact: { strategy: block }
+    str:
+      redact: { strategy: sha256 }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]

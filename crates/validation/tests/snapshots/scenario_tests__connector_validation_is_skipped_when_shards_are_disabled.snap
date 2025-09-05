@@ -160,7 +160,7 @@ Outcome {
                 ),
                 network_ports: [],
                 inactive_bindings: [],
-                redact_salt: b"",
+                redact_salt: b"t\xb6\x06\x88\xe2\xdd\x0b\xb1\xfe\x800{5\xea\xd9\xbd",
             },
             previous_spec: NULL,
             is_touch: 0,

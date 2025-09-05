@@ -327,10 +327,9 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let live = resolver.resolve(draft.all_catalog_names()).await;
     let live = local_specs::surface_errors(live.into_result())?;
 
-    let output = build::validate(
+    let output = build::local(
         pub_id,
         build_id,
-        true, // Allow local connectors.
         &connector_network,
         ops::tracing_log_handler,
         false, // Don't no-op captures.
@@ -391,6 +390,7 @@ async fn do_combine(
             true, // Full reductions. Make this an option?
             extractors::for_key(&spec.key, &spec.projections, &doc::SerPolicy::noop())?,
             "source",
+            Vec::new(), // Empty redact_salt
             None,
             doc::Validator::new(schema).unwrap(),
         ),

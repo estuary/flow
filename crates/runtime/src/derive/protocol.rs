@@ -127,7 +127,8 @@ pub fn recv_client_read_or_flush(
             let doc: serde_json::Value = serde_json::from_slice(&read.doc_json)?;
             let _valid = validators[read.transform as usize]
                 .validate(None, &doc)?
-                .ok()?;
+                .ok()
+                .map_err(|invalid| anyhow::anyhow!(invalid.revalidate_with_context(&doc)))?;
             Ok(())
         }()
         .with_context(|| {

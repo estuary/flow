@@ -108,10 +108,9 @@ async fn managed_build(source: url::Url) -> build::Output {
         return build::Output::new(draft, live, Default::default());
     }
 
-    build::validate(
+    build::local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        true,
         "",
         ops::tracing_log_handler,
         false,

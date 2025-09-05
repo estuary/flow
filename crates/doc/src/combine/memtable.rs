@@ -1,5 +1,5 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{redact, reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -76,16 +76,28 @@ impl Entries {
         // Closure which attempts an associative reduction of `index` into `index-1`.
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
-            let (lhs, rhs) = (&next[index - 1], &next[index]);
-            let (validator, ref schema) = &mut validators[lhs.meta.binding()];
+            let rhs = &mut next[index];
+            let &mut (ref mut validator, ref schema) = &mut validators[rhs.meta.binding()];
 
             let rhs_valid = validator
-                .validate(schema.as_ref(), &rhs.root)
-                .map_err(Error::SchemaError)?
+                .validate(schema.as_ref(), &rhs.root)?
                 .ok()
-                .map_err(|err| {
-                    Error::FailedValidation(self.spec.names[rhs.meta.binding()].clone(), err)
+                .map_err(|invalid| {
+                    // Best-effort redaction using available outcomes, prior to generating an error.
+                    let _result = redact::redact(
+                        &mut rhs.root,
+                        invalid.outcomes(),
+                        &alloc,
+                        &self.spec.redact_salt,
+                    );
+
+                    Error::FailedValidation(
+                        self.spec.names[rhs.meta.binding()].clone(),
+                        invalid.revalidate_with_context(&rhs.root),
+                    )
                 })?;
+
+            let (lhs, rhs) = (&next[index - 1], &next[index]);
 
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&lhs.root),
@@ -103,7 +115,7 @@ impl Entries {
                     next[index - 1].meta.set_not_associative();
                     Ok(())
                 }
-                Err(err) => Err(Error::Reduction(err)),
+                Err(err) => Err(Error::Reduce(err)),
             }
         };
 
@@ -285,7 +297,7 @@ impl MemTable {
         writer: &mut SpillWriter<F>,
         chunk_target_size: usize,
     ) -> Result<Spec, Error> {
-        let (sorted, mut spec, alloc) = self.try_into_parts()?;
+        let (mut sorted, mut spec, alloc) = self.try_into_parts()?;
 
         // Validate all !front() documents of the spilled segment.
         //
@@ -299,7 +311,7 @@ impl MemTable {
         // useful work, and total throughput is thus more sensitive to drain performance.
         // This is also a nice, tight loop that takes maximum advantage of processor
         // cache hierarchy and branch prediction as well as memory layout (we read
-        // and write transactions in key order so `sorted` is often layed out in
+        // and write transactions in key order so `sorted` is often laid out in
         // ascending order within `alloc`).
         //
         // We do not validate front() documents now because in the common case
@@ -307,16 +319,33 @@ impl MemTable {
         // need to validate that reduced output anyway, so validation now is
         // wasted work. If it happens that there is no further reduction then
         // we'll validate the document upon drain.
-        for doc in sorted.iter() {
-            if !doc.meta.front() {
-                let (validator, ref schema) = &mut spec.validators[doc.meta.binding()];
-                validator
-                    .validate(schema.as_ref(), &doc.root)?
-                    .ok()
-                    .map_err(|err| {
-                        Error::FailedValidation(spec.names[doc.meta.binding()].clone(), err)
-                    })?;
+        //
+        // We also do not redact front() documents (for example, Loaded documents
+        // of a materialization), as by-construction these have been redacted.
+        for doc in sorted.iter_mut() {
+            if doc.meta.front() {
+                continue;
             }
+            let &mut (ref mut validator, ref schema) = &mut spec.validators[doc.meta.binding()];
+
+            let validation = validator.validate(schema.as_ref(), &doc.root)?;
+
+            // Redact the document as needed. There's an argument that we should revalidate
+            // if the outcome isn't Outcome::Unchanged but this carries a performance cost,
+            // and doc::Shape inspections will catch most issues at publication time.
+            let _outcome = redact::redact(
+                &mut doc.root,
+                validation.outcomes(),
+                &alloc,
+                &spec.redact_salt,
+            )?;
+
+            let _valid = validation.ok().map_err(|invalid| {
+                Error::FailedValidation(
+                    spec.names[doc.meta.binding()].clone(),
+                    invalid.revalidate_with_context(&doc.root),
+                )
+            })?;
         }
 
         let bytes = writer.write_segment(&sorted, chunk_target_size)?;
@@ -352,7 +381,7 @@ impl MemDrainer {
         };
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
@@ -369,13 +398,25 @@ impl MemDrainer {
                 break;
             }
 
-            let rhs_valid = validator
-                .validate(schema.as_ref(), &next.root)
-                .map_err(Error::SchemaError)?
-                .ok()
-                .map_err(|err| {
-                    Error::FailedValidation(self.spec.names[next.meta.binding()].clone(), err)
-                })?;
+            let rhs_valid = match validator.validate(schema.as_ref(), &next.root)?.ok() {
+                Ok(valid) => valid,
+                Err(invalid) => {
+                    let mut next = self.it.next().unwrap();
+
+                    // Best-effort redaction using available outcomes, prior to generating an error.
+                    let _result = redact::redact(
+                        &mut next.root,
+                        invalid.outcomes(),
+                        &self.zz_alloc,
+                        &self.spec.redact_salt,
+                    );
+
+                    return Err(Error::FailedValidation(
+                        self.spec.names[meta.binding()].clone(),
+                        invalid.revalidate_with_context(&next.root),
+                    ));
+                }
+            };
 
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&root),
@@ -393,15 +434,26 @@ impl MemDrainer {
                     meta.set_not_associative();
                     break;
                 }
-                Err(err) => return Err(Error::Reduction(err)),
+                Err(err) => return Err(Error::Reduce(err)),
             }
         }
 
-        let _valid = validator
-            .validate(schema.as_ref(), &root)
-            .map_err(Error::SchemaError)?
-            .ok()
-            .map_err(|err| Error::FailedValidation(self.spec.names[meta.binding()].clone(), err))?;
+        let validation = validator.validate(schema.as_ref(), &root)?;
+
+        // Redact the document as needed. See comment in spill() regarding revalidation.
+        let _outcome = redact::redact(
+            &mut root,
+            validation.outcomes(),
+            &self.zz_alloc,
+            &self.spec.redact_salt,
+        )?;
+
+        let _valid = validation.ok().map_err(|invalid| {
+            Error::FailedValidation(
+                self.spec.names[meta.binding()].clone(),
+                invalid.revalidate_with_context(&root),
+            )
+        })?;
 
         // Safety: `root` was allocated from `self.zz_alloc`.
         let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
@@ -478,6 +530,7 @@ mod test {
                 )
             })
             .take(2),
+            Vec::new(),
         );
         let memtable = MemTable::new(spec);
 
@@ -732,7 +785,10 @@ mod test {
                 .unwrap(),
             )
         };
-        let memtable = MemTable::new(Spec::with_bindings([spec(true), spec(false)].into_iter()));
+        let memtable = MemTable::new(Spec::with_bindings(
+            [spec(true), spec(false)].into_iter(),
+            Vec::new(),
+        ));
 
         let add_and_compact = |loaded: bool, docs: Value| {
             for doc in docs.as_array().unwrap() {
@@ -985,6 +1041,7 @@ mod test {
             true, // Full reduction.
             vec![Extractor::new("/key", &SerPolicy::noop())],
             "source-name",
+            Vec::new(),
             None,
             Validator::new(schema).unwrap(),
         );
@@ -1024,6 +1081,223 @@ mod test {
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let out = memtable.spill(&mut spill, CHUNK_TARGET_SIZE);
         assert!(matches!(out, Err(Error::FailedValidation(n, _)) if n == "source-name"));
+    }
+
+    #[test]
+    fn test_redaction_on_leaving_memtable() {
+        let schema_json = json!({
+            "properties": {
+                "key": { "type": "string" },
+                "public": { "type": "string" },
+                "secret": { "redact": { "strategy": "block" } },
+                "pii": { "redact": { "strategy": "sha256" } }
+            },
+            "required": ["key"],
+            "reduce": { "strategy": "merge" }
+        });
+
+        let new_memtable = || {
+            // Schema with both Block and Sha256 redaction strategies.
+            let schema = build_schema(
+                url::Url::parse("http://example/schema").unwrap(),
+                &schema_json,
+            )
+            .unwrap();
+
+            let spec = Spec::with_one_binding(
+                true, // Full reduction.
+                vec![Extractor::new("/key", &SerPolicy::noop())],
+                "test-source",
+                b"test-salt".to_vec(),
+                None,
+                Validator::new(schema).unwrap(),
+            );
+            MemTable::new(spec)
+        };
+
+        // Part 1: Expect we redact all !front documents upon spill.
+        // (By construction, front documents must have already been redacted).
+        {
+            let memtable = new_memtable();
+
+            let add = |front: bool, doc: Value| {
+                let doc = HeapNode::from_node(&doc, memtable.alloc());
+                memtable.add(0, doc, front).unwrap();
+            };
+
+            add(
+                false,
+                json!({"key": "k1", "public": "visible", "secret": "remove-me", "pii": "alice"}),
+            );
+            add(
+                false,
+                json!({"key": "k2", "public": "also-visible", "pii": "bob"}),
+            );
+            add(
+                true, // Is front.
+                json!({"key": "k3", "public": "front-doc", "secret": "passed", "pii": "passed"}),
+            );
+
+            let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+            let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
+
+            // Read back all spilled documents and verify redaction
+            let (spill, ranges) = spill.into_parts();
+            let drainer = crate::combine::SpillDrainer::new(spec, spill, &ranges).unwrap();
+
+            let docs: String = drainer
+                .map(|doc| {
+                    let doc = doc.unwrap();
+                    serde_json::to_string(&SerPolicy::debug().on_owned(&doc.root)).unwrap()
+                })
+                .join("\n");
+
+            insta::assert_snapshot!(docs, @r###"
+            {"key":"k1","pii":"sha256:e55a039cd18a0ddf1b15d9e6a190d734e36b8a6392af89109d099cd91112628d","public":"visible"}
+            {"key":"k2","pii":"sha256:ad5525f56b4cd76a9acc02e5c485361fc7443d6585d35e9624e276cb9260ef37","public":"also-visible"}
+            {"key":"k3","pii":"passed","public":"front-doc","secret":"passed"}
+            "###);
+        }
+
+        // Part 2: Expect drain_next() redacts all documents.
+        // This happens after reduction, but documents having no reduction are still redacted.
+        {
+            let memtable = new_memtable();
+
+            // Add multiple documents with same key to trigger reduction
+            let add = |doc: Value| {
+                let doc = HeapNode::from_node(&doc, memtable.alloc());
+                memtable.add(0, doc, false).unwrap();
+            };
+
+            // These will be reduced together
+            add(json!({
+                "key": "reduced-key",
+                "public": "first",
+                "pii": "alice"
+            }));
+
+            add(json!({
+                "key": "reduced-key",
+                "public": "second",
+                "secret": "remove-me"
+            }));
+
+            // Different key to ensure we have multiple docs
+            add(json!({
+                "key": "z-other-key",
+                "pii": "bob",
+                "secret": "also removed"
+            }));
+
+            // Drain and verify redaction happens after reduction
+            let drainer = memtable.try_into_drainer().unwrap();
+
+            let docs: String = drainer
+                .map(|doc| {
+                    let doc = doc.unwrap();
+                    serde_json::to_string(&SerPolicy::debug().on_owned(&doc.root)).unwrap()
+                })
+                .join("\n");
+
+            insta::assert_snapshot!(docs, @r###"
+            {"key":"reduced-key","pii":"sha256:e55a039cd18a0ddf1b15d9e6a190d734e36b8a6392af89109d099cd91112628d","public":"second"}
+            {"key":"z-other-key","pii":"sha256:ad5525f56b4cd76a9acc02e5c485361fc7443d6585d35e9624e276cb9260ef37"}
+            "###);
+        }
+
+        // Document fixture that fails schema validation, but also has secrets.
+        let invalid_doc = json!({
+            "key": "key",
+            "public": ["wrong", "type"],
+            "secret": "sensitive-data-should-not-leak",
+            "pii": "private-info"
+        });
+
+        // Part 3: If compact() is performing reductions and a validation failure
+        // occurs, all `redact` annotations are applied before surfacing the error.
+        {
+            let memtable = new_memtable();
+
+            // Add > 2 to trigger reduction during MemTable::compact().
+            for _ in 0..3 {
+                let doc = HeapNode::from_node(&invalid_doc, memtable.alloc());
+                memtable.add(0, doc, false).unwrap();
+            }
+
+            let failed = match memtable.compact() {
+                Err(Error::FailedValidation(_name, failed)) => failed,
+                got => panic!("expected FailedValidation: {got:?}"),
+            };
+
+            insta::assert_json_snapshot!(failed, @r###"
+            {
+              "basic_output": {
+                "errors": [
+                  {
+                    "absoluteKeywordLocation": "http://example/schema#/properties/public",
+                    "error": "Invalid: Must be of type \"string\".",
+                    "instanceLocation": "/public",
+                    "keywordLocation": "#/properties/public"
+                  }
+                ],
+                "valid": false
+              },
+              "document": {
+                "key": "key",
+                "pii": "sha256:09683d8ea037876760947d46c660f56e357d2974a245c073394c5772c7f59ee5",
+                "public": [
+                  "wrong",
+                  "type"
+                ]
+              }
+            }
+            "###);
+        }
+
+        // Part 4: If drain_next is performing reductions and a validation failure
+        // occurs, it also applies `redact` annotations before surfacing an error.
+        {
+            let memtable = new_memtable();
+
+            // Exactly 2 so that compact() succeeds, but drain_next() fails on attempted full reduction.
+            for _ in 0..2 {
+                let doc = HeapNode::from_node(&invalid_doc, memtable.alloc());
+                memtable.add(0, doc, false).unwrap();
+            }
+
+            memtable.compact().expect("no validation error yet");
+            let mut drainer = memtable.try_into_drainer().unwrap();
+
+            let failed = match drainer.drain_next() {
+                Err(Error::FailedValidation(_name, failed)) => failed,
+                _ => panic!("expected FailedValidation"),
+            };
+
+            insta::assert_json_snapshot!(failed, @r###"
+            {
+              "basic_output": {
+                "errors": [
+                  {
+                    "absoluteKeywordLocation": "http://example/schema#/properties/public",
+                    "error": "Invalid: Must be of type \"string\".",
+                    "instanceLocation": "/public",
+                    "keywordLocation": "#/properties/public"
+                  }
+                ],
+                "valid": false
+              },
+              "document": {
+                "key": "key",
+                "pii": "sha256:09683d8ea037876760947d46c660f56e357d2974a245c073394c5772c7f59ee5",
+                "public": [
+                  "wrong",
+                  "type"
+                ]
+              }
+            }
+            "###);
+        }
     }
 
     fn to_hex(b: &[u8]) -> String {

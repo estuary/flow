@@ -91,6 +91,7 @@ impl Task {
             combiner_spec
                 .into_iter()
                 .map(|(is_full, key, name, validator)| (is_full, key, name, None, validator)),
+            Vec::new(),
         );
 
         Ok(combiner_spec)

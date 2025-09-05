@@ -90,10 +90,9 @@ async fn validate(
         built.errors = std::mem::take(&mut live.errors);
         build::Output { draft, live, built }
     } else {
-        build::validate(
+        build::local(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
             models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
-            true,                       // Allow local connectors.
             network,
             ops::tracing_log_handler,
             noop_captures,

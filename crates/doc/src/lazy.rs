@@ -88,8 +88,14 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
         schema: Option<&'v url::Url>,
     ) -> Result<Result<Valid<'static, 'v>, FailedValidation>, json::schema::index::Error> {
         match self {
-            Self::Heap(n) => Ok(validator.validate(schema, *n)?.ok()),
-            Self::Node(n) => Ok(validator.validate(schema, *n)?.ok()),
+            Self::Heap(n) => Ok(validator
+                .validate(schema, *n)?
+                .ok()
+                .map_err(|invalid| invalid.revalidate_with_context(*n))),
+            Self::Node(n) => Ok(validator
+                .validate(schema, *n)?
+                .ok()
+                .map_err(|invalid| invalid.revalidate_with_context(*n))),
         }
     }
 

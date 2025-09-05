@@ -120,8 +120,11 @@ pub use validation::{
     Validator,
 };
 
-// Doc implementations may be reduced.
+// AsNode implementations may be reduced.
 pub mod reduce;
+
+// HeapNodes may be redacted.
+pub mod redact;
 
 // Documents may be combined.
 #[cfg(feature = "combine")]

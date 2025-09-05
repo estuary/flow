@@ -165,7 +165,10 @@ pub async fn do_oauth(
     ).context(
         format!("Provided endpoint config did not match schema. \nEndpoint config: {pretty_endpoint_config}\nSchema: {pretty_schema}")
     )?.ok()
-    .context("Provided endpoint config did not match schema.")?;
+    .map_err(|invalid| {
+        anyhow::anyhow!("Provided endpoint config did not match schema: {}", 
+                        invalid.revalidate_with_context(endpoint_config))
+    })?;
 
     println!(
         "Got connector's OAuth spec: {}",
