@@ -246,19 +246,5 @@ Outcome {
             content_dom: {"collections":{"testing/collection-with-flow-document":{"key":["/id"],"schema":{"properties":{"flow_document":{"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: ,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "a-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [],
 }

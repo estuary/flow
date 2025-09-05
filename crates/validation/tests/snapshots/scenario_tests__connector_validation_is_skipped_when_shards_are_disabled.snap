@@ -662,19 +662,5 @@ Outcome {
             content_dom: {"captures":{"acmeCo/testCapture":{"bindings":[{"resource":{"whatever":"and ever"},"target":"acmeCo/foo"}],"endpoint":{"connector":{"config":{"any":"thing"},"image":"someSourceImage"}},"shards":{"disable":true}}},"collections":{"acmeCo/foo":{"key":["/id"],"schema":{"properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"}}},"materializations":{"acmeCo/testMaterialization":{"bindings":[{"fields":{"recommended":true,"require":{"val":{}}},"resource":{"whatever":"and ever"},"source":"acmeCo/foo"}],"endpoint":{"connector":{"config":{"any":"thing"},"image":"someMaterializationImage"}},"shards":{"disable":true}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: ,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "a-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [],
 }
