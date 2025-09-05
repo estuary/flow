@@ -314,10 +314,8 @@ fn walk_collection_read_write_schemas(
             }
             if read_model.references_relaxed_write_schema() {
                 let has_inferred_schema =
-                    // TODO(johnny): This should simply be inferred_schema.is_some().
-                    // We cannot do this until `agent` is consistent about threading in inferred schemas.
-                    // Instead, use a hack which looks for the inferred schema placeholder,
-                    // as a proxy for whether an actual inferred schema is available.
+                    // Look for the inferred schema placeholder sentinel to
+                    // determine whether an actual inferred schema is available.
                     !read_model.get().contains("\"inferredSchemaIsNotAvailable\"");
 
                 relaxed = has_inferred_schema
@@ -381,6 +379,17 @@ fn walk_collection_schema(
     }
 
     for err in spec.shape.inspect() {
+        // Relax errors about locations that have no admissible types but are
+        // also required to exist, if (and only if) this is a read schema using
+        // inference. We may need to clear the error by:
+        // - Running (auto-)discovers to publish an update of the write schema, or
+        // - Capturing data that will widen the inferred schema.
+        // Either way, we don't block publication and rely on eventual consistency.
+        if matches!(err, doc::shape::inspections::Error::ImpossibleMustExist(_))
+            && model.references_inferred_schema()
+        {
+            continue;
+        }
         Error::from(err).push(scope, errors);
     }
 
