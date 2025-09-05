@@ -876,19 +876,5 @@ Outcome {
             content_dom: {"collections":{"testing/reset/a":{"key":["/id"],"reset":true,"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/reset/b":{"key":["/id"],"reset":true,"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/materialize":{"bindings":[{"onIncompatibleSchemaChange":"disableTask","resource":{"_meta":{"path":["a"]},"table":"a"},"source":"testing/reset/a"},{"onIncompatibleSchemaChange":"disableBinding","resource":{"_meta":{"path":["b"]},"table":"b"},"source":"testing/reset/b"}],"endpoint":{"connector":{"config":{},"image":"an/image:test"}}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: ,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "a-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [],
 }

@@ -271,19 +271,5 @@ Outcome {
             content_dom: {"collections":{"testing/schema_with_empty_properties":{"key":["/id"],"schema":{"properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: ,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "a-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [],
 }
