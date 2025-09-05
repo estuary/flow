@@ -18,7 +18,6 @@ pub struct Outcome {
     pub imports: tables::Imports,
     pub materializations: tables::DraftMaterializations,
     pub resources: tables::Resources,
-    pub storage_mappings: tables::StorageMappings,
     pub tests: tables::DraftTests,
 }
 
@@ -38,7 +37,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         } = self;
 
@@ -55,7 +53,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         ]
     }
@@ -75,7 +72,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         } = self;
 
@@ -92,7 +88,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         ]
     }
@@ -429,10 +424,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         tests,
     } = draft;
 
-    let tables::LiveCatalog {
-        storage_mappings, ..
-    } = live;
-
     let tables::Validations {
         built_captures,
         built_collections,
@@ -454,7 +445,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         imports,
         materializations,
         resources,
-        storage_mappings,
         tests,
     }
 }

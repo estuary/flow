@@ -8590,44 +8590,6 @@ Outcome {
             content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"groupBy":["Int"],"recommended":true,"require":{"str":{"pass":"through"}}},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"recommended":false,"require":{"Len":{}}},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: not-matched/,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "AZURE",
-                "account_tenant_id": "mozzarella",
-                "storage_account_name": "pizza",
-                "container_name": "pepperoni",
-                "prefix": "pineapple/"
-              }
-            ],
-        },
-        StorageMapping {
-            catalog_prefix: recovery/testing/,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "GCS",
-                "bucket": "recovery-bucket",
-                "prefix": "some/"
-              }
-            ],
-        },
-        StorageMapping {
-            catalog_prefix: testing/,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "data-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [
         DraftTest {
             test: testing/test,

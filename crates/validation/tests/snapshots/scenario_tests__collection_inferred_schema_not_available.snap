@@ -480,19 +480,5 @@ Outcome {
             content_dom: {"collections":{"testing/foobar":{"key":["/key"],"readSchema":{"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","additionalProperties":false,"properties":{"alwaysNull":{"type":"null"},"changingType":{"type":"number"},"key":{"maximum":10,"minimum":0,"type":"integer"},"timestamp":{"format":"date-time","type":"string"}},"required":["key","timestamp","changingType"],"type":"object","x-collection-generation-id":"0000000000000001"}},"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},"writeSchema":{"properties":{"alwaysNull":{"type":["number","null"]},"changingType":{"items":{"type":"number"},"title":"My type is changing.","type":"array"},"key":{"title":"I'm the key!","type":"integer"},"notSeen":{"type":"integer"},"timestamp":{"description":"I'm a timestamp.","reduce":{"strategy":"firstWriteWins"},"type":"string"}},"reduce":{"strategy":"merge"},"required":["key"],"type":"object"}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: ,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "a-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [],
 }

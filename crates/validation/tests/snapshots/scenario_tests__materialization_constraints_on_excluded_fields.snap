@@ -914,19 +914,5 @@ Outcome {
             content_dom: {"collections":{"testing/constraints":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"},"naughty_f":{"type":"string"},"naughty_u":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/db-views":{"bindings":[{"fields":{"exclude":["naughty_u","naughty_f","not_found_and_removed"],"recommended":true},"resource":{"_meta":{"path":["anything"]},"table":"anything"},"source":"testing/constraints"}],"endpoint":{"connector":{"config":{},"image":"an/image:test"}}}}},
         },
     ],
-    storage_mappings: [
-        StorageMapping {
-            catalog_prefix: ,
-            control_id: "0000000000000000",
-            stores: [
-              {
-                "provider": "S3",
-                "bucket": "a-bucket",
-                "prefix": null,
-                "region": null
-              }
-            ],
-        },
-    ],
     tests: [],
 }
