@@ -1,6 +1,6 @@
 ---
 id: real_time_cdc_with_mongodb
-title: Real-time CDC with MongoDB
+title: Real-Time CDC with MongoDB
 sidebar_position: 2
 ---
 
@@ -10,7 +10,7 @@ import ReactPlayer from "react-player"
     <meta property="og:image" content="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//image4_5c651b17d6/image4_5c651b17d6.png" />
 </head>
 
-# Real-time CDC with MongoDB<a id="real-time-cdc-with-mongodb"></a>
+# Real-Time CDC with MongoDB<a id="real-time-cdc-with-mongodb"></a>
 
 A step-by-step guide to setting up Change Data Capture (CDC) from MongoDB with Estuary Flow.
 

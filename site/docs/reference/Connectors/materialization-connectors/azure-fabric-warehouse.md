@@ -99,12 +99,12 @@ materializations:
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read
-about how to configure this [here](../../materialization-sync-schedule.md).
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Delta updates
 
 This connector supports both standard (merge) and [delta
-updates](../../../concepts/materialization.md#delta-updates). The default is to
+updates](/concepts/materialization/#delta-updates). The default is to
 use standard updates.
 
 Enabling delta updates will prevent Flow from querying for documents in your
