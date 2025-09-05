@@ -81,7 +81,7 @@ you'll sign in directly and won't need the access token.
 | `/start_date` | Start date | UTC date and time in the format 2025-01-16T00:00:00Z. Any data before this date will not be replicated. | string | 30 days before the present date |
 | **`/credentials/access_token`** | Access Token | Shopify access token. | string | Required |
 | **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required |
-| `/advanced/window_size` | Window size | Window size in days for incrementals streams. Typically left as the default unless more frequent checkpoints are desired. | integer | 30 |
+| `/advanced/window_size` | Window size | Window size for incremental streams in ISO 8601 format. ex: P30D means 30 days, PT6H means 6 hours. Typically left as the default unless more frequent checkpoints are desired. | string | P30D |
 
 #### Bindings
 
@@ -101,7 +101,7 @@ captures:
         image: ghcr.io/estuary/source-shopify-native:dev
         config:
             advanced:
-                window_size: 30
+                window_size: P30D
             credentials:
                 credentials_title: Private App Credentials
                 access_token: <secret>
