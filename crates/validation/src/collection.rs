@@ -1,4 +1,4 @@
-use super::{indexed, schema, storage_mapping, walk_transition, Error, Scope};
+use super::{indexed, schema, walk_transition, Error, Scope};
 use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;
@@ -7,10 +7,11 @@ use tables::EitherOrBoth as EOB;
 pub(crate) fn walk_all_collections(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: Option<models::Id>,
     draft_collections: &tables::DraftCollections,
     inferred_schemas: &tables::InferredSchemas,
     live_collections: &tables::LiveCollections,
+    data_planes: &tables::DataPlanes,
+    explicit_plane: Option<&tables::DataPlane>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltCollections {
@@ -28,8 +29,9 @@ pub(crate) fn walk_all_collections(
         walk_collection(
             pub_id,
             build_id,
-            default_plane_id,
             eob,
+            data_planes,
+            explicit_plane,
             inferred_schemas.get_by_key(collection),
             storage_mappings,
             errors,
@@ -41,8 +43,9 @@ pub(crate) fn walk_all_collections(
 fn walk_collection(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: Option<models::Id>,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
+    data_planes: &tables::DataPlanes,
+    explicit_plane: Option<&tables::DataPlane>,
     inferred_schema: Option<&tables::InferredSchema>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
@@ -52,15 +55,26 @@ fn walk_collection(
         scope,
         model,
         control_id,
-        data_plane_id,
+        data_plane,
+        partition_stores,
+        _recovery_stores,
         expect_pub_id,
         expect_build_id,
         live_model,
         live_spec,
         is_touch,
-    ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
+    ) = match walk_transition(
+        pub_id,
+        build_id,
+        "collection",
+        explicit_plane,
+        eob,
+        data_planes,
+        storage_mappings,
+        errors,
+    ) {
         Ok(ok) => ok,
-        Err(built) => return Some(built),
+        Err(built) => return built,
     };
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
@@ -216,9 +230,6 @@ fn walk_collection(
         }
     }
 
-    let partition_stores =
-        storage_mapping::mapped_stores(scope, "collection", collection, storage_mappings, errors);
-
     // Specs always have `write_schema_json`, and may have `read_schema_json` if it's different.
     let write_schema_json = write_spec.model.into_inner().into();
     let read_schema_json = read_spec
@@ -265,7 +276,7 @@ fn walk_collection(
         collection: collection.clone(),
         scope: scope.flatten(),
         control_id,
-        data_plane_id,
+        data_plane_id: data_plane.control_id,
         expect_pub_id,
         // Regular collections don't have dependencies. Derivation validation will set the hash.
         dependency_hash: None,

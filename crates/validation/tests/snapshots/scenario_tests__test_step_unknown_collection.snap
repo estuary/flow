@@ -5,10 +5,10 @@ expression: errors
 [
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/collection,
-        error: collection testinG/Int-strin, referenced by this test step, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string ?,
+        error: collection testinG/Int-strin, referenced by test step at index 0, was not found; did you mean collection testing/int-string?,
     },
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/1/verify/collection,
-        error: collection wildly/Off/Name, referenced by this test step, is not defined,
+        error: collection wildly/Off/Name, referenced by test step at index 1, was not found; did you mean collection testing/int-halve?,
     },
 ]

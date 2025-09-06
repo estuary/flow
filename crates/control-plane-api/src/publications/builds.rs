@@ -17,6 +17,7 @@ pub async fn build_catalog<Conn: Connectors>(
     logs_tx: logs::Tx,
     logs_token: sqlx::types::Uuid,
     connectors: &Conn,
+    explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<build::Output> {
     // We perform the build under a ./builds/ subdirectory, which is a
     // specific sub-path expected by temp-data-plane underneath its
@@ -41,6 +42,7 @@ pub async fn build_catalog<Conn: Connectors>(
         build_id,
         &project_root,
         connectors,
+        explicit_plane_name,
         &draft,
         &live,
         true,  // Fail_fast.

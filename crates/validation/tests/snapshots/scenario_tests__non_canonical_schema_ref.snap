@@ -9,6 +9,6 @@ expression: errors
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
-        error: collection testing/int-halve, referenced by this materialization binding, is not defined,
+        error: collection testing/int-halve, referenced by materialization binding {"fixture":"two"}, was not found; did you mean collection testing/int-reverse?,
     },
 ]

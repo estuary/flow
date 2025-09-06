@@ -185,6 +185,23 @@ driver:
 }
 
 #[test]
+fn test_update_but_missing_data_planes() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+    "12:12:12:12:12:12:12:01": null
+    "12:12:12:12:12:12:12:02": null
+    "12:12:12:12:12:12:12:03": null
+    "12:12:12:12:12:12:12:04": null
+    "#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_live_last_build_id_is_larger_than_current_build_id() {
     let errors = common::run_errors(
         MODEL_YAML,
@@ -551,9 +568,12 @@ fn test_cronut_migration_errors() {
         MODEL_YAML,
         r#"
 driver:
+  dataPlanes:
+    "0e:8e:17:d0:4f:ac:d4:00": {} # Cronut ID.
+
   liveCollections:
     the/collection:
-      dataPlaneId: "0e:8e:17:d0:4f:ac:d4:00" # Cronut ID.
+      dataPlaneId: "0e:8e:17:d0:4f:ac:d4:00"
     "#,
     );
     insta::assert_debug_snapshot!(errors);

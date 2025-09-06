@@ -5,10 +5,10 @@ expression: errors
 [
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
-        error: collection testiNg/int-strinK, referenced by this capture binding, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string ?,
+        error: collection testiNg/int-strinK, referenced by capture binding a.stream, was not found; did you mean collection testing/int-string?,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
-        error: collection wildly/off/name, referenced by this capture binding, is not defined,
+        error: collection wildly/off/name, referenced by capture binding {"stream":"v2-stream"}, was not found; did you mean collection testing/int-halve?,
     },
 ]

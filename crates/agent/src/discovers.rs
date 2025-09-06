@@ -151,15 +151,34 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
-        let mut data_planes: tables::DataPlanes = data_plane::fetch_data_planes(
-            pool,
-            Vec::new(),
-            row.data_plane_name.as_str(),
+        let maybe_data_plane = sqlx::query_as!(
+            tables::DataPlane,
+            r#"
+            SELECT
+                d.id AS "control_id: Id",
+                d.data_plane_name,
+                d.hmac_keys,
+                d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
+                d.data_plane_fqdn,
+                d.broker_address,
+                d.reactor_address,
+                d.ops_logs_name AS "ops_logs_name: models::Collection",
+                d.ops_stats_name AS "ops_stats_name: models::Collection"
+            FROM data_planes d
+            WHERE data_plane_name = $1
+            AND EXISTS (
+                SELECT 1 FROM internal.user_roles($2, 'read') r
+                WHERE starts_with($1, r.role_prefix)
+            )
+            "#,
+            row.data_plane_name,
             row.user_id,
         )
-        .await?;
+        .fetch_optional(pool)
+        .await
+        .context("fetching data-plane")?;
 
-        let Some(data_plane) = data_planes.pop().filter(|d| d.is_default) else {
+        let Some(data_plane) = maybe_data_plane else {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
@@ -378,7 +397,6 @@ mod test {
             control_id: Id::zero(),
             data_plane_name: "test-data-plane".to_string(),
             data_plane_fqdn: "data.plane.test".to_string(),
-            is_default: true,
             hmac_keys: Vec::new(),
             encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
             ops_logs_name: models::Collection::new("tha/logs"),
@@ -406,7 +424,6 @@ mod test {
         assert_eq!(Id::zero(), result.data_plane.control_id);
         assert_eq!("test-data-plane", &result.data_plane.data_plane_name);
         assert_eq!("data.plane.test", &result.data_plane.data_plane_fqdn);
-        assert!(result.data_plane.is_default);
         assert_eq!("tha/logs", result.data_plane.ops_logs_name.as_str());
         assert_eq!("tha/stats", result.data_plane.ops_stats_name.as_str());
         assert_eq!("broker.test", &result.data_plane.broker_address);
