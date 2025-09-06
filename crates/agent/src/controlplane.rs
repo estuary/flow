@@ -238,17 +238,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         Option<broker::JournalSpec>, // ops logs template.
         Option<broker::JournalSpec>, // ops stats template.
     )> {
-        let mut fetched = data_plane::fetch_data_planes(
-            &self.pool,
-            vec![data_plane_id],
-            "", // Don't fetch default data-plane.
-            uuid::Uuid::nil(),
-        )
-        .await?;
-
-        let Some(mut data_plane) = fetched.pop() else {
-            anyhow::bail!("data-plane {data_plane_id} does not exist");
-        };
+        let mut data_plane = data_plane::fetch_data_plane(&self.pool, data_plane_id).await?;
         let ops_logs_template =
             data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_logs_name);
         let ops_stats_template =
@@ -532,16 +522,8 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             system_user_id,
             ..
         } = self;
-        let data_planes = data_plane::fetch_data_planes(
-            pool,
-            vec![data_plane_id],
-            "not-a-real-default",
-            *system_user_id,
-        )
-        .await?;
-        let Some(data_plane) = data_planes.into_iter().next() else {
-            anyhow::bail!("data plane '{data_plane_id}' not found");
-        };
+        let data_plane = data_plane::fetch_data_plane(&self.pool, data_plane_id).await?;
+
         let req = Discover {
             user_id: *system_user_id,
             filter_user_authz: false,

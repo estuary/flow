@@ -1,7 +1,4 @@
-use super::{
-    collection, indexed, reference, schema, storage_mapping, Connectors, Error, NoOpConnectors,
-    Scope,
-};
+use super::{collection, indexed, reference, schema, Connectors, Error, NoOpConnectors, Scope};
 use futures::SinkExt;
 use proto_flow::{
     derive, flow,
@@ -21,7 +18,6 @@ pub async fn walk_all_derivations<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
@@ -58,7 +54,6 @@ pub async fn walk_all_derivations<C: Connectors>(
                 built_collections,
                 connectors,
                 data_planes,
-                default_plane_id,
                 dependencies,
                 imports,
                 noop_derivations,
@@ -92,7 +87,6 @@ async fn walk_derivation<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
@@ -112,7 +106,6 @@ async fn walk_derivation<C: Connectors>(
         collection,
         scope,
         model,
-        data_plane_id,
         expect_build_id,
         live_model,
         live_spec,
@@ -134,7 +127,6 @@ async fn walk_derivation<C: Connectors>(
             collection,
             scope,
             model.clone(),
-            default_plane_id.unwrap_or(models::Id::zero()),
             models::Id::zero(),
             None,
             None,
@@ -147,7 +139,6 @@ async fn walk_derivation<C: Connectors>(
                     models::CollectionDef {
                         derive: live_model, ..
                     },
-                data_plane_id,
                 last_build_id,
                 spec,
                 ..
@@ -168,7 +159,6 @@ async fn walk_derivation<C: Connectors>(
             collection,
             scope,
             model.clone(),
-            *data_plane_id,
             if spec.derivation.is_some() {
                 *last_build_id
             } else {
@@ -248,13 +238,9 @@ async fn walk_derivation<C: Connectors>(
     };
     let built_collection = &built_collections[built_index];
 
-    let data_plane = reference::walk_data_plane(
-        scope,
-        &built_collection.collection,
-        built_collection.data_plane_id,
-        data_planes,
-        errors,
-    )?;
+    let data_plane = data_planes
+        .get_by_key(&built_collection.data_plane_id)
+        .expect("collection was built and has a known-valid data-plane");
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
@@ -329,7 +315,7 @@ async fn walk_derivation<C: Connectors>(
                 transform,
                 collection,
                 built_collections,
-                data_plane_id,
+                data_plane.control_id,
                 noop_derivations || shards.disable,
                 &live_transforms_model,
                 &live_transforms_spec,
@@ -417,13 +403,17 @@ async fn walk_derivation<C: Connectors>(
     .collect();
 
     // Determine storage mappings for task recovery logs.
-    let recovery_stores = storage_mapping::mapped_stores(
-        scope,
+    let recovery_stores = match crate::storage_mapping::lookup_mapping(
         "derivation",
         &format!("recovery/{collection}"),
         storage_mappings,
-        errors,
-    );
+    ) {
+        Ok(mapping) => mapping.stores.as_slice(),
+        Err(err) => {
+            err.push(scope, errors);
+            &[]
+        }
+    };
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -758,7 +748,8 @@ fn walk_derive_transform<'a>(
     };
     let Some((source_spec, source_built)) = reference::walk_reference(
         scope,
-        &format!("transform {}", model.name),
+        "transform",
+        || model.name.to_string(),
         source_name,
         built_collections,
         modified_source.then_some(errors),

@@ -24,19 +24,20 @@ pub enum Error {
         rhs_name: String,
         rhs_scope: Url,
     },
-    #[error("{ref_entity} {ref_name}, referenced by {this_entity}, is not defined")]
+    #[error("{ref_entity} {ref_name}, referenced by {this_entity} {this_name}, was not found")]
     NoSuchEntity {
-        this_entity: String,
+        this_entity: &'static str,
+        this_name: String,
         ref_entity: &'static str,
         ref_name: String,
     },
-    #[error("{ref_entity} {ref_name}, referenced by {this_entity}, is not defined; did you mean {suggest_name} defined at {suggest_scope} ?")]
+    #[error("{ref_entity} {ref_name}, referenced by {this_entity} {this_name}, was not found; did you mean {ref_entity} {suggest_name}?")]
     NoSuchEntitySuggest {
-        this_entity: String,
+        this_entity: &'static str,
+        this_name: String,
         ref_entity: &'static str,
         ref_name: String,
         suggest_name: String,
-        suggest_scope: Url,
     },
     /// This comes from a validation that ensures users cannot specify the `endpoint` property of a Store that pertains
     /// to the 'default/' prefix. This is because the prefix is used to look up the AWS credentials for each store that
@@ -48,17 +49,16 @@ pub enum Error {
         prefix: String,
         disallowed: &'static str, // will either be "empty" or "'default/'"
     },
-    #[error("could not map {this_entity} {this_thing} into a storage mapping")]
+    #[error("could not map {this_entity} {this_name} into a storage mapping")]
     NoStorageMapping {
-        this_thing: String,
         this_entity: &'static str,
+        this_name: String,
     },
-    #[error("could not map {this_entity} {this_thing} into a storage mapping; did you mean {suggest_name} defined at {suggest_scope}?")]
+    #[error("could not map {this_entity} {this_name} into a storage mapping; did you mean {suggest_prefix}?")]
     NoStorageMappingSuggest {
-        this_thing: String,
         this_entity: &'static str,
-        suggest_name: String,
-        suggest_scope: Url,
+        this_name: String,
+        suggest_prefix: models::Prefix,
     },
     #[error("{this_thing} references {ref_entity} {ref_name}, defined at {ref_scope}, without importing it or being imported by it")]
     MissingImport {
@@ -245,13 +245,10 @@ pub enum Error {
         ref_entity: &'static str,
         ref_name: String,
     },
-    #[error(
-        "{this_entity} doesn't have an assigned data-plane, and no default data-plane is available"
-    )]
-    MissingDefaultDataPlane { this_entity: String },
-    #[error("{this_entity} requires data plane {data_plane_id}, which was not found")]
-    MissingDataPlane {
-        this_entity: String,
+    #[error("{this_entity} {this_name} requires data plane {data_plane_id}, which was not found")]
+    MissingDataPlaneId {
+        this_entity: &'static str,
+        this_name: String,
         data_plane_id: models::Id,
     },
     #[error("draft model is a 'touch' operation but is not equal to the live model (and must be)")]
@@ -262,6 +259,38 @@ pub enum Error {
     TouchModelIsDelete,
     #[error("this binding must backfill because its source collection {collection} was reset")]
     SourceCollectionWasReset { collection: String },
+
+    #[error("{entity} {name} maps to storage mapping {partition_mapping}, implying it must have an aligned recovery mapping recovery/{partition_mapping}, but it actually maps to {recovery_mapping}")]
+    StorageMappingPrefixMismatch {
+        entity: &'static str,
+        name: String,
+        partition_mapping: models::Prefix,
+        recovery_mapping: models::Prefix,
+    },
+    #[error(
+        "{entity} {name} storage mapping {partition_mapping} is missing associated data planes"
+    )]
+    StorageMappingMissingDataPlanes {
+        entity: &'static str,
+        name: String,
+        partition_mapping: models::Prefix,
+    },
+    #[error("{entity} {name} recovery storage mapping recovery/{partition_mapping} has data planes {recovery_planes:?}, which doesn't match mapping {partition_mapping} planes {partition_planes:?}")]
+    StorageMappingDataPlanesMismatch {
+        entity: &'static str,
+        name: String,
+        partition_mapping: models::Prefix,
+        partition_planes: Vec<String>,
+        recovery_planes: Vec<String>,
+    },
+    #[error("{entity} {name} storage mapping {partition_mapping} is restricted to data planes {listed_data_planes:?}, and doesn't permit {data_plane}")]
+    DataPlaneNotInStorageMapping {
+        entity: &'static str,
+        name: String,
+        partition_mapping: models::Prefix,
+        data_plane: String,
+        listed_data_planes: Vec<String>,
+    },
 
     #[error(
         "raising an error because {this_entity} specifies `onIncompatibleSchemaChange: abort`"

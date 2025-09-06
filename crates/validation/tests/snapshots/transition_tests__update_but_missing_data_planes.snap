@@ -1,0 +1,22 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1collection,
+        error: collection the/collection requires data plane 1212121212121202, which was not found,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation,
+        error: collection the/derivation requires data plane 1212121212121203, which was not found,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/the~1capture,
+        error: capture the/capture requires data plane 1212121212121201, which was not found,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization,
+        error: materialization the/materialization requires data plane 1212121212121204, which was not found,
+    },
+]

@@ -41,5 +41,4 @@ test://example/catalog.yaml:
 # Expect that no actual driver calls are made.
 driver:
   dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d":
-      default: true
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
