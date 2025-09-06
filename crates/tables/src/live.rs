@@ -36,8 +36,8 @@ pub trait LiveRow: crate::Row {
     fn scope(&self) -> url::Url;
     // Control-plane ID of this specification.
     fn control_id(&self) -> models::Id;
-    // Data-plane assignment of this specification.
-    fn data_plane_id(&self) -> models::Id;
+    // Data-plane assignment of this specification, if applicable.
+    fn data_plane_id(&self) -> Option<models::Id>;
     // Most recent publication ID of this specification.
     fn last_pub_id(&self) -> models::Id;
     // Most recent publication ID of this specification.
@@ -63,8 +63,8 @@ impl LiveRow for crate::LiveCapture {
     fn control_id(&self) -> models::Id {
         self.control_id
     }
-    fn data_plane_id(&self) -> models::Id {
-        self.data_plane_id
+    fn data_plane_id(&self) -> Option<models::Id> {
+        Some(self.data_plane_id)
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -99,8 +99,8 @@ impl LiveRow for crate::LiveCollection {
     fn control_id(&self) -> models::Id {
         self.control_id
     }
-    fn data_plane_id(&self) -> models::Id {
-        self.data_plane_id
+    fn data_plane_id(&self) -> Option<models::Id> {
+        Some(self.data_plane_id)
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -135,8 +135,8 @@ impl LiveRow for crate::LiveMaterialization {
     fn control_id(&self) -> models::Id {
         self.control_id
     }
-    fn data_plane_id(&self) -> models::Id {
-        self.data_plane_id
+    fn data_plane_id(&self) -> Option<models::Id> {
+        Some(self.data_plane_id)
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -168,8 +168,8 @@ impl LiveRow for crate::LiveTest {
     fn control_id(&self) -> models::Id {
         self.control_id
     }
-    fn data_plane_id(&self) -> models::Id {
-        models::Id::zero()
+    fn data_plane_id(&self) -> Option<models::Id> {
+        None
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id

@@ -4,6 +4,7 @@ use tables::EitherOrBoth as EOB;
 
 mod capture;
 pub mod collection;
+mod data_plane;
 mod derivation;
 mod errors;
 pub mod field_selection;
@@ -55,6 +56,7 @@ pub async fn validate<C: Connectors>(
     build_id: models::Id,
     project_root: &url::Url,
     connectors: &C,
+    explicit_plane_name: Option<&str>,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
     fail_fast: bool,
@@ -65,19 +67,32 @@ pub async fn validate<C: Connectors>(
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
-    // Pluck out the default data-plane. It may not exist, which is an error
-    // only if a new specification needs a data-plane assignment.
-    let default_plane_id = live
-        .data_planes
-        .iter()
-        .filter_map(|p| {
-            if p.is_default {
-                Some(p.control_id)
-            } else {
+    let explicit_plane =
+        match explicit_plane_name.map(|n| (n, data_plane::find_by_name(&live.data_planes, n))) {
+            Some((_, Ok(plane))) => Some(plane),
+            Some((name, Err(Some(suggest)))) => {
+                Error::NoSuchEntitySuggest {
+                    this_entity: "build",
+                    this_name: "parameter".to_string(),
+                    ref_entity: "data plane",
+                    ref_name: name.to_string(),
+                    suggest_name: suggest.to_string(),
+                }
+                .push(Scope::new(&project_root), &mut errors);
                 None
             }
-        })
-        .next();
+            Some((name, Err(None))) => {
+                Error::NoSuchEntity {
+                    this_entity: "build",
+                    this_name: "parameter".to_string(),
+                    ref_entity: "data plane",
+                    ref_name: name.to_string(),
+                }
+                .push(Scope::new(&project_root), &mut errors);
+                None
+            }
+            None => None,
+        };
 
     storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);
 
@@ -85,10 +100,11 @@ pub async fn validate<C: Connectors>(
     let mut built_collections = collection::walk_all_collections(
         pub_id,
         build_id,
-        default_plane_id,
         &draft.collections,
         &live.inferred_schemas,
         &live.collections,
+        &live.data_planes,
+        explicit_plane,
         &live.storage_mappings,
         &mut errors,
     );
@@ -113,7 +129,9 @@ pub async fn validate<C: Connectors>(
         &draft.tests,
         &live.tests,
         &built_collections,
+        &live.data_planes,
         &dependencies,
+        &live.storage_mappings,
         &mut errors,
     );
 
@@ -140,7 +158,7 @@ pub async fn validate<C: Connectors>(
         &built_collections,
         connectors,
         &live.data_planes,
-        default_plane_id,
+        explicit_plane,
         &dependencies,
         noop_captures,
         &live.storage_mappings,
@@ -157,7 +175,6 @@ pub async fn validate<C: Connectors>(
         &built_collections,
         connectors,
         &live.data_planes,
-        default_plane_id,
         &dependencies,
         &draft.imports,
         noop_derivations,
@@ -176,7 +193,7 @@ pub async fn validate<C: Connectors>(
         &built_collections,
         connectors,
         &live.data_planes,
-        default_plane_id,
+        explicit_plane,
         &dependencies,
         noop_materializations,
         &live.storage_mappings,
@@ -239,11 +256,135 @@ pub async fn validate<C: Connectors>(
     }
 }
 
+fn walk_prefix<'a>(
+    scope: Scope<'a>,
+    entity: &'static str,
+    name: &str,
+    data_planes: &'a tables::DataPlanes,
+    explicit_plane: Option<&'a tables::DataPlane>,
+    storage_mappings: &'a [tables::StorageMapping],
+    errors: &mut tables::Errors,
+) -> Option<(
+    &'a [models::Store],   // Partition stores.
+    &'a [models::Store],   // Recovery stores.
+    &'a tables::DataPlane, // Data-plane for task initialization.
+)> {
+    let partition = match storage_mapping::lookup_mapping(entity, name, storage_mappings) {
+        Ok(m) => m,
+        Err(err) => {
+            err.push(scope, errors);
+            return None; // Cannot continue.
+        }
+    };
+    let recovery = match storage_mapping::lookup_mapping(
+        entity,
+        &format!("recovery/{name}"),
+        storage_mappings,
+    ) {
+        Ok(m) => m,
+        Err(err) => {
+            err.push(scope, errors);
+            return None; // Cannot continue.
+        }
+    };
+
+    // Require that `partition` and `recovery` mapping prefixes match one another.
+    // This is not absolutely required, but a) is true today and b) holds open
+    // a future refactor that composes partition stores, recovery stores,
+    // and data-planes into a single "Prefix" concept.
+    if Some(partition.catalog_prefix.as_str()) == recovery.catalog_prefix.strip_prefix("recovery/")
+    {
+        // OK: recovery prefix is "recovery/" + partition prefix.
+    } else if partition.catalog_prefix.is_empty() && recovery.catalog_prefix.is_empty() {
+        // OK: support for test & flowctl cases using NoOpCatalogResolver.
+    } else {
+        Error::StorageMappingPrefixMismatch {
+            entity,
+            name: name.to_string(),
+            partition_mapping: partition.catalog_prefix.clone(),
+            recovery_mapping: recovery.catalog_prefix.clone(),
+        }
+        .push(scope, errors);
+    }
+
+    // Similarly, require that data-planes of `partition` and `recovery` align.
+    if !recovery.data_planes.is_empty() && recovery.data_planes != partition.data_planes {
+        Error::StorageMappingDataPlanesMismatch {
+            entity,
+            name: name.to_string(),
+            partition_mapping: partition.catalog_prefix.clone(),
+            partition_planes: partition.data_planes.iter().cloned().collect(),
+            recovery_planes: recovery.data_planes.iter().cloned().collect(),
+        }
+        .push(scope, errors);
+    }
+
+    // Determine the data plane into which `name` should be initialized.
+    let init_data_plane = if let Some(explicit_plane) = explicit_plane {
+        if !partition
+            .data_planes
+            .contains(&explicit_plane.data_plane_name)
+        {
+            Error::DataPlaneNotInStorageMapping {
+                entity,
+                name: name.to_string(),
+                partition_mapping: partition.catalog_prefix.clone(),
+                data_plane: explicit_plane.data_plane_name.clone(),
+                listed_data_planes: partition.data_planes.iter().cloned().collect(),
+            }
+            .push(scope, errors);
+        }
+        explicit_plane
+    } else if let Some(default_plane_name) = partition.data_planes.first() {
+        // Default to using the first data-plane attached to the storage mapping.
+        // Yes, it's weird that mappings have data planes.
+        // This too is holding the door open for a "Prefix" concept.
+        match data_plane::find_by_name(data_planes, &default_plane_name) {
+            Ok(plane) => plane,
+            Err(Some(suggest)) => {
+                Error::NoSuchEntitySuggest {
+                    this_entity: "storage mapping",
+                    this_name: partition.catalog_prefix.to_string(),
+                    ref_entity: "data plane",
+                    ref_name: default_plane_name.to_string(),
+                    suggest_name: suggest.to_string(),
+                }
+                .push(scope, errors);
+                return None; // Cannot continue.
+            }
+            Err(None) => {
+                Error::NoSuchEntity {
+                    this_entity: "storage mapping",
+                    this_name: partition.catalog_prefix.to_string(),
+                    ref_entity: "data plane",
+                    ref_name: default_plane_name.to_string(),
+                }
+                .push(scope, errors);
+                return None; // Cannot continue.
+            }
+        }
+    } else {
+        // Admissible data-planes must be attached to every storage mapping.
+        Error::StorageMappingMissingDataPlanes {
+            entity,
+            name: name.to_string(),
+            partition_mapping: partition.catalog_prefix.clone(),
+        }
+        .push(scope, errors);
+        return None; // Cannot continue.
+    };
+
+    Some((&partition.stores, &recovery.stores, init_data_plane))
+}
+
 fn walk_transition<'a, D, L, B>(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: Option<models::Id>,
+    entity: &'static str,
+    explicit_plane: Option<&'a tables::DataPlane>,
     eob: EOB<&'a L, &'a D>,
+    data_planes: &'a tables::DataPlanes,
+    storage_mappings: &'a tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Result<
     // Result::Ok continues validation of this specification.
@@ -252,7 +393,9 @@ fn walk_transition<'a, D, L, B>(
         &'a url::Url,             // Scope.
         D::ModelDef,              // Model to validate.
         models::Id,               // Live control-plane ID.
-        models::Id,               // Assigned data-plane.
+        &'a tables::DataPlane,    // Assigned data-plane.
+        &'a [models::Store],      // Partition stores.
+        &'a [models::Store],      // Recovery stores.
         models::Id,               // Live publication ID.
         models::Id,               // Live last build ID.
         Option<&'a L::ModelDef>,  // Live model.
@@ -260,7 +403,7 @@ fn walk_transition<'a, D, L, B>(
         bool,                     // Is this a touch operation?
     ),
     // Result::Err is a completed BuiltRow for this specification.
-    B,
+    Option<B>,
 >
 where
     D: tables::DraftRow,
@@ -278,11 +421,11 @@ where
                 .push(Scope::new(&live.scope()), errors);
             }
 
-            Err(B::new(
+            Err(Some(B::new(
                 live.catalog_name().clone(),
                 live.scope(),
                 live.control_id(),
-                live.data_plane_id(),
+                live.data_plane_id().unwrap_or(models::Id::zero()),
                 live.last_pub_id(),
                 live.last_build_id(),
                 Some(live.model().clone()),
@@ -292,7 +435,7 @@ where
                 None,
                 false, // !is_touch
                 live.dependency_hash().map(|h| h.to_owned()),
-            ))
+            )))
         }
         EOB::Right(draft) => {
             if let Some(expect_id) = draft.expect_pub_id() {
@@ -308,50 +451,38 @@ where
                 Error::TouchModelIsCreate.push(Scope::new(draft.scope()), errors);
             }
 
-            let default_plane_id = default_plane_id.unwrap_or_else(|| {
-                Error::MissingDefaultDataPlane {
-                    this_entity: draft.catalog_name().as_ref().to_string(),
-                }
-                .push(Scope::new(draft.scope()), errors);
+            let Some(model) = draft.model() else {
+                // This is a deletion but there's no matched live specification.
+                Error::DeletedSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
+                return Err(None);
+            };
 
-                models::Id::zero()
-            });
+            let Some((partition_stores, recovery_stores, assigned_data_plane)) = walk_prefix(
+                Scope::new(draft.scope()),
+                entity,
+                draft.catalog_name().as_ref(),
+                data_planes,
+                explicit_plane,
+                storage_mappings,
+                errors,
+            ) else {
+                return Err(None); // Cannot continue without mapped stores.
+            };
 
-            match draft.model() {
-                // Catalog specification is being created.
-                Some(model) => Ok((
-                    draft.catalog_name(),
-                    draft.scope(),
-                    model.clone(),
-                    models::Id::zero(), // Has no control-plane ID.
-                    default_plane_id,   // Assign default data-plane.
-                    models::Id::zero(), // Never published.
-                    models::Id::zero(), // Never built.
-                    None,               // Has no live model.
-                    None,               // Has no live built spec.
-                    false,              // !is_touch
-                )),
-                None => {
-                    Error::DeletedSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
-
-                    // Return a placeholder deletion of this specification.
-                    Err(B::new(
-                        draft.catalog_name().clone(),
-                        draft.scope().clone(),
-                        models::Id::zero(), // No control-plane ID.
-                        models::Id::zero(), // Placeholder data-plane ID.
-                        models::Id::zero(),
-                        models::Id::zero(),
-                        None,
-                        Vec::new(),
-                        None,
-                        None,
-                        None,
-                        false, // !is_touch
-                        None,
-                    ))
-                }
-            }
+            Ok((
+                draft.catalog_name(),
+                draft.scope(),
+                model.clone(),
+                models::Id::zero(),  // Has no control-plane ID.
+                assigned_data_plane, // Assign default data-plane.
+                partition_stores,
+                recovery_stores,
+                models::Id::zero(), // Never published.
+                models::Id::zero(), // Never built.
+                None,               // Has no live model.
+                None,               // Has no live built spec.
+                false,              // !is_touch
+            ))
         }
         EOB::Both(live, draft) => {
             match draft.expect_pub_id() {
@@ -385,48 +516,77 @@ where
                 .push(Scope::new(draft.scope()), errors);
             }
 
-            match draft.model() {
-                // Catalog specification is being updated.
-                Some(model) => {
-                    if draft.is_touch() && model != live.model() {
-                        Error::TouchModelIsNotEqual.push(Scope::new(draft.scope()), errors);
-                    }
-
-                    Ok((
-                        draft.catalog_name(),
-                        draft.scope(),
-                        model.clone(),
-                        live.control_id(),
-                        live.data_plane_id(),
-                        live.last_pub_id(),
-                        live.last_build_id(),
-                        Some(live.model()),
-                        Some(live.spec()),
-                        draft.is_touch(),
-                    ))
-                }
+            let Some(model) = draft.model() else {
                 // Catalog specification is being deleted.
-                None => {
-                    if draft.is_touch() {
-                        Error::TouchModelIsDelete.push(Scope::new(draft.scope()), errors);
-                    }
-                    Err(B::new(
-                        draft.catalog_name().clone(),
-                        draft.scope().clone(),
-                        live.control_id(),
-                        live.data_plane_id(),
-                        live.last_pub_id(),
-                        live.last_build_id(),
-                        None, // Deletion has no draft model.
-                        Vec::new(),
-                        None, // Deletion is not validated.
-                        None, // Deletion is not built into a spec.
-                        Some(live.spec().clone()),
-                        false, // !is_touch
-                        live.dependency_hash().map(|h| h.to_owned()),
-                    ))
+                if draft.is_touch() {
+                    Error::TouchModelIsDelete.push(Scope::new(draft.scope()), errors);
                 }
+                return Err(Some(B::new(
+                    draft.catalog_name().clone(),
+                    draft.scope().clone(),
+                    live.control_id(),
+                    live.data_plane_id().unwrap_or(models::Id::zero()),
+                    live.last_pub_id(),
+                    live.last_build_id(),
+                    None, // Deletion has no draft model.
+                    Vec::new(),
+                    None, // Deletion is not validated.
+                    None, // Deletion is not built into a spec.
+                    Some(live.spec().clone()),
+                    false, // !is_touch
+                    live.dependency_hash().map(|h| h.to_owned()),
+                )));
+            };
+
+            if draft.is_touch() && model != live.model() {
+                Error::TouchModelIsNotEqual.push(Scope::new(draft.scope()), errors);
             }
+
+            let Some((partition_stores, recovery_stores, init_data_plane)) = walk_prefix(
+                Scope::new(draft.scope()),
+                entity,
+                draft.catalog_name().as_ref(),
+                data_planes,
+                explicit_plane,
+                storage_mappings,
+                errors,
+            ) else {
+                return Err(None); // Cannot continue without mapped stores.
+            };
+
+            // For entities with a data plane (captures, collections, materializations),
+            // use the assigned data plane. For tests, use the initialization data plane.
+            let data_plane = if let Some(data_plane_id) = live.data_plane_id() {
+                if let Some(data_plane) = data_planes.get_by_key(&data_plane_id) {
+                    data_plane
+                } else {
+                    Error::MissingDataPlaneId {
+                        this_entity: entity,
+                        this_name: draft.catalog_name().as_ref().to_string(),
+                        data_plane_id,
+                    }
+                    .push(Scope::new(draft.scope()), errors);
+
+                    init_data_plane
+                }
+            } else {
+                init_data_plane
+            };
+
+            Ok((
+                draft.catalog_name(),
+                draft.scope(),
+                model.clone(),
+                live.control_id(),
+                data_plane,
+                partition_stores,
+                recovery_stores,
+                live.last_pub_id(),
+                live.last_build_id(),
+                Some(live.model()),
+                Some(live.spec()),
+                draft.is_touch(),
+            ))
         }
     }
 }
@@ -553,7 +713,7 @@ mod test {
         let name = models::Collection::new("test/a");
         let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
         let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
-        let dp_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 11]);
+        let (data_planes, storage_mappings) = prefix_fixture();
 
         let draft = tables::DraftCollection {
             collection: name.clone(),
@@ -566,8 +726,11 @@ mod test {
         let _ = walk_transition::<DraftCollection, LiveCollection, BuiltCollection>(
             pub_id,
             build_id,
-            Some(dp_id),
+            "collection",
+            None,
             EOB::Right(&draft),
+            &data_planes,
+            &storage_mappings,
             &mut errors,
         );
         assert!(matches!(
@@ -616,13 +779,16 @@ mod test {
         let mut errors = tables::Errors::default();
         let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
         let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
+        let (data_planes, storage_mappings) = prefix_fixture();
 
         let (
             _name,
             _scope,
             _model,
             _control_id,
-            _data_plane_id,
+            _data_plane,
+            _partition_stores,
+            _recovery_stores,
             expect_pub_id,
             expect_build_id,
             _live_model,
@@ -631,8 +797,11 @@ mod test {
         ) = walk_transition::<_, _, BuiltCollection>(
             pub_id,
             build_id,
+            "collection",
             None,
             EOB::Both(&live, &draft),
+            &data_planes,
+            &storage_mappings,
             &mut errors,
         )
         .unwrap();
@@ -648,8 +817,11 @@ mod test {
         let _ = walk_transition::<_, _, tables::BuiltCollection>(
             pub_id,
             build_id,
+            "collection",
             None,
             EOB::Both(&live, &draft),
+            &data_planes,
+            &storage_mappings,
             &mut errors,
         );
         assert!(matches!(
@@ -661,14 +833,46 @@ mod test {
         let _ = walk_transition::<_, _, tables::BuiltCollection>(
             pub_id,
             build_id,
+            "collection",
             None,
             EOB::Both(&live, &draft),
+            &data_planes,
+            &storage_mappings,
             &mut errors,
         );
         assert!(matches!(
             errors.pop().and_then(|e| e.error.downcast::<Error>().ok()),
             Some(Error::TouchModelIsDelete)
         ));
+    }
+
+    fn prefix_fixture() -> (tables::DataPlanes, tables::StorageMappings) {
+        let mut data_planes = tables::DataPlanes::new();
+        data_planes.insert_row(
+            models::Id::new([0, 0, 0, 0, 0, 0, 2, 2]),
+            "test-plane".to_string(),
+            "test-plane.example.com".to_string(),
+            vec!["test-key".to_string()],
+            models::RawValue::default(),
+            models::Collection::new("ops/acmeCo/logs"),
+            models::Collection::new("ops/acmeCo/stats"),
+            "broker.example.com".to_string(),
+            "reactor.example.com".to_string(),
+        );
+        let mut storage_mappings = tables::StorageMappings::new();
+        storage_mappings.insert_row(
+            models::Prefix::new("test/"),
+            models::Id::zero(),
+            vec![],
+            vec!["test-plane".to_string()],
+        );
+        storage_mappings.insert_row(
+            models::Prefix::new("recovery/test/"),
+            models::Id::zero(),
+            vec![],
+            vec!["test-plane".to_string()],
+        );
+        (data_planes, storage_mappings)
     }
 }
 

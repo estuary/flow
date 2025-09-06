@@ -58,6 +58,8 @@ tables!(
         val control_id: models::Id,
         // Stores for journal fragments under this prefix.
         val stores: Vec<models::Store>,
+        // Names of data planes into which covered tasks may be created.
+        val data_planes: Vec<String>,
     }
 
     table InferredSchemas (row InferredSchema, sql "inferred_schemas") {
@@ -77,8 +79,6 @@ tables!(
         val data_plane_name: String,
         // Unique and fully-qualified domain name of this data-plane.
         val data_plane_fqdn: String,
-        // When true, this DataPlane is to be used for created specifications.
-        val is_default: bool,
         // HMAC-256 keys for this data-plane.
         // The first is used for signing, and any key may validate.
         val hmac_keys: Vec<String>,

@@ -1,7 +1,6 @@
 use crate::{Id, TextJson};
 use anyhow::Context;
 use serde_json::value::RawValue;
-use sqlx::types::Uuid;
 
 pub async fn fetch_ops_journal_template(
     pool: &sqlx::PgPool,
@@ -29,44 +28,31 @@ pub async fn fetch_ops_journal_template(
     Ok(Some(journal_spec))
 }
 
-pub async fn fetch_data_planes<'a, 'b>(
+pub async fn fetch_data_plane<'a>(
     pool: impl sqlx::PgExecutor<'a>,
-    mut data_plane_ids: Vec<models::Id>,
-    default_data_plane_name: &'b str,
-    user_id: Uuid,
-) -> sqlx::Result<tables::DataPlanes> {
-    data_plane_ids.sort();
-    data_plane_ids.dedup();
-
-    let r = sqlx::query_as!(
+    data_plane_id: models::Id,
+) -> anyhow::Result<tables::DataPlane> {
+    sqlx::query_as!(
         tables::DataPlane,
         r#"
-        select
-            id as "control_id: Id",
-            data_plane_name,
-            data_plane_name = $2 and exists(
-                select 1 from internal.user_roles($3, 'read') r
-                where starts_with($2, r.role_prefix)
-            ) as "is_default!: bool",
-            hmac_keys,
-            encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
-            data_plane_fqdn,
-            broker_address,
-            reactor_address,
-            ops_logs_name as "ops_logs_name: models::Collection",
-            ops_stats_name as "ops_stats_name: models::Collection"
-        from data_planes
-        where id in (select id from unnest($1::flowid[]) id)
-           or data_plane_name = $2
+        SELECT
+            d.id AS "control_id: Id",
+            d.data_plane_name,
+            d.hmac_keys,
+            d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
+            d.data_plane_fqdn,
+            d.broker_address,
+            d.reactor_address,
+            d.ops_logs_name AS "ops_logs_name: models::Collection",
+            d.ops_stats_name AS "ops_stats_name: models::Collection"
+        FROM data_planes d
+        WHERE id = $1
         "#,
-        &data_plane_ids as &[Id],
-        default_data_plane_name,
-        user_id as Uuid,
+        data_plane_id as models::Id,
     )
-    .fetch_all(pool)
-    .await?;
-
-    Ok(r.into_iter().collect())
+    .fetch_one(pool)
+    .await
+    .with_context(|| format!("failed to fetch data-plane {data_plane_id}"))
 }
 
 pub async fn fetch_all_data_planes<'a, 'b>(
@@ -75,18 +61,17 @@ pub async fn fetch_all_data_planes<'a, 'b>(
     let r = sqlx::query_as!(
         tables::DataPlane,
         r#"
-        select
-            id as "control_id: Id",
-            data_plane_name,
-            false as "is_default!",
-            hmac_keys,
-            encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
-            data_plane_fqdn,
-            broker_address,
-            reactor_address,
-            ops_logs_name as "ops_logs_name: models::Collection",
-            ops_stats_name as "ops_stats_name: models::Collection"
-        from data_planes
+        SELECT
+            d.id AS "control_id: Id",
+            d.data_plane_name,
+            d.hmac_keys,
+            d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
+            d.data_plane_fqdn,
+            d.broker_address,
+            d.reactor_address,
+            d.ops_logs_name AS "ops_logs_name: models::Collection",
+            d.ops_stats_name AS "ops_stats_name: models::Collection"
+        FROM data_planes d
         "#,
     )
     .fetch_all(pool)

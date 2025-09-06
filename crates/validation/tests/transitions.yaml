@@ -83,12 +83,19 @@ test://example/catalog.yaml:
 
 driver:
   dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d":
-      default: true
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
     "12:12:12:12:12:12:12:01": {}
     "12:12:12:12:12:12:12:02": {}
     "12:12:12:12:12:12:12:03": {}
     "12:12:12:12:12:12:12:04": {}
+
+  storageMappings:
+    the/:
+      stores: [{ provider: S3, bucket: a-bucket }]
+      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+    recovery/the/:
+      stores: [{ provider: S3, bucket: a-bucket }]
+      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
 
   liveCaptures:
     the/capture:

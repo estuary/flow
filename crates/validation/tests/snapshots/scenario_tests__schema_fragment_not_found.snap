@@ -17,34 +17,34 @@ expression: errors
     },
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/collection,
-        error: collection testing/int-string, referenced by this test step, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by test step at index 0, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/1/verify/collection,
-        error: collection testing/int-string, referenced by this test step, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by test step at index 1, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1db-cdc/bindings/0,
-        error: collection testing/int-string, referenced by this capture binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by capture binding {"namespace":"and namespace","stream":"other-stream"}, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
-        error: collection testing/int-string, referenced by this capture binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by capture binding {"stream":"a-stream"}, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0,
-        error: collection testing/int-string-rw, referenced by transform halveIntString, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string-rw, referenced by transform halveIntString, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/0,
-        error: collection testing/int-string, referenced by transform reverseIntString, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by transform reverseIntString, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: collection testing/int-string, referenced by this materialization binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by materialization binding {"table":"the_table"}, was not found; did you mean collection testing/int-string.v2?,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
-        error: collection testing/int-string, referenced by this materialization binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+        error: collection testing/int-string, referenced by materialization binding {"fixture":"one"}, was not found; did you mean collection testing/int-string.v2?,
     },
 ]

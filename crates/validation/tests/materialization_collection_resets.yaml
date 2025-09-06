@@ -36,8 +36,7 @@ test://example/catalog.yaml:
 
 driver:
   dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d":
-      default: true
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
 
   liveMaterializations:
     testing/materialize:

@@ -28,8 +28,7 @@ test://example/catalog.yaml:
 
 driver:
   dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d":
-      default: true
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
 "##;
 
     let outcome = common::run(fixture, "{}");
@@ -60,8 +59,7 @@ test://example/catalog.yaml:
 
 driver:
   dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d":
-      default: true
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
 "##;
 
     // Expect an implicit projection isn't created for `/flow_document`,
@@ -323,6 +321,9 @@ test://example/catalog.yaml:
 
     # Illegal duplicate under naming collation.
     testing/TeSt: *spec
+
+driver:
+  storageMappings: null
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -432,7 +433,10 @@ test://example/int-string-captures:
     testing/s3-source:
       bindings:
         - target: testiNg/int-strinK
-          resource: { stream: a-stream }
+          resource:
+            _meta:
+              path: [a, stream]
+            stream: a-stream
         - target: wildly/off/name
           resource: { stream: v2-stream }
 "#,
@@ -610,8 +614,7 @@ fn test_collection_inlined_write_schema_overwrite() {
               key: [ /id ]
         driver:
           dataPlanes:
-            "1d:1d:1d:1d:1d:1d:1d:1d":
-              default: true
+            "1d:1d:1d:1d:1d:1d:1d:1d": {}
         "##,
         "{}",
     );
@@ -969,7 +972,10 @@ test://example/db-views:
     testing/db-views:
       bindings:
         - source: testiNg/int-strinK
-          resource: { table: the_table }
+          resource:
+            _meta:
+              path: [the, table]
+            table: the_table
         - source: wildly/off/name
           resource: { table: other_table }
 "#,
@@ -1296,8 +1302,10 @@ driver:
     recovery/testing/: null
     TestinG/:
       stores: [{provider: S3, bucket: data-bucket}]
+      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
     RecoverY/TestinG/:
       stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1313,6 +1321,7 @@ driver:
     "":
       # This is allowed, and matches for all journals and tasks.
       stores: [{provider: S3, bucket: a-bucket}]
+      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1438,6 +1447,66 @@ fn test_data_plane_not_found() {
 driver:
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d": null
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_storage_mapping_prefix_mismatch() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    recovery/testing/: null
+    recovery/:
+      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_storage_mapping_data_planes_do_not_align() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    recovery/testing/:
+      data_planes: ["ops/dp/public/test-other"]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_storage_mapping_data_plane_does_not_exist() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    testing/:
+      data_planes: ["ops/dp/public/test-not-found"]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_storage_mapping_omits_data_planes() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  storageMappings:
+    testing/:
+      data_planes: []
+    recovery/testing/:
+      data_planes: []
 "#,
     );
     insta::assert_debug_snapshot!(errors);

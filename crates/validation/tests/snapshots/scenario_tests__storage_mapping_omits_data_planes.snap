@@ -1,0 +1,58 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/array-key#/collections/testing~1array-key,
+        error: collection testing/array-key storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key,
+        error: collection testing/from-array-key storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: collection testing/int-halve storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        error: collection testing/int-reverse storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: collection testing/int-string storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
+        error: collection testing/int-string-ref-write-schema storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: collection testing/int-string-rw storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2,
+        error: collection testing/int-string.v2 storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test,
+        error: test testing/test storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+        error: capture testing/db-cdc storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: capture testing/s3-source storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views,
+        error: materialization testing/db-views storage mapping testing/ is missing associated data planes,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+        error: materialization testing/webhook/deliveries storage mapping testing/ is missing associated data planes,
+    },
+]

@@ -3,6 +3,7 @@ use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
 use crate::Capability;
 use anyhow::Context;
+use itertools::Itertools;
 use models::{split_image_tag, Id, ModelDef, SourceType, TargetNaming};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -656,7 +657,6 @@ pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
-    default_data_plane_name: &str,
     verify_user_authz: bool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
@@ -830,14 +830,65 @@ pub async fn resolve_live_specs(
             control_id: row.id.into(),
             catalog_prefix: models::Prefix::new(row.catalog_prefix),
             stores: store.stores,
+            data_planes: store.data_planes,
         });
     }
 
-    live.data_planes =
-        crate::data_plane::fetch_data_planes(db, data_plane_ids, default_data_plane_name, user_id)
-            .await?;
+    // Fetch data planes that are referenced by live specs (`data_plane_ids`),
+    // or by storage mappings (`data_plane_names`).
+    let data_plane_names: Vec<&str> = live
+        .storage_mappings
+        .iter()
+        .flat_map(|m| m.data_planes.iter().map(String::as_str))
+        .sorted()
+        .dedup()
+        .collect();
 
-    // TODO(phil): remove once we no longer need to inline inferred schemas as part of validation
+    data_plane_ids.sort();
+    data_plane_ids.dedup();
+
+    live.data_planes = sqlx::query_as!(
+        tables::DataPlane,
+        r#"
+        WITH
+        data_plane_ids AS (
+            SELECT id
+            FROM UNNEST($1::flowid[]) AS t(id)
+        ),
+        data_plane_names AS (
+            SELECT name
+            FROM UNNEST($2::text[]) AS t(name)
+            -- User must be read-authorized to data-plane.
+            WHERE EXISTS (
+                SELECT 1
+                FROM internal.user_roles($3, 'read') AS r
+                WHERE starts_with(t.name, r.role_prefix)
+            )
+        )
+        SELECT
+            d.id AS "control_id: Id",
+            d.data_plane_name,
+            d.hmac_keys,
+            d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
+            d.data_plane_fqdn,
+            d.broker_address,
+            d.reactor_address,
+            d.ops_logs_name AS "ops_logs_name: models::Collection",
+            d.ops_stats_name AS "ops_stats_name: models::Collection"
+        FROM data_planes d
+        WHERE
+            d.id IN (select id from data_plane_ids) OR
+            d.data_plane_name in (select name from data_plane_names)
+        "#,
+        &data_plane_ids as &[Id],
+        &data_plane_names as &[&str],
+        user_id as Uuid,
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .collect();
+
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
     Ok(live)
@@ -853,9 +904,6 @@ fn tenant(catalog_name: &impl AsRef<str>) -> Option<&str> {
 }
 
 /// Resolves inferred schemas and adds them to the live catalog.
-/// This will no longer be neccessary once we stop inlining inferred schemas as part of validation.
-/// We're continuing that behavior just during a transition period, but should be able to remove it
-/// as soon as controllers have run for all the collections in production.
 async fn resolve_inferred_schemas(
     draft: &tables::DraftCatalog,
     live: &mut tables::LiveCatalog,

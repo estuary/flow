@@ -122,6 +122,7 @@ pub async fn local(
         build_id,
         project_root,
         &connectors,
+        None, // No explicit data-plane name.
         &draft,
         &live,
         true, // Fail-fast.
@@ -423,13 +424,13 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
                     bucket: "example-bucket".to_string(),
                     prefix: None,
                 })],
+                vec!["ops/dp/public/noop".to_string()],
             );
 
             live.data_planes.insert_row(
                 models::Id::zero(),
                 "ops/dp/public/noop".to_string(),
                 "noop.dp.estuary-data.com".to_string(),
-                true,
                 vec!["hmac-key".to_string()],
                 models::RawValue::from_string("{}".to_string()).unwrap(),
                 models::Collection::new("ops/logs"),

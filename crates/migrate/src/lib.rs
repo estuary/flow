@@ -523,7 +523,6 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
             id AS "control_id: models::Id",
             data_plane_name,
             data_plane_fqdn,
-            false AS "is_default!: bool",
             hmac_keys,
             encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
             broker_address,

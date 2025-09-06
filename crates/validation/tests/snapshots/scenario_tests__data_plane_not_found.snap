@@ -5,78 +5,54 @@ expression: errors
 [
     Error {
         scope: test://example/array-key#/collections/testing~1array-key,
-        error: testing/array-key doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/from-array-key#/collections/testing~1from-array-key,
-        error: testing/from-array-key doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: testing/int-halve doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: testing/int-reverse doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
-        error: testing/int-string doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
-        error: testing/int-string-ref-write-schema doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: testing/int-string-rw doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string.v2,
-        error: testing/int-string.v2 doesn't have an assigned data-plane, and no default data-plane is available,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
+    },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1db-cdc,
-        error: testing/db-cdc doesn't have an assigned data-plane, and no default data-plane is available,
-    },
-    Error {
-        scope: test://example/int-string-captures#/captures/testing~1db-cdc,
-        error: testing/db-cdc requires data plane 0000000000000000, which was not found,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source,
-        error: testing/s3-source doesn't have an assigned data-plane, and no default data-plane is available,
-    },
-    Error {
-        scope: test://example/int-string-captures#/captures/testing~1s3-source,
-        error: testing/s3-source requires data plane 0000000000000000, which was not found,
-    },
-    Error {
-        scope: test://example/from-array-key#/collections/testing~1from-array-key/derive,
-        error: testing/from-array-key requires data plane 0000000000000000, which was not found,
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derive,
-        error: testing/int-halve requires data plane 0000000000000000, which was not found,
-    },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive,
-        error: testing/int-reverse requires data plane 0000000000000000, which was not found,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views,
-        error: testing/db-views doesn't have an assigned data-plane, and no default data-plane is available,
-    },
-    Error {
-        scope: test://example/db-views#/materializations/testing~1db-views,
-        error: testing/db-views requires data plane 0000000000000000, which was not found,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-        error: testing/webhook/deliveries doesn't have an assigned data-plane, and no default data-plane is available,
-    },
-    Error {
-        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-        error: testing/webhook/deliveries requires data plane 0000000000000000, which was not found,
+        error: data plane ops/dp/public/test-1d1d1d1d1d1d1d1d, referenced by storage mapping testing/, was not found,
     },
 ]

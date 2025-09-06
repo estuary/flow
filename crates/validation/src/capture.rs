@@ -1,6 +1,4 @@
-use super::{
-    indexed, reference, storage_mapping, walk_transition, Connectors, Error, NoOpConnectors, Scope,
-};
+use super::{indexed, reference, Connectors, Error, NoOpConnectors, Scope};
 use futures::SinkExt;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
@@ -15,7 +13,7 @@ pub async fn walk_all_captures<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
+    explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
     noop_captures: bool,
     storage_mappings: &tables::StorageMappings,
@@ -44,7 +42,7 @@ pub async fn walk_all_captures<C: Connectors>(
                 built_collections,
                 connectors,
                 data_planes,
-                default_plane_id,
+                explicit_plane,
                 dependencies,
                 noop_captures,
                 storage_mappings,
@@ -76,7 +74,7 @@ async fn walk_capture<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
+    explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
     noop_captures: bool,
     storage_mappings: &tables::StorageMappings,
@@ -88,15 +86,26 @@ async fn walk_capture<C: Connectors>(
         scope,
         model,
         control_id,
-        data_plane_id,
+        data_plane,
+        _partition_stores,
+        recovery_stores,
         expect_pub_id,
         expect_build_id,
         live_model,
         live_spec,
         is_touch,
-    ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
+    ) = match crate::walk_transition(
+        pub_id,
+        build_id,
+        "capture",
+        explicit_plane,
+        eob,
+        data_planes,
+        storage_mappings,
+        errors,
+    ) {
         Ok(ok) => ok,
-        Err(built) => return Some(built),
+        Err(built) => return built,
     };
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
@@ -125,9 +134,6 @@ async fn walk_capture<C: Connectors>(
             serde_json::to_string(config).unwrap().into(),
         ),
     };
-    // Resolve the data-plane for this task. We cannot continue without it.
-    let data_plane =
-        reference::walk_data_plane(scope, capture, data_plane_id, data_planes, errors)?;
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
@@ -212,15 +218,6 @@ async fn walk_capture<C: Connectors>(
             )
         })
         .collect();
-
-    // Determine storage mappings for task recovery logs.
-    let recovery_stores = storage_mapping::mapped_stores(
-        scope,
-        "capture",
-        &format!("recovery/{capture}"),
-        storage_mappings,
-        errors,
-    );
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -454,7 +451,7 @@ async fn walk_capture<C: Connectors>(
         capture: capture.clone(),
         scope: scope.flatten(),
         control_id,
-        data_plane_id,
+        data_plane_id: data_plane.control_id,
         dependency_hash,
         expect_build_id,
         expect_pub_id,
@@ -496,7 +493,14 @@ fn walk_capture_binding<'a>(
     // We must resolve the target collection to continue.
     let Some((target_spec, _built_collection)) = reference::walk_reference(
         scope,
-        "this capture binding",
+        "capture binding",
+        || {
+            if !model_path.is_empty() {
+                model_path.join(".")
+            } else {
+                model.resource.get().to_string()
+            }
+        },
         target,
         built_collections,
         modified_target.then_some(errors),

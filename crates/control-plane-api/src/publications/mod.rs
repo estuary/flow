@@ -315,7 +315,7 @@ impl<MC: MakeConnectors> Publisher<MC> {
                 detail.clone(),
                 draft,
                 *logs_token,
-                default_data_plane_name.as_deref().unwrap_or(""),
+                default_data_plane_name.as_deref(),
                 *verify_user_authz,
                 retry_count,
             )
@@ -349,7 +349,7 @@ impl<MC: MakeConnectors> Publisher<MC> {
         detail: Option<String>,
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
-        default_data_plane_name: &str,
+        explicit_plane_name: Option<&str>,
         verify_user_authz: bool,
         retry_count: u32,
     ) -> anyhow::Result<UncommittedBuild> {
@@ -387,14 +387,9 @@ impl<MC: MakeConnectors> Publisher<MC> {
             });
         }
 
-        let live_catalog = specs::resolve_live_specs(
-            user_id,
-            &draft,
-            &self.db,
-            default_data_plane_name,
-            verify_user_authz,
-        )
-        .await?;
+        let live_catalog =
+            specs::resolve_live_specs(user_id, &draft, &self.db, verify_user_authz).await?;
+
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
                 publication_id,
@@ -434,6 +429,7 @@ impl<MC: MakeConnectors> Publisher<MC> {
             self.logs_tx.clone(),
             logs_token,
             &connectors,
+            explicit_plane_name,
         )
         .await?;
 

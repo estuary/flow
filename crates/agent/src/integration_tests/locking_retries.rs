@@ -39,7 +39,7 @@ async fn test_publication_concurrent_commits() {
                 Some("build_1".to_string()),
                 draft.clone_specs(),
                 Uuid::new_v4(),
-                "ops/dp/public/test",
+                None,
                 true,
                 0,
             )
@@ -53,7 +53,7 @@ async fn test_publication_concurrent_commits() {
                 Some("build_2".to_string()),
                 draft.clone_specs(),
                 Uuid::new_v4(),
-                "ops/dp/public/test",
+                None,
                 true,
                 0,
             )
@@ -66,7 +66,7 @@ async fn test_publication_concurrent_commits() {
                 Some("build_3".to_string()),
                 draft.clone_specs(),
                 Uuid::new_v4(),
-                "ops/dp/public/test",
+                None,
                 true,
                 0,
             )
@@ -123,7 +123,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("wrong expect_pub_ids".to_string()),
             wrong_expect_pub_ids,
             Uuid::new_v4(),
-            "ops/dp/public/test",
+            None,
             true,
             0,
         )
@@ -169,7 +169,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("pub a".to_string()),
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
-            "ops/dp/public/test",
+            None,
             true,
             0,
         )
@@ -185,7 +185,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("pub b".to_string()),
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
-            "ops/dp/public/test",
+            None,
             true,
             0,
         )
@@ -238,7 +238,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("cheese pub".to_string()),
             cheese_draft,
             Uuid::new_v4(),
-            "ops/dp/public/test",
+            None,
             true,
             0,
         )
@@ -263,7 +263,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("seeds pub".to_string()),
             will_commit_draft,
             Uuid::new_v4(),
-            "ops/dp/public/test",
+            None,
             true,
             0,
         )

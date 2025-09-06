@@ -1,0 +1,58 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/array-key#/collections/testing~1array-key,
+        error: collection testing/array-key maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key,
+        error: collection testing/from-array-key maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: collection testing/int-halve maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        error: collection testing/int-reverse maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: collection testing/int-string maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
+        error: collection testing/int-string-ref-write-schema maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: collection testing/int-string-rw maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2,
+        error: collection testing/int-string.v2 maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test,
+        error: test testing/test maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+        error: capture testing/db-cdc maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: capture testing/s3-source maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views,
+        error: materialization testing/db-views maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+        error: materialization testing/webhook/deliveries maps to storage mapping testing/, implying it must have an aligned recovery mapping recovery/testing/, but it actually maps to recovery/,
+    },
+]

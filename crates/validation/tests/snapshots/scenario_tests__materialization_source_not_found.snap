@@ -5,10 +5,10 @@ expression: errors
 [
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: collection testiNg/int-strinK, referenced by this materialization binding, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string ?,
+        error: collection testiNg/int-strinK, referenced by materialization binding the.table, was not found; did you mean collection testing/int-string?,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/1,
-        error: collection wildly/off/name, referenced by this materialization binding, is not defined,
+        error: collection wildly/off/name, referenced by materialization binding {"table":"other_table"}, was not found; did you mean collection testing/int-halve?,
     },
 ]

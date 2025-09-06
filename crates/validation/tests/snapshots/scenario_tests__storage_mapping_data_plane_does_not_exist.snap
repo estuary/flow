@@ -1,0 +1,58 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/array-key#/collections/testing~1array-key,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+        error: data plane ops/dp/public/test-not-found, referenced by storage mapping testing/, was not found; did you mean data plane ops/dp/public/test-1d1d1d1d1d1d1d1d?,
+    },
+]

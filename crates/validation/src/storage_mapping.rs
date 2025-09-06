@@ -177,68 +177,42 @@ pub fn walk_all_storage_mappings(
     );
 }
 
-// mapped_stores maps the `entity` identified by `name` to its corresponding
-// StorageMapping, which is the StorageMapping having the longest `catalog_prefix`
-// which is also a prefix of `name`. If no such StorageMapping exists,
-// it returns an empty slice and records an error.
-pub fn mapped_stores<'a>(
-    scope: Scope<'a>,
+// lookup_mapping returns the StorageMapping having the longest `catalog_prefix`
+// which is also a prefix of `name`, or None if no such StorageMapping exists.
+pub fn lookup_mapping<'a>(
     entity: &'static str,
     name: &str,
     storage_mappings: &'a [tables::StorageMapping],
-    errors: &mut tables::Errors,
-) -> &'a [models::Store] {
-    match lookup_mapping(storage_mappings, name) {
-        Some(m) => &m.stores,
-        None if storage_mappings.is_empty() => {
-            Error::NoStorageMapping {
-                this_thing: name.to_string(),
-                this_entity: entity,
-            }
-            .push(scope, errors);
-
-            &[]
-        }
-        None => {
-            let (_, suggest_name, suggest_scope) = storage_mappings
-                .iter()
-                .map(|m| {
-                    (
-                        strsim::osa_distance(&name, &m.catalog_prefix),
-                        &m.catalog_prefix,
-                        m.scope(),
-                    )
-                })
-                .min()
-                .unwrap();
-
-            Error::NoStorageMappingSuggest {
-                this_thing: name.to_string(),
-                this_entity: entity,
-                suggest_name: suggest_name.to_string(),
-                suggest_scope: suggest_scope,
-            }
-            .push(scope, errors);
-
-            &[]
-        }
-    }
-}
-
-// lookup_mapping returns the StorageMapping having the longest `catalog_prefix`
-// which is also a prefix of `name`, or None if no such StorageMapping exists.
-fn lookup_mapping<'a>(
-    storage_mappings: &'a [tables::StorageMapping],
-    name: &str,
-) -> Option<&'a tables::StorageMapping> {
+) -> Result<&'a tables::StorageMapping, Error> {
     let index = storage_mappings.upper_bound_by_key(&name, |m| &m.catalog_prefix);
 
     for mapping in storage_mappings[0..index].iter().rev() {
         if name.starts_with(mapping.catalog_prefix.as_str()) {
-            return Some(mapping);
+            return Ok(mapping);
         }
     }
-    None
+
+    if let Some((_, suggest_prefix)) = storage_mappings
+        .iter()
+        .map(|m| {
+            (
+                strsim::osa_distance(&name, &m.catalog_prefix),
+                &m.catalog_prefix,
+            )
+        })
+        .min()
+    {
+        Err(Error::NoStorageMappingSuggest {
+            this_entity: entity,
+            this_name: name.to_string(),
+            suggest_prefix: suggest_prefix.clone(),
+        })
+    } else {
+        Err(Error::NoStorageMapping {
+            this_entity: entity,
+            this_name: name.to_string(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -250,16 +224,47 @@ mod test {
     fn test_matched_mapping() {
         let mut mappings = tables::StorageMappings::new();
 
-        mappings.insert_row(Prefix::new("foo/"), models::Id::new([1; 8]), Vec::new());
-        mappings.insert_row(Prefix::new("bar/"), models::Id::new([2; 8]), Vec::new());
-        mappings.insert_row(Prefix::new("bar/one/"), models::Id::new([3; 8]), Vec::new());
-        mappings.insert_row(Prefix::new("bar/two/"), models::Id::new([4; 8]), Vec::new());
-        mappings.insert_row(Prefix::new("baz/a/"), models::Id::new([5; 8]), Vec::new());
-        mappings.insert_row(Prefix::new("baz/b/"), models::Id::new([6; 8]), Vec::new());
+        mappings.insert_row(
+            Prefix::new("foo/"),
+            models::Id::new([1; 8]),
+            Vec::new(),
+            Vec::new(),
+        );
+        mappings.insert_row(
+            Prefix::new("bar/"),
+            models::Id::new([2; 8]),
+            Vec::new(),
+            Vec::new(),
+        );
+        mappings.insert_row(
+            Prefix::new("bar/one/"),
+            models::Id::new([3; 8]),
+            Vec::new(),
+            Vec::new(),
+        );
+        mappings.insert_row(
+            Prefix::new("bar/two/"),
+            models::Id::new([4; 8]),
+            Vec::new(),
+            Vec::new(),
+        );
+        mappings.insert_row(
+            Prefix::new("baz/a/"),
+            models::Id::new([5; 8]),
+            Vec::new(),
+            Vec::new(),
+        );
+        mappings.insert_row(
+            Prefix::new("baz/b/"),
+            models::Id::new([6; 8]),
+            Vec::new(),
+            Vec::new(),
+        );
 
         let expect = |name, id: Option<[u8; 8]>| {
             assert_eq!(
-                lookup_mapping(&mappings, name).map(|mapping| mapping.control_id.as_array()),
+                (lookup_mapping("foo", name, &mappings).ok())
+                    .map(|mapping| mapping.control_id.as_array()),
                 id,
                 "expected {name} to match {id:?}"
             )
