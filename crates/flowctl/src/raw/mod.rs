@@ -2,7 +2,6 @@ use crate::{
     collection::read::ReadBounds,
     local_specs,
     ops::{OpsCollection, TaskSelector},
-    output,
 };
 use anyhow::Context;
 use doc::combine;
@@ -12,6 +11,7 @@ use std::{
 };
 use tables::CatalogResolver;
 
+mod alerts;
 mod discover;
 mod materialize_fixture;
 mod oauth;
@@ -25,18 +25,11 @@ pub struct Advanced {
     cmd: Command,
 }
 
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
-pub struct Alerts {
-    #[clap(long)]
-    prefix: Vec<String>,
-}
-
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
     /// Fetch currently firing alerts
-    Alerts(Alerts),
+    Alerts(alerts::Alerts),
     /// Issue a custom table select request to the API.
     ///
     /// Requests are issued to a specific --table and support optional
@@ -223,7 +216,7 @@ impl BearerLogs {
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
-            Command::Alerts(alerts) => do_alerts(ctx, alerts).await,
+            Command::Alerts(alerts) => alerts::do_alerts(ctx, alerts).await,
             Command::Get(get) => do_get(ctx, get).await,
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
@@ -245,28 +238,6 @@ impl Advanced {
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
         }
-    }
-}
-
-async fn do_alerts(ctx: &mut crate::CliContext, alerts: &Alerts) -> anyhow::Result<()> {
-    let resp = flow_client::alerts::fetch_firing_alerts(&ctx.client, alerts.prefix.clone()).await?;
-    ctx.write_all(resp, ())
-}
-
-impl output::CliOutput for flow_client::alerts::FiringAlert {
-    type TableAlt = ();
-
-    type CellValue = output::JsonCell;
-
-    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
-        vec!["Catalog Name", "Fired At", "Alert Type", "Error detail"]
-    }
-
-    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-        output::to_table_row(
-            self,
-            &["/catalogName", "/firedAt", "/alertType", "/arguments/error"],
-        )
     }
 }
 
