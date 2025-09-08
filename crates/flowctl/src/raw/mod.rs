@@ -368,7 +368,8 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, validations) = local_specs::load_and_validate(&ctx.client, source).await?;
+    let (_sources, _live, validations) =
+        local_specs::load_and_validate(&ctx.client, source).await?;
 
     let collection = match validations
         .built_collections

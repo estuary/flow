@@ -6,6 +6,7 @@ mod auth;
 mod catalog;
 mod collection;
 mod config;
+mod discover;
 mod draft;
 mod generate;
 mod local_specs;
@@ -49,6 +50,12 @@ pub enum Command {
     Catalog(catalog::Catalog),
     /// Work with Flow collections.
     Collections(collection::Collections),
+    /// Discover capture bindings from an endpoint.
+    ///
+    /// Discover runs a discovery operation against a capture's endpoint,
+    /// submitting the job to the control plane which runs it on a data-plane.
+    /// The discovered bindings are then written to your local Flow catalog files.
+    Discover(discover::Discover),
     /// Generate derivation project files and implementation stubs.
     ///
     /// Generate walks your local Flow catalog source file and its imports
@@ -167,6 +174,7 @@ impl Cli {
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
             Command::Collections(collection) => collection.run(&mut context).await,
+            Command::Discover(discover) => discover.run(&mut context).await,
             Command::Generate(generate) => generate.run(&mut context).await,
             Command::Preview(preview) => preview.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,

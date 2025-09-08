@@ -8,11 +8,15 @@ use tables::CatalogResolver;
 pub(crate) async fn load_and_validate(
     client: &crate::Client,
     source: &str,
-) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
+) -> anyhow::Result<(
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+)> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, built) = validate(client, true, false, true, draft, "").await;
-    Ok((draft, surface_errors(built.into_result())?))
+    let (draft, live, built) = validate(client, true, false, true, draft, "").await;
+    Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Load and validate sources and all connectors.
@@ -20,11 +24,15 @@ pub(crate) async fn load_and_validate_full(
     client: &crate::Client,
     source: &str,
     network: &str,
-) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
+) -> anyhow::Result<(
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, built) = validate(client, false, false, false, sources, network).await;
-    Ok((draft, surface_errors(built.into_result())?))
+    let (draft, live, built) = validate(client, false, false, false, sources, network).await;
+    Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Generate connector files by validating sources with derivation connectors.
@@ -32,7 +40,7 @@ pub(crate) async fn generate_files(
     client: &crate::Client,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, built) = validate(client, true, false, true, sources, "").await;
+    let (mut draft, _live, built) = validate(client, true, false, true, sources, "").await;
 
     let project_root = build::project_root(&draft.fetches[0].resource);
     build::generate_files(&project_root, &built)?;
@@ -73,7 +81,11 @@ async fn validate(
     noop_materializations: bool,
     draft: tables::DraftCatalog,
     network: &str,
-) -> (tables::DraftCatalog, tables::Validations) {
+) -> (
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+) {
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
@@ -118,8 +130,8 @@ async fn validate(
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    let (draft, _live, built) = output.into_parts();
-    (draft, built)
+    let (draft, live, built) = output.into_parts();
+    (draft, live, built)
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {

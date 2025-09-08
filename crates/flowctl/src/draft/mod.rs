@@ -12,10 +12,12 @@ use author::do_author;
 
 mod develop;
 use develop::do_develop;
+pub use develop::DraftSpecRow;
 
 mod encrypt;
+pub use encrypt::encrypt_endpoint_configs;
 
-pub use author::author;
+pub use author::{author, upsert_draft_specs};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]

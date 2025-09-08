@@ -13,7 +13,7 @@ mod materialization;
 mod noop;
 mod reference;
 mod schema;
-mod storage_mapping;
+pub mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
