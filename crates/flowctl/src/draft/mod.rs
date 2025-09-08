@@ -8,14 +8,12 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 mod author;
-use author::do_author;
-
 mod develop;
-use develop::do_develop;
-
 mod encrypt;
 
-pub use author::author;
+pub use author::{author, upsert_draft_specs};
+pub use develop::develop;
+pub use encrypt::encrypt_endpoint_configs;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -98,11 +96,11 @@ pub struct Select {
 impl Draft {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Author(author) => do_author(ctx, author).await,
+            Command::Author(author) => author::do_author(ctx, author).await,
             Command::Create => do_create(ctx).await,
             Command::Delete => do_delete(ctx).await,
             Command::Describe => do_describe(ctx).await,
-            Command::Develop(develop) => do_develop(ctx, develop).await,
+            Command::Develop(develop) => develop::do_develop(ctx, develop).await,
             Command::List => do_list(ctx).await,
             Command::Publish(publish) => {
                 do_publish(ctx, publish.init_data_plane.as_deref(), false).await

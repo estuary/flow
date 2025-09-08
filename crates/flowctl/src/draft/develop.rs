@@ -26,6 +26,16 @@ pub async fn do_develop(
     }: &Develop,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
+    develop(ctx, draft_id, target, *overwrite, *flat).await
+}
+
+pub async fn develop(
+    ctx: &mut crate::CliContext,
+    draft_id: models::Id,
+    target: &str,
+    overwrite: bool,
+    flat: bool,
+) -> anyhow::Result<()> {
     let rows: Vec<DraftSpecRow> = api_exec_paginated(
         ctx.client
             .from("draft_specs")
@@ -41,7 +51,7 @@ pub async fn do_develop(
     let count = local_specs::extend_from_catalog(
         &mut sources,
         catalog::collect_specs(rows)?,
-        local_specs::pick_policy(*overwrite, *flat),
+        local_specs::pick_policy(overwrite, flat),
     );
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
