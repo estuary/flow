@@ -80,9 +80,12 @@ pub enum Command {
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Publish {
-    /// Data-plane into which created specifications will be placed.
-    #[clap(long, default_value = "ops/dp/public/gcp-us-central1-c2")]
-    default_data_plane: String,
+    /// Data-plane into which newly initialized specifications will be placed.
+    /// This data-plane must be included in the set of data-planes associated
+    /// with the specification's covering prefix.
+    /// If omitted, the default data-plane of the covering prefix is used.
+    #[clap(long)]
+    init_data_plane: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -101,9 +104,13 @@ impl Draft {
             Command::Describe => do_describe(ctx).await,
             Command::Develop(develop) => do_develop(ctx, develop).await,
             Command::List => do_list(ctx).await,
-            Command::Publish(publish) => do_publish(ctx, &publish.default_data_plane, false).await,
+            Command::Publish(publish) => {
+                do_publish(ctx, publish.init_data_plane.as_deref(), false).await
+            }
             Command::Select(select) => do_select(ctx, select).await,
-            Command::Test(publish) => do_publish(ctx, &publish.default_data_plane, true).await,
+            Command::Test(publish) => {
+                do_publish(ctx, publish.init_data_plane.as_deref(), true).await
+            }
         }
     }
 }
@@ -338,12 +345,12 @@ async fn do_select(
 
 async fn do_publish(
     ctx: &mut crate::CliContext,
-    data_plane_name: &str,
+    init_data_plane: Option<&str>,
     dry_run: bool,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
 
-    publish(&ctx.client, data_plane_name, draft_id, dry_run).await?;
+    publish(&ctx.client, init_data_plane, draft_id, dry_run).await?;
 
     if !dry_run {
         ctx.config.draft.take();
@@ -353,7 +360,7 @@ async fn do_publish(
 
 pub async fn publish(
     client: &crate::Client,
-    default_data_plane_name: &str,
+    init_data_plane: Option<&str>,
     draft_id: models::Id,
     dry_run: bool,
 ) -> Result<(), anyhow::Error> {
@@ -368,7 +375,7 @@ pub async fn publish(
             .select("id,logs_token")
             .insert(
                 serde_json::json!({
-                    "data_plane_name": default_data_plane_name,
+                    "data_plane_name": init_data_plane.unwrap_or_default(),
                     "detail": &format!("Published via flowctl"),
                     "draft_id": draft_id,
                     "dry_run": dry_run,
