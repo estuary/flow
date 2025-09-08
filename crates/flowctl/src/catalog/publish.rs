@@ -29,7 +29,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     // since that can fail due to missing/expired credentials.
     anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
 
-    let (mut draft_catalog, _validations) =
+    let (mut draft_catalog, _live, _validations) =
         local_specs::load_and_validate(&ctx.client, &args.source).await?;
 
     let draft = draft::create_draft(&ctx.client).await?;

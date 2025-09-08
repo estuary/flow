@@ -1,3 +1,4 @@
+use anyhow::Context;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use proto_flow::flow;
@@ -8,11 +9,15 @@ use tables::CatalogResolver;
 pub(crate) async fn load_and_validate(
     client: &crate::Client,
     source: &str,
-) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
+) -> anyhow::Result<(
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+)> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, built) = validate(client, true, false, true, draft, "").await;
-    Ok((draft, surface_errors(built.into_result())?))
+    let (draft, live, built) = validate(client, true, false, true, draft, "").await;
+    Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Load and validate sources and all connectors.
@@ -20,11 +25,15 @@ pub(crate) async fn load_and_validate_full(
     client: &crate::Client,
     source: &str,
     network: &str,
-) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
+) -> anyhow::Result<(
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, built) = validate(client, false, false, false, sources, network).await;
-    Ok((draft, surface_errors(built.into_result())?))
+    let (draft, live, built) = validate(client, false, false, false, sources, network).await;
+    Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Generate connector files by validating sources with derivation connectors.
@@ -32,7 +41,7 @@ pub(crate) async fn generate_files(
     client: &crate::Client,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, built) = validate(client, true, false, true, sources, "").await;
+    let (mut draft, _live, built) = validate(client, true, false, true, sources, "").await;
 
     let project_root = build::project_root(&draft.fetches[0].resource);
     build::generate_files(&project_root, &built)?;
@@ -73,7 +82,11 @@ async fn validate(
     noop_materializations: bool,
     draft: tables::DraftCatalog,
     network: &str,
-) -> (tables::DraftCatalog, tables::Validations) {
+) -> (
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+) {
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
@@ -118,8 +131,8 @@ async fn validate(
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    let (draft, _live, built) = output.into_parts();
-    (draft, built)
+    let (draft, live, built) = output.into_parts();
+    (draft, live, built)
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
@@ -247,21 +260,28 @@ impl Resolver {
             spec: models::StorageDef,
         }
 
-        let tenant_filter = catalog_names
-            .iter()
-            .filter_map(|n| n.find('/').map(|pos| &n[..pos]))
-            .sorted()
-            .dedup()
-            .map(|tenant| format!("catalog_prefix.like.{tenant}/*"))
-            .join(",");
+        // Extract all unique slash-terminated prefixes from catalog names.
+        // For example, "acmeCo/team-A/anvils/orders" produces:
+        // ["acmeCo/", "acmeCo/team-A/", "acmeCo/team-A/anvils/"]
+        let mut prefixes = Vec::new();
+        for name in catalog_names.iter() {
+            let mut index = 0;
+            while let Some(pos) = name[index..].find('/') {
+                index = index + pos + 1;
+                prefixes.push(&name[..index]);
+            }
+        }
+        prefixes.sort();
+        prefixes.dedup();
 
         let storage_mappings = crate::api_exec::<Vec<StorageMappingRow>>(
             self.client
                 .from("storage_mappings")
                 .select("catalog_prefix,id,spec")
-                .or(&tenant_filter),
+                .in_("catalog_prefix", prefixes),
         )
-        .await?;
+        .await
+        .context("failed to fetch storage mappings")?;
 
         for row in storage_mappings {
             // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
@@ -294,7 +314,8 @@ impl Resolver {
         let data_planes = crate::api_exec::<Vec<DataPlaneRow>>(
             self.client.from("data_planes").select("id,data_plane_name"),
         )
-        .await?;
+        .await
+        .context("failed to fetch data planes")?;
 
         for row in data_planes {
             live.data_planes.insert_row(
@@ -340,7 +361,8 @@ impl Resolver {
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<LiveSpec>>>()
-            .await?;
+            .await
+            .context("failed to fetch live specs")?;
 
         for LiveSpec {
             id,
@@ -431,7 +453,8 @@ impl Resolver {
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<Row>>>()
-            .await?;
+            .await
+            .context("failed to fetch inferred schemas")?;
 
         let mut inferred = tables::InferredSchemas::default();
 
