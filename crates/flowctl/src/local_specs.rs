@@ -231,18 +231,90 @@ impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
-        // NoOpCatalogResolver provides a storage mapping and data-plane fixture.
-        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
-
-        // If we're unauthenticated then return an empty LiveCatalog rather than an error.
+        // If we're unauthenticated then return a placeholder LiveCatalog.
         if !self.client.is_authenticated() {
-            return Ok(live);
+            return Ok(build::NoOpCatalogResolver
+                .resolve(catalog_names.to_vec())
+                .await);
+        }
+        let mut live = tables::LiveCatalog::default();
+
+        // Query storage mappings from the tenants of `catalog_names`.
+        #[derive(serde::Deserialize)]
+        struct StorageMappingRow {
+            catalog_prefix: models::Prefix,
+            id: models::Id,
+            spec: models::StorageDef,
+        }
+
+        let tenant_filter = catalog_names
+            .iter()
+            .filter_map(|n| n.find('/').map(|pos| &n[..pos]))
+            .sorted()
+            .dedup()
+            .map(|tenant| format!("catalog_prefix.like.{tenant}/*"))
+            .join(",");
+
+        let storage_mappings = crate::api_exec::<Vec<StorageMappingRow>>(
+            self.client
+                .from("storage_mappings")
+                .select("catalog_prefix,id,spec")
+                .or(&tenant_filter),
+        )
+        .await?;
+
+        for row in storage_mappings {
+            // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
+            // Work around for now, by synthesizing them. This should switch to GraphQL.
+            if row.catalog_prefix.starts_with("recovery/") {
+                continue; // Does not actually happen in practice.
+            }
+
+            live.storage_mappings.insert_row(
+                &row.catalog_prefix,
+                row.id,
+                &row.spec.stores,
+                &row.spec.data_planes,
+            );
+            live.storage_mappings.insert_row(
+                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
+                models::Id::zero(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+
+        // Query all data planes.
+        #[derive(serde::Deserialize)]
+        struct DataPlaneRow {
+            id: models::Id,
+            data_plane_name: String,
+        }
+
+        let data_planes = crate::api_exec::<Vec<DataPlaneRow>>(
+            self.client.from("data_planes").select("id,data_plane_name"),
+        )
+        .await?;
+
+        for row in data_planes {
+            live.data_planes.insert_row(
+                row.id,
+                row.data_plane_name,
+                String::new(),                 // data_plane_fqdn
+                Vec::new(),                    // hmac_keys
+                models::RawValue::default(),   // encrypted_hmac_keys
+                models::Collection::default(), // ops_logs_name
+                models::Collection::default(), // ops_stats_name
+                String::new(),                 // broker_address
+                String::new(),                 // reactor_address
+            );
         }
 
         #[derive(serde::Deserialize)]
         struct LiveSpec {
             id: models::Id,
             catalog_name: String,
+            data_plane_id: models::Id,
             spec_type: CatalogType,
             #[serde(alias = "spec")]
             model: models::RawValue,
@@ -260,7 +332,7 @@ impl Resolver {
                 let builder = self
                     .client
                     .from("live_specs_ext")
-                    .select("id,catalog_name,spec_type,spec,built_spec,last_pub_id,last_build_id")
+                    .select("id,catalog_name,data_plane_id,spec_type,spec,built_spec,last_pub_id,last_build_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
 
@@ -278,6 +350,7 @@ impl Resolver {
             built_spec,
             last_pub_id,
             last_build_id,
+            data_plane_id,
             dependency_hash,
         } in rows.into_iter().flat_map(|i| i.into_iter())
         {
@@ -285,7 +358,7 @@ impl Resolver {
                 CatalogType::Capture => live.captures.insert_row(
                     models::Capture::new(catalog_name),
                     id,
-                    models::Id::zero(),
+                    data_plane_id,
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::CaptureDef>(model.get())?,
@@ -295,7 +368,7 @@ impl Resolver {
                 CatalogType::Collection => live.collections.insert_row(
                     models::Collection::new(catalog_name),
                     id,
-                    models::Id::zero(),
+                    data_plane_id,
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
@@ -305,7 +378,7 @@ impl Resolver {
                 CatalogType::Materialization => live.materializations.insert_row(
                     models::Materialization::new(catalog_name),
                     id,
-                    models::Id::zero(),
+                    data_plane_id,
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::MaterializationDef>(model.get())?,
