@@ -34,10 +34,6 @@ type AlertConnection {
 	A list of edges.
 	"""
 	edges: [AlertEdge!]!
-	"""
-	A list of nodes.
-	"""
-	nodes: [Alert!]!
 }
 
 """
@@ -64,18 +60,9 @@ enum AlertType {
 	missing_payment_method
 }
 
-"""
-A prefix to which the user is authorized.
-"""
-type AuthorizedPrefix {
-	"""
-	The prefix to which the user is authorized.
-	"""
+input ByPrefix {
 	prefix: String!
-	"""
-	The capability granted to the user for this prefix.
-	"""
-	capability: Capability!
+	catalogType: CatalogType
 }
 
 """
@@ -115,12 +102,13 @@ type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
 	specType: CatalogType!
-	spec: JSON!
+	model: JSON!
 	lastBuildId: Id!
 	lastPubId: Id!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	builtSpec: JSON!
+	isDisabled: Boolean!
 	"""
 	Returns all alerts that are currently firing for this live spec.
 	"""
@@ -131,6 +119,31 @@ type LiveSpec {
 	timestamp, and are paginated.
 	"""
 	alertHistory(before: String, last: Int!): AlertConnection!
+}
+
+type LiveSpecConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [LiveSpecEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type LiveSpecEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: LiveSpec!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
 }
 
 """
@@ -155,31 +168,47 @@ type PageInfo {
 	endCursor: String
 }
 
+"""
+A prefix to which the user is authorized.
+"""
+type Prefix {
+	"""
+	The prefix to which the user is authorized.
+	"""
+	prefix: String!
+	"""
+	The capability granted to the user for this prefix.
+	"""
+	capability: Capability!
+}
+
+type PrefixConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [PrefixEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type PrefixEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Prefix!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
 type QueryRoot {
-	captures(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
-	collections(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
-	materializations(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
-	tests(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
+	liveSpecs(by: ByPrefix!, after: String, first: Int): LiveSpecConnection!
 	"""
 	Returns a list of alerts that are currently firing for the given catalog
 	prefixes.
@@ -188,9 +217,13 @@ type QueryRoot {
 		"""
 		Show alerts for the given catalog prefixes
 		"""
-		prefixes: [String!]!
-	): [Alert!]!
-	authorizedPrefixes(minCapability: Capability!): [AuthorizedPrefix!]!
+		prefix: String!,
+		"""
+		Optionally filter alerts by whether or not they are firing
+		"""
+		firing: Boolean,		before: String,		last: Int
+	): AlertConnection!
+	prefixes(minCapability: Capability!, after: String, first: Int): PrefixConnection!
 }
 
 """
