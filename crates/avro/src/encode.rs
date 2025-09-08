@@ -123,8 +123,10 @@ fn maybe_encode<'s, 'n, N: AsNode>(
         }
 
         (Schema::String, Node::String(v)) => {
-            zig_zag(b, v.len() as i64);
-            b.extend(v.as_bytes());
+            let escaped = String::from_utf8_lossy(v.as_bytes());
+            zig_zag(b, escaped.len() as i64);
+
+            b.extend(escaped.as_bytes());
             Ok(true)
         }
         (Schema::String, Node::NegInt(v)) => {
@@ -437,6 +439,59 @@ mod test {
 
         let recovered = apache_avro::from_avro_datum(&key, &mut &b[..], None).unwrap();
         insta::assert_debug_snapshot!(recovered);
+    }
+
+    #[test]
+    fn test_malformed_utf8_string() {
+        let fixture = json!({
+          "type": "object",
+          "properties": {
+            "malformed_string": {"type": "string"}
+          },
+          "required": ["malformed_string"],
+        });
+
+        let (_, value_schema) = crate::json_schema_to_avro(&fixture.to_string(), &[]).unwrap();
+
+        let mut malformed_bytes = Vec::new();
+        malformed_bytes.extend_from_slice(b"hello");
+        // Start of 2-byte Arabic UTF-8 sequence. Invalid without subsequent continuation byte
+        malformed_bytes.push(0xd8);
+
+        let malformed_string = unsafe { String::from_utf8_unchecked(malformed_bytes.clone()) };
+
+        let instance = json!({
+            "malformed_string": malformed_string
+        });
+
+        let mut encoded_buffer = Vec::new();
+        super::encode(
+            json::Location::Root,
+            &mut encoded_buffer,
+            &value_schema,
+            &instance,
+        )
+        .unwrap();
+
+        let resp =
+            apache_avro::from_avro_datum(&value_schema, &mut encoded_buffer.as_slice(), None)
+                .unwrap();
+
+        let apache_avro::types::Value::Record(rec) = resp else {
+            panic!("Expected record");
+        };
+
+        let val = rec
+            .into_iter()
+            .find(|(k, _)| k == "malformed_string")
+            .unwrap()
+            .1;
+        let apache_avro::types::Value::String(s) = val else {
+            panic!("Expected string");
+        };
+
+        std::str::from_utf8(s.as_bytes()).expect("String should be valid UTF-8");
+        insta::assert_snapshot!(s);
     }
 
     fn to_hex(v: &[u8]) -> String {

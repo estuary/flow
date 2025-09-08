@@ -1,0 +1,6 @@
+---
+source: crates/avro/src/encode.rs
+assertion_line: 497
+expression: s
+---
+hello�
