@@ -7,6 +7,7 @@ use crate::status::{
 };
 use crate::ResourcePath;
 use chrono::{DateTime, Utc};
+use itertools::Itertools;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -85,14 +86,26 @@ impl AutoDiscoverOutcome {
     /// Returns an `Err` if any part of the auto-discover failed. Returns `Ok`
     /// only if the auto-discover was successful.
     pub fn get_result(&self) -> anyhow::Result<()> {
-        if let Some(first_err) = self.errors.get(0) {
-            anyhow::bail!("auto-discover failed: {}", &first_err.detail);
-        }
-        if let Some(pub_result) = self
+        let publish_err = self
             .publish_result
             .as_ref()
-            .filter(|r| !(r.is_success() || r.is_empty_draft()))
-        {
+            .filter(|r| !(r.is_success() || r.is_empty_draft()));
+
+        let pub_err_detail = publish_err.map(|_| " publication").unwrap_or_default();
+        if self.errors.len() == 1 {
+            let first_err = self.errors.get(0).unwrap();
+            anyhow::bail!("auto-discover{pub_err_detail} failed: {}", first_err);
+        } else if self.errors.len() > 1 {
+            let errors = self.errors.iter().format("\n\n");
+            anyhow::bail!(
+                "auto-discover{pub_err_detail} failed with {} errors:\n{}",
+                self.errors.len(),
+                errors
+            );
+        }
+
+        // fallback error if errors is empty. This case should happen only rarely, or maybe never
+        if let Some(pub_result) = publish_err {
             anyhow::bail!("auto-discover publication failed with: {:?}", pub_result)
         };
         Ok(())

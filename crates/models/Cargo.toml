@@ -17,6 +17,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true, optional = true }
 indexmap = { workspace = true, optional = true }
+itertools = { workspace = true }
 caseless = { workspace = true }
 chrono = { workspace = true }
 humantime-serde = { workspace = true }
