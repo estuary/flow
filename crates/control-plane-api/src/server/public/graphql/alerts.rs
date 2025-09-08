@@ -9,6 +9,26 @@ use std::sync::Arc;
 
 use crate::server::{App, ControlClaims};
 
+#[derive(Debug, Default)]
+pub struct AlertsQuery;
+
+#[async_graphql::Object]
+impl AlertsQuery {
+    /// Returns a list of alerts that are currently firing for the given catalog
+    /// prefixes.
+    async fn alerts(
+        &self,
+        ctx: &Context<'_>,
+        #[graphql(desc = "Show alerts for the given catalog prefixes")] prefix: String,
+        #[graphql(desc = "Optionally filter alerts by whether or not they are firing")]
+        firing: Option<bool>,
+        before: Option<String>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedAlerts> {
+        prefix_alert_history(ctx, prefix.as_str(), firing, before, last).await
+    }
+}
+
 /// An alert from the alert_history table
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, async_graphql::SimpleObject)]
 pub struct Alert {
@@ -140,9 +160,92 @@ pub async fn list_alerts_firing(
     Ok(results)
 }
 
-pub type PaginatedAlerts = connection::Connection<DateTime<Utc>, Alert>;
+pub type PaginatedAlerts = connection::Connection<
+    DateTime<Utc>,
+    Alert,
+    connection::EmptyFields,
+    connection::EmptyFields,
+    connection::DefaultConnectionName,
+    connection::DefaultEdgeName,
+    connection::DisableNodesField,
+>;
 
-pub async fn alert_history(
+pub async fn prefix_alert_history(
+    ctx: &Context<'_>,
+    prefix: &str,
+    filter_firing: Option<bool>,
+    before_timestamp: Option<String>,
+    limit: Option<i32>,
+) -> async_graphql::Result<PaginatedAlerts> {
+    let app = ctx.data::<Arc<App>>()?;
+    let claims = ctx.data::<ControlClaims>()?;
+
+    // Verify user authorization
+    let _ = app
+        .verify_user_authorization(claims, vec![prefix.to_string()], models::Capability::Read)
+        .await
+        .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
+
+    connection::query(
+        None,
+        before_timestamp,
+        None,
+        limit,
+        |_after, before, _first, last| async move {
+            let effective_limit = last.unwrap_or(20);
+
+            let rows = sqlx::query!(
+                r#"
+        select
+            alert_type as "alert_type!: AlertType",
+            catalog_name as "catalog_name!: String",
+            fired_at,
+            resolved_at,
+            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+        from alert_history a
+        where starts_with(a.catalog_name, $1)
+            and a.fired_at < $2
+            and case $3::boolean
+              when true then a.resolved_at is null
+              when false then a.resolved_at is not null
+              else true
+            end
+        order by a.fired_at desc
+        limit $4
+        "#,
+                prefix,
+                before.unwrap_or(Utc::now()),
+                filter_firing,
+                effective_limit as i64,
+            )
+            .fetch_all(&app.pg_pool)
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
+
+            let has_prev_page = rows.len() == effective_limit;
+            let mut conn = connection::Connection::new(has_prev_page, false);
+
+            for row in rows {
+                let fired_at = row.fired_at;
+                let alert = Alert {
+                    alert_type: row.alert_type,
+                    catalog_name: row.catalog_name,
+                    fired_at,
+                    resolved_at: row.resolved_at,
+                    arguments: async_graphql::Json(row.arguments.0),
+                };
+                conn.edges.push(connection::Edge::new(fired_at, alert));
+            }
+            async_graphql::Result::<PaginatedAlerts>::Ok(conn)
+        },
+    )
+    .await
+}
+
+/// Queries the history of alert for a single given live spec.
+/// Note that this currently only returns alerts that are resolved, though
+/// we could allow this to return firing alerts as well if we wanted.
+pub async fn live_spec_alert_history(
     ctx: &Context<'_>,
     catalog_name: &str,
     before_date: Option<String>,
