@@ -318,6 +318,7 @@ async fn try_auto_discover<C: ControlPlane>(
         .await
         .context("executing publication")?;
 
+    outcome.errors.extend(pub_result.draft_errors());
     outcome.publish_result = Some(pub_result.status);
 
     Ok(outcome)
