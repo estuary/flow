@@ -251,7 +251,7 @@ mod test {
 
     use super::*;
     use crate::draft_error::Error;
-    use crate::publications::JobStatus;
+    use crate::publications::StatusType;
     use crate::status::activation::ActivationStatus;
     use crate::status::materialization::{MaterializationStatus, SourceCaptureStatus};
     use crate::status::publications::{PublicationInfo, PublicationStatus};
@@ -267,7 +267,7 @@ mod test {
             created: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
             completed: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
             detail: Some("some detail".to_string()),
-            result: Some(JobStatus::build_failed()),
+            result: Some(StatusType::BuildFailed.into()),
             errors: vec![Error {
                 catalog_name: "snails/shells".to_string(),
                 scope: Some("flow://materializations/snails/shells".to_string()),

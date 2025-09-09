@@ -959,7 +959,7 @@ async fn test_auto_discovers_update_only() {
     let failure = auto_discover.failure.as_ref().unwrap();
     assert_eq!(3, failure.count, "expect auto-discover was attempted again");
     assert_eq!(
-        Some(publications::JobStatus::build_failed()),
+        Some(publications::StatusType::BuildFailed.into()),
         failure.last_outcome.publish_result
     );
     // Ensure that the failed publication is shown in the history.
