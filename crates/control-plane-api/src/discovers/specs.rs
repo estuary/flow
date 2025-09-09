@@ -319,7 +319,7 @@ pub fn merge_collections(
             // Collection is using separate read & write schemas.
             // The read schema has been initialized and we do not modify it.
             &mut draft_model.write_schema
-        } else if let Some(initial_read_schema) = initializes_read_schema(&connector_schema) {
+        } else if let Some(initial_read_schema) = initial_read_schema(&connector_schema) {
             // Migrate singular `schema` into separate read & write schemas.
             draft_model.write_schema = draft_model.schema.take();
             draft_model.read_schema = Some(models::Schema::new(models::RawValue::from_value(
@@ -359,21 +359,24 @@ pub fn merge_collections(
     Ok(modified_collections)
 }
 
-fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
-    // Does the connector provide an explicit initial read schema?
-    if let Some(initial) = schema.to_value().get(X_INITIAL_READ_SCHEMA) {
-        return Some(initial.clone());
+/// Detects whether given schema uses any of the features that provide an initial read schema.
+fn initial_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
+    let mut schema_value = schema.to_value();
+
+    // First, check if `x-initial-read-schema` is set to directly provide the initial read schema.
+    if let serde_json::Value::Object(ref mut map) = schema_value {
+        if let Some(extension @ serde_json::Value::Object(_)) = map.remove(X_INITIAL_READ_SCHEMA) {
+            return Some(extension);
+        }
     }
 
-    // Does the connector use the legacy schema inference annotation?
-    // If so, initialize with a default read schema.
-    if let Some(serde_json::Value::Bool(true)) = schema.to_value().get(X_INFER_SCHEMA) {
-        return Some(serde_json::json!({
-            "allOf": [
-                {"$ref": models::Schema::REF_RELAXED_WRITE_SCHEMA_URL},
-                {"$ref": models::Schema::REF_INFERRED_SCHEMA_URL},
-            ],
-        }));
+    // Then check if `x-infer-schema` is set to true, which causes the initial read schema to be set
+    // to a value that dynamically resolves to the collection's inferred schema.
+    if matches!(
+        schema_value.get(X_INFER_SCHEMA),
+        Some(serde_json::Value::Bool(true))
+    ) {
+        return Some(models::Schema::default_inferred_read_schema().to_value());
     }
 
     None
