@@ -152,6 +152,12 @@ const config = {
             label: 'Documentation',
           },
           {
+            type: 'doc',
+            docId: 'reference/Connectors/README',
+            position: 'left',
+            label: 'Reference',
+          },
+          {
             type: 'html',
             position: 'left',
             value: '<a href="https://estuary.dev/blog" target="_blank">Blog</a>',
