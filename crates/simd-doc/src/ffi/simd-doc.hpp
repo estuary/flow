@@ -98,12 +98,23 @@ inline bool is_indirect_str(const uint32_t w)
 
 inline uint32_t encode_indirect_str_length(uint32_t len)
 {
-    return 0b10000000 | (len & 0b00111111) | ((len & 0b11000000) << 2);
+    // Precondition: len <= 0x3FFFFFFF
+    return
+        // Low 6 bits remain as-is.
+        (len & 0b00111111u)
+        // High 2 bits are set to 0b10 (bit 7 set, bit 6 left clear).
+        | 0b10000000u
+        // Remaining bits are shifted up by 2 (from bits 6.. to bits 8..).
+        | ((len & 0b11111111111111111111111111000000u) << 2);
 }
 
 inline uint32_t decode_indirect_str_length(uint32_t w)
 {
-    return (w & 0b00111111) | ((w >> 2) & 0b11000000);
+    return
+        // Mask off the high 2 bits.
+        (w & 0b00111111u)
+        // Remaining bits are shifted down by 2.
+        | ((w & 0b11111111111111111111111100000000u) >> 2);
 }
 
 inline size_t decode_inline_str_length(uint64_t value)
