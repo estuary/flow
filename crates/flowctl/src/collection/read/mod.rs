@@ -2,6 +2,7 @@ use crate::{collection::CollectionJournalSelector, output::OutputType};
 use anyhow::Context;
 use futures::StreamExt;
 use gazette::journal::ReadJsonLine;
+use gazette::uuid;
 use proto_gazette::broker;
 use std::io::Write;
 use time::OffsetDateTime;
@@ -41,6 +42,10 @@ pub struct ReadBounds {
     /// Limit the number of documents to read before exiting. If not specified, reads until interrupted or end of journal.
     #[clap(long)]
     pub limit: Option<usize>,
+
+    /// Enable debug mode to print journal offset and UUID timestamp with each document.
+    #[clap(long)]
+    pub debug: bool,
 }
 
 /// Reads collection data and prints it to stdout. This function has a number of limitations at present:
@@ -111,12 +116,14 @@ pub async fn read_collection_journal(
     journal_name: &str,
     bounds: &ReadBounds,
 ) -> anyhow::Result<()> {
-    let begin_mod_time = if let Some(since) = bounds.since {
+    let (begin_mod_time, since_clock) = if let Some(since) = bounds.since {
         let start_time = OffsetDateTime::now_utc() - *since;
         tracing::debug!(%since, begin_mod_time = %start_time, "resolved --since to begin_mod_time");
-        (start_time - OffsetDateTime::UNIX_EPOCH).as_seconds_f64() as i64
+        let unix_seconds = (start_time - OffsetDateTime::UNIX_EPOCH).as_seconds_f64() as i64;
+        let since_clock = uuid::Clock::from_unix(unix_seconds as u64, 0);
+        (unix_seconds, Some(since_clock))
     } else {
-        0
+        (0, None)
     };
 
     let offset = bounds.offset.unwrap_or(0);
@@ -137,6 +144,7 @@ pub async fn read_collection_journal(
     let mut stdout = std::io::stdout();
     let mut docs_read = 0usize;
     let mut first_parse_error_skipped = bounds.offset.is_none(); // Skip first parse error only if offset is specified
+    let mut current_offset = bounds.offset.unwrap_or(-1);
 
     while let Some(line) = lines.next().await {
         match line {
@@ -147,15 +155,61 @@ pub async fn read_collection_journal(
             })) => {
                 tracing::debug!(?fragment, %write_head, "journal metadata");
             }
-            Ok(ReadJsonLine::Doc {
-                root,
-                next_offset: _,
-            }) => {
+            Ok(ReadJsonLine::Doc { root, next_offset }) => {
+                // Extract UUID for both time filtering and debug output
+                let uuid_ptr = doc::Pointer::from_str("/_meta/uuid");
+                let uuid_info =
+                    if let Some(doc::ArchivedNode::String(uuid_str)) = uuid_ptr.query(root.get()) {
+                        match uuid::parse_str(uuid_str.as_str()) {
+                            Ok((producer, clock, flags)) => {
+                                Some((uuid_str.as_str(), producer, clock, flags))
+                            }
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                // Apply document-level time filtering (mirroring Dekaf behavior)
+                if let (Some(since_clock), Some((_, _, clock, _))) = (since_clock, &uuid_info) {
+                    if *clock < since_clock {
+                        current_offset = next_offset - 1;
+                        continue;
+                    }
+                }
+
+                if bounds.debug {
+                    let debug_info = match &uuid_info {
+                        Some((uuid_str, _, clock, _)) => {
+                            let (unix_seconds, unix_nanos) = clock.to_unix();
+                            let timestamp =
+                                OffsetDateTime::from_unix_timestamp(unix_seconds as i64)
+                                    .and_then(|dt| dt.replace_nanosecond(unix_nanos))
+                                    .map(|dt| dt.to_string())
+                                    .unwrap_or_else(|_| "invalid-timestamp".to_string());
+                            format!(
+                                "[offset={} uuid={} timestamp={}] ",
+                                current_offset, uuid_str, timestamp
+                            )
+                        }
+                        None => {
+                            if uuid_ptr.query(root.get()).is_some() {
+                                format!("[offset={} uuid=parse-error] ", current_offset)
+                            } else {
+                                format!("[offset={} uuid=missing] ", current_offset)
+                            }
+                        }
+                    };
+
+                    () = stdout.write_all(debug_info.as_bytes())?;
+                }
+
                 let mut v = serde_json::to_vec(&policy.on(root.get())).unwrap();
                 v.push(b'\n');
                 () = stdout.write_all(&v)?;
 
                 docs_read += 1;
+                current_offset = next_offset - 1;
                 if let Some(limit) = bounds.limit {
                     if docs_read >= limit {
                         break;
