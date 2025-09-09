@@ -8,7 +8,7 @@ use control_plane_api::{
     proxy_connectors::MakeConnectors,
     publications::{
         delete_draft, resolve, specs, ClearDraftErrors, DefaultRetryPolicy, DraftPublication,
-        ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher,
+        ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher, StatusType,
         UpdatePublicationsRow,
     },
 };
@@ -53,8 +53,8 @@ impl<MC: MakeConnectors> PublicationsExecutor<MC> {
 
         // First ensure that the publication status is queued. Otherwise,
         // there's nothing for us to do.
-        match serde_json::from_str(row.job_status.get()) {
-            Ok(JobStatus::Queued) => { /* continue to publish */ }
+        match serde_json::from_str::<'_, JobStatus>(row.job_status.get()) {
+            Ok(status) if status.r#type == StatusType::Queued => { /* continue to publish */ }
             Ok(other) => {
                 tracing::warn!(?other, "skipping publication which is no longer queued");
                 return Ok(());
@@ -97,7 +97,7 @@ impl<MC: MakeConnectors> PublicationsExecutor<MC> {
                     scope: None,
                     detail: format!("{error:#}"),
                 }];
-                (JobStatus::PublishFailed, errors, None)
+                (StatusType::PublishFailed.into(), errors, None)
             }
         };
 
@@ -157,7 +157,7 @@ impl<MC: MakeConnectors> PublicationsExecutor<MC> {
                     ..Default::default()
                 },
                 tables::Errors::default(),
-                JobStatus::build_failed(),
+                StatusType::BuildFailed.into(),
                 0, //retry_count
             ));
         }

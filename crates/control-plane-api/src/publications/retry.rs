@@ -1,4 +1,4 @@
-use super::{JobStatus, PublicationResult};
+use super::{PublicationResult, StatusType};
 
 pub const MAX_OPTIMISTIC_LOCKING_RETRIES: u32 = 10;
 
@@ -26,26 +26,27 @@ impl RetryPolicy for DefaultRetryPolicy {
         }
 
         // Has there been an optimistic locking failure?
-        match &result.status {
-            JobStatus::BuildIdLockFailure { failures } => {
+        match result.status.r#type {
+            StatusType::BuildIdLockFailure => {
                 tracing::info!(
-                    ?failures,
+                    failures = ?result.status.lock_failures,
                     retry_count = result.retry_count,
                     "will retry due to optimistic locking failure"
                 );
                 true
             }
-            JobStatus::BuildFailed { .. } if has_only_build_errors(result) => {
+            StatusType::BuildFailed if has_only_build_errors(result) => {
                 let retry = result.built.errors.iter().all(|err| {
                     match err.error.downcast_ref::<validation::Error>() {
-                        Some(validation::Error::BuildSuperseded { .. }) => return true,
-                        Some(validation::Error::PublicationSuperseded { .. }) => return true,
+                        Some(validation::Error::BuildSuperseded { .. }) => true,
+                        Some(validation::Error::PublicationSuperseded { .. }) => true,
                         _ => false,
                     }
                 });
                 if retry {
                     tracing::info!(
                         retry_count = result.retry_count,
+                        failures = ?result.status.lock_failures,
                         "will retry due to publication/build superseded error"
                     )
                 }

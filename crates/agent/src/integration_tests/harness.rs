@@ -1118,7 +1118,7 @@ impl TestHarness {
         );
 
         let pub_result = self.get_publication_result(pub_id.into()).await;
-        assert_ne!(publications::JobStatus::Queued, pub_result.status);
+        assert_ne!(publications::StatusType::Queued, pub_result.status.r#type);
         pub_result
     }
 
