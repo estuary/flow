@@ -32,6 +32,15 @@ pub struct ReadBounds {
     /// The actual start of the read will always be at a fragment boundary, and thus may include data from significantly before the requested time period.
     #[clap(long)]
     pub since: Option<humantime::Duration>,
+
+    /// Start reading from the specified byte offset. Use -1 to read from the current write head.
+    /// If not specified, reading starts from the beginning of the journal (offset 0).
+    #[clap(long)]
+    pub offset: Option<i64>,
+
+    /// Limit the number of documents to read before exiting. If not specified, reads until interrupted or end of journal.
+    #[clap(long)]
+    pub limit: Option<usize>,
 }
 
 /// Reads collection data and prints it to stdout. This function has a number of limitations at present:
@@ -110,10 +119,11 @@ pub async fn read_collection_journal(
         0
     };
 
+    let offset = bounds.offset.unwrap_or(0);
     let mut lines = journal_client.read_json_lines(
         broker::ReadRequest {
             journal: journal_name.to_string(),
-            offset: 0,
+            offset,
             block: bounds.follow,
             begin_mod_time,
             // TODO(johnny): Set `do_not_proxy: true` once cronut is migrated.
@@ -125,6 +135,8 @@ pub async fn read_collection_journal(
 
     let policy = doc::SerPolicy::noop();
     let mut stdout = std::io::stdout();
+    let mut docs_read = 0usize;
+    let mut first_parse_error_skipped = bounds.offset.is_none(); // Skip first parse error only if offset is specified
 
     while let Some(line) = lines.next().await {
         match line {
@@ -142,11 +154,22 @@ pub async fn read_collection_journal(
                 let mut v = serde_json::to_vec(&policy.on(root.get())).unwrap();
                 v.push(b'\n');
                 () = stdout.write_all(&v)?;
+
+                docs_read += 1;
+                if let Some(limit) = bounds.limit {
+                    if docs_read >= limit {
+                        break;
+                    }
+                }
             }
             Err(gazette::RetryError {
                 inner: err,
                 attempt,
             }) => match err {
+                gazette::Error::Parsing { .. } if !first_parse_error_skipped => {
+                    first_parse_error_skipped = true;
+                    continue;
+                }
                 err if err.is_transient() => {
                     tracing::warn!(?err, %attempt, "error reading collection (will retry)");
                 }
