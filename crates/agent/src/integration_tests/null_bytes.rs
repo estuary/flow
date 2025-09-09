@@ -1,5 +1,5 @@
 use super::harness::{draft_catalog, md5_hash, TestHarness};
-use models::publications::JobStatus;
+use models::publications::StatusType;
 use tables::InferredSchema;
 
 #[tokio::test]
@@ -80,7 +80,7 @@ async fn test_specs_with_null_bytes() {
     let result = harness
         .user_publication(user_id, format!("publish spec with nulls"), naughty_draft)
         .await;
-    assert_eq!(JobStatus::PublishFailed, result.status);
+    assert_eq!(StatusType::PublishFailed, result.status.r#type);
 
     insta::assert_debug_snapshot!(result.errors, @r###"
     [

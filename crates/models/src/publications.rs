@@ -2,26 +2,17 @@ use crate::Id;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// JobStatus is the possible outcomes of a handled publication.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum JobStatus {
+/// The highest-level status of a publication.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum StatusType {
     /// The publication has not yet been completed.
     Queued,
     /// There was a failure to build or validate the drafted specs. This could
     /// be due to a mistake in the drafted specs, or due to a failure to
     /// validate the proposed changes with an external system connected to one
     /// of the connected captures or materializations.
-    BuildFailed {
-        /// Deprecated: This field is no longer used
-        #[serde(default, skip_serializing, rename = "incompatible_collections")]
-        #[schemars(skip)]
-        incompatible_collections: serde::de::IgnoredAny,
-        /// Deprecated: This field is no longer used
-        #[serde(default, skip_serializing)]
-        #[schemars(skip)]
-        evolution_id: serde::de::IgnoredAny,
-    },
+    BuildFailed,
     /// Publication failed due to the failure of one or more tests.
     TestFailed,
     /// Something went wrong with the publication process. These errors can
@@ -40,36 +31,48 @@ pub enum JobStatus {
     EmptyDraft,
     /// One or more expected `last_pub_id`s did not match the actual `last_pub_id`, indicating that specs
     /// have been changed since the draft was created.
-    ExpectPubIdMismatch {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        failures: Vec<LockFailure>,
-    },
+    ExpectPubIdMismatch,
     /// Optimistic locking failure for one or more specs in the publication. This case should
     /// typically be retried by the publisher.
-    BuildIdLockFailure {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        failures: Vec<LockFailure>,
-    },
+    BuildIdLockFailure,
     /// The publication used the deprecated background flag, which is no longer supported.
     DeprecatedBackground,
 }
 
+/// The status of a publication.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JobStatus {
+    pub r#type: StatusType,
+    #[serde(alias = "failures", default, skip_serializing_if = "Vec::is_empty")]
+    pub lock_failures: Vec<LockFailure>,
+}
+
+impl From<StatusType> for JobStatus {
+    fn from(status_type: StatusType) -> Self {
+        JobStatus {
+            r#type: status_type,
+            lock_failures: Vec::new(),
+        }
+    }
+}
+
 impl JobStatus {
     pub fn is_success(&self) -> bool {
-        match self {
-            JobStatus::Success { .. } => true,
+        match self.r#type {
+            StatusType::Success { .. } => true,
             _ => false,
         }
     }
 
     pub fn is_empty_draft(&self) -> bool {
-        matches!(self, JobStatus::EmptyDraft)
+        matches!(self.r#type, StatusType::EmptyDraft)
     }
 
-    pub fn build_failed() -> JobStatus {
-        JobStatus::BuildFailed {
-            incompatible_collections: Default::default(),
-            evolution_id: Default::default(),
+    pub fn build_id_lock_failure(lock_failures: Vec<LockFailure>) -> Self {
+        JobStatus {
+            r#type: StatusType::BuildIdLockFailure,
+            lock_failures,
         }
     }
 }
@@ -92,7 +95,7 @@ mod test {
 
     #[test]
     fn test_publication_job_status_serde() {
-        let starting = JobStatus::build_failed();
+        let starting: JobStatus = StatusType::BuildFailed.into();
 
         let as_json = serde_json::to_string_pretty(&starting).expect("failed to serialize");
         let parsed =
@@ -128,9 +131,9 @@ mod test {
         let result: JobStatus =
             serde_json::from_str(old_json).expect("old status json failed to deserialize");
         insta::assert_debug_snapshot!(result, @r###"
-        BuildFailed {
-            incompatible_collections: IgnoredAny,
-            evolution_id: IgnoredAny,
+        JobStatus {
+            type: BuildFailed,
+            lock_failures: [],
         }
         "###);
 
@@ -139,9 +142,9 @@ mod test {
         let result: JobStatus =
             serde_json::from_str(old_json).expect("old status json failed to deserialize");
         insta::assert_debug_snapshot!(result, @r###"
-        BuildFailed {
-            incompatible_collections: IgnoredAny,
-            evolution_id: IgnoredAny,
+        JobStatus {
+            type: BuildFailed,
+            lock_failures: [],
         }
         "###);
     }

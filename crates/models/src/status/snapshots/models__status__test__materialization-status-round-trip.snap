@@ -33,9 +33,9 @@ StatusSnapshot {
                             "some detail",
                         ),
                         result: Some(
-                            BuildFailed {
-                                incompatible_collections: IgnoredAny,
-                                evolution_id: IgnoredAny,
+                            JobStatus {
+                                type: BuildFailed,
+                                lock_failures: [],
                             },
                         ),
                         errors: [
@@ -106,9 +106,9 @@ StatusSnapshot {
                             "some detail",
                         ),
                         result: Some(
-                            BuildFailed {
-                                incompatible_collections: IgnoredAny,
-                                evolution_id: IgnoredAny,
+                            JobStatus {
+                                type: BuildFailed,
+                                lock_failures: [],
                             },
                         ),
                         errors: [
