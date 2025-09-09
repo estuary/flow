@@ -66,6 +66,12 @@ fn test_simd_and_fallback_results_are_equal() {
         {"\u{0}": "null char at start"},
         {"key\u{0}": "null char in middle"},
         {"key\u{0}\u{0}": "double null chars"},
+        "0123456789abcdef",
+        "0123456789abcdef".repeat(11),
+        "0123456789abcdef".repeat(111),
+        "0123456789abcdef".repeat(1111),
+        "0123456789abcdef".repeat(11111),
+        "0123456789abcdef".repeat(45111), // Any larger overflows the 1MB limit.
     ]);
     let cases: Vec<Value> = serde_json::from_value(cases).unwrap();
 
@@ -75,10 +81,10 @@ fn test_simd_and_fallback_results_are_equal() {
         serde_json::to_writer(&mut input, &doc).unwrap();
         input.push(b'\n');
     }
+    let mut failed = false;
+
     let (transcoded, fallback) = transcoded_and_fallback(&mut input);
     assert_eq!(transcoded.offset, fallback.offset);
-
-    let mut failed = false;
 
     for ((case, (s_doc, s_next_offset)), (f_doc, f_next_offset)) in
         cases.iter().zip(transcoded.iter()).zip(fallback.iter())
