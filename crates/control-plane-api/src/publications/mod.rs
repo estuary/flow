@@ -23,7 +23,7 @@ pub use self::db::{create, delete_draft, fetch_publication, resolve, Row};
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
 pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
-pub use models::publications::{JobStatus, LockFailure};
+pub use models::publications::{JobStatus, LockFailure, StatusType};
 
 use models::draft_error;
 
@@ -178,9 +178,9 @@ impl UncommittedBuild {
 
     pub fn build_failed(self) -> PublicationResult {
         let status = if self.test_errors.is_empty() {
-            JobStatus::build_failed()
+            StatusType::BuildFailed.into()
         } else {
-            JobStatus::TestFailed
+            StatusType::TestFailed.into()
         };
         self.into_result(Utc::now(), status)
     }
@@ -325,9 +325,9 @@ impl<MC: MakeConnectors> Publisher<MC> {
         if built.errors().next().is_some() {
             return Ok(built.build_failed());
         } else if is_empty_draft(&built) {
-            return Ok(built.into_result(Utc::now(), JobStatus::EmptyDraft));
+            return Ok(built.into_result(Utc::now(), StatusType::EmptyDraft.into()));
         } else if *dry_run {
-            return Ok(built.into_result(Utc::now(), JobStatus::Success));
+            return Ok(built.into_result(Utc::now(), StatusType::Success.into()));
         }
 
         let commit_result = self.commit(built, with_commit).await?;
@@ -519,21 +519,19 @@ impl<MC: MakeConnectors> Publisher<MC> {
             match self.try_commit(&uncommitted, &with_commit).await {
                 Ok((_, quota_errors)) if !quota_errors.is_empty() => {
                     let mut result =
-                        uncommitted.into_result(completed_at, JobStatus::PublishFailed);
+                        uncommitted.into_result(completed_at, StatusType::PublishFailed.into());
                     result.built.errors.extend(quota_errors.into_iter());
                     return Ok(result);
                 }
                 Ok((lock_failures, _)) if !lock_failures.is_empty() => {
                     return Ok(uncommitted.into_result(
                         completed_at,
-                        JobStatus::BuildIdLockFailure {
-                            failures: lock_failures,
-                        },
+                        JobStatus::build_id_lock_failure(lock_failures),
                     ));
                 }
                 Ok(_no_failures) => {
                     tracing::info!("successfully committed publication");
-                    return Ok(uncommitted.into_result(completed_at, JobStatus::Success));
+                    return Ok(uncommitted.into_result(completed_at, StatusType::Success.into()));
                 }
                 Err(err) if is_transaction_serialization_error(&err) => {
                     let jitter = rand::thread_rng().gen_range(0..500);
@@ -582,7 +580,7 @@ impl<MC: MakeConnectors> Publisher<MC> {
         }
 
         with_commit
-            .before_commit(&mut txn, uncommitted, &JobStatus::Success)
+            .before_commit(&mut txn, uncommitted, &StatusType::Success.into())
             .await
             .context("on publication commit")?;
 
@@ -704,6 +702,6 @@ mod test {
             retry_count: 0,
         };
         let result = build.build_failed();
-        assert_eq!(JobStatus::TestFailed, result.status);
+        assert_eq!(StatusType::TestFailed, result.status.r#type);
     }
 }

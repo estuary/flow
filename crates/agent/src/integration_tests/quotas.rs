@@ -51,7 +51,10 @@ async fn test_quota_single_task() {
         pub_id: Some(
             0000000000000000,
         ),
-        status: PublishFailed,
+        status: JobStatus {
+            type: PublishFailed,
+            lock_failures: [],
+        },
         errors: [
             (
                 "flow://tenant-quotas/seaTurtles/tasks",
@@ -123,7 +126,10 @@ async fn test_quota_derivations() {
         pub_id: Some(
             0000000000000000,
         ),
-        status: PublishFailed,
+        status: JobStatus {
+            type: PublishFailed,
+            lock_failures: [],
+        },
         errors: [
             (
                 "flow://tenant-quotas/seagulls/tasks",
@@ -187,7 +193,10 @@ async fn test_disable_when_over_quota() {
         pub_id: Some(
             0000000000000000,
         ),
-        status: Success,
+        status: JobStatus {
+            type: Success,
+            lock_failures: [],
+        },
         errors: [],
         live_specs: [
             LiveSpec {
