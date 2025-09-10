@@ -17,6 +17,9 @@ To use this connector, you'll need:
     * A [schema](https://docs.snowflake.com/en/sql-reference/ddl-database.html) — a logical grouping of database objects — within the target database
     * A virtual warehouse
     * A user with a role assigned that grants the appropriate access levels to these resources.
+    * The correct timezone setting `TIMESTAMP_LTZ` or
+`TIMESTAMP_TZ` (see [Timestamp Data Type Mapping](#timestamp-data-type-mapping))
+    
     See the [script below](#setup) for details.
 * Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
 for example, `orgname-accountname.snowflakecomputing.com`.
@@ -72,6 +75,8 @@ grant CREATE SCHEMA, MONITOR, USAGE on database identifier($database_name) to ro
 use role ACCOUNTADMIN;
 grant CREATE INTEGRATION on account to role identifier($estuary_role);
 use role sysadmin;
+-- Optional: Set the timestamp type to `TIMESTAMP_TZ`; otherwise defaults to using `TIMESTAMP_LTZ`
+-- ALTER USER $estuary_user SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_TZ';
 COMMIT;
 ```
 
@@ -280,9 +285,8 @@ Flow materializes timestamp data types as either `TIMESTAMP_LTZ` or
 `TIMESTAMP_TZ` columns in Snowflake. `TIMESTAMP_LTZ` is used unless the
 Snowflake  `TIMESTAMP_TYPE_MAPPING` configuration is set to `TIMESTAMP_TZ`,
 which will cause Flow to use `TIMESTAMP_TZ` columns. Flow never creates columns
-as `TIMESTAMP_NTZ`. See [Snowflake documentation on `TIMESTAMP_TYPE_MAPPING` for
-more
-information](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping).
+as `TIMESTAMP_NTZ`. See Snowflake documentation on the [`TIMESTAMP_TYPE_MAPPING` configuration](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping) and
+the [`TIMESTAMP_TZ or TIMESTAMP_LTZ` values](https://docs.snowflake.com/en/sql-reference/data-types-datetime#label-datatypes-timestamp-variations) for more information.
 
 ## Reserved words
 
