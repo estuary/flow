@@ -1405,6 +1405,9 @@ impl Session {
                 let encrypted_name = topic.name.clone();
                 let decrypted_name = self.decrypt_topic_name(topic.name.to_owned())?;
 
+                // Restore plaintext topic name for the response
+                topic.name = decrypted_name.clone();
+
                 let collection_partitions = &collections
                     .iter()
                     .find(|(topic_name, _)| topic_name == &decrypted_name)
