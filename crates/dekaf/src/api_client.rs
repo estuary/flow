@@ -634,8 +634,9 @@ impl KafkaClientAuth {
                 cached,
             } => {
                 if let Some((cfg, exp)) = cached {
-                    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-                    if (*exp as u128) - now < 30 {
+                    let now_seconds = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+                    // Use a 30-second buffer before expiration to refresh the token.
+                    if *exp as u64 > now_seconds + 30 {
                         return Ok(cfg.clone());
                     }
                 }
