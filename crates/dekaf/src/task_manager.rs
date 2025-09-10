@@ -50,6 +50,8 @@ pub type Result<T> = core::result::Result<T, SharedError>;
 const TASK_TIMEOUT: Duration = Duration::from_secs(60 * 3);
 /// How long before the end of an access token should we start trying to refresh it
 const REFRESH_START_AT: Duration = Duration::from_secs(60 * 5);
+/// How long to cache a MaterializationSpec before re-fetching it, even if the token is still valid.
+const SPEC_TTL: Duration = Duration::from_secs(60 * 2);
 
 #[derive(Clone)]
 pub enum TaskState {
@@ -321,6 +323,7 @@ impl TaskManager {
                         ops_logs_journal,
                         ops_stats_journal,
                         spec,
+                        ..
                     } => {
                         // Continue with normal processing
                         partitions_and_clients = update_partition_info(
@@ -642,22 +645,32 @@ pub enum DekafTaskAuth {
         ops_logs_journal: String,
         ops_stats_journal: String,
         spec: MaterializationSpec,
+        fetched_at: time::OffsetDateTime,
     },
 }
 
 impl DekafTaskAuth {
-    fn exp(&self) -> u64 {
+    fn exp(&self) -> anyhow::Result<time::OffsetDateTime> {
         match self {
             DekafTaskAuth::Redirect { fetched_at, .. } => {
                 // Redirects are valid for 10 minutes
-                fetched_at.unix_timestamp() as u64 + 60 * 10
+                Ok(*fetched_at + Duration::from_secs(60 * 10))
             }
-            DekafTaskAuth::Auth { claims, .. } => claims.exp,
+            DekafTaskAuth::Auth { claims, .. } => {
+                time::OffsetDateTime::from_unix_timestamp(claims.exp as i64).map_err(|e| e.into())
+            }
         }
     }
-    fn refresh_at(&self) -> u64 {
-        // Refresh the client if its token is closer than REFRESH_START_AT to its expiration.
-        self.exp() - REFRESH_START_AT.as_secs()
+    fn refresh_at(&self) -> anyhow::Result<time::OffsetDateTime> {
+        let token_refresh_at = self.exp()? - REFRESH_START_AT;
+
+        let spec_refresh_at = match self {
+            DekafTaskAuth::Redirect { fetched_at, .. } => *fetched_at + SPEC_TTL,
+            DekafTaskAuth::Auth { fetched_at, .. } => *fetched_at + SPEC_TTL,
+        };
+
+        // Refresh when either the token is nearing expiry or the spec is stale
+        Ok(std::cmp::min(token_refresh_at, spec_refresh_at))
     }
 }
 
@@ -669,10 +682,10 @@ async fn get_or_refresh_dekaf_auth(
     data_plane_signer: &jsonwebtoken::EncodingKey,
     timeout: Duration,
 ) -> anyhow::Result<DekafTaskAuth> {
-    let now = time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+    let now = time::OffsetDateTime::now_utc();
 
     if let Some(cached_auth) = cached {
-        if now < cached_auth.refresh_at() {
+        if now < cached_auth.refresh_at()? {
             tracing::debug!("DekafTaskAuth is still valid, no need to refresh.");
             return Ok(cached_auth);
         }
@@ -691,7 +704,9 @@ async fn get_or_refresh_dekaf_auth(
         {
             Ok(resp) => resp,
             Err(_) => {
-                if time::OffsetDateTime::now_utc().unix_timestamp() < cached_auth.exp() as i64 {
+                // This isn't checking SPEC_TTL, so it will potentially hand out
+                // stale specs up until the token's expiration
+                if time::OffsetDateTime::now_utc() < cached_auth.exp()? {
                     tracing::warn!(
                         "Timed out while refreshing DekafTaskAuth, but the token is still valid."
                     );
@@ -811,5 +826,6 @@ async fn fetch_dekaf_task_auth(
         ops_logs_journal,
         ops_stats_journal,
         spec: parsed_spec,
+        fetched_at: time::OffsetDateTime::now_utc(),
     })
 }
