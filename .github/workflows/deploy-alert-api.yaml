@@ -39,7 +39,7 @@ jobs:
             ALERT_REPLY_TO_ADDRESS=support@estuary.dev
           secrets: |-
             RESEND_API_KEY=ALERTS_RESEND_API_KEY:latest
-            ALERT_EMAIL_FUNCTION_SECRET=ALERT_EMAIL_FUNCTION_SECRET:latest
+            ALERT_EMAIL_FUNCTION_SECRET=ALERTS_API_SHARED_SECRET:latest
             RESEND_EMAIL_ADDRESS=ALERTS_SENDER_EMAIL:latest
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite
