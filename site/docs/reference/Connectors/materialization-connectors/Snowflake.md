@@ -75,8 +75,8 @@ grant CREATE SCHEMA, MONITOR, USAGE on database identifier($database_name) to ro
 use role ACCOUNTADMIN;
 grant CREATE INTEGRATION on account to role identifier($estuary_role);
 use role sysadmin;
--- Use `TIMESTAMP_LTZ` or `TIMESTAMP_TZ`
-ALTER USER $estuary_user SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_LTZ';
+-- Optional: Set the timestamp type to `TIMESTAMP_TZ`; otherwise defaults to using `TIMESTAMP_LTZ`
+-- ALTER USER $estuary_user SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_TZ';
 COMMIT;
 ```
 
