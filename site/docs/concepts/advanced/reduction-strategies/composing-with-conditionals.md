@@ -1,5 +1,6 @@
 ---
 description: Using conditionals statements to fine-tune reductions
+slug: /reference/reduction-strategies/composing-with-conditionals/
 sidebar_position: 30
 ---
 

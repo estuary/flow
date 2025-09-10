@@ -1,3 +1,7 @@
+---
+sidebar_position: 0
+---
+
 # Using Estuary Flow
 
 In this section, you'll find step-by-step guides that walk you through common Flow tasks.

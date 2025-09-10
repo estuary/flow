@@ -1,5 +1,6 @@
 ---
 description: Using the set reduction strategy
+slug: /reference/reduction-strategies/set/
 sidebar_position: 5
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Using the sum reduction strategy
+slug: /reference/reduction-strategies/sum/
 sidebar_position: 6
 ---
 

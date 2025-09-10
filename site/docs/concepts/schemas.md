@@ -331,7 +331,7 @@ reduce: { strategy: merge }
 ```
 
 Learn more in the
-[reduction strategies](../../reference/reduction-strategies/)
+[reduction strategies](/reference/reduction-strategies/)
 reference documentation.
 
 #### Reductions and collection keys
@@ -372,7 +372,7 @@ oneOf:
 ```
 
 You can combine schema conditionals with annotations to build
-[rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
+[rich behaviors](/reference/reduction-strategies/composing-with-conditionals).
 
 ## Continuous schema inference
 

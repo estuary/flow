@@ -1,5 +1,6 @@
 ---
 description: Using the merge reduction strategy
+slug: /reference/reduction-strategies/merge/
 sidebar_position: 3
 ---
 

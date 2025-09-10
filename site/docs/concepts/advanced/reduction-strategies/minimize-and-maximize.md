@@ -1,5 +1,6 @@
 ---
 description: Using the minimize and maximize reduction strategies
+slug: /reference/reduction-strategies/minimize-and-maximize/
 sidebar_position: 4
 ---
 

@@ -99,7 +99,7 @@ Pinecone [upserts](https://docs.pinecone.io/reference/upsert) vectors based on t
 for materialized vectors is based on the Flow Collection key.
 
 For collections with a a top-level reduction strategy of
-[merge](../../reduction-strategies/merge.md) and a strategy of
-[lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) for all nested
+[merge](/reference/reduction-strategies/merge) and a strategy of
+[lastWriteWins](/reference/reduction-strategies/firstwritewins-and-lastwritewins) for all nested
 values (this is also the default), collections will be materialized "effectively once", with any
 updated Flow documents replacing vectors in the Pinecone index if they have the same key.

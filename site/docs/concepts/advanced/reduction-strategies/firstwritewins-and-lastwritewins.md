@@ -1,5 +1,6 @@
 ---
 description: Using the firstWriteWins and lastWriteWins reduction strategies
+slug: /reference/reduction-strategies/firstwritewins-and-lastwritewins/
 sidebar_position: 2
 ---
 

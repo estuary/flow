@@ -90,8 +90,8 @@ in Flow mirror Rockset's semantics.
 
 To accomplish this, ensure that your collection schema has the following [data reductions](../../../concepts/schemas.md#reductions) defined in its schema:
 
-* A top-level reduction strategy of [merge](../../reduction-strategies/merge.md)
-* A strategy of [lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) for all nested values (this is the default)
+* A top-level reduction strategy of [merge](/reference/reduction-strategies/merge)
+* A strategy of [lastWriteWins](/reference/reduction-strategies/firstwritewins-and-lastwritewins) for all nested values (this is the default)
 
 ## Changelog
 

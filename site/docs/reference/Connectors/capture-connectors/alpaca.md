@@ -113,4 +113,4 @@ Unless otherwise specified in their [documentation page](../materialization-conn
 If a connector supports both modes, it will default to standard updates.
 
 * If you plan to materialize to an endpoint for which [delta updates](/concepts/materialization/#delta-updates) is the only option,
-ensure that the endpoint system supports the equivalent of [lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) reductions.
+ensure that the endpoint system supports the equivalent of [lastWriteWins](/reference/reduction-strategies/firstwritewins-and-lastwritewins) reductions.

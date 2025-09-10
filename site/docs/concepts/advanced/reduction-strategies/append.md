@@ -1,5 +1,6 @@
 ---
 description: Using the append reduction strategy
+slug: /reference/reduction-strategies/append/
 sidebar_position: 1
 ---
 

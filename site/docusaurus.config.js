@@ -149,13 +149,13 @@ const config = {
             type: 'doc',
             docId: 'getting-started/getting-started',
             position: 'left',
-            label: 'Documentation',
+            label: 'Platform',
           },
           {
             type: 'doc',
             docId: 'reference/Connectors/README',
             position: 'left',
-            label: 'Reference',
+            label: 'Connectors',
           },
           {
             type: 'html',

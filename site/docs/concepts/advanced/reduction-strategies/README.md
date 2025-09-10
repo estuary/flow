@@ -1,10 +1,11 @@
 ---
 description: Flow's default reduction behaviors and available strategies to customize them
+slug: /reference/reduction-strategies/
 ---
 
 # Reduction strategies
 
-Flow uses [reductions](../../concepts/schemas.md#reductions)
+Flow uses [reductions](/concepts/schemas/#reductions)
 to aggregate data in the runtime in order to improve endpoint performance.
 Reductions tell Flow how two versions of a document can be meaningfully combined. Guarantees that underlie all Flow reduction behavior are explained in depth [below](./#reduction-guarantees).
 

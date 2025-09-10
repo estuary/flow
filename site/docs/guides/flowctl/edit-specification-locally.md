@@ -13,7 +13,7 @@ and [basic editing capabilities](/guides/edit-data-flows) are provided.
 However, advanced editing tasks are only possible using flowctl. These include:
 
 * Manually editing collection schemas, for example, to add [projections](../../concepts/advanced/projections.md)
-or change the [reduction strategy](../../reference/reduction-strategies/README.md).
+or change the [reduction strategy](/reference/reduction-strategies).
 * Editing, testing, and publishing multiple entities at once.
 * Creating and editing derivations.
 
