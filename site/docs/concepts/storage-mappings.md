@@ -1,7 +1,7 @@
 ---
-sidebar_position: 8
+sidebar_position: 10
 ---
-# Storage mappings
+# Storage Mappings
 
 Flow stores the documents that comprise your collections in a cloud storage bucket.
 Your **storage mapping** tells Flow which bucket to use.

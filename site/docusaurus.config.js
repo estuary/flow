@@ -91,12 +91,8 @@ const config = {
             from: '/guides/create-derivation/',
           },
           {
-            to: '/reference/Connectors/capture-connectors/HubSpot/',
-            from: '/reference/Connectors/capture-connectors/hubspot/',
-          },
-          {
-            to: '/reference/Connectors/capture-connectors/HubSpot-real-time/',
-            from: '/reference/Connectors/capture-connectors/hubspot-real-time/',
+            to: '/getting-started/tutorials/dataflow-s3-snowflake/',
+            from: '/guides/system-specific-dataflows/s3-to-snowflake/',
           },
         ],
       },
@@ -153,7 +149,13 @@ const config = {
             type: 'doc',
             docId: 'getting-started/getting-started',
             position: 'left',
-            label: 'Documentation',
+            label: 'Platform',
+          },
+          {
+            type: 'doc',
+            docId: 'reference/Connectors/README',
+            position: 'left',
+            label: 'Connectors',
           },
           {
             type: 'html',
