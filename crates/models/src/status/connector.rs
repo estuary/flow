@@ -4,7 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The shape of a connector status, which matches that of an ops::Log.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectorStatus {
     /// The shard that last updated the status
@@ -17,7 +18,7 @@ pub struct ConnectorStatus {
     /// Arbitrary JSON that can be used to communicate additional details. The
     /// specific fields and their meanings are entirely up to the connector.
     #[serde(default)]
-    pub fields: serde_json::Map<String, serde_json::Value>,
+    pub fields: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl ConnectorStatus {
@@ -34,6 +35,7 @@ crate::sqlx_json::sqlx_json!(ConnectorStatus);
 
 /// The shape of a config update event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigUpdate {
     /// The specific shard that emitted the config update event.
@@ -48,8 +50,8 @@ pub struct ConfigUpdate {
     /// the flow `/events` fields: `eventType`, `eventTarget`, and `error`, which
     /// are restricted to string values and `config` which is restricted to the
     /// the updated config.
-    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
-    pub fields: serde_json::Map<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub fields: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 crate::sqlx_json::sqlx_json!(ConfigUpdate);
