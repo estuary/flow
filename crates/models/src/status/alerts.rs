@@ -1,9 +1,21 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
@@ -12,12 +24,12 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum AlertType {
     AutoDiscoverFailed,
-    ShardFailed,
     DataMovementStalled,
     FreeTrial,
     FreeTrialEnding,
     FreeTrialStalled,
     MissingPaymentMethod,
+    ShardFailed,
 }
 
 impl std::fmt::Display for AlertType {
@@ -124,7 +136,7 @@ pub struct ControllerAlert {
     pub resolved_at: Option<DateTime<Utc>>,
     // Allows passing arbitrary data as alert arguments, which will be available in alert message templates.
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
-pub type Alerts = HashMap<AlertType, ControllerAlert>;
+pub type Alerts = BTreeMap<AlertType, ControllerAlert>;

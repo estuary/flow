@@ -6,7 +6,10 @@ use chrono::{DateTime, Utc};
 use models::Id;
 use std::sync::Arc;
 
-use crate::server::{public::graphql::alerts, App, ControlClaims};
+use crate::server::{
+    public::graphql::{alerts, status},
+    App, ControlClaims,
+};
 
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -70,12 +73,11 @@ impl LiveSpec {
         alerts::live_spec_alert_history(ctx, &self.catalog_name, before, last).await
     }
 
-    // async fn controller_status(
-    //     &self,
-    //     ctx: &Context<'_>,
-    // ) -> async_graphql::Result<Option<models::status::capture::CaptureStatus>> {
-    //     todo!()
-    // }
+    async fn status(&self, ctx: &Context<'_>) -> async_graphql::Result<status::Status> {
+        let loader = ctx.data::<async_graphql::dataloader::DataLoader<status::StatusLoader>>()?;
+        let status = loader.load_one(self.catalog_name.clone()).await?;
+        Ok(status.unwrap_or_else(|| status::Status::missing(self.catalog_type)))
+    }
 }
 
 #[derive(Debug, Default)]
