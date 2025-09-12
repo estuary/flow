@@ -42,20 +42,20 @@ Flow collections to your bucket.
 
 #### Endpoint
 
-| Property                          | Title                 | Description                                                                                                                                   | Type    | Required/Default |
-|-----------------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
-| **`/bucket`**                     | Bucket                | Bucket to store materialized objects.                                                                                                         | string  | Required         |
-| **`/uploadInterval`**             | Upload Interval       | Frequency at which files will be uploaded.                                                                                                    | string  | 5m               |
-| **`/credentials/auth_type`**      | Auth Type             | Method to use for authentication.  Must be set to either AWSAccessKey or AWSIAM.                                                              | string  | AWSAccessKey     |
-| `/credentials/awsAccessKeyId`     | AWS Access Key ID     | Access Key ID for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                              | string  |                  |
-| `/credentials/awsSecretAccessKey` | AWS Secret Access key | Secret Access Key for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                          | string  |                  |
-| `/credentials/awsRegion`          | Region                | Region of the bucket to write to.  Required when using the `AWSAccessKey` auth type.                                                          | string  |                  |
-| `/credentials/aws_role_arn`       | AWS Role ARN          | Role to assume for writing data to the bucket.  Required when using the `AWSIAM` auth type.                                                   | string  |                  |
-| `/credentials/aws_region`         | Region                | Region of the bucket to write to.  Required when using the `AWSIAM` auth type.                                                                | string  |                  |
-| `/prefix`                         | Prefix                | Optional prefix that will be used to store objects.                                                                                           | string  |                  |
-| `/fileSizeLimit`                  | File Size Limit       | Approximate maximum size of materialized files in bytes. Defaults to 10737418240 (10 GiB) if blank.                                           | integer |                  |
-| `/endpoint`                       | Custom S3 Endpoint    | The S3 endpoint URI to connect to. Use if you're materializing to a compatible API that isn't provided by AWS. Should normally be left blank. | string  |                  |
-| `/csvConfig/skipHeaders`          | Skip Headers          | Do not write headers to files.                                                                                                                | integer |                  |
+| Property                             | Title                 | Description                                                                                                                                   | Type    | Required/Default |
+|--------------------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
+| **`/bucket`**                        | Bucket                | Bucket to store materialized objects.                                                                                                         | string  | Required         |
+| **`/region`**                        | Region                | Region of the bucket to write to.                                                                                                             | string  | Required         |
+| **`/uploadInterval`**                | Upload Interval       | Frequency at which files will be uploaded.                                                                                                    | string  | 5m               |
+| **`/credentials/auth_type`**         | Auth Type             | Method to use for authentication.  Must be set to either AWSAccessKey or AWSIAM.                                                              | string  | AWSAccessKey     |
+| `/credentials/aws_access_key_id`     | AWS Access Key ID     | Access Key ID for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                              | string  |                  |
+| `/credentials/aws_secret_access_key` | AWS Secret Access key | Secret Access Key for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                          | string  |                  |
+| `/credentials/aws_role_arn`          | AWS Role ARN          | Role to assume for writing data to the bucket.  Required when using the `AWSIAM` auth type.                                                   | string  |                  |
+| `/credentials/aws_region`            | Region                | Region of the bucket to write to.  Required when using the `AWSIAM` auth type.                                                                | string  |                  |
+| `/prefix`                            | Prefix                | Optional prefix that will be used to store objects.                                                                                           | string  |                  |
+| `/fileSizeLimit`                     | File Size Limit       | Approximate maximum size of materialized files in bytes. Defaults to 10737418240 (10 GiB) if blank.                                           | integer |                  |
+| `/endpoint`                          | Custom S3 Endpoint    | The S3 endpoint URI to connect to. Use if you're materializing to a compatible API that isn't provided by AWS. Should normally be left blank. | string  |                  |
+| `/csvConfig/skipHeaders`             | Skip Headers          | Do not write headers to files.                                                                                                                | integer |                  |
 
 #### Bindings
 
