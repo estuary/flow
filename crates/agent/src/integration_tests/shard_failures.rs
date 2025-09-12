@@ -473,6 +473,11 @@ async fn test_backoff_repeated_shard_failures(
                 .assert_alert_firing(catalog_name, AlertType::ShardFailed)
                 .await;
             assert_eq!(i + 1, alert_status.count, "failure count should match");
+            assert!(
+                alert_status.error.ends_with("a test error"),
+                "unexpected alert error: '{}'",
+                alert_status.error
+            );
         }
     }
 

@@ -201,10 +201,30 @@ pub async fn update_activation<C: ControlPlane>(
                 .map(|s| s.catalog_type())
                 .filter(|_| status.recent_failure_count >= *ALERT_AFTER_SHARD_FAILURES)
             {
-                let last_error = status.last_failure.as_ref().map(|f| f.ts).unwrap_or(now);
+                // last_failure should always be present, but this just prevents
+                // things from blowing up if someone were to manually edit the
+                // controller status, or if the status was last serialized by a
+                // different version of the agent.
+                // We prefer `fields.error` over `message` because it provides
+                // more detailed information about the failure. The error
+                // _should_ always be present, but is not technically required
+                // by the schema, so this is another bit of defensive programming.
+                let (last_error, last_message) = status
+                    .last_failure
+                    .as_ref()
+                    .map(|f| {
+                        (
+                            f.ts,
+                            f.fields
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(f.message.as_str()),
+                        )
+                    })
+                    .unwrap_or((now, "Unknown"));
                 let error = format!(
-                    "Observed {} recent task shard failures, the latest at {}",
-                    status.recent_failure_count, last_error
+                    "Observed {} recent task shard failures, the latest at {}. Last failure:\n{}",
+                    status.recent_failure_count, last_error, last_message
                 );
 
                 alerts::set_alert_firing(

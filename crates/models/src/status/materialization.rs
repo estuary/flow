@@ -25,6 +25,7 @@ pub struct MaterializationStatus {
 
 /// Status information about the `sourceCapture`
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct SourceCaptureStatus {
     /// Whether the materialization bindings are up-to-date with respect to
     /// the `sourceCapture` bindings. In normal operation, this should always
