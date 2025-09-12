@@ -101,7 +101,7 @@ scalar JSON
 type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
-	specType: CatalogType!
+	catalogType: CatalogType!
 	model: JSON!
 	lastBuildId: Id!
 	lastPubId: Id!
