@@ -13,7 +13,10 @@ use super::activation::ShardsStatus;
 /// things, but here we're primarily concerned with answering the question: "do
 /// we see any problems that might be affecting the correct operation of the
 /// task".
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::Enum))]
 #[serde(rename_all = "camelCase")]
 pub enum StatusSummaryType {
     /// Things seem ...not bad
@@ -29,6 +32,8 @@ pub enum StatusSummaryType {
     Error,
 }
 
+// Note that Summary is not directly exposed in the graphql schema, which only exposes
+// its constituent parts, not the struct itself.
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {

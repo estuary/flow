@@ -3,7 +3,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The highest-level status of a publication.
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "camelCase")
+)]
 #[serde(rename_all = "camelCase")]
 pub enum StatusType {
     /// The publication has not yet been completed.
@@ -41,6 +46,11 @@ pub enum StatusType {
 
 /// The status of a publication.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::SimpleObject),
+    graphql(rename_fields = "camelCase")
+)]
 #[serde(rename_all = "camelCase")]
 pub struct JobStatus {
     pub r#type: StatusType,
@@ -79,6 +89,7 @@ impl JobStatus {
 
 /// Represents an optimistic lock failure when trying to update live specs.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct LockFailure {
     /// The name of the spec that failed the optimistic concurrency check.
     pub catalog_name: String,
