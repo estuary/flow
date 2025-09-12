@@ -13,7 +13,7 @@ use crate::server::{public::graphql::alerts, App, ControlClaims};
 pub struct LiveSpec {
     pub live_spec_id: Id,
     pub catalog_name: String,
-    pub spec_type: models::CatalogType,
+    pub catalog_type: models::CatalogType,
     pub model: async_graphql::Json<async_graphql::Value>,
     pub last_build_id: Id,
     pub last_pub_id: Id,
@@ -158,7 +158,7 @@ pub async fn list_live_specs_by_prefix(
                     let live = LiveSpec {
                                     catalog_name: row.catalog_name,
                                     live_spec_id: row.live_spec_id,
-                                    spec_type: row.spec_type,
+                                    catalog_type: row.spec_type,
                                     model: async_graphql::Json(row.model.map(|j| j.0).unwrap_or_default()),
                                     last_build_id: row.last_build_id,
                                     last_pub_id: row.last_pub_id,
