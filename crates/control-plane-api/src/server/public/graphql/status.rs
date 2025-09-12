@@ -1,0 +1,149 @@
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use models::status::{ConnectorStatus, ControllerStatus, StatusSummaryType, Summary};
+
+pub struct StatusLoader(pub sqlx::PgPool);
+
+/// Status info related to the controller
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct Controller {
+    pub next_run: Option<DateTime<Utc>>,
+    pub error: Option<String>,
+    pub failures: i32,
+    /// The top-level fields of the controller status json are flattened into this struct
+    /// in order to avoid the stuttering of `status.controller.status`.
+    #[graphql(flatten)]
+    pub status: ControllerStatus,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// The status of a LiveSpec
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct Status {
+    pub r#type: StatusSummaryType,
+    pub summary: String,
+    pub controller: Controller,
+    pub connector: Option<ConnectorStatus>,
+}
+
+impl Status {
+    pub fn missing(catalog_type: models::CatalogType) -> Self {
+        Status {
+            r#type: StatusSummaryType::Error,
+            summary: "No status information available".to_string(),
+            // Set error and failures here to make sure it's obvious to the caller that something is wrong
+            controller: Controller {
+                next_run: None,
+                error: Some("controller status information unavailable".to_string()),
+                failures: 1,
+                status: ControllerStatus::new(catalog_type),
+                updated_at: Utc::now(),
+            },
+            connector: None,
+        }
+    }
+}
+
+impl From<StatusRow> for Status {
+    fn from(value: StatusRow) -> Self {
+        let StatusRow {
+            catalog_name: _,
+            disabled,
+            last_build_id,
+            connector_status,
+            controller_next_run,
+            controller_updated_at,
+            controller_status,
+            controller_error,
+            controller_failures,
+        } = value;
+
+        let summary = Summary::of(
+            disabled,
+            last_build_id,
+            controller_error.as_deref(),
+            Some(&controller_status).filter(|s| !s.is_uninitialized()),
+            connector_status.as_ref(),
+        );
+
+        //let gql_status = map_controller_status(controller_status);
+
+        Status {
+            r#type: summary.status,
+            summary: summary.message,
+            controller: Controller {
+                next_run: controller_next_run,
+                error: controller_error,
+                failures: controller_failures,
+                status: controller_status,
+                updated_at: controller_updated_at,
+            },
+            connector: connector_status,
+        }
+    }
+}
+
+impl async_graphql::dataloader::Loader<String> for StatusLoader {
+    type Value = Status;
+
+    type Error = String;
+
+    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
+        let statuses = fetch_status(&self.0, keys)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(statuses)
+    }
+}
+
+struct StatusRow {
+    catalog_name: String,
+    last_build_id: models::Id,
+    disabled: bool,
+    connector_status: Option<ConnectorStatus>,
+    controller_next_run: Option<DateTime<Utc>>,
+    controller_updated_at: DateTime<Utc>,
+    controller_status: ControllerStatus,
+    controller_error: Option<String>,
+    controller_failures: i32,
+}
+
+pub async fn fetch_status(
+    pool: &sqlx::PgPool,
+    catalog_names: &[String],
+) -> sqlx::Result<HashMap<String, Status>> {
+    let rows = sqlx::query_as!(
+        StatusRow,
+        r#"select
+        ls.catalog_name as "catalog_name: String",
+        ls.last_build_id as "last_build_id: models::Id",
+        coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as "disabled!: bool",
+        cs.flow_document as "connector_status: ConnectorStatus",
+        t.wake_at as "controller_next_run: DateTime<Utc>",
+        cj.updated_at as "controller_updated_at: DateTime<Utc>",
+        cj.status as "controller_status: ControllerStatus",
+        cj.error as "controller_error: String",
+        cj.failures as "controller_failures: i32"
+    from live_specs ls
+    join controller_jobs cj on ls.id = cj.live_spec_id
+    join internal.tasks t on ls.controller_task_id = t.task_id
+    left outer join connector_status cs on ls.catalog_name = cs.catalog_name
+    where ls.catalog_name::text = any($1::text[])
+    and ls.spec_type is not null
+        "#,
+        catalog_names as &[String],
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let resp = rows
+        .into_iter()
+        .map(|mut row| {
+            let name = std::mem::take(&mut row.catalog_name);
+            let status = Status::from(row);
+            (name, status)
+        })
+        .collect();
+    Ok(resp)
+}

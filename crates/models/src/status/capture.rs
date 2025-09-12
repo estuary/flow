@@ -30,6 +30,7 @@ pub struct CaptureStatus {
 
 /// A capture binding that has changed as a result of a discover
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct DiscoverChange {
     /// Identifies the resource in the source system that this change pertains to.
     pub resource_path: ResourcePath,
@@ -51,6 +52,7 @@ impl DiscoverChange {
 
 /// The results of an auto-discover attempt
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverOutcome {
     /// Time at which the disocver was attempted
     #[schemars(schema_with = "crate::datetime_schema")]
@@ -67,7 +69,10 @@ pub struct AutoDiscoverOutcome {
     /// Errors that occurred during the discovery or evolution process.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<draft_error::Error>,
-    /// Collections that were re-created due to the collection key having changed.
+    /// Deprecated. Evolution is now handled as part of the build, and results
+    /// are reported as part of the `model_fixes`, which are added to the `detail`
+    /// in `publication_specs`.
+    #[cfg_attr(feature = "async-graphql", graphql(skip))]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub re_created_collections: Vec<EvolvedCollection>,
     /// The result of publishing the discovered changes, if a publication was attempted.
@@ -139,6 +144,7 @@ impl AutoDiscoverOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverFailure {
     /// The number of consecutive failures that have been observed.
     pub count: u32,
@@ -152,7 +158,11 @@ pub struct AutoDiscoverFailure {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverStatus {
+    // Note that interval is skipped in graphql because `std::time::Duration`
+    // doesn't implement `async_graphql::Scalar` and it's not really something
+    // we use at the moment anyway.
     /// The interval at which auto-discovery is run. This is normally unset, which uses
     /// the default interval.
     #[serde(
@@ -161,6 +171,7 @@ pub struct AutoDiscoverStatus {
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "interval_schema")]
+    #[cfg_attr(feature = "async-graphql", graphql(skip))]
     pub interval: Option<std::time::Duration>,
 
     /// Time at which the next auto-discover should be run.

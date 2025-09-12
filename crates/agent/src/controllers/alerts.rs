@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use models::status::{AlertState, AlertType, Alerts, ControllerAlert};
 
@@ -37,7 +35,7 @@ pub fn set_alert_firing(
                 count,
                 spec_type,
                 resolved_at: None,
-                extra: HashMap::new(),
+                extra: Default::default(),
             },
         );
     }

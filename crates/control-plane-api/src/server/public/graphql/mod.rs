@@ -5,6 +5,7 @@ mod alerts;
 pub mod id;
 mod live_specs;
 mod prefixes;
+pub mod status;
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::Extension;
@@ -44,15 +45,18 @@ pub(crate) async fn graphql_handler(
     app_state: axum::extract::State<Arc<App>>,
     req: axum::extract::Json<async_graphql::Request>,
 ) -> axum::Json<async_graphql::Response> {
-    let pool = app_state.pg_pool.clone();
-    let request =
-        req.0
-            .data(app_state.0)
-            .data(claims.0)
-            .data(async_graphql::dataloader::DataLoader::new(
-                alerts::AlertLoader(pool),
-                tokio::spawn,
-            ));
+    let request = req
+        .0
+        .data(app_state.0.clone())
+        .data(claims.0)
+        .data(async_graphql::dataloader::DataLoader::new(
+            alerts::AlertLoader(app_state.pg_pool.clone()),
+            tokio::spawn,
+        ))
+        .data(async_graphql::dataloader::DataLoader::new(
+            status::StatusLoader(app_state.pg_pool.clone()),
+            tokio::spawn,
+        ));
 
     let response = schema.execute(request).await;
     axum::Json(response)
