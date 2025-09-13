@@ -1,4 +1,5 @@
-use super::{AsNode, BumpStr, BumpVec, Field, Fields, HeapField, HeapNode, Node};
+use super::{BumpStr, BumpVec, HeapField, HeapNode};
+use json::{AsNode, Field, Fields, Node};
 use std::str::FromStr;
 
 /// Token is a parsed token of a JSON pointer.

@@ -62,7 +62,7 @@ pub fn json_schema_to_avro(
 }
 
 /// Encode a document into a binary AVRO representation using the given schema.
-pub fn encode<'s, 'n, N: doc::AsNode>(
+pub fn encode<'s, 'n, N: json::AsNode>(
     b: &mut Vec<u8>,
     schema: &'s Schema,
     node: &'n N,

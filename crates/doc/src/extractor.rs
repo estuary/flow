@@ -1,4 +1,4 @@
-use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer, SerPolicy};
+use crate::{compare::compare, OwnedNode, Pointer, SerPolicy};
 use bytes::BufMut;
 use std::{
     borrow::Cow,
@@ -76,7 +76,7 @@ impl Extractor {
     /// and a borrowed Value is returned.
     ///
     /// Or, it may be a dynamic Value extracted from a UUID timestamp.
-    pub fn query<'s, 'n, N: AsNode>(
+    pub fn query<'s, 'n, N: json::AsNode>(
         &'s self,
         doc: &'n N,
     ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
@@ -88,7 +88,7 @@ impl Extractor {
             None => { /* sorry, kid, I guess your parents aren't coming back */ }
             Some(Magic::UuidV1DateTime) => {
                 if let Some(date_time) = match node.as_node() {
-                    Node::String(s) => Some(s),
+                    json::Node::String(s) => Some(s),
                     _ => None,
                 }
                 .and_then(|s| proto_gazette::uuid::parse_str(s).ok())
@@ -124,8 +124,8 @@ impl Extractor {
         Ok(node)
     }
 
-    /// Extract a packed tuple representation from an instance of doc::AsNode.
-    pub fn extract_all<N: AsNode>(
+    /// Extract a packed tuple representation from an instance of json::AsNode.
+    pub fn extract_all<N: json::AsNode>(
         doc: &N,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
@@ -134,8 +134,8 @@ impl Extractor {
         Extractor::extract_all_indicate_truncation(doc, extractors, out, indicator)
     }
 
-    /// Extract a packed tuple representation from an instance of doc::AsNode.
-    pub fn extract_all_indicate_truncation<N: AsNode>(
+    /// Extract a packed tuple representation from an instance of json::AsNode.
+    pub fn extract_all_indicate_truncation<N: json::AsNode>(
         doc: &N,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
@@ -194,8 +194,8 @@ impl Extractor {
         }
     }
 
-    /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
-    pub fn extract_indicate_truncation<N: AsNode, W: std::io::Write>(
+    /// Extract from an instance of json::AsNode, writing a packed encoding into the writer.
+    pub fn extract_indicate_truncation<N: json::AsNode, W: std::io::Write>(
         &self,
         doc: &N,
         w: &mut W,
@@ -214,14 +214,14 @@ impl Extractor {
         Ok(())
     }
 
-    /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
-    pub fn extract<N: AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
+    /// Extract from an instance of json::AsNode, writing a packed encoding into the writer.
+    pub fn extract<N: json::AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
         let indicator = &AtomicBool::new(false);
         self.extract_indicate_truncation(doc, w, indicator)
     }
 
     /// Compare the deep ordering of `lhs` and `rhs` with respect to a composite key.
-    pub fn compare_key<L: AsNode, R: AsNode>(key: &[Self], lhs: &L, rhs: &R) -> std::cmp::Ordering {
+    pub fn compare_key<L: json::AsNode, R: json::AsNode>(key: &[Self], lhs: &L, rhs: &R) -> std::cmp::Ordering {
         use std::cmp::Ordering;
 
         key.iter()

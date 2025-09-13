@@ -21,7 +21,7 @@ pub enum CustomizableExtractor {
 // This lets us add our own "virtual" fields to Dekaf without having to add them to
 // doc::Extractor and all of the other platform machinery.
 impl CustomizableExtractor {
-    pub fn extract<'s, 'n, N: doc::AsNode>(
+    pub fn extract<'s, 'n, N: json::AsNode>(
         &'s self,
         doc: &'n N,
     ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
@@ -30,7 +30,7 @@ impl CustomizableExtractor {
             CustomizableExtractor::IsDeleted => {
                 let deletion = match META_OP_PTR.query(doc) {
                     Some(n) => match n.as_node() {
-                        doc::Node::String(s) if s == "d" => 1,
+                        json::Node::String(s) if s == "d" => 1,
                         _ => 0,
                     },
                     None => 0,
@@ -41,7 +41,7 @@ impl CustomizableExtractor {
             CustomizableExtractor::RootExtractorWithIsDeleted => {
                 let deletion = match META_OP_PTR.query(doc) {
                     Some(n) => match n.as_node() {
-                        doc::Node::String(s) if s == "d" => 1,
+                        json::Node::String(s) if s == "d" => 1,
                         _ => 0,
                     },
                     None => 0,

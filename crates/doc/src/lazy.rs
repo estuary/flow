@@ -1,6 +1,5 @@
-use super::{
-    AsNode, BumpStr, FailedValidation, Field, Fields, HeapField, HeapNode, Node, Valid, Validator,
-};
+use super::{BumpStr, FailedValidation, HeapField, HeapNode, Valid, Validator};
+use json::{AsNode, Field, Fields, Node};
 
 /// LazyNode is either a HeapNode, or is an AsNode which may be promoted to a HeapNode.
 pub enum LazyNode<'alloc, 'n, N: AsNode> {

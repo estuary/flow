@@ -422,10 +422,8 @@ fn update_connector_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use doc::AsNode;
     use proto_flow::capture::{self, response::discovered};
     use serde_json::json;
-    use tables::DraftRow;
 
     #[test]
     fn test_response_parsing() {

@@ -1,4 +1,5 @@
-use super::{AsNode, HeapField, HeapNode};
+use super::{HeapField, HeapNode};
+use json::AsNode;
 use crate::{BumpStr, BumpVec};
 use itertools::Itertools;
 use json::validator::{self, Context};

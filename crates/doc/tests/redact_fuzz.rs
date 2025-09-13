@@ -1,4 +1,5 @@
-use doc::AsNode;
+
+use json::AsNode;
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;

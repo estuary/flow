@@ -4,8 +4,9 @@ use super::{
 };
 use crate::{
     lazy::{LazyDestructured, LazyNode},
-    AsNode, BumpVec, HeapNode, Node, Pointer,
+    BumpVec, HeapNode, Pointer,
 };
+use json::{AsNode, Node};
 use itertools::EitherOrBoth;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]

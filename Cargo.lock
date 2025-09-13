@@ -4436,6 +4436,7 @@ version = "0.0.0"
 dependencies = [
  "doc",
  "insta",
+ "json",
  "percent-encoding",
  "proto-flow",
  "proto-gazette",
@@ -7271,6 +7272,7 @@ dependencies = [
  "doc",
  "hexdump",
  "insta",
+ "json",
  "memchr",
  "quickcheck",
  "rkyv",

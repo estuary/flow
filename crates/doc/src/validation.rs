@@ -1,4 +1,4 @@
-use super::{walker::walk_document, Annotation, AsNode, SerPolicy};
+use super::{walker::walk_document, Annotation, SerPolicy};
 use std::pin::Pin;
 
 // Specialize json templates for the Flow `Annotation` type.
@@ -100,7 +100,7 @@ impl Validator {
 
     /// Validate validates the given document against the given schema.
     /// If schema is None, than the root_curi() of this Validator is validated.
-    pub fn validate<'doc, 'v, N: AsNode>(
+    pub fn validate<'doc, 'v, N: json::AsNode>(
         &'v mut self,
         schema: Option<&'v url::Url>,
         document: &'doc N,
@@ -156,7 +156,7 @@ pub struct Invalid<'schema, 'tmp> {
 impl<'schema, 'tmp> Validation<'schema, 'tmp> {
     /// Validate is a lower-level API for verifying a given document against the given schema.
     /// You probably want to use Validator::validate() instead of this function.
-    pub fn validate<'doc, N: AsNode>(
+    pub fn validate<'doc, N: json::AsNode>(
         validator: &'tmp mut RawValidator<'schema>,
         schema: &'tmp url::Url,
         document: &'doc N,
@@ -214,7 +214,7 @@ impl<'schema, 'tmp> Invalid<'schema, 'tmp> {
 
     pub fn revalidate_with_context<'doc, N>(self, document: &'doc N) -> FailedValidation
     where
-        N: AsNode,
+        N: json::AsNode,
     {
         let Self {
             schema,

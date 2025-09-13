@@ -1,7 +1,6 @@
-use super::{AsNode, Field, Fields, Node};
 
 use fxhash::{hash64, FxHasher64};
-use json::Span;
+use json::{Field, Fields, Span};
 use std::hash::{Hash, Hasher};
 
 /// walk_document is an integration joint between the (newer) AsNode trait
@@ -10,14 +9,14 @@ use std::hash::{Hash, Hasher};
 ///
 /// Eventually we may want to update our JSON schema validation implementation
 /// to directly use the AsNode trait, removing the need for this function.
-pub fn walk_document<'l, N: AsNode, W: json::Walker>(
+pub fn walk_document<'l, N: json::AsNode, W: json::Walker>(
     document: &N,
     walker: &mut W,
     location: &json::Location<'l>,
     span_begin: usize,
 ) -> json::Span {
     match document.as_node() {
-        Node::Array(arr) => {
+        json::Node::Array(arr) => {
             let mut span = Span::new(span_begin, ARRAY_SEED);
             let mut hasher = FxHasher64::default();
 
@@ -43,20 +42,20 @@ pub fn walk_document<'l, N: AsNode, W: json::Walker>(
             walker.pop_array(&span, location, arr.len());
             span
         }
-        Node::Bool(v) => {
+        json::Node::Bool(v) => {
             let span = Span::new(span_begin, if v { BOOL_TRUE_HASH } else { BOOL_FALSE_HASH });
             walker.pop_bool(&span, location, v);
             span
         }
-        Node::Bytes(_b) => {
+        json::Node::Bytes(_b) => {
             unimplemented!("bytes are not supported for validation yet")
         }
-        Node::Null => {
+        json::Node::Null => {
             let span = Span::new(span_begin, UNIT_HASH);
             walker.pop_null(&span, location);
             span
         }
-        Node::Float(f) => {
+        json::Node::Float(f) => {
             let hash = {
                 // Separately hash integral and fractional hash parts to maintain equality
                 // between integer f64 values and u64/i64 types.
@@ -67,22 +66,22 @@ pub fn walk_document<'l, N: AsNode, W: json::Walker>(
             walker.pop_numeric(&span, location, json::Number::Float(f));
             span
         }
-        Node::NegInt(s) => {
+        json::Node::NegInt(s) => {
             let span = Span::new(span_begin, hash64(&s));
             walker.pop_numeric(&span, location, json::Number::Signed(s));
             span
         }
-        Node::PosInt(u) => {
+        json::Node::PosInt(u) => {
             let span = Span::new(span_begin, hash64(&u));
             walker.pop_numeric(&span, location, json::Number::Unsigned(u));
             span
         }
-        Node::String(v) => {
+        json::Node::String(v) => {
             let span = Span::new(span_begin, STRING_SEED ^ hash64(v));
             walker.pop_str(&span, location, v);
             span
         }
-        Node::Object(fields) => {
+        json::Node::Object(fields) => {
             let mut span = Span::new(span_begin, OBJECT_SEED);
 
             for (index, field) in fields.iter().enumerate() {

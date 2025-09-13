@@ -1,4 +1,5 @@
-use super::{AsNode, Field, Fields, LazyNode, Node, OwnedNode};
+use super::{LazyNode, OwnedNode};
+use json::{Field, Fields};
 use std::{
     io,
     sync::atomic::{AtomicBool, Ordering},
@@ -44,7 +45,7 @@ impl SerPolicy {
     }
 
     /// Apply the policy to an AsNode instance, returning a serializable SerNode.
-    pub fn with_truncation_indicator<'p, 'n, 's, N: AsNode>(
+    pub fn with_truncation_indicator<'p, 'n, 's, N: json::AsNode>(
         &'p self,
         node: &'n N,
         truncation_indicator: &'s AtomicBool,
@@ -57,7 +58,7 @@ impl SerPolicy {
         }
     }
 
-    pub fn on<'p, 'n, N: AsNode>(&'p self, node: &'n N) -> SerNode<'p, 'n, 'static, N> {
+    pub fn on<'p, 'n, N: json::AsNode>(&'p self, node: &'n N) -> SerNode<'p, 'n, 'static, N> {
         SerNode {
             node,
             depth: 0,
@@ -67,7 +68,7 @@ impl SerPolicy {
     }
 
     /// Apply the policy to a LazyNode instance, returning a serializable SerLazy.
-    pub fn on_lazy<'p, 'alloc, 'n, N: AsNode>(
+    pub fn on_lazy<'p, 'alloc, 'n, N: json::AsNode>(
         &'p self,
         node: &'p LazyNode<'alloc, 'n, N>,
     ) -> SerLazy<'p, 'alloc, 'n, N> {
@@ -126,14 +127,14 @@ impl SerPolicy {
     }
 }
 
-pub struct SerNode<'p, 'n, 's, N: AsNode> {
+pub struct SerNode<'p, 'n, 's, N: json::AsNode> {
     node: &'n N,
     depth: usize,
     policy: &'p SerPolicy,
     truncation_indicator: Option<&'s AtomicBool>,
 }
 
-pub struct SerLazy<'p, 'alloc, 'n, N: AsNode> {
+pub struct SerLazy<'p, 'alloc, 'n, N: json::AsNode> {
     node: &'p LazyNode<'alloc, 'n, N>,
     policy: &'p SerPolicy,
 }
@@ -144,13 +145,13 @@ pub struct SerOwned<'p, 's> {
     truncation_indicator: Option<&'s AtomicBool>,
 }
 
-impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
+impl<'p, 'n, 's, N: json::AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
     {
         match self.node.as_node() {
-            Node::Array(arr) => {
+            json::Node::Array(arr) => {
                 let item_limit = if self.depth < SerPolicy::MAX_DEPTH {
                     self.policy.array_truncate_after
                 } else {
@@ -168,8 +169,8 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
                     truncation_indicator: self.truncation_indicator,
                 }))
             }
-            Node::Bool(b) => serializer.serialize_bool(b),
-            Node::Bytes(b) => {
+            json::Node::Bool(b) => serializer.serialize_bool(b),
+            json::Node::Bytes(b) => {
                 if serializer.is_human_readable() {
                     serializer.collect_str(&base64::display::Base64Display::with_config(
                         b,
@@ -179,11 +180,11 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
                     serializer.serialize_bytes(b)
                 }
             }
-            Node::Null => serializer.serialize_unit(),
-            Node::Float(n) => serializer.serialize_f64(n),
-            Node::NegInt(n) => serializer.serialize_i64(n),
-            Node::PosInt(n) => serializer.serialize_u64(n),
-            Node::Object(fields) => {
+            json::Node::Null => serializer.serialize_unit(),
+            json::Node::Float(n) => serializer.serialize_f64(n),
+            json::Node::NegInt(n) => serializer.serialize_i64(n),
+            json::Node::PosInt(n) => serializer.serialize_u64(n),
+            json::Node::Object(fields) => {
                 let key_limit = if self.depth == 0 {
                     usize::MAX
                 } else if self.depth < SerPolicy::MAX_DEPTH {
@@ -208,7 +209,7 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
                     )
                 }))
             }
-            Node::String(mut s) => {
+            json::Node::String(mut s) => {
                 s = self.policy.apply_to_str(s, self.truncation_indicator);
                 serializer.serialize_str(s)
             }
@@ -217,23 +218,23 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
 }
 
 // SerNode may be packed as a FoundationDB tuple.
-impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
+impl<'p, 'n, 's, N: json::AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
     fn pack<W: io::Write>(
         &self,
         w: &mut W,
         tuple_depth: tuple::TupleDepth,
     ) -> io::Result<tuple::VersionstampOffset> {
         match self.node.as_node() {
-            Node::Array(_) | Node::Object(_) => {
+            json::Node::Array(_) | json::Node::Object(_) => {
                 serde_json::to_vec(self).unwrap().pack(w, tuple_depth)
             }
-            Node::Bool(b) => b.pack(w, tuple_depth),
-            Node::Bytes(b) => b.pack(w, tuple_depth),
-            Node::Null => Option::<()>::None.pack(w, tuple_depth),
-            Node::Float(n) => n.pack(w, tuple_depth),
-            Node::NegInt(n) => n.pack(w, tuple_depth),
-            Node::PosInt(n) => n.pack(w, tuple_depth),
-            Node::String(mut s) => {
+            json::Node::Bool(b) => b.pack(w, tuple_depth),
+            json::Node::Bytes(b) => b.pack(w, tuple_depth),
+            json::Node::Null => Option::<()>::None.pack(w, tuple_depth),
+            json::Node::Float(n) => n.pack(w, tuple_depth),
+            json::Node::NegInt(n) => n.pack(w, tuple_depth),
+            json::Node::PosInt(n) => n.pack(w, tuple_depth),
+            json::Node::String(mut s) => {
                 s = self.policy.apply_to_str(s, self.truncation_indicator);
                 s.pack(w, tuple_depth)
             }
@@ -241,7 +242,7 @@ impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
     }
 }
 
-impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
+impl<N: json::AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,

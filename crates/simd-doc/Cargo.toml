@@ -11,6 +11,7 @@ license.workspace = true
 
 [dependencies]
 doc = { path = "../doc" }
+json = { path = "../json" }
 
 cxx = "1.0"
 

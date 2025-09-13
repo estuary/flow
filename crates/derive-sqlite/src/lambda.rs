@@ -91,7 +91,7 @@ impl<'db> Lambda<'db> {
         })
     }
 
-    pub fn invoke<'s, N: doc::AsNode>(
+    pub fn invoke<'s, N: json::AsNode>(
         &'s mut self,
         document: &N,
     ) -> Result<impl Iterator<Item = rusqlite::Result<serde_json::Value>> + 's, Error> {
@@ -117,7 +117,7 @@ impl<'db> Lambda<'db> {
         Ok(result)
     }
 
-    pub fn invoke_vec<'s, N: doc::AsNode>(
+    pub fn invoke_vec<'s, N: json::AsNode>(
         &'s mut self,
         document: &N,
     ) -> Result<Vec<serde_json::Value>, Error> {
@@ -133,7 +133,7 @@ impl<'db> Lambda<'db> {
     }
 }
 
-fn bind_parameter<N: doc::AsNode>(
+fn bind_parameter<N: json::AsNode>(
     stmt: &mut rusqlite::Statement<'_>,
     index: usize,
     param: &Param,
@@ -145,7 +145,7 @@ fn bind_parameter<N: doc::AsNode>(
     }
 }
 
-fn bind_parameter_node<N: doc::AsNode>(
+fn bind_parameter_node<N: json::AsNode>(
     stmt: &mut rusqlite::Statement<'_>,
     index: usize,
     Param {
@@ -156,13 +156,11 @@ fn bind_parameter_node<N: doc::AsNode>(
     }: &Param,
     node: &N,
 ) -> rusqlite::Result<()> {
-    use doc::Node;
-
     match node.as_node() {
-        Node::Null => return stmt.raw_bind_parameter(index + 1, None::<bool>),
-        Node::Bool(b) => return stmt.raw_bind_parameter(index + 1, b),
+        json::Node::Null => return stmt.raw_bind_parameter(index + 1, None::<bool>),
+        json::Node::Bool(b) => return stmt.raw_bind_parameter(index + 1, b),
 
-        Node::String(s) => {
+        json::Node::String(s) => {
             if *is_format_integer {
                 if let Ok(i) = s.parse::<i64>() {
                     return stmt.raw_bind_parameter(index + 1, i);
@@ -180,15 +178,15 @@ fn bind_parameter_node<N: doc::AsNode>(
             }
             stmt.raw_bind_parameter(index + 1, s)
         }
-        Node::Bytes(b) => stmt.raw_bind_parameter(index + 1, b),
-        Node::Float(f) => stmt.raw_bind_parameter(index + 1, f),
-        Node::NegInt(s) => stmt.raw_bind_parameter(index + 1, s),
-        Node::PosInt(u) => stmt.raw_bind_parameter(index + 1, u),
-        Node::Array(_) => stmt.raw_bind_parameter(
+        json::Node::Bytes(b) => stmt.raw_bind_parameter(index + 1, b),
+        json::Node::Float(f) => stmt.raw_bind_parameter(index + 1, f),
+        json::Node::NegInt(s) => stmt.raw_bind_parameter(index + 1, s),
+        json::Node::PosInt(u) => stmt.raw_bind_parameter(index + 1, u),
+        json::Node::Array(_) => stmt.raw_bind_parameter(
             index + 1,
             &serde_json::to_string(&doc::SerPolicy::noop().on(node)).unwrap(),
         ),
-        Node::Object(_) => stmt.raw_bind_parameter(
+        json::Node::Object(_) => stmt.raw_bind_parameter(
             index + 1,
             &serde_json::to_string(&doc::SerPolicy::noop().on(node)).unwrap(),
         ),

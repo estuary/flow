@@ -1,10 +1,10 @@
+use json::AsNode;
 use quickcheck::quickcheck;
 use serde_json::Value;
 use std::hash::Hasher;
 use xxhash_rust::xxh3::Xxh3;
 
 use super::ArbitraryValue;
-use doc::AsNode;
 
 quickcheck! {
     fn transcode_matches_fallback_fuzz(input: Vec<ArbitraryValue>) -> bool {

@@ -1,4 +1,4 @@
-use super::{heap, AsNode, BumpStr, BumpVec, Field, Fields, HeapNode, Node};
+use super::{heap, BumpStr, BumpVec, HeapNode};
 
 // `rkyv` generates types that mirror the 'alloc lifetime parameter,
 // but this lifetime has no meaning (as far as I can tell).
@@ -83,24 +83,24 @@ where
     }
 }
 
-impl AsNode for ArchivedNode {
+impl json::AsNode for ArchivedNode {
     type Fields = [ArchivedField];
 
     // We *always* want this inline, because the caller will next match
     // over our returned Node, and (when inline'd) the optimizer can
     // collapse the chained `match` blocks into one.
     #[inline(always)]
-    fn as_node<'a>(&'a self) -> Node<'a, Self> {
+    fn as_node<'a>(&'a self) -> json::Node<'a, Self> {
         match self {
-            ArchivedNode::Array(_tape_length, a) => Node::Array(a.as_slice()),
-            ArchivedNode::Bool(b) => Node::Bool(*b),
-            ArchivedNode::Bytes(b) => Node::Bytes(b),
-            ArchivedNode::Float(n) => Node::Float(n.to_native()),
-            ArchivedNode::NegInt(n) => Node::NegInt(n.to_native()),
-            ArchivedNode::Null => Node::Null,
-            ArchivedNode::Object(_tape_length, o) => Node::Object(o.as_slice()),
-            ArchivedNode::PosInt(n) => Node::PosInt(n.to_native()),
-            ArchivedNode::String(s) => Node::String(s),
+            ArchivedNode::Array(_tape_length, a) => json::Node::Array(a.as_slice()),
+            ArchivedNode::Bool(b) => json::Node::Bool(*b),
+            ArchivedNode::Bytes(b) => json::Node::Bytes(b),
+            ArchivedNode::Float(n) => json::Node::Float(n.to_native()),
+            ArchivedNode::NegInt(n) => json::Node::NegInt(n.to_native()),
+            ArchivedNode::Null => json::Node::Null,
+            ArchivedNode::Object(_tape_length, o) => json::Node::Object(o.as_slice()),
+            ArchivedNode::PosInt(n) => json::Node::PosInt(n.to_native()),
+            ArchivedNode::String(s) => json::Node::String(s),
         }
     }
     #[inline]
@@ -113,7 +113,7 @@ impl AsNode for ArchivedNode {
     }
 }
 
-impl Fields<ArchivedNode> for [ArchivedField] {
+impl json::Fields<ArchivedNode> for [ArchivedField] {
     type Field<'a> = &'a ArchivedField;
     type Iter<'a> = std::slice::Iter<'a, ArchivedField>;
 
@@ -134,7 +134,7 @@ impl Fields<ArchivedNode> for [ArchivedField] {
     }
 }
 
-impl<'a> Field<'a, ArchivedNode> for &'a ArchivedField {
+impl<'a> json::Field<'a, ArchivedNode> for &'a ArchivedField {
     #[inline(always)]
     fn property(&self) -> &'a str {
         &self.property

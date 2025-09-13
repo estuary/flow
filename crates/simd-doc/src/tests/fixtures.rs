@@ -1,6 +1,6 @@
 use super::{parsed_and_fallback, to_hex, transcoded_and_fallback};
 use crate::Parser;
-use doc::AsNode;
+use json::AsNode;
 use serde_json::{json, Value};
 
 #[test]
@@ -155,7 +155,7 @@ fn test_incomplete_row_parsing() {
                         break;
                     }
                     for (doc, next_offset) in chunk {
-                        parse_snap.push((next_offset, doc.to_debug_json_value()));
+                        parse_snap.push((next_offset, to_debug_json_value(&doc)));
                     }
                 }
                 Err((err, location)) => {
@@ -175,7 +175,7 @@ fn test_incomplete_row_parsing() {
                         break;
                     }
                     for (doc, next_offset) in transcoded.into_iter() {
-                        transcode_snap.push((next_offset, doc.get().to_debug_json_value()));
+                        transcode_snap.push((next_offset, to_debug_json_value(doc.get())));
                     }
                 }
                 Err((err, location)) => {
@@ -336,7 +336,7 @@ fn test_basic_parser_apis() {
                 }
                 snap.push((begin, json!(step)));
                 for (doc, next_offset) in chunk {
-                    snap.push((next_offset, doc.to_debug_json_value()));
+                    snap.push((next_offset, to_debug_json_value(&doc)));
                 }
             }
             Err((err, location)) => {
@@ -360,7 +360,7 @@ fn test_basic_parser_apis() {
                 snap.push((transcoded.offset, json!(step)));
 
                 for (doc, next_offset) in transcoded.into_iter() {
-                    snap.push((next_offset, doc.get().to_debug_json_value()));
+                    snap.push((next_offset, to_debug_json_value(doc.get())));
                 }
             }
             Err((err, location)) => {
@@ -383,7 +383,7 @@ fn test_basic_parser_apis() {
     let input = json!({"one": [2, "three"], "four": {"five": 6}, "done": true});
     let input = serde_json::to_string_pretty(&input).unwrap(); // Allows whitespace.
     let doc = parser.parse_one(input.as_bytes(), &alloc).unwrap();
-    snap.push((0, doc.to_debug_json_value()));
+    snap.push((0, to_debug_json_value(&doc)));
 
     {
         let input = vec![input.as_str(), input.as_str(), input.as_str()].join("\n");
@@ -533,4 +533,8 @@ fn test_basic_parser_apis() {
       ]
     ]
     "###);
+}
+
+fn to_debug_json_value<N: json::AsNode>(node: &N) -> serde_json::Value {
+    serde_json::to_value(&doc::SerPolicy::debug().on(node)).unwrap()
 }

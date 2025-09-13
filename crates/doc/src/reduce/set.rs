@@ -1,8 +1,9 @@
 use super::{compare_key, compare_key_lazy, reduce_item, reduce_prop, Error, Result, Tape};
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
-    AsNode, BumpStr, BumpVec, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
+    BumpStr, BumpVec, HeapField, HeapNode, LazyNode, Pointer,
 };
+use json::{AsNode, Field, Fields};
 use itertools::EitherOrBoth;
 use std::iter::Iterator;
 

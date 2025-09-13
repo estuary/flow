@@ -1,8 +1,8 @@
 use super::{Error, RecordName, RecordSchema, Schema, FLOW_EXTRA_NAME};
-use doc::{AsNode, Field, Fields, Node};
+use json::{Field, Fields};
 
 /// Encode `node` at `loc` with the given `schema` into buffer `b`.
-pub fn encode<'s, 'n, N: AsNode>(
+pub fn encode<'s, 'n, N: json::AsNode>(
     loc: json::Location,
     b: &mut Vec<u8>,
     schema: &'s Schema,
@@ -19,7 +19,7 @@ pub fn encode<'s, 'n, N: AsNode>(
 }
 
 /// Encode a `key` extracted from `root` with the given `schema` into buffer `b`.
-pub fn encode_key<'s, 'n, N: AsNode>(
+pub fn encode_key<'s, 'n, N: json::AsNode>(
     b: &mut Vec<u8>,
     schema: &'s Schema,
     root: &'n N,
@@ -63,7 +63,7 @@ pub fn encode_key<'s, 'n, N: AsNode>(
 /// Attempt to encode `node` at `loc` with the given `schema` into buffer `b`.
 /// Returns true if the encoding was successful, or false if the schema
 /// did not match and `b` was not extended.
-fn maybe_encode<'s, 'n, N: AsNode>(
+fn maybe_encode<'s, 'n, N: json::AsNode>(
     loc: json::Location,
     b: &mut Vec<u8>,
     schema: &'s Schema,
@@ -82,39 +82,39 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             }
             Ok(false)
         }
-        (Schema::Null, Node::Null) => Ok(true),
+        (Schema::Null, json::Node::Null) => Ok(true),
 
-        (Schema::Boolean, Node::Bool(v)) => {
+        (Schema::Boolean, json::Node::Bool(v)) => {
             b.push(v as u8);
             Ok(true)
         }
 
-        (Schema::Long, Node::NegInt(v)) => {
+        (Schema::Long, json::Node::NegInt(v)) => {
             zig_zag(b, v);
             Ok(true)
         }
-        (Schema::Long, Node::PosInt(v)) => {
+        (Schema::Long, json::Node::PosInt(v)) => {
             zig_zag(b, v as i64);
             Ok(true)
         }
-        (Schema::Long, Node::Float(v)) if v.fract() == 0.0 => {
+        (Schema::Long, json::Node::Float(v)) if v.fract() == 0.0 => {
             zig_zag(b, v as i64);
             Ok(true)
         }
 
-        (Schema::Double, Node::NegInt(v)) => {
+        (Schema::Double, json::Node::NegInt(v)) => {
             b.extend_from_slice(&(v as f64).to_le_bytes());
             Ok(true)
         }
-        (Schema::Double, Node::PosInt(v)) => {
+        (Schema::Double, json::Node::PosInt(v)) => {
             b.extend_from_slice(&(v as f64).to_le_bytes());
             Ok(true)
         }
-        (Schema::Double, Node::Float(v)) => {
+        (Schema::Double, json::Node::Float(v)) => {
             b.extend_from_slice(&v.to_le_bytes());
             Ok(true)
         }
-        (Schema::Double, Node::String(v)) => {
+        (Schema::Double, json::Node::String(v)) => {
             let v = v
                 .parse::<f64>()
                 .map_err(|err| Error::ParseFloat(v.to_string(), err))?;
@@ -122,18 +122,18 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             Ok(true)
         }
 
-        (Schema::String, Node::String(v)) => {
+        (Schema::String, json::Node::String(v)) => {
             zig_zag(b, v.len() as i64);
             b.extend(v.as_bytes());
             Ok(true)
         }
-        (Schema::String, Node::NegInt(v)) => {
+        (Schema::String, json::Node::NegInt(v)) => {
             let v = format!("{v}");
             zig_zag(b, v.len() as i64);
             b.extend(v.as_bytes());
             Ok(true)
         }
-        (Schema::String, Node::PosInt(v)) => {
+        (Schema::String, json::Node::PosInt(v)) => {
             let v = format!("{v}");
             zig_zag(b, v.len() as i64);
             b.extend(v.as_bytes());
@@ -142,14 +142,14 @@ fn maybe_encode<'s, 'n, N: AsNode>(
         // Floats with zero fractional part are essentially integers,
         // so we need to handle them when matching nodes that contain ints
         // or else JSON containing a value like `1.0` will fail to encode properly.
-        (Schema::String, Node::Float(v)) if v.fract() == 0.0 => {
+        (Schema::String, json::Node::Float(v)) if v.fract() == 0.0 => {
             let v = format!("{:.0}", v);
             zig_zag(b, v.len() as i64);
             b.extend(v.as_bytes());
             Ok(true)
         }
 
-        (Schema::Date, Node::String(s)) => {
+        (Schema::Date, json::Node::String(s)) => {
             let Ok(date) = time::Date::parse(s, &TIME_FORMAT_DATE) else {
                 return Ok(false);
             };
@@ -161,7 +161,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             zig_zag(b, days_since_epoch);
             Ok(true)
         }
-        (Schema::Duration, Node::String(s)) => {
+        (Schema::Duration, json::Node::String(s)) => {
             let Some(caps) = ISO8601_DURATION.captures(s) else {
                 return Ok(false);
             };
@@ -180,7 +180,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             b.extend_from_slice(&millis.to_le_bytes());
             Ok(true)
         }
-        (Schema::TimestampMicros, Node::String(s)) => {
+        (Schema::TimestampMicros, json::Node::String(s)) => {
             let Ok(dt) =
                 time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
             else {
@@ -190,7 +190,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             zig_zag(b, dt as i64);
             Ok(true)
         }
-        (Schema::Uuid, Node::String(s)) => {
+        (Schema::Uuid, json::Node::String(s)) => {
             zig_zag(b, s.len() as i64);
             b.extend(s.as_bytes());
             Ok(true)
@@ -209,7 +209,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             b.extend_from_slice(enc.as_slice());
             Ok(true)
         }
-        (Schema::Record(schema), Node::Object(fields)) => {
+        (Schema::Record(schema), json::Node::Object(fields)) => {
             // RawJSON encodes the JSON serialization of `node` as a string.
             if schema.name.name == "RawJSON" {
                 let enc = serde_json::to_vec(&doc::SerPolicy::noop().on(node)).unwrap();
@@ -283,7 +283,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             }
             Ok(true)
         }
-        (Schema::Map(map_schema), Node::Object(fields)) => {
+        (Schema::Map(map_schema), json::Node::Object(fields)) => {
             if fields.len() != 0 {
                 zig_zag(b, fields.len() as i64);
                 for field in fields.iter() {
@@ -300,7 +300,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             zig_zag(b, 0); // Close map.
             Ok(true)
         }
-        (Schema::Array(array_schema), Node::Array(items)) => {
+        (Schema::Array(array_schema), json::Node::Array(items)) => {
             if !items.is_empty() {
                 zig_zag(b, items.len() as i64);
                 for (index, item) in items.iter().enumerate() {

@@ -1,6 +1,5 @@
-use super::{AsNode, Field, Fields, Node};
 use itertools::{EitherOrBoth, Itertools};
-use json::Number;
+use json::{Field, Fields};
 use std::cmp::Ordering;
 
 /// compare evaluates the deep ordering of |lhs| and |rhs|.
@@ -8,9 +7,9 @@ use std::cmp::Ordering;
 /// Documents in order to provide a total ordering. Arrays and
 /// objects are compared lexicographically, and the natural
 /// Object order is used (by default, sorted on property name).
-pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
+pub fn compare<L: json::AsNode, R: json::AsNode>(lhs: &L, rhs: &R) -> Ordering {
     match (lhs.as_node(), rhs.as_node()) {
-        (Node::Array(lhs), Node::Array(rhs)) => lhs
+        (json::Node::Array(lhs), json::Node::Array(rhs)) => lhs
             .iter()
             .zip_longest(rhs)
             .map(|eob| match eob {
@@ -20,10 +19,10 @@ pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
             })
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal),
-        (Node::Bool(lhs), Node::Bool(rhs)) => lhs.cmp(&rhs),
-        (Node::Bytes(lhs), Node::Bytes(rhs)) => lhs.cmp(rhs),
-        (Node::Null, Node::Null) => Ordering::Equal,
-        (Node::Object(lhs), Node::Object(rhs)) => lhs
+        (json::Node::Bool(lhs), json::Node::Bool(rhs)) => lhs.cmp(&rhs),
+        (json::Node::Bytes(lhs), json::Node::Bytes(rhs)) => lhs.cmp(rhs),
+        (json::Node::Null, json::Node::Null) => Ordering::Equal,
+        (json::Node::Object(lhs), json::Node::Object(rhs)) => lhs
             .iter()
             .zip_longest(rhs.iter())
             .map(|eob| match eob {
@@ -39,38 +38,38 @@ pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
             })
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal),
-        (Node::String(lhs), Node::String(rhs)) => lhs.cmp(rhs),
+        (json::Node::String(lhs), json::Node::String(rhs)) => lhs.cmp(rhs),
 
         // Trivial numeric comparisons.
-        (Node::NegInt(lhs), Node::NegInt(rhs)) => lhs.cmp(&rhs),
-        (Node::PosInt(lhs), Node::PosInt(rhs)) => lhs.cmp(&rhs),
-        (Node::NegInt(_), Node::PosInt(_)) => Ordering::Less,
-        (Node::PosInt(_), Node::NegInt(_)) => Ordering::Greater,
+        (json::Node::NegInt(lhs), json::Node::NegInt(rhs)) => lhs.cmp(&rhs),
+        (json::Node::PosInt(lhs), json::Node::PosInt(rhs)) => lhs.cmp(&rhs),
+        (json::Node::NegInt(_), json::Node::PosInt(_)) => Ordering::Less,
+        (json::Node::PosInt(_), json::Node::NegInt(_)) => Ordering::Greater,
 
         // Cross-type numeric comparisons that fall back to json::Number.
-        (Node::Float(lhs), Node::Float(rhs)) => Number::Float(lhs).cmp(&Number::Float(rhs)),
-        (Node::PosInt(lhs), Node::Float(rhs)) => Number::Unsigned(lhs).cmp(&Number::Float(rhs)),
-        (Node::Float(lhs), Node::PosInt(rhs)) => Number::Float(lhs).cmp(&Number::Unsigned(rhs)),
-        (Node::NegInt(lhs), Node::Float(rhs)) => Number::Signed(lhs).cmp(&Number::Float(rhs)),
-        (Node::Float(lhs), Node::NegInt(rhs)) => Number::Float(lhs).cmp(&Number::Signed(rhs)),
+        (json::Node::Float(lhs), json::Node::Float(rhs)) => json::Number::Float(lhs).cmp(&json::Number::Float(rhs)),
+        (json::Node::PosInt(lhs), json::Node::Float(rhs)) => json::Number::Unsigned(lhs).cmp(&json::Number::Float(rhs)),
+        (json::Node::Float(lhs), json::Node::PosInt(rhs)) => json::Number::Float(lhs).cmp(&json::Number::Unsigned(rhs)),
+        (json::Node::NegInt(lhs), json::Node::Float(rhs)) => json::Number::Signed(lhs).cmp(&json::Number::Float(rhs)),
+        (json::Node::Float(lhs), json::Node::NegInt(rhs)) => json::Number::Float(lhs).cmp(&json::Number::Signed(rhs)),
 
         // Types are not comparable. Define an (arbitrary) total ordering.
-        (Node::Null, _) => Ordering::Less,
-        (_, Node::Null) => Ordering::Greater,
-        (Node::Bool(_), _) => Ordering::Less,
-        (_, Node::Bool(_)) => Ordering::Greater,
-        (Node::Bytes(_), _) => Ordering::Less,
-        (_, Node::Bytes(_)) => Ordering::Greater,
-        (Node::Float(_), _) => Ordering::Less,
-        (_, Node::Float(_)) => Ordering::Greater,
-        (Node::NegInt(_), _) => Ordering::Less,
-        (_, Node::NegInt(_)) => Ordering::Greater,
-        (Node::PosInt(_), _) => Ordering::Less,
-        (_, Node::PosInt(_)) => Ordering::Greater,
-        (Node::String(_), _) => Ordering::Less,
-        (_, Node::String(_)) => Ordering::Greater,
-        (Node::Array(_), _) => Ordering::Less,
-        (_, Node::Array(_)) => Ordering::Greater,
+        (json::Node::Null, _) => Ordering::Less,
+        (_, json::Node::Null) => Ordering::Greater,
+        (json::Node::Bool(_), _) => Ordering::Less,
+        (_, json::Node::Bool(_)) => Ordering::Greater,
+        (json::Node::Bytes(_), _) => Ordering::Less,
+        (_, json::Node::Bytes(_)) => Ordering::Greater,
+        (json::Node::Float(_), _) => Ordering::Less,
+        (_, json::Node::Float(_)) => Ordering::Greater,
+        (json::Node::NegInt(_), _) => Ordering::Less,
+        (_, json::Node::NegInt(_)) => Ordering::Greater,
+        (json::Node::PosInt(_), _) => Ordering::Less,
+        (_, json::Node::PosInt(_)) => Ordering::Greater,
+        (json::Node::String(_), _) => Ordering::Less,
+        (_, json::Node::String(_)) => Ordering::Greater,
+        (json::Node::Array(_), _) => Ordering::Less,
+        (_, json::Node::Array(_)) => Ordering::Greater,
     }
 }
 

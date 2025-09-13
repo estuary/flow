@@ -2,7 +2,8 @@
 // of a Shape as needed, to allow a given document to properly validate.
 // It's used as a base operation for schema inference.
 use super::*;
-use crate::{AsNode, Node, OwnedNode};
+use crate::OwnedNode;
+use json::{AsNode, Node};
 use std::cmp::Ordering;
 
 impl StringShape {
@@ -55,7 +56,7 @@ impl ObjShape {
     where
         N: AsNode + 'n,
     {
-        use crate::{Field, Fields};
+        use json::{Field, Fields};
 
         // on_unknown_property closes over `new_fields` to enqueue
         // properties which will be added to this ObjShape.

@@ -1,7 +1,8 @@
 use super::{
     lazy::{LazyField, LazyNode},
-    AsNode, BumpStr, Field, HeapField, HeapNode, Pointer, SerPolicy, Valid,
+    BumpStr, HeapField, HeapNode, Pointer, SerPolicy, Valid,
 };
+use json::{AsNode, Field};
 use itertools::{EitherOrBoth, Itertools};
 use json::validator::{self, Context};
 use std::cmp::Ordering;

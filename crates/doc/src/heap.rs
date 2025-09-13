@@ -1,4 +1,5 @@
-use super::{AsNode, BumpStr, BumpVec, Field, Fields, Node};
+use super::{BumpStr, BumpVec};
+use json::{AsNode, Field, Fields};
 
 /// HeapNode is a document node representation stored in the heap.
 // The additional archive bounds are required to satisfy the compiler due to
@@ -59,14 +60,14 @@ impl<'alloc> HeapNode<'alloc> {
 
     // Recursively clone the argument AsNode into a HeapNode.
     #[inline]
-    pub fn from_node<N: AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> Self {
+    pub fn from_node<N: json::AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> Self {
         Self::from_node_with_length(node, alloc).0
     }
 
     // Recursively clone the argument AsNode into a HeapNode, also returning its tape length.
-    pub fn from_node_with_length<N: AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> (Self, i32) {
+    pub fn from_node_with_length<N: json::AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> (Self, i32) {
         match node.as_node() {
-            Node::Array(arr) => {
+            json::Node::Array(arr) => {
                 let mut built_length = 1;
                 let items = BumpVec::with_contents(
                     alloc,
@@ -78,13 +79,13 @@ impl<'alloc> HeapNode<'alloc> {
                 );
                 (HeapNode::Array(built_length, items), built_length)
             }
-            Node::Bool(b) => (HeapNode::Bool(b), 1),
-            Node::Bytes(b) => (HeapNode::Bytes(BumpVec::from_slice(b, alloc)), 1),
-            Node::Null => (HeapNode::Null, 1),
-            Node::Float(n) => (HeapNode::Float(n), 1),
-            Node::PosInt(n) => (HeapNode::PosInt(n), 1),
-            Node::NegInt(n) => (HeapNode::NegInt(n), 1),
-            Node::Object(fields) => {
+            json::Node::Bool(b) => (HeapNode::Bool(b), 1),
+            json::Node::Bytes(b) => (HeapNode::Bytes(BumpVec::from_slice(b, alloc)), 1),
+            json::Node::Null => (HeapNode::Null, 1),
+            json::Node::Float(n) => (HeapNode::Float(n), 1),
+            json::Node::PosInt(n) => (HeapNode::PosInt(n), 1),
+            json::Node::NegInt(n) => (HeapNode::NegInt(n), 1),
+            json::Node::Object(fields) => {
                 let mut built_length = 1;
                 let fields = BumpVec::with_contents(
                     alloc,
@@ -101,7 +102,7 @@ impl<'alloc> HeapNode<'alloc> {
                 );
                 (HeapNode::Object(built_length, fields), built_length)
             }
-            Node::String(s) => (HeapNode::String(BumpStr::from_str(s, alloc)), 1),
+            json::Node::String(s) => (HeapNode::String(BumpStr::from_str(s, alloc)), 1),
         }
     }
 
@@ -124,24 +125,24 @@ impl<'alloc> HeapNode<'alloc> {
     }
 }
 
-impl<'alloc> AsNode for HeapNode<'alloc> {
+impl<'alloc> json::AsNode for HeapNode<'alloc> {
     type Fields = [HeapField<'alloc>];
 
     // We *always* want this inline, because the caller will next match
     // over our returned Node, and (when inline'd) the optimizer can
     // collapse the chained `match` blocks into one.
     #[inline(always)]
-    fn as_node<'a>(&'a self) -> Node<'a, Self> {
+    fn as_node<'a>(&'a self) -> json::Node<'a, Self> {
         match self {
-            HeapNode::Array(_tape_length, a) => Node::Array(a),
-            HeapNode::Bool(b) => Node::Bool(*b),
-            HeapNode::Bytes(b) => Node::Bytes(b),
-            HeapNode::Float(n) => Node::Float(*n),
-            HeapNode::NegInt(n) => Node::NegInt(*n),
-            HeapNode::Null => Node::Null,
-            HeapNode::Object(_tape_length, o) => Node::Object(o.as_slice()),
-            HeapNode::PosInt(n) => Node::PosInt(*n),
-            HeapNode::String(s) => Node::String(s),
+            HeapNode::Array(_tape_length, a) => json::Node::Array(a),
+            HeapNode::Bool(b) => json::Node::Bool(*b),
+            HeapNode::Bytes(b) => json::Node::Bytes(b),
+            HeapNode::Float(n) => json::Node::Float(*n),
+            HeapNode::NegInt(n) => json::Node::NegInt(*n),
+            HeapNode::Null => json::Node::Null,
+            HeapNode::Object(_tape_length, o) => json::Node::Object(o.as_slice()),
+            HeapNode::PosInt(n) => json::Node::PosInt(*n),
+            HeapNode::String(s) => json::Node::String(s),
         }
     }
     #[inline]
@@ -154,7 +155,7 @@ impl<'alloc> AsNode for HeapNode<'alloc> {
     }
 }
 
-impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
+impl<'alloc> json::Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
     type Field<'a>
         = &'a HeapField<'alloc>
     where
@@ -181,7 +182,7 @@ impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
     }
 }
 
-impl<'a, 'alloc> Field<'a, HeapNode<'alloc>> for &'a HeapField<'alloc> {
+impl<'a, 'alloc> json::Field<'a, HeapNode<'alloc>> for &'a HeapField<'alloc> {
     #[inline(always)]
     fn property(&self) -> &'a str {
         &self.property

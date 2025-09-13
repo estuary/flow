@@ -1,4 +1,5 @@
-use super::{AsNode, Field, Fields, Node, SerPolicy};
+use super::SerPolicy;
+use json::{Field, Fields};
 use itertools::{
     EitherOrBoth::{Both, Left, Right},
     Itertools,
@@ -9,7 +10,7 @@ use json::Location;
 /// pushing all detected differences into a Vec. Object properties
 /// which are in the actual document but not the expected document
 /// are ignored, but all other locations must match.
-pub fn diff<'a, 'e, A: AsNode, E: AsNode>(
+pub fn diff<'a, 'e, A: json::AsNode, E: json::AsNode>(
     actual: Option<&'a A>,
     expect: Option<&'e E>,
 ) -> Vec<Diff<'a, 'e, A, E>> {
@@ -20,7 +21,7 @@ pub fn diff<'a, 'e, A: AsNode, E: AsNode>(
 
 /// Diff is a detected difference within a document.
 #[derive(Debug)]
-pub struct Diff<'a, 'e, A: AsNode, E: AsNode> {
+pub struct Diff<'a, 'e, A: json::AsNode, E: json::AsNode> {
     /// JSON-Pointer location of the difference.
     pub location: String,
     /// Actual value at the document location.
@@ -30,7 +31,7 @@ pub struct Diff<'a, 'e, A: AsNode, E: AsNode> {
     pub note: Option<&'static str>,
 }
 
-impl<'a, 'e, A: AsNode, E: AsNode> serde::Serialize for Diff<'a, 'e, A, E> {
+impl<'a, 'e, A: json::AsNode, E: json::AsNode> serde::Serialize for Diff<'a, 'e, A, E> {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -53,15 +54,15 @@ impl<'a, 'e, A: AsNode, E: AsNode> serde::Serialize for Diff<'a, 'e, A, E> {
     }
 }
 
-impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
+impl<'a, 'e, A: json::AsNode, E: json::AsNode> Diff<'a, 'e, A, E> {
     fn diff_inner(
         actual: Option<&'a A>,
         expect: Option<&'e E>,
         location: &Location,
         out: &mut Vec<Self>,
     ) {
-        match (actual.map(AsNode::as_node), expect.map(AsNode::as_node)) {
-            (Some(Node::Object(actual)), Some(Node::Object(expect))) => {
+        match (actual.map(json::AsNode::as_node), expect.map(json::AsNode::as_node)) {
+            (Some(json::Node::Object(actual)), Some(json::Node::Object(expect))) => {
                 for eob in actual
                     .iter()
                     .merge_join_by(expect.iter(), |l, r| l.property().cmp(r.property()))
@@ -89,7 +90,7 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
                     }
                 }
             }
-            (Some(Node::Array(actual)), Some(Node::Array(expect))) => {
+            (Some(json::Node::Array(actual)), Some(json::Node::Array(expect))) => {
                 for (index, eob) in actual.iter().zip_longest(expect.iter()).enumerate() {
                     Self::diff_inner(
                         eob.as_ref().left().cloned(),
@@ -101,7 +102,7 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
             }
             // If both values are floats, then compare them using an epsilon value so we don't
             // fail the diff due to floaty funny bitness.
-            (Some(Node::Float(actual_f64)), Some(Node::Float(expected_f64))) => {
+            (Some(json::Node::Float(actual_f64)), Some(json::Node::Float(expected_f64))) => {
                 if !f64_eq(actual_f64, expected_f64) {
                     out.push(Diff {
                         location: format!("{}", location.pointer_str()),

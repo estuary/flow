@@ -7,7 +7,6 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::uuid::Clock;
@@ -269,7 +268,7 @@ impl Read {
                             tracing::warn!(
                                 "skipping past non-object node at offset {}: {:?}",
                                 self.offset,
-                                non_object.to_debug_json_value()
+                                to_debug_json_value(non_object)
                             );
                             continue;
                         }
@@ -318,7 +317,7 @@ impl Read {
             let mut record_bytes: usize = 0;
 
             let Some(doc::ArchivedNode::String(uuid)) = self.uuid_ptr.query(root.get()) else {
-                let serialized_doc = root.get().to_debug_json_value();
+                let serialized_doc = to_debug_json_value(root.get());
                 anyhow::bail!(
                     "document at offset {} does not have a valid UUID: {:?}",
                     self.offset,
@@ -550,7 +549,7 @@ fn compressor<Output: BufMut>(
 /// Note that since avro encoding can happen piecewise, there's never a need to
 /// put together the whole extracted document, and instead we can build up the
 /// encoded output iteratively
-pub fn extract_and_encode<N: doc::AsNode>(
+pub fn extract_and_encode<N: json::AsNode>(
     extractors: &[(avro::Schema, utils::CustomizableExtractor)],
     original: &N,
     buf: &mut Vec<u8>,
@@ -566,7 +565,7 @@ pub fn extract_and_encode<N: doc::AsNode>(
             .context(format!(
                 "Extracting field {extractor:#?}, schema: {schema:?}"
             )) {
-                let debug_serialized = serde_json::to_string(&original.to_debug_json_value())?;
+                let debug_serialized = to_debug_json_value(original).to_string();
                 tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
                 return Err(e);
             }
@@ -575,4 +574,8 @@ pub fn extract_and_encode<N: doc::AsNode>(
         })?;
 
     Ok(())
+}
+
+fn to_debug_json_value<N: json::AsNode>(node: &N) -> serde_json::Value {
+    serde_json::to_value(&doc::SerPolicy::debug().on(node)).unwrap()
 }

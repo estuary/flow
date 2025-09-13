@@ -5,8 +5,9 @@ use crate::{
         limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
         schema::to_schema, X_COMPLEXITY_LIMIT,
     },
-    AsNode, HeapNode, SerPolicy, Shape,
+    HeapNode, SerPolicy, Shape,
 };
+use json::AsNode;
 use json::schema::index::IndexBuilder;
 use serde_json::Value as JsonValue;
 

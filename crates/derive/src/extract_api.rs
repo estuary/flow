@@ -1,5 +1,4 @@
 use crate::new_validator;
-use doc::AsNode;
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -30,11 +29,11 @@ pub enum Error {
 
 /// Extract a UUID at the given location within the document, returning its UuidParts,
 /// or None if the Pointer does not resolve to a valid v1 UUID.
-pub fn extract_uuid_parts<N: AsNode>(v: &N, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
+pub fn extract_uuid_parts<N: json::AsNode>(v: &N, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
     let Some(v_uuid) = ptr.query(v) else {
         return None;
     };
-    let doc::Node::String(v_uuid) = v_uuid.as_node() else {
+    let json::Node::String(v_uuid) = v_uuid.as_node() else {
         return None;
     };
 
@@ -132,17 +131,19 @@ impl cgo::Service for API {
 
                 let uuid = extract_uuid_parts(&doc, &state.uuid_ptr).ok_or_else(|| {
                     Error::InvalidUuid {
-                        value: state.uuid_ptr.query(&doc).map(AsNode::to_debug_json_value),
+                        value: state
+                            .uuid_ptr
+                            .query(&doc)
+                            .map(|n| serde_json::to_value(&doc::SerPolicy::debug().on(n)).unwrap()),
                     }
                 })?;
 
                 if proto_gazette::message_flags::ACK_TXN & uuid.node != 0 {
                     // Transaction acknowledgements aren't expected to validate.
                 } else if let Some(validator) = &mut state.validator {
-                    validator
-                        .validate(None, &doc)?
-                        .ok()
-                        .map_err(|invalid| Error::FailedValidation(invalid.revalidate_with_context(&doc)))?;
+                    validator.validate(None, &doc)?.ok().map_err(|invalid| {
+                        Error::FailedValidation(invalid.revalidate_with_context(&doc))
+                    })?;
                 }
 
                 // Send extracted UUID.
