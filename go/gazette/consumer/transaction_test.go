@@ -63,7 +63,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "1"})
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
 	require.Equal(t, minDur, timer.reset)                                         // Was Reset to |minDur|.
-	require.Equal(t, message.NewClock(txn.beganAt.Add(time.Hour))+1, shard.clock) // Shard clock was updated.
+	require.Equal(t, message.NewClock(txn.beganAt.Add(time.Hour))+160, shard.clock) // Shard clock was updated.
 
 	// Expect it continues to block.
 	require.True(t, txnBlocks(shard, &txn))

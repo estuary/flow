@@ -83,10 +83,12 @@ func (c *Clock) Update(t time.Time) {
 	}
 }
 
-// Tick increments the Clock by one and returns the result.
+// Tick increments the Clock by one microsecond and returns the result.
 // It is safe for concurrent use.
 func (c *Clock) Tick() Clock {
-	return Clock(atomic.AddUint64((*uint64)(c), 1))
+	// 1 microsecond = 1000ns = 10 units of 100ns
+	// With 4 sequence bits, we need to shift by 4: 10 << 4 = 160
+	return Clock(atomic.AddUint64((*uint64)(c), 160))
 }
 
 // AsTime maps the Clock into an equivalent time.Time.

@@ -38,9 +38,9 @@ func TestPublishCommitted(t *testing.T) {
 	}
 
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 1, Flag_OUTSIDE_TXN), Str: "hello"},
-		{UUID: BuildUUID(pub.producer, 2, Flag_OUTSIDE_TXN), Str: "world"},
-		{UUID: BuildUUID(pub.producer, 3, Flag_OUTSIDE_TXN), Str: "beer!"},
+		{UUID: BuildUUID(pub.producer, 160, Flag_OUTSIDE_TXN), Str: "hello"},
+		{UUID: BuildUUID(pub.producer, 320, Flag_OUTSIDE_TXN), Str: "world"},
+		{UUID: BuildUUID(pub.producer, 480, Flag_OUTSIDE_TXN), Str: "beer!"},
 	}, readAllMsgs(t, bk, spec))
 
 	// Expect validation errors are returned, before the mapping is invoked.
@@ -97,20 +97,20 @@ func TestPublishUncommitted(t *testing.T) {
 
 	// Verify expected messages and ACKs were written to journals.
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 1, Flag_CONTINUE_TXN), Str: "value one"},
-		{UUID: BuildUUID(pub.producer, 3, Flag_ACK_TXN)},
-		{UUID: BuildUUID(pub.producer, 6, Flag_CONTINUE_TXN), Str: "value four"},
-		{UUID: BuildUUID(pub.producer, 8, Flag_ACK_TXN)},
+		{UUID: BuildUUID(pub.producer, 160, Flag_CONTINUE_TXN), Str: "value one"},
+		{UUID: BuildUUID(pub.producer, 480, Flag_ACK_TXN)},
+		{UUID: BuildUUID(pub.producer, 960, Flag_CONTINUE_TXN), Str: "value four"},
+		{UUID: BuildUUID(pub.producer, 1280, Flag_ACK_TXN)},
 	}, readAllMsgs(t, bk, spec1))
 
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 2, Flag_CONTINUE_TXN), Str: "value two"},
-		{UUID: BuildUUID(pub.producer, 4, Flag_ACK_TXN)},
+		{UUID: BuildUUID(pub.producer, 320, Flag_CONTINUE_TXN), Str: "value two"},
+		{UUID: BuildUUID(pub.producer, 640, Flag_ACK_TXN)},
 	}, readAllMsgs(t, bk, spec2))
 
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 5, Flag_CONTINUE_TXN), Str: "value three"},
-		{UUID: BuildUUID(pub.producer, 7, Flag_ACK_TXN)},
+		{UUID: BuildUUID(pub.producer, 800, Flag_CONTINUE_TXN), Str: "value three"},
+		{UUID: BuildUUID(pub.producer, 1120, Flag_ACK_TXN)},
 	}, readAllMsgs(t, bk, spec3))
 
 	bk.Tasks.Cancel()
@@ -178,11 +178,11 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 
 	require.Equal(t, []testMsg(nil), seqPump())
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 2, Flag_OUTSIDE_TXN), Str: "two"},
+		{UUID: BuildUUID(pub.producer, 320, Flag_OUTSIDE_TXN), Str: "two"},
 	}, seqPump())
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(txnPub.producer, 1, Flag_CONTINUE_TXN), Str: "one"},
-		{UUID: BuildUUID(txnPub.producer, 3, Flag_ACK_TXN)},
+		{UUID: BuildUUID(txnPub.producer, 160, Flag_CONTINUE_TXN), Str: "one"},
+		{UUID: BuildUUID(txnPub.producer, 480, Flag_ACK_TXN)},
 	}, seqPump())
 
 	// Write more interleaved messages, enough to overflow the Sequencer ring.
@@ -197,18 +197,18 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 
 	require.Equal(t, []testMsg(nil), seqPump())
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 5, Flag_OUTSIDE_TXN), Str: "four"},
+		{UUID: BuildUUID(pub.producer, 800, Flag_OUTSIDE_TXN), Str: "four"},
 	}, seqPump())
 	require.Equal(t, []testMsg(nil), seqPump())
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(pub.producer, 7, Flag_OUTSIDE_TXN), Str: "six"},
+		{UUID: BuildUUID(pub.producer, 1120, Flag_OUTSIDE_TXN), Str: "six"},
 	}, seqPump())
 	require.Equal(t, []testMsg(nil), seqPump())
 	require.Equal(t, []testMsg{
-		{UUID: BuildUUID(txnPub.producer, 4, Flag_CONTINUE_TXN), Str: "three"},
-		{UUID: BuildUUID(txnPub.producer, 6, Flag_CONTINUE_TXN), Str: "five"},
-		{UUID: BuildUUID(txnPub.producer, 8, Flag_CONTINUE_TXN), Str: "seven"},
-		{UUID: BuildUUID(txnPub.producer, 9, Flag_ACK_TXN)},
+		{UUID: BuildUUID(txnPub.producer, 640, Flag_CONTINUE_TXN), Str: "three"},
+		{UUID: BuildUUID(txnPub.producer, 960, Flag_CONTINUE_TXN), Str: "five"},
+		{UUID: BuildUUID(txnPub.producer, 1280, Flag_CONTINUE_TXN), Str: "seven"},
+		{UUID: BuildUUID(txnPub.producer, 1440, Flag_ACK_TXN)},
 	}, seqPump())
 
 	bk.Tasks.Cancel()

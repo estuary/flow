@@ -20,9 +20,9 @@ func TestUUIDProducerUniqueness(t *testing.T) {
 func TestUUIDClock(t *testing.T) {
 	var clock Clock
 
-	// Each Tick produces a new value.
-	require.Equal(t, clock.Tick(), Clock(1))
-	require.Equal(t, clock.Tick(), Clock(2))
+	// Each Tick produces a new value, incrementing by 1 microsecond (160 units).
+	require.Equal(t, clock.Tick(), Clock(160))
+	require.Equal(t, clock.Tick(), Clock(320))
 
 	clock.Update(time.Unix(12, 300))
 
@@ -32,35 +32,22 @@ func TestUUIDClock(t *testing.T) {
 	require.True(t, clock < NewClock(time.Unix(12, 400)))
 	require.True(t, clock > NewClock(time.Unix(12, 299)))
 
-	// Within a 100ns interval, Clock uses remaining bits to expand the
-	// distinguishable sequence.
+	// After a Tick, clock advances by 1 microsecond.
 	require.Equal(t, clock, NewClock(time.Unix(12, 300)))
 	clock.Tick()
-	require.True(t, clock > NewClock(time.Unix(12, 399)))
-
-	// Just 4 bits are available. If they're overflowed, Tick will spill
-	// over to update the timestamp.
-	for i := 0; i != 14; i++ {
-		clock.Tick()
-		require.True(t, clock < NewClock(time.Unix(12, 400)))
-	}
-	clock.Tick() // 16th tick.
-	require.Equal(t, clock, NewClock(time.Unix(12, 400)))
-	require.Equal(t, clock.AsTime(), time.Unix(12, 400))
+	// Clock should now be at time.Unix(12, 1300) (300ns + 1000ns)
+	require.Equal(t, clock.AsTime(), time.Unix(12, 1300))
+	require.True(t, clock > NewClock(time.Unix(12, 1299)))
+	require.True(t, clock < NewClock(time.Unix(12, 1400)))
 
 	// Update must never decrease the clock value.
 	clock.Update(time.Unix(11, 100))
-	require.Equal(t, clock, NewClock(time.Unix(12, 400)))
-
-	// That includes sequence bits.
-	clock.Tick()
-	clock.Update(time.Unix(12, 400))
-	require.True(t, clock > NewClock(time.Unix(12, 400)))
+	require.Equal(t, clock.AsTime(), time.Unix(12, 1300))
 
 	// Sequence bits are reset if the clock timestamp is updated.
-	clock.Update(time.Unix(12, 500))
-	require.Equal(t, clock, NewClock(time.Unix(12, 500)))
-	require.Equal(t, clock.AsTime(), time.Unix(12, 500))
+	clock.Update(time.Unix(12, 5000))
+	require.Equal(t, clock, NewClock(time.Unix(12, 5000)))
+	require.Equal(t, clock.AsTime(), time.Unix(12, 5000))
 }
 
 func TestUUIDBuilding(t *testing.T) {
@@ -87,8 +74,10 @@ func TestUUIDBuilding(t *testing.T) {
 	require.Equal(t, producer[:], id.NodeID())
 	require.Equal(t, uuid.Time(clock>>4), id.Time())
 
-	// Expect package extracts our time-point, rounded to 100ns precision.
+	// Expect package extracts our time-point. After two ticks of 1 microsecond each,
+	// we should have added 2000ns to the original time.
 	var sec, nsec = id.Time().UnixTime()
 	require.Equal(t, int64(expectSecs), sec)
-	require.Equal(t, int64((expectNanos/100)*100), nsec)
+	// Original nanos (981273734) rounded to 100ns (981273700) + 2000ns from 2 ticks = 981275700
+	require.Equal(t, int64(981275700), nsec)
 }
