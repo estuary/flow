@@ -159,48 +159,6 @@
     },
     "query": "update discovers set\n            job_status = $2,\n            updated_at = clock_timestamp()\n        where id = $1\n        returning 1 as \"must_exist\";\n        "
   },
-  "055ab4b63d3d8c11cc490b1538e4867a205532df9029549ce30b821717cf04f3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "insert into drafts (user_id, detail) values ($1, $2) returning id as \"id: Id\";"
-  },
-  "078e01cc5daf8c9020626c6af6a8099613e7bde7a5a5d9421a03e3c00df646df": {
-    "describe": {
-      "columns": [
-        {
-          "name": "must_exist: bool",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "update controller_jobs set\n        status = jsonb_set(status::jsonb, '{activation, next_retry}', to_jsonb($2::text))::json\n        where live_spec_id = (select id from live_specs where catalog_name = $1)\n        and status->'activation'->>'next_retry' is not null\n        returning 1 as \"must_exist: bool\";"
-  },
   "0ee203a86b38750a2c07c1659411ea5e9ed1cf69c221521e2ec7e58a41b97ff8": {
     "describe": {
       "columns": [],
@@ -267,27 +225,6 @@
       }
     },
     "query": "DELETE FROM internal.tasks WHERE task_id = $1;"
-  },
-  "16305c826e67fcc4ede6a89af10cff7e9c45cec4ca106daaa9191c5dacdbb491": {
-    "describe": {
-      "columns": [
-        {
-          "name": "must_exist: bool",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "update controller_jobs set\n        status = jsonb_set(status::jsonb, '{activation, last_activated_at}', to_jsonb($2::text))::json\n        where live_spec_id = (select id from live_specs where catalog_name = $1)\n        and status->'activation'->>'last_activated_at' is not null\n        returning 1 as \"must_exist: bool\";"
   },
   "1bff5250cd2af0094bb64d67dd7711aaddc3cbfda9dd7e62f54cff41a3d2e8fb": {
     "describe": {
@@ -408,6 +345,72 @@
     },
     "query": "\n        select\n            ops_l1_inferred_name  as \"ops_l1_inferred_name: models::Collection\",\n            ops_l2_inferred_transform,\n            ops_l1_stats_name     as \"ops_l1_stats_name:    models::Collection\",\n            ops_l2_stats_transform,\n            ops_l1_events_name    as \"ops_l1_events_name:   models::Collection\",\n            ops_l2_events_transform,\n            enable_l2\n        from data_planes\n        order by data_plane_name asc;\n        "
   },
+  "238f23019bba9adc10e0a0459d070d7e3bce94d2ff1a856bc21beb69eed45b44": {
+    "describe": {
+      "columns": [
+        {
+          "name": "control_id: models::Id",
+          "ordinal": 0,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "data_plane_name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "data_plane_fqdn",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "hmac_keys",
+          "ordinal": 3,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "encrypted_hmac_keys: models::RawValue",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "broker_address",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "reactor_address",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_logs_name: models::Collection",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_stats_name: models::Collection",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n        SELECT\n            d.id AS \"control_id: models::Id\",\n            d.data_plane_name,\n            d.data_plane_fqdn,\n            d.hmac_keys,\n            d.encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        "
+  },
   "270aec380f7943974a94aa22cad38201d669e77ed3c418d8ef0676c5c552d60c": {
     "describe": {
       "columns": [
@@ -488,35 +491,6 @@
       }
     },
     "query": "\n        select\n            id as \"id!: Id\",\n            created_at,\n            updated_at,\n            detail,\n            draft_id as \"draft_id!: Id\",\n            dry_run,\n            logs_token,\n            user_id,\n            data_plane_name,\n            job_status as \"job_status!: Json<Box<RawValue>>\"\n        from publications\n        where id = $1::flowid\n        "
-  },
-  "2861a889851719e748179536565b3d44ea657ae327c84e775128ddac94da6a94": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_name"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          },
-          "Timestamptz",
-          "Json"
-        ]
-      }
-    },
-    "query": "insert into shard_failures(catalog_name, build, ts, flow_document) values ($1::catalog_name, $2::flowid, $3, $4)"
   },
   "28c5f103aaa49d9c13378d50216b5b4a688d383d36dcf32dee3c696872b94d89": {
     "describe": {
@@ -608,31 +582,89 @@
     },
     "query": "\n                select\n                    date_start as \"date_start!\",\n                    date_end as \"date_end!\",\n                    billed_prefix as \"billed_prefix!\",\n                    invoice_type as \"invoice_type!: InvoiceType\",\n                    line_items as \"line_items!: sqlx::types::Json<Vec<LineItem>>\",\n                    subtotal::bigint as \"subtotal!\",\n                    extra as \"extra: sqlx::types::Json<Option<Extra>>\",\n                    customer.has_payment_method as has_payment_method,\n                    dataflow_hours.capture_hours::float as capture_hours,\n                    dataflow_hours.materialization_hours::float as materialization_hours,\n                    tenants.payment_provider as \"payment_provider!: PaymentProvider\"\n                from invoices_ext\n                left join tenants on tenants.tenant = billed_prefix\n                inner join lateral(\n                \tselect bool_or(\"invoice_settings/default_payment_method\" is not null) as has_payment_method\n                \tfrom stripe.customers\n                \twhere customers.metadata->>'estuary.dev/tenant_name' = billed_prefix\n                \tgroup by billed_prefix\n                ) as customer on true\n                inner join lateral(\n                \tselect\n                \t\tsum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,\n                    \tsum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours\n                    from catalog_stats\n                    join live_specs on live_specs.catalog_name = catalog_stats.catalog_name\n                    where\n                    \tcatalog_stats.catalog_name ^@ billed_prefix\n                    \tand grain = 'monthly'\n                    \tand tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats.ts\n                ) as dataflow_hours on true\n                where (\n                    date_start >= date_trunc('day', $1::date)\n                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'\n                    and invoice_type = 'final'\n                ) or (\n                    invoice_type = 'manual'\n                )\n            "
   },
-  "299aeabcca9cd6ab371f3842681b5cf973289eaf8e50091e8a6d1d8177fa54d4": {
+  "2bf4724ae0609d8d589c149d0e3e327674f7cee7b445f330be271e816bdd7ff0": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "control_id: Id",
+          "ordinal": 0,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "data_plane_name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "hmac_keys",
+          "ordinal": 2,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "encrypted_hmac_keys: models::RawValue",
+          "ordinal": 3,
+          "type_info": "Json"
+        },
+        {
+          "name": "data_plane_fqdn",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "broker_address",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "reactor_address",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_logs_name: models::Collection",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_stats_name: models::Collection",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
       "parameters": {
         "Left": [
-          "Uuid",
-          "Varchar"
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Macaddr8"
+                    },
+                    "name": "flowid"
+                  }
+                }
+              },
+              "name": "_flowid"
+            }
+          },
+          "TextArray",
+          "Uuid"
         ]
       }
     },
-    "query": "insert into auth.users(id, email) values ($1, $2)"
-  },
-  "2db2f359aeaae873d92e7c73780ff79099641468b205dff9fcd7c69505afa9e7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "update controller_jobs set\n        status = jsonb_set(status::jsonb, '{activation, last_failure, ts}', to_jsonb($2::text))::json\n        where live_spec_id = (select id from live_specs where catalog_name = $1)\n        and status->'activation'->'last_failure'->>'ts' is not null;"
+    "query": "\n        WITH\n        data_plane_ids AS (\n            SELECT id\n            FROM UNNEST($1::flowid[]) AS t(id)\n        ),\n        data_plane_names AS (\n            SELECT name\n            FROM UNNEST($2::text[]) AS t(name)\n            -- User must be read-authorized to data-plane.\n            WHERE EXISTS (\n                SELECT 1\n                FROM internal.user_roles($3, 'read') AS r\n                WHERE starts_with(t.name, r.role_prefix)\n            )\n        )\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE\n            d.id IN (select id from data_plane_ids) OR\n            d.data_plane_name in (select name from data_plane_names)\n        "
   },
   "2e35c94f15b8221e0a0e62de816deaddd72fb21f19abead8a8540e23722f7e20": {
     "describe": {
@@ -917,80 +949,6 @@
     },
     "query": "\n                UPDATE data_planes SET\n                    config = $3,\n                    pulumi_key = $4\n                WHERE id = $1 AND controller_task_id = $2\n                "
   },
-  "365e47805d7bd423f33c5d01a2ee159dde7e06260de17ba78dc00ccc08616773": {
-    "describe": {
-      "columns": [
-        {
-          "name": "control_id: models::Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "data_plane_name",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "data_plane_fqdn",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_default!: bool",
-          "ordinal": 3,
-          "type_info": "Bool"
-        },
-        {
-          "name": "hmac_keys",
-          "ordinal": 4,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "encrypted_hmac_keys: models::RawValue",
-          "ordinal": 5,
-          "type_info": "Json"
-        },
-        {
-          "name": "broker_address",
-          "ordinal": 6,
-          "type_info": "Text"
-        },
-        {
-          "name": "reactor_address",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_logs_name: models::Collection",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_stats_name: models::Collection",
-          "ordinal": 9,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            false AS \"is_default!: bool\",\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes\n        WHERE data_plane_name = $1\n        "
-  },
   "3725a36222e077fcc3a4bf996f84cf776c31465f711b942509f6f1c77c1c57b6": {
     "describe": {
       "columns": [
@@ -1011,78 +969,6 @@
     },
     "query": "\n            select tenants.trial_start\n            from tenants\n            where tenants.tenant = $1\n        "
   },
-  "397f839947b7662b7683dea8c07e5bb6d7138551f2573948d02203b569b544d6": {
-    "describe": {
-      "columns": [
-        {
-          "name": "wake_at",
-          "ordinal": 0,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "select t.wake_at\n            from internal.tasks t\n            join live_specs ls on t.task_id = ls.controller_task_id\n            where ls.catalog_name = $1;"
-  },
-  "3ae8ec260c40d601c09e7321bae4b27bb93f8f127177de04543d4b18abdd342b": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_name"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Json"
-              },
-              "name": "json_obj"
-            }
-          },
-          "Bool"
-        ]
-      }
-    },
-    "query": "insert into discovers (\n                capture_name,\n                connector_tag_id,\n                draft_id,\n                endpoint_config,\n                update_only,\n                data_plane_name\n            ) values ($1, $2, $3, $4, $5, 'ops/dp/public/test')\n            returning id as \"id: Id\";"
-  },
   "3b12c034c352ad8206a3c00b0e48496a8b352f0966d4eda1a1a911a4743bddbd": {
     "describe": {
       "columns": [],
@@ -1095,35 +981,73 @@
     },
     "query": "delete from live_spec_flows where source_id = $1 and flow_type = 'capture'"
   },
-  "3ca7daaf9e498bc9a69847f9b42245a9144f49d957aca3e482032eb4b90e8863": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "delete from role_grants where subject_role = 'estuary_support/';"
-  },
-  "3df5501e80a21921fcf2a7f8b1dfc53a78a50190040fa7c759452bda77b75c37": {
+  "3b8d3c1cbf2b25f1cc20a4ac85cd7901be8a6f8d7761dd484e6a1d162ecebe30": {
     "describe": {
       "columns": [
         {
-          "name": "catalog_name",
+          "name": "control_id: Id",
           "ordinal": 0,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "data_plane_name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "hmac_keys",
+          "ordinal": 2,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "encrypted_hmac_keys: models::RawValue",
+          "ordinal": 3,
+          "type_info": "Json"
+        },
+        {
+          "name": "data_plane_fqdn",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "broker_address",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "reactor_address",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_logs_name: models::Collection",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_stats_name: models::Collection",
+          "ordinal": 8,
           "type_info": "Text"
         }
       ],
       "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
         false
       ],
       "parameters": {
         "Left": [
-          "Timestamptz"
+          "Macaddr8"
         ]
       }
     },
-    "query": "select ls.catalog_name\n            from live_specs ls\n            join internal.tasks t on ls.controller_task_id = t.task_id\n            where t.wake_at is not null and t.wake_at <= $1\n            order by ls.catalog_name"
+    "query": "\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE id = $1\n        "
   },
   "40735247033c2693395184471553db708524cfc3b6f4c1095c2ae63f377b8800": {
     "describe": {
@@ -1226,106 +1150,6 @@
     },
     "query": "\n        SELECT\n            prev_image,\n            next_image,\n            step\n        FROM data_plane_releases\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        "
   },
-  "4167a8b04b0ddaf44de948635d22fb42f16f16f1c06b0fe98020897f14f37873": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "last_pub_id: Id",
-          "ordinal": 1,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "spec_type?: CatalogType",
-          "ordinal": 2,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          }
-        },
-        {
-          "name": "spec: TextJson<Box<RawValue>>",
-          "ordinal": 3,
-          "type_info": "Json"
-        },
-        {
-          "name": "reads_from: Vec<String>",
-          "ordinal": 4,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "writes_to: Vec<String>",
-          "ordinal": 5,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "built_spec: TextJson<Box<RawValue>>",
-          "ordinal": 6,
-          "type_info": "Json"
-        },
-        {
-          "name": "inferred_schema_md5",
-          "ordinal": 7,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            select\n                id as \"id: Id\",\n                last_pub_id as \"last_pub_id: Id\",\n                spec_type as \"spec_type?: CatalogType\",\n                spec as \"spec: TextJson<Box<RawValue>>\",\n                reads_from as \"reads_from: Vec<String>\",\n                writes_to as \"writes_to: Vec<String>\",\n                built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n                inferred_schema_md5\n            from live_specs\n            where catalog_name = $1;\n            "
-  },
-  "449e69aed6f009699ff9ca3453780af73252c48e65dcc320e0c16c248b795183": {
-    "describe": {
-      "columns": [
-        {
-          "name": "draft_id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "job_status: TextJson<discovers::JobStatus>",
-          "ordinal": 1,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Macaddr8"
-        ]
-      }
-    },
-    "query": "select\n                draft_id as \"draft_id: Id\",\n                job_status as \"job_status: TextJson<discovers::JobStatus>\"\n            from discovers\n            where id = $1;"
-  },
   "44ced93fd66d92a253eb5784dd8abd21d74750673d1347ce1f4b924228a725a4": {
     "describe": {
       "columns": [
@@ -1346,34 +1170,6 @@
       }
     },
     "query": "\n        SELECT flow_document AS \"stats: sqlx::types::Json<CatalogStats>\"\n        FROM   catalog_stats\n        WHERE  starts_with(catalog_name, $1) AND right(catalog_name, 1) != '/'\n        AND    grain = 'monthly'\n        AND    ts = $2\n        "
-  },
-  "465ac46c6572d5eeb245c011a6e4cd6d29ecbbc8bab9cd79a411dbcc16d4118e": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "DELETE FROM internal.tasks WHERE task_type = 32767;"
-  },
-  "4693ebbb080a6295e36435555fe37aaa879fe7f57d1ed197ad35a00f29d4d4c1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "something: bool",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n            with source_image as (\n                insert into connectors (external_url, image_name, title, short_description, logo_url, recommended)\n                values ('http://test.test/', 'source/test', '{\"en-US\": \"test\"}', '{\"en-US\": \"test\"}', '{\"en-US\": \"http://test.test/\"}', false)\n                on conflict(image_name) do update set title = excluded.title\n                returning id\n            ),\n            materialize_image as (\n                insert into connectors (external_url, image_name, title, short_description, logo_url, recommended)\n                values ('http://test.test/', 'materialize/test', '{\"en-US\": \"test\"}', '{\"en-US\": \"test\"}', '{\"en-US\": \"http://test.test/\"}', false)\n                on conflict(image_name) do update set title = excluded.title\n                returning id\n            ),\n            source_tag as (\n                insert into connector_tags (\n                    connector_id,\n                    image_tag,\n                    protocol,\n                    documentation_url,\n                    endpoint_spec_schema,\n                    resource_spec_schema,\n                    resource_path_pointers,\n                    job_status\n                ) values (\n                    (select id from source_image),\n                    ':test',\n                    'capture',\n                    'http://test.test/',\n                    '{\"type\": \"object\"}',\n                    '{\"type\": \"object\", \"properties\": {\"id\": {\"type\": \"string\", \"x-collection-name\": true}}}',\n                    '{/id}',\n                    '{\"type\": \"success\"}'\n                ) on conflict do nothing\n            ),\n            materialize_tag as (\n                insert into connector_tags (\n                    connector_id,\n                    image_tag,\n                    protocol,\n                    documentation_url,\n                    endpoint_spec_schema,\n                    resource_spec_schema,\n                    resource_path_pointers,\n                    job_status\n                ) values (\n                    (select id from materialize_image),\n                    ':test',\n                    'materialization',\n                    'http://test.test/',\n                    '{\"type\": \"object\"}',\n                    '{\"type\": \"object\", \"properties\": {\"id\": {\"type\": \"string\", \"x-collection-name\": true}, \"schema\": {\"type\": \"string\", \"x-schema-name\": true}, \"delta\": {\"type\": \"boolean\", \"x-delta-updates\": true}}}',\n                    '{/id}',\n                    '{\"type\": \"success\"}'\n                ) on conflict do nothing\n            ),\n            materialize_tag_no_annotations as (\n                insert into connector_tags (\n                    connector_id,\n                    image_tag,\n                    protocol,\n                    documentation_url,\n                    endpoint_spec_schema,\n                    resource_spec_schema,\n                    resource_path_pointers,\n                    job_status\n                ) values (\n                    (select id from materialize_image),\n                    ':test-no-annotation',\n                    'materialization',\n                    'http://test.test/',\n                    '{\"type\": \"object\"}',\n                    '{\"type\": \"object\", \"properties\": {\"id\": {\"type\": \"string\", \"x-collection-name\": true}, \"schema\": {\"type\": \"string\"}, \"delta\": {\"type\": \"boolean\"}}}',\n                    '{/id}',\n                    '{\"type\": \"success\"}'\n                ) on conflict do nothing\n            ),\n            default_data_plane as (\n                insert into data_planes (\n                    data_plane_name,\n                    data_plane_fqdn,\n                    ops_logs_name,\n                    ops_stats_name,\n                    ops_l1_inferred_name,\n                    ops_l1_stats_name,\n                    ops_l1_events_name,\n                    ops_l2_inferred_transform,\n                    ops_l2_stats_transform,\n                    ops_l2_events_transform,\n                    broker_address,\n                    reactor_address,\n                    hmac_keys,\n                    enable_l2\n                ) values (\n                    'ops/dp/public/test',\n                    'test.dp.estuary-data.com',\n                    'ops/logs',\n                    'ops/stats',\n                    'ops/L1/inferred',\n                    'ops/L1/stats',\n                    'ops/L1/events',\n                    'from-L1-inferred',\n                    'from-L1-stats',\n                    'from-L1-events',\n                    'broker:address',\n                    'reactor:address',\n                    '{secret-key}',\n                    false\n                ) on conflict do nothing\n            )\n            select 1 as \"something: bool\";\n            "
   },
   "4afe9dd82afb09cd07272fad9c9d50c555b795d658a9be396b4f7958753c667b": {
     "describe": {
@@ -1437,26 +1233,71 @@
     },
     "query": "\n        UPDATE internal.tasks\n        SET heartbeat = NOW()\n        WHERE task_id = $1 AND heartbeat::TEXT = $2\n        RETURNING heartbeat::TEXT AS \"heartbeat!\";\n        "
   },
-  "4c898db86d281c2fafa1e8bb4a57b0597003240138e8ceb59ab6f8f863dfeaf6": {
+  "4d21faf89153b39f436a1e08389a357885001669ade0636d21219854b4fc4efe": {
     "describe": {
       "columns": [
         {
-          "name": "must_exist: bool",
+          "name": "control_id: Id",
           "ordinal": 0,
-          "type_info": "Int4"
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "data_plane_name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "hmac_keys",
+          "ordinal": 2,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "encrypted_hmac_keys: models::RawValue",
+          "ordinal": 3,
+          "type_info": "Json"
+        },
+        {
+          "name": "data_plane_fqdn",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "broker_address",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "reactor_address",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_logs_name: models::Collection",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_stats_name: models::Collection",
+          "ordinal": 8,
+          "type_info": "Text"
         }
       ],
       "nullable": [
-        null
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
       ],
       "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
+        "Left": []
       }
     },
-    "query": "update controller_jobs set\n        status = jsonb_set(status::jsonb, '{activation, shard_status, last_ts}', to_jsonb($2::text))::json\n        where live_spec_id = (select id from live_specs where catalog_name = $1)\n        and status->'activation'->'shard_status'->>'last_ts' is not null\n        returning 1 as \"must_exist: bool\";"
+    "query": "\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        "
   },
   "4dc2dbe6d50fb8a1af4ffd7b462d8a821db3374156e7839f16864b974bfaf6e5": {
     "describe": {
@@ -1525,27 +1366,6 @@
       }
     },
     "query": "select\n            collection_name,\n            schema as \"schema!: Json<Box<RawValue>>\",\n            md5 as \"md5!: String\"\n            from inferred_schemas\n            where collection_name = ANY($1::text[])\n            "
-  },
-  "513cacbf98d3bfeae0877499c846dc14b2dfcf99ffac862fb09ed4e8bbc435b1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "select ct.id as \"id: Id\"\n            from connectors c\n            join connector_tags ct on c.id = ct.connector_id\n            where c.image_name = $1\n            and ct.image_tag = $2;"
   },
   "520d8242d4f2d5c588d89c90831263ce5fe4baaf29a9f7c8521fc279c62e9a47": {
     "describe": {
@@ -1631,81 +1451,6 @@
       }
     },
     "query": "\n        insert into controller_jobs(live_spec_id, controller_version, status, failures, error)\n        values ($1, $2, $3, $4, $5)\n        on conflict (live_spec_id) do update set\n            controller_version = $2,\n            status = $3,\n            failures = $4,\n            error = $5,\n            updated_at = now()\n        where controller_jobs.live_spec_id = $1;\n        "
-  },
-  "566da80e36fe0b0e8026b5e2b05df50991360ecffa6f739d0bf59c8cde32ee27": {
-    "describe": {
-      "columns": [
-        {
-          "name": "catalog_name!",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "connector_image_name",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "connector_image_tag",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "reads_from",
-          "ordinal": 3,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "writes_to",
-          "ordinal": 4,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "spec",
-          "ordinal": 5,
-          "type_info": "Json"
-        },
-        {
-          "name": "spec_type: String",
-          "ordinal": 6,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          }
-        ]
-      }
-    },
-    "query": "\n                        select catalog_name as \"catalog_name!\",\n                               connector_image_name,\n                               connector_image_tag,\n                               reads_from,\n                               writes_to,\n                               spec,\n                               spec_type as \"spec_type: String\"\n                        from publications p\n                        join live_specs ls on p.pub_id = ls.last_pub_id\n                        where p.id = $1::flowid\n                        order by ls.catalog_name;"
   },
   "5739fb8c9fd0e725d89a28b1e13efff6c05de9000a5f1b0517a9b0e9b9676267": {
     "describe": {
@@ -1849,6 +1594,74 @@
       }
     },
     "query": "select\n            catalog_prefix,\n            spec as \"spec: TextJson<Box<RawValue>>\"\n         from storage_mappings\n         where catalog_prefix = $1 or catalog_prefix = $2\n         for update of storage_mappings"
+  },
+  "6a73d5d0b25c4fbe94ab9999304c7efa53ddbc039d7e336ff75ed835aebc55ee": {
+    "describe": {
+      "columns": [
+        {
+          "name": "control_id: models::Id",
+          "ordinal": 0,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "data_plane_name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "data_plane_fqdn",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "hmac_keys",
+          "ordinal": 3,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "encrypted_hmac_keys: models::RawValue",
+          "ordinal": 4,
+          "type_info": "Json"
+        },
+        {
+          "name": "broker_address",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "reactor_address",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_logs_name: models::Collection",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_stats_name: models::Collection",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes\n        WHERE data_plane_name = $1\n        "
   },
   "6aa6abe66072c18392d625da7eecd7ef93bd7801df4997d831bcec54573f7c59": {
     "describe": {
@@ -2114,108 +1927,6 @@
     },
     "query": "update connector_tags set\n            documentation_url = $2,\n            endpoint_spec_schema = $3,\n            protocol = $4,\n            resource_spec_schema = $5,\n            resource_path_pointers = case when array_length($6::text[], 1) = 0 then resource_path_pointers else $6 end,\n            job_status = '{\"type\": \"updating\"}'\n        where id = $1\n          and (\n            resource_path_pointers is null\n            or ( array_length($6::text[], 1) = 0 or resource_path_pointers::text[] = $6 )\n          )\n        returning true as \"updated\";\n        "
   },
-  "6d0455670ab382d5e043047f0d841a718f39143d06cf1594883339b9ea35921b": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "TextArray"
-        ]
-      }
-    },
-    "query": "\n        update live_specs\n        set updated_at = now() - '21days'::interval\n        where catalog_name = any($1::text[]);"
-  },
-  "6ff27b458d554de940bf0a5fdf20e90e4fe3d5587211d0c4167d86695d961149": {
-    "describe": {
-      "columns": [
-        {
-          "name": "control_id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "data_plane_name",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_default!: bool",
-          "ordinal": 2,
-          "type_info": "Bool"
-        },
-        {
-          "name": "hmac_keys",
-          "ordinal": 3,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "encrypted_hmac_keys: models::RawValue",
-          "ordinal": 4,
-          "type_info": "Json"
-        },
-        {
-          "name": "data_plane_fqdn",
-          "ordinal": 5,
-          "type_info": "Text"
-        },
-        {
-          "name": "broker_address",
-          "ordinal": 6,
-          "type_info": "Text"
-        },
-        {
-          "name": "reactor_address",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_logs_name: models::Collection",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_stats_name: models::Collection",
-          "ordinal": 9,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Array": {
-                  "Custom": {
-                    "kind": {
-                      "Domain": "Macaddr8"
-                    },
-                    "name": "flowid"
-                  }
-                }
-              },
-              "name": "_flowid"
-            }
-          },
-          "Text",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n        select\n            id as \"control_id: Id\",\n            data_plane_name,\n            data_plane_name = $2 and exists(\n                select 1 from internal.user_roles($3, 'read') r\n                where starts_with($2, r.role_prefix)\n            ) as \"is_default!: bool\",\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            data_plane_fqdn,\n            broker_address,\n            reactor_address,\n            ops_logs_name as \"ops_logs_name: models::Collection\",\n            ops_stats_name as \"ops_stats_name: models::Collection\"\n        from data_planes\n        where id in (select id from unnest($1::flowid[]) id)\n           or data_plane_name = $2\n        "
-  },
   "752f293a6005958ed374bbf14bfbf45b2ea36fd6fb8be6e988627b2bdf45e21d": {
     "describe": {
       "columns": [
@@ -2327,46 +2038,6 @@
       }
     },
     "query": "\n        SELECT\n            id AS \"id: models::Id\",\n            catalog_name,\n            spec_type AS \"spec_type!: models::CatalogType\",\n            built_spec AS \"built_spec!: sqlx::types::Json<models::RawValue>\"\n        FROM live_specs\n        WHERE starts_with(catalog_name, $1)\n        AND   built_spec IS NOT NULL\n        AND   data_plane_id = $2\n        -- Migrate tasks first, then collections.\n        -- This minimizes shard failures due to cordoned journals.\n        ORDER BY spec_type = 'collection', catalog_name\n        "
-  },
-  "7dcdba04a0b30525f80695b7a93ac105c5d0676b582d4612786c748a41af4832": {
-    "describe": {
-      "columns": [
-        {
-          "name": "catalog_name",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "pub_id: Id",
-          "ordinal": 1,
-          "type_info": "Macaddr8"
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Macaddr8"
-        ]
-      }
-    },
-    "query": "select\n                ls.catalog_name,\n                ps.pub_id as \"pub_id: Id\"\n                from live_specs ls\n                join publication_specs ps on ls.id = ps.live_spec_id\n                where ls.catalog_name = $1\n                and ps.pub_id > $2\n                order by ls.catalog_name;"
-  },
-  "83781029cdbe229b3d5eead57774bb7d46cdcfb4098cd2143924e28b6496fffb": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "\n            update controller_jobs\n            set status = jsonb_set(status::jsonb, '{publications, history, 0, completed }', $2)::json\n            where live_spec_id = (select id from live_specs where catalog_name::text = $1);"
   },
   "8719942dc2e9021cc550404e1108bb3ed2523e07b3e75dca8f5f94e5e79e2ad7": {
     "describe": {
@@ -2489,26 +2160,6 @@
     },
     "query": "\n            with del as (\n                delete from shard_failures\n                    where catalog_name = $1\n                    and (build < $2::flowid or ts < $3)\n                    returning ts\n            )\n            select count(*) from del\n            "
   },
-  "8fb88c5dd4f6da4d818b82743b7e46ab00f8db5b903f8e9f9da706453ec249e7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_name"
-            }
-          },
-          "Json"
-        ]
-      }
-    },
-    "query": "insert into connector_status (catalog_name, flow_document)\n            values ($1, $2)\n            on conflict (catalog_name) do update set flow_document = $2"
-  },
   "911b8f18ae8f9b6311b3af09ec89e05d3e3d294d64bc0d2eb7b268a3fd369a50": {
     "describe": {
       "columns": [],
@@ -2537,50 +2188,6 @@
       }
     },
     "query": "\n        insert into live_spec_flows (source_id, target_id, flow_type)\n        select live_specs.id, $1, $2::flow_type\n            from unnest($3::text[]) as n inner join live_specs on catalog_name = n\n        union\n            select $1, live_specs.id, $2\n            from unnest($4::text[]) as n inner join live_specs on catalog_name = n\n        union\n            select live_specs.id, $1, 'source_capture'\n            from live_specs\n            where catalog_name = $5\n        "
-  },
-  "92623c8c019727bd0caea4a8a4b818e0d257d527744d128bdb2fd02f7c1c7fba": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "spec: TextJson<Box<RawValue>>",
-          "ordinal": 1,
-          "type_info": "Json"
-        },
-        {
-          "name": "spec_type: CatalogType",
-          "ordinal": 2,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "select\n            id as \"id: Id\",\n            spec as \"spec: TextJson<Box<RawValue>>\",\n            spec_type as \"spec_type: CatalogType\"\n            from live_specs where catalog_name = $1;"
   },
   "9280cff7d789143ec9475f70cc8f4fe8061ac42151b729ee3d33861a55aaecac": {
     "describe": {
@@ -2867,44 +2474,6 @@
     },
     "query": "update connectors set\n            oauth2_spec = $2,\n            updated_at = clock_timestamp()\n        where id = $1\n        returning 1 as \"must_exist\";\n        "
   },
-  "a0a0bd3c35fe8f4ce573441d10460d46f653e2c50b9ac896291577e13d092362": {
-    "describe": {
-      "columns": [
-        {
-          "name": "spec!: TextJson<models::RawValue>",
-          "ordinal": 0,
-          "type_info": "Json"
-        },
-        {
-          "name": "pub_id: Id",
-          "ordinal": 1,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "detail!: String",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "published_at: DateTime<Utc>",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        true,
-        false,
-        null,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "select\n              ps.spec as \"spec!: TextJson<models::RawValue>\",\n              ps.pub_id as \"pub_id: Id\",\n              coalesce(ps.detail, '') as \"detail!: String\",\n              ps.published_at as \"published_at: DateTime<Utc>\"\n            from live_specs ls\n            join publication_specs ps on ls.id = ps.live_spec_id\n            where ls.catalog_name::text = $1\n            order by ps.published_at;"
-  },
   "a17134cb9bbb8e7158e5c6e14958b10eec2edc246be89e9ec0462fcc2dd7eaf7": {
     "describe": {
       "columns": [
@@ -2927,47 +2496,6 @@
       }
     },
     "query": "\n        UPDATE internal.tasks SET\n            heartbeat = '0001-01-01T00:00:00Z',\n            inbox = $3::JSON[] || inbox_next,\n            inbox_next = NULL,\n            inner_state = $2::JSON,\n            wake_at =\n                CASE WHEN inbox_next IS NOT NULL\n                THEN NOW()\n                ELSE NOW() + $4::INTERVAL\n                END\n        WHERE task_id = $1\n        RETURNING wake_at IS NULL AS \"suspended!\"\n        "
-  },
-  "a35af05158965f669bde6ddf2d73f178a353308a03fd2c0105d3fe77944ac6d1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "send_to_task",
-          "ordinal": 0,
-          "type_info": "Void"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          },
-          "Json"
-        ]
-      }
-    },
-    "query": "SELECT internal.send_to_task($1, '00:00:00:00:00:00:00:00'::flowid, $2::JSON)"
-  },
-  "a48d821e7fcbcaf3b2ec0dcfc5ad5a4387a0ec4069859a5554253a07c84713ef": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Interval"
-        ]
-      }
-    },
-    "query": "update shard_failures set\n        ts = ts - $2::interval,\n        flow_document = jsonb_set(\n          flow_document::jsonb, '{ts}',\n          to_jsonb((flow_document->>'ts')::timestamptz - $2::interval)\n        )\n        where catalog_name = $1"
   },
   "a58ec58280d6a8e9859749f17356d44b8a21911685fe3547f250853f5efbdfaa": {
     "describe": {
@@ -3004,38 +2532,6 @@
       }
     },
     "query": "\n        update draft_specs set built_spec = $1, validated = $2\n        where draft_id = $3 and catalog_name = $4;\n        "
-  },
-  "a5e519321194a838d11ef5d9fd3d25a6ec3b4a25ccb77125e40daa89aeec9de7": {
-    "describe": {
-      "columns": [
-        {
-          "name": "job_status: TextJson<publications::JobStatus>",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "draft_id: Id",
-          "ordinal": 1,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "pub_id: Id",
-          "ordinal": 2,
-          "type_info": "Macaddr8"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Macaddr8"
-        ]
-      }
-    },
-    "query": "\n            select job_status as \"job_status: TextJson<publications::JobStatus>\",\n            draft_id as \"draft_id: Id\",\n            pub_id as \"pub_id: Id\"\n            from publications where id = $1"
   },
   "a733eabc0b151b61c210acf13cc91764639f0aed5ba4df879e76208275d4dee8": {
     "describe": {
@@ -3181,26 +2677,6 @@
     },
     "query": "\n        select\n            ls.catalog_name,\n            ls.last_pub_id as \"last_pub_id: Id\"\n        from  live_specs ls\n        where ls.catalog_name = any($1::text[])\n        for update of ls\n        "
   },
-  "ab4b5d1cf977d21e568ecfe60df421c172910f0e4efea564b3f35f447f6b190e": {
-    "describe": {
-      "columns": [
-        {
-          "name": "state: sqlx::types::Json<fibonacci::State>",
-          "ordinal": 0,
-          "type_info": "Json"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Macaddr8"
-        ]
-      }
-    },
-    "query": "SELECT inner_state as \"state: sqlx::types::Json<fibonacci::State>\" FROM internal.tasks WHERE task_id = $1"
-  },
   "acf2493c9776c35ced8946bd6594060de1fd7491674486f11d05a37e9838c675": {
     "describe": {
       "columns": [
@@ -3299,27 +2775,6 @@
       }
     },
     "query": "update connector_tags set\n            job_status = $2,\n            updated_at = clock_timestamp()\n        where id = $1\n        returning 1 as \"must_exist\";\n        "
-  },
-  "af626c40e8f9c77a8283d2db676b71b9da9bc899538f6072dde30da1014fe1c4": {
-    "describe": {
-      "columns": [
-        {
-          "name": "must_exist: bool",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "update controller_jobs\n            set status = jsonb_set(status::jsonb, '{auto_discover, next_at}', to_jsonb($2::text), true)::json\n            where live_spec_id = (select id from live_specs where catalog_name = $1)\n            returning 1 as \"must_exist: bool\";"
   },
   "b10fda873a90630129d968ed7369de98bc61be2843033a74a9bf0c5c9d44c410": {
     "describe": {
@@ -3475,33 +2930,6 @@
       }
     },
     "query": "select\n            id as \"id: Id\",\n            draft_id as \"draft_id: Id\",\n            updated_at,\n            user_id,\n            collections as \"collections: Json<Box<RawValue>>\"\n        from evolutions\n        where id = $1::flowid\n        "
-  },
-  "b53c375f1ac77be957448cb6cca1024d045ba882c0ad09dfc0733c9b8de58064": {
-    "describe": {
-      "columns": [
-        {
-          "name": "create_task",
-          "ordinal": 0,
-          "type_info": "Void"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          }
-        ]
-      }
-    },
-    "query": "SELECT internal.create_task($1, 32767::SMALLINT, NULL::public.flowid)"
   },
   "b7cae2056251e2873fc2f79e4f8b5b0e7e5149306388d0c0bca0d51da02eff6c": {
     "describe": {
@@ -3901,44 +3329,6 @@
     },
     "query": "\n        SELECT\n            id as \"data_plane_id: models::Id\",\n            config AS \"config: sqlx::types::Json<stack::DataPlane>\",\n            deploy_branch AS \"deploy_branch!\",\n            logs_token,\n            data_plane_name,\n            data_plane_fqdn,\n            private_links AS \"private_links: Vec<sqlx::types::Json<stack::PrivateLink>>\",\n            pulumi_key AS \"pulumi_key\",\n            pulumi_stack AS \"pulumi_stack!\"\n        FROM data_planes\n        WHERE controller_task_id = $1\n        "
   },
-  "c8cc261f07c5927e7116de77987dd40549cf0c4a5ec092d1d613f4d3d44ed5fe": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            with del_live_specs as (\n                delete from live_specs\n            ),\n            del_flows as (\n                delete from live_spec_flows\n            ),\n            del_controllers as (\n                delete from controller_jobs\n            ),\n            del_automations as (\n                delete from internal.tasks\n            ),\n            del_draft_specs as (\n                delete from draft_specs\n            ),\n            del_draft_errs as (\n                delete from draft_errors\n            ),\n            del_drafts as (\n                delete from drafts\n            ),\n            del_discovers as (\n                delete from discovers\n            ),\n            del_evolutions as (\n                delete from evolutions\n            ),\n            del_publications as (\n                delete from publications\n            ),\n            del_tenants as (\n                delete from tenants\n            ),\n            del_user_grants as (\n                -- preserve the system user's role grants\n                delete from user_grants where user_id != $1\n            ),\n            del_role_grants as (\n                delete from role_grants\n            ),\n            del_directives as (\n                delete from directives\n            ),\n            del_applied_directives as (\n                delete from applied_directives\n            ),\n            del_tasks as (\n                delete from internal.tasks\n            ),\n            del_alert_subs as (\n                delete from alert_subscriptions\n            ),\n            del_processing_alerts as (\n                delete from alert_data_processing\n            ),\n            del_alert_history as (\n                delete from alert_history\n            ),\n            del_inferred_schemas as (\n                delete from inferred_schemas\n            ),\n            del_hourly_stats as (\n                delete from catalog_stats_hourly\n            ),\n            del_daily_stats as (\n                delete from catalog_stats_daily\n            )\n            delete from catalog_stats_monthly;"
-  },
-  "ca54c738dbb11a01dae4457364a57bafcd9fa869953eb31686c8dae19830e4c8": {
-    "describe": {
-      "columns": [
-        {
-          "name": "scope",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "detail",
-          "ordinal": 1,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Macaddr8"
-        ]
-      }
-    },
-    "query": "select scope, detail from draft_errors where draft_id = $1;"
-  },
   "caa1396b06cf4e5780281a04f2e52456fbf780a1a78ae9dd24b9271cf7ef0cda": {
     "describe": {
       "columns": [
@@ -4156,160 +3546,6 @@
       }
     },
     "query": "\n        select\n            ct.protocol as \"protocol!\",\n            ct.documentation_url as \"documentation_url!\",\n            ct.endpoint_spec_schema as \"endpoint_config_schema!: Json<Box<RawValue>>\",\n            ct.resource_spec_schema as \"resource_config_schema!: Json<Box<RawValue>>\",\n            coalesce(ct.resource_path_pointers, array[]::json_pointer[]) as \"resource_path_pointers!: Vec<String>\",\n            c.oauth2_spec as \"oauth2: Json<Box<RawValue>>\",\n            ct.auto_discover_interval as \"auto_discover_interval: crate::Interval\"\n        from connectors c\n        join connector_tags ct on c.id = ct.connector_id\n        where c.image_name = $1\n            and ct.image_tag = $2\n            and ct.endpoint_spec_schema is not null\n            and ct.resource_spec_schema is not null;\n        "
-  },
-  "d5513654d2bc3dc085f4923507225ac4a974308a0da5c9108a5bde60f16a63ed": {
-    "describe": {
-      "columns": [
-        {
-          "name": "live_spec_id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "catalog_name!: String",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "last_pub_id: Id",
-          "ordinal": 2,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "last_build_id: Id",
-          "ordinal": 3,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "live_spec: TextJson<Box<RawValue>>",
-          "ordinal": 4,
-          "type_info": "Json"
-        },
-        {
-          "name": "built_spec: TextJson<Box<RawValue>>",
-          "ordinal": 5,
-          "type_info": "Json"
-        },
-        {
-          "name": "spec_type: CatalogType",
-          "ordinal": 6,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          }
-        },
-        {
-          "name": "live_dependency_hash",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 8,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "live_spec_updated_at",
-          "ordinal": 9,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "controller_version: i32",
-          "ordinal": 10,
-          "type_info": "Int4"
-        },
-        {
-          "name": "controller_updated_at",
-          "ordinal": 11,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "logs_token",
-          "ordinal": 12,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "status: TextJson<Box<RawValue>>",
-          "ordinal": 13,
-          "type_info": "Json"
-        },
-        {
-          "name": "failures",
-          "ordinal": 14,
-          "type_info": "Int4"
-        },
-        {
-          "name": "error",
-          "ordinal": 15,
-          "type_info": "Text"
-        },
-        {
-          "name": "data_plane_id: Id",
-          "ordinal": 16,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "data_plane_name?: String",
-          "ordinal": 17,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "select\n                ls.id as \"live_spec_id: Id\",\n                ls.catalog_name as \"catalog_name!: String\",\n                ls.last_pub_id as \"last_pub_id: Id\",\n                ls.last_build_id as \"last_build_id: Id\",\n                ls.spec as \"live_spec: TextJson<Box<RawValue>>\",\n                ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n                ls.spec_type as \"spec_type: CatalogType\",\n                ls.dependency_hash as \"live_dependency_hash\",\n                ls.created_at,\n                ls.updated_at as \"live_spec_updated_at\",\n                cj.controller_version as \"controller_version: i32\",\n                cj.updated_at as \"controller_updated_at\",\n                cj.logs_token,\n                cj.status as \"status: TextJson<Box<RawValue>>\",\n                cj.failures,\n                cj.error,\n                ls.data_plane_id as \"data_plane_id: Id\",\n                dp.data_plane_name as \"data_plane_name?: String\"\n            from live_specs ls\n            join controller_jobs cj on ls.id = cj.live_spec_id\n            left outer join data_planes dp on ls.data_plane_id = dp.id\n            where ls.catalog_name = $1;"
-  },
-  "d5a0e991f234082f3d4172886577785ee2187110b9af106f18f4fda955d21990": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_name"
-            }
-          },
-          "Json"
-        ]
-      }
-    },
-    "query": "insert into inferred_schemas (collection_name, schema, flow_document)\n            values ($1, $2, '{}')\n            on conflict(collection_name) do update set\n            schema = excluded.schema;"
   },
   "d5e743006d7962febb25a1ee3d6ca399dc5979420389964a7184832d8d4903f6": {
     "describe": {
@@ -4706,6 +3942,75 @@
     },
     "query": "\n            with del as (\n                delete from config_updates\n                    where catalog_name = $1\n                    and (build <= $2::flowid)\n                    returning ts\n            )\n            select count(*) from del\n            "
   },
+  "e1a53ce8f3bd6bb188933979f7192de927520823b1401df8fda5175190e96a66": {
+    "describe": {
+      "columns": [
+        {
+          "name": "control_id: Id",
+          "ordinal": 0,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "data_plane_name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "hmac_keys",
+          "ordinal": 2,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "encrypted_hmac_keys: models::RawValue",
+          "ordinal": 3,
+          "type_info": "Json"
+        },
+        {
+          "name": "data_plane_fqdn",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "broker_address",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "reactor_address",
+          "ordinal": 6,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_logs_name: models::Collection",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "ops_stats_name: models::Collection",
+          "ordinal": 8,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                d.id AS \"control_id: Id\",\n                d.data_plane_name,\n                d.hmac_keys,\n                d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n                d.data_plane_fqdn,\n                d.broker_address,\n                d.reactor_address,\n                d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n                d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n            FROM data_planes d\n            WHERE data_plane_name = $1\n            AND EXISTS (\n                SELECT 1 FROM internal.user_roles($2, 'read') r\n                WHERE starts_with($1, r.role_prefix)\n            )\n            "
+  },
   "e4a3c5d3eb982345f08a8d57baa64b970d5dbe826426d18274a278b1529e6faa": {
     "describe": {
       "columns": [],
@@ -4717,35 +4022,6 @@
       }
     },
     "query": "delete from drafts where id = $1"
-  },
-  "e576268789a1d6d367b78e13dce88444a2e794ea1f606d19d6c911b28e07e7ad": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_name"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Macaddr8"
-              },
-              "name": "flowid"
-            }
-          },
-          "Timestamptz",
-          "Json"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO config_updates (catalog_name, build, ts, flow_document)\n        VALUES ($1::catalog_name, $2::flowid, $3, $4)\n        ON CONFLICT (catalog_name)\n        DO UPDATE SET\n            build = EXCLUDED.build,\n            ts = EXCLUDED.ts,\n            flow_document = EXCLUDED.flow_document\n        "
   },
   "e65e2b05d609fcbc9595cbf3578340524226db6adc820e1d0f99dfdaf7e4379d": {
     "describe": {
@@ -4803,78 +4079,6 @@
       }
     },
     "query": "\n        insert into draft_specs(\n            draft_id,\n            catalog_name,\n            spec,\n            spec_type,\n            expect_pub_id\n        ) values ($1, $2, $3, $4, $5)\n        on conflict (draft_id, catalog_name) do update set\n            spec = $3,\n            spec_type = $4\n        returning 1 as \"must_exist\";\n        "
-  },
-  "e76fbd97837eb8c060981339f686c64e0c697be56029fe6d02fcccccb49f5900": {
-    "describe": {
-      "columns": [
-        {
-          "name": "control_id: Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "data_plane_name",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_default!",
-          "ordinal": 2,
-          "type_info": "Bool"
-        },
-        {
-          "name": "hmac_keys",
-          "ordinal": 3,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "encrypted_hmac_keys: models::RawValue",
-          "ordinal": 4,
-          "type_info": "Json"
-        },
-        {
-          "name": "data_plane_fqdn",
-          "ordinal": 5,
-          "type_info": "Text"
-        },
-        {
-          "name": "broker_address",
-          "ordinal": 6,
-          "type_info": "Text"
-        },
-        {
-          "name": "reactor_address",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_logs_name: models::Collection",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_stats_name: models::Collection",
-          "ordinal": 9,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n        select\n            id as \"control_id: Id\",\n            data_plane_name,\n            false as \"is_default!\",\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            data_plane_fqdn,\n            broker_address,\n            reactor_address,\n            ops_logs_name as \"ops_logs_name: models::Collection\",\n            ops_stats_name as \"ops_stats_name: models::Collection\"\n        from data_planes\n        "
   },
   "e8d80f44d6387684555f2298b74161921a9c4b91f300e20a20684395012fd8b0": {
     "describe": {
@@ -5059,60 +4263,6 @@
     },
     "query": "select\n                ls.catalog_name,\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when $3 then ls.spec::text else null end as \"spec: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when $4 then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\"\n            from unnest($1::text[]) p(prefix)\n            join live_specs ls on starts_with(ls.catalog_name::text, p.prefix)\n            where ls.spec_type = $2::catalog_spec_type\n        "
   },
-  "f13bcdf0927d67f1ae254e4193850a8fffc4798dba3597e8966ecdd5d601cf91": {
-    "describe": {
-      "columns": [
-        {
-          "name": "send_to_task",
-          "ordinal": 0,
-          "type_info": "Void"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            select internal.send_to_task(\n                (select controller_task_id from live_specs where catalog_name = $1),\n                '00:00:00:00:00:00:00:00'::flowid,\n                '{\"type\": \"manual_trigger\", \"user_id\": \"ffffffff-ffff-ffff-ffff-ffffffffffff\"}'\n            )"
-  },
-  "f51b23bf1b3d07984414f308915bf8b85e7a6589e8a5be7057fa9f40d07be0bb": {
-    "describe": {
-      "columns": [
-        {
-          "name": "must_exist: bool",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "update controller_jobs set\n        status = jsonb_set(status::jsonb, '{activation, shard_status, first_ts}', to_jsonb($2::text))::json\n        where live_spec_id = (select id from live_specs where catalog_name = $1)\n        and status->'activation'->'shard_status'->>'status' = 'Ok'\n        returning 1 as \"must_exist: bool\";"
-  },
-  "f682e735e0b06a6707bd7755dffdbc4fb142ebfda4dc94f7f301992767ad4d3d": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "\n            UPDATE controller_jobs\n            SET status = jsonb_set(\n                status::jsonb,\n                '{config_updates,next_attempt}',\n                $2\n            )::json\n            WHERE live_spec_id = (\n                SELECT id FROM live_specs WHERE catalog_name::text = $1\n            );\n            "
-  },
   "f79402d382e8be98c15bbf8255ba8a91e2347dcbb9d7ba5fdc82a5ddcaf630eb": {
     "describe": {
       "columns": [],
@@ -5284,144 +4434,5 @@
       }
     },
     "query": "\n                select\n                    date_start as \"date_start!\",\n                    date_end as \"date_end!\",\n                    billed_prefix as \"billed_prefix!\",\n                    invoice_type as \"invoice_type!: InvoiceType\",\n                    line_items as \"line_items!: sqlx::types::Json<Vec<LineItem>>\",\n                    subtotal::bigint as \"subtotal!\",\n                    extra as \"extra: sqlx::types::Json<Option<Extra>>\",\n                    customer.has_payment_method as has_payment_method,\n                    dataflow_hours.capture_hours::float as capture_hours,\n                    dataflow_hours.materialization_hours::float as materialization_hours,\n                    tenants.payment_provider as \"payment_provider!: PaymentProvider\"\n                from invoices_ext\n                left join tenants on tenants.tenant = billed_prefix\n                inner join lateral(\n                \tselect bool_or(\"invoice_settings/default_payment_method\" is not null) as has_payment_method\n                \tfrom stripe.customers\n                \twhere customers.metadata->>'estuary.dev/tenant_name' = billed_prefix\n                \tgroup by billed_prefix\n                ) as customer on true\n                inner join lateral(\n                \tselect\n                \t\tsum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,\n                    \tsum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours\n                    from catalog_stats\n                    join live_specs on live_specs.catalog_name = catalog_stats.catalog_name\n                    where\n                    \tcatalog_stats.catalog_name ^@ billed_prefix\n                    \tand grain = 'monthly'\n                    \tand tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats.ts\n                ) as dataflow_hours on true\n                where ((\n                    date_start >= date_trunc('day', $1::date)\n                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'\n                    and invoice_type = 'final'\n                ) or (\n                    invoice_type = 'manual'\n                ))\n                and billed_prefix = any($2)\n            "
-  },
-  "fed8db57f1976b6733bd67ff0350fbc787b2f5b94e082246cd5581da6a03981b": {
-    "describe": {
-      "columns": [
-        {
-          "name": "control_id: models::Id",
-          "ordinal": 0,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "data_plane_name",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "data_plane_fqdn",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_default!: bool",
-          "ordinal": 3,
-          "type_info": "Bool"
-        },
-        {
-          "name": "hmac_keys",
-          "ordinal": 4,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "encrypted_hmac_keys: models::RawValue",
-          "ordinal": 5,
-          "type_info": "Json"
-        },
-        {
-          "name": "broker_address",
-          "ordinal": 6,
-          "type_info": "Text"
-        },
-        {
-          "name": "reactor_address",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_logs_name: models::Collection",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "ops_stats_name: models::Collection",
-          "ordinal": 9,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n        SELECT\n            d.id AS \"control_id: models::Id\",\n            d.data_plane_name,\n            d.data_plane_fqdn,\n            false AS \"is_default!: bool\",\n            d.hmac_keys,\n            d.encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        "
-  },
-  "ffd2a61138f98db0acc9b7ec0c89b588d85c9e3d01288325756394cd5b877981": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_prefix"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Domain": "Text"
-              },
-              "name": "catalog_prefix"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "x_00",
-                  "x_01",
-                  "x_02",
-                  "x_03",
-                  "x_04",
-                  "x_05",
-                  "x_06",
-                  "x_07",
-                  "x_08",
-                  "x_09",
-                  "read",
-                  "x_11",
-                  "x_12",
-                  "x_13",
-                  "x_14",
-                  "x_15",
-                  "x_16",
-                  "x_17",
-                  "x_18",
-                  "x_19",
-                  "write",
-                  "x_21",
-                  "x_22",
-                  "x_23",
-                  "x_24",
-                  "x_25",
-                  "x_26",
-                  "x_27",
-                  "x_28",
-                  "x_29",
-                  "admin"
-                ]
-              },
-              "name": "grant_capability"
-            }
-          }
-        ]
-      }
-    },
-    "query": "\n                insert into role_grants (subject_role, object_role, capability)\n                values ($1, $2, $3)\n            "
   }
 }
