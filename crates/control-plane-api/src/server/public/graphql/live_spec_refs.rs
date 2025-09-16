@@ -59,14 +59,14 @@ impl LiveSpecRef {
     }
 
     /// Returns all alerts that are currently firing for this live spec.
-    async fn firing_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<alerts::Alert>> {
+    async fn active_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<alerts::Alert>> {
         if self.user_capability.is_none() {
             tracing::info!(catalog_name = %self.catalog_name, "not showing firing_alerts because user is not authorized");
             return Ok(Vec::new());
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
         let alerts = loader
-            .load_one(alerts::FiringAlerts(self.catalog_name.to_string()))
+            .load_one(alerts::ActiveAlerts(self.catalog_name.to_string()))
             .await?;
         Ok(alerts.unwrap_or_default())
     }
