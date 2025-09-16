@@ -51,11 +51,11 @@ type Alert {
 	"""
 	catalogName: String!
 	"""
-	Time at which the alert started firing.
+	Time at which the alert became active.
 	"""
 	firedAt: DateTime!
 	"""
-	The time at which the alert was resolved, or null if it is still firing.
+	The time at which the alert was resolved, or null if it is still active.
 	"""
 	resolvedAt: DateTime
 	"""
@@ -377,7 +377,7 @@ type LiveSpecRef {
 	"""
 	Returns all alerts that are currently firing for this live spec.
 	"""
-	firingAlerts: [Alert!]!
+	activeAlerts: [Alert!]!
 	"""
 	Returns the history of resolved alerts for this live spec. Alerts are
 	returned in reverse chronological order based on the `firedAt`
@@ -584,7 +584,7 @@ type QueryRoot {
 	"""
 	liveSpecs(by: ByPrefix!, after: String, first: Int): LiveSpecRefConnection!
 	"""
-	Returns a list of alerts that are currently firing for the given catalog
+	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
 	"""
 	alerts(
@@ -593,9 +593,9 @@ type QueryRoot {
 		"""
 		prefix: String!,
 		"""
-		Optionally filter alerts by whether or not they are firing
+		Optionally filter alerts by whether or not they are active
 		"""
-		firing: Boolean,		before: String,		last: Int
+		active: Boolean,		before: String,		last: Int
 	): AlertConnection!
 	prefixes(minCapability: Capability!, after: String, first: Int): PrefixConnection!
 }
