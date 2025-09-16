@@ -108,6 +108,18 @@ impl super::UserGrant {
         .skip(1) // Skip `seed`.
     }
 
+    pub fn get_user_capability<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+    ) -> Option<models::Capability> {
+        Self::transitive_roles(role_grants, user_grants, user_id)
+            .filter(|grant| object_role_or_name.starts_with(grant.object_role))
+            .max_by_key(|grant| grant.capability)
+            .map(|grant| grant.capability)
+    }
+
     /// Given a user, determine if they're authorized to the object name for the given capability.
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
@@ -461,6 +473,67 @@ mod test {
             "acmeCo-૨/acme-data/my_data/",
             models::Capability::Read
         ));
+    }
+
+    #[test]
+    fn test_get_user_capability() {
+        use models::Capability::*;
+        let role_grants = RoleGrants::from_iter(
+            [
+                ("acmeCo/", "acmeCo/", Write),
+                ("acmeCo/", "ops/private/dp/acmeCo/", Read),
+            ]
+            .into_iter()
+            .map(|(sub, obj, cap)| RoleGrant {
+                subject_role: models::Prefix::new(sub),
+                object_role: models::Prefix::new(obj),
+                capability: cap,
+            }),
+        );
+
+        let user1 = uuid::Uuid::from_bytes([1; 16]);
+        let user2 = uuid::Uuid::from_bytes([2; 16]);
+        let user_grants = UserGrants::from_iter(
+            [
+                (user1, "acmeCo/", Admin),
+                (user2, "acmeCo/", Admin),
+                (user2, "ops/private/dp/acmeCo/", Write),
+            ]
+            .into_iter()
+            .map(|(user_id, obj, cap)| UserGrant {
+                user_id,
+                object_role: models::Prefix::new(obj),
+                capability: cap,
+            }),
+        );
+
+        assert_eq!(
+            Some(Read),
+            UserGrant::get_user_capability(
+                &role_grants,
+                &user_grants,
+                user1,
+                "ops/private/dp/acmeCo/foooo"
+            )
+        );
+        assert_eq!(
+            Some(Write),
+            UserGrant::get_user_capability(
+                &role_grants,
+                &user_grants,
+                user2,
+                "ops/private/dp/acmeCo/foooo"
+            )
+        );
+        assert_eq!(
+            None,
+            UserGrant::get_user_capability(
+                &role_grants,
+                &user_grants,
+                user1,
+                "different/co/altogether"
+            )
+        );
     }
 
     #[test]

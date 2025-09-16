@@ -170,9 +170,12 @@ type AutoDiscoverStatus {
 	failure: AutoDiscoverFailure
 }
 
+"""
+Input type for returning live specs references by prefix and catalog type.
+"""
 input ByPrefix {
-	prefix: String!
-	catalogType: CatalogType
+	prefix: Prefix!
+	catalogType: CatalogType!
 }
 
 """
@@ -339,6 +342,38 @@ type LiveSpec {
 	updatedAt: DateTime!
 	builtSpec: JSON!
 	isDisabled: Boolean!
+	readsFrom(after: String, first: Int): LiveSpecRefConnection!
+	writesTo(after: String, first: Int): LiveSpecRefConnection!
+	sourceCapture: LiveSpecRef
+	"""
+	Returns a list of live specs that write to this spec. This will always
+	be empty if this spec is a not a collection.
+	"""
+	writtenBy(after: String, first: Int): LiveSpecRefConnection!
+	"""
+	Returns a list of live specs that read from this spec. This will always
+	be empty if this spec is a not a collection.
+	"""
+	readBy(after: String, first: Int): LiveSpecRefConnection!
+}
+
+"""
+Represents a reference from one live spec to another.
+"""
+type LiveSpecRef {
+	"""
+	The catalog_name of the referent.
+	"""
+	catalogName: Name!
+	"""
+	The current user's capability to the referent. None indicates no access.
+	Note that
+	"""
+	userCapability: Capability
+	"""
+	Returns the live spec that the reference points to, if the user has access to it.
+	"""
+	liveSpec: LiveSpec
 	"""
 	Returns all alerts that are currently firing for this live spec.
 	"""
@@ -349,10 +384,13 @@ type LiveSpec {
 	timestamp, and are paginated.
 	"""
 	alertHistory(before: String, last: Int!): AlertConnection!
-	status: Status!
+	"""
+	Returns the status of the live spec.
+	"""
+	status: Status
 }
 
-type LiveSpecConnection {
+type LiveSpecRefConnection {
 	"""
 	Information to aid in pagination.
 	"""
@@ -360,17 +398,17 @@ type LiveSpecConnection {
 	"""
 	A list of edges.
 	"""
-	edges: [LiveSpecEdge!]!
+	edges: [LiveSpecRefEdge!]!
 }
 
 """
 An edge in a connection.
 """
-type LiveSpecEdge {
+type LiveSpecRefEdge {
 	"""
 	The item at the end of the edge
 	"""
-	node: LiveSpec!
+	node: LiveSpecRef!
 	"""
 	A cursor for use in pagination
 	"""
@@ -395,6 +433,8 @@ type LockFailure {
 	"""
 	actual: Id
 }
+
+scalar Name
 
 """
 Information about pagination in a connection
@@ -430,19 +470,7 @@ type PendingConfigUpdateStatus {
 	build: Id!
 }
 
-"""
-A prefix to which the user is authorized.
-"""
-type Prefix {
-	"""
-	The prefix to which the user is authorized.
-	"""
-	prefix: String!
-	"""
-	The capability granted to the user for this prefix.
-	"""
-	capability: Capability!
-}
+scalar Prefix
 
 type PrefixConnection {
 	"""
@@ -544,7 +572,17 @@ type PublicationStatus {
 }
 
 type QueryRoot {
-	liveSpecs(by: ByPrefix!, after: String, first: Int): LiveSpecConnection!
+	"""
+	Returns a paginated list of live specs under the given prefix and
+	matching the given type.
+	
+	Note that the `user_capability` that's returned as part of the reference
+	represents the user's capability to the whole prefix, and it is possible
+	that there are more specific grants for a broader capability. In other
+	words, this capability represents the _minimum_ capability that the user
+	has for the given spec.
+	"""
+	liveSpecs(by: ByPrefix!, after: String, first: Int): LiveSpecRefConnection!
 	"""
 	Returns a list of alerts that are currently firing for the given catalog
 	prefixes.

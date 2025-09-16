@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use models::status::{ConnectorStatus, ControllerStatus, StatusSummaryType, Summary};
 
-pub struct StatusLoader(pub sqlx::PgPool);
+use super::PgDataLoader;
 
 /// Status info related to the controller
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
@@ -84,13 +84,21 @@ impl From<StatusRow> for Status {
     }
 }
 
-impl async_graphql::dataloader::Loader<String> for StatusLoader {
+/// Used to load status by catalog name
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub struct StatusKey(pub String);
+
+impl async_graphql::dataloader::Loader<StatusKey> for PgDataLoader {
     type Value = Status;
 
     type Error = String;
 
-    async fn load(&self, keys: &[String]) -> Result<HashMap<String, Self::Value>, Self::Error> {
-        let statuses = fetch_status(&self.0, keys)
+    async fn load(
+        &self,
+        keys: &[StatusKey],
+    ) -> Result<HashMap<StatusKey, Self::Value>, Self::Error> {
+        let names: Vec<&str> = keys.iter().map(|k| k.0.as_str()).collect();
+        let statuses = fetch_status(&self.0, &names)
             .await
             .map_err(|e| e.to_string())?;
         Ok(statuses)
@@ -109,17 +117,17 @@ struct StatusRow {
     controller_failures: i32,
 }
 
-pub async fn fetch_status(
+async fn fetch_status(
     pool: &sqlx::PgPool,
-    catalog_names: &[String],
-) -> sqlx::Result<HashMap<String, Status>> {
+    catalog_names: &[&str],
+) -> sqlx::Result<HashMap<StatusKey, Status>> {
     let rows = sqlx::query_as!(
         StatusRow,
         r#"select
         ls.catalog_name as "catalog_name: String",
         ls.last_build_id as "last_build_id: models::Id",
         coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as "disabled!: bool",
-        cs.flow_document as "connector_status: ConnectorStatus",
+        cs.flow_document as "connector_status?: ConnectorStatus",
         t.wake_at as "controller_next_run: DateTime<Utc>",
         cj.updated_at as "controller_updated_at: DateTime<Utc>",
         cj.status as "controller_status: ControllerStatus",
@@ -132,7 +140,7 @@ pub async fn fetch_status(
     where ls.catalog_name::text = any($1::text[])
     and ls.spec_type is not null
         "#,
-        catalog_names as &[String],
+        catalog_names as &[&str],
     )
     .fetch_all(pool)
     .await?;
@@ -140,7 +148,7 @@ pub async fn fetch_status(
     let resp = rows
         .into_iter()
         .map(|mut row| {
-            let name = std::mem::take(&mut row.catalog_name);
+            let name = StatusKey(std::mem::take(&mut row.catalog_name));
             let status = Status::from(row);
             (name, status)
         })
