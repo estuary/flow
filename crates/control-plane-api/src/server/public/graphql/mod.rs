@@ -3,6 +3,7 @@
 //! The `QueryRoot`
 mod alerts;
 pub mod id;
+mod live_spec_refs;
 mod live_specs;
 mod prefixes;
 pub mod status;
@@ -16,6 +17,8 @@ use crate::server::{App, ControlClaims};
 // This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
+pub struct PgDataLoader(pub sqlx::PgPool);
+
 // Represents the portion of the GraphQL schema that deals with read-only
 // queries. This is a composition of the queries from various modules here. Note
 // that the repetition in those names is intentional, because async-graphql does
@@ -23,7 +26,7 @@ pub type GraphQLSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 // struct must have a unique name.
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct QueryRoot(
-    live_specs::LiveSpecsQuery,
+    live_spec_refs::LiveSpecsQuery,
     alerts::AlertsQuery,
     prefixes::PrefixesQuery,
 );
@@ -45,18 +48,12 @@ pub(crate) async fn graphql_handler(
     app_state: axum::extract::State<Arc<App>>,
     req: axum::extract::Json<async_graphql::Request>,
 ) -> axum::Json<async_graphql::Response> {
-    let request = req
-        .0
-        .data(app_state.0.clone())
-        .data(claims.0)
-        .data(async_graphql::dataloader::DataLoader::new(
-            alerts::AlertLoader(app_state.pg_pool.clone()),
+    let request = req.0.data(app_state.0.clone()).data(claims.0).data(
+        async_graphql::dataloader::DataLoader::new(
+            PgDataLoader(app_state.pg_pool.clone()),
             tokio::spawn,
-        ))
-        .data(async_graphql::dataloader::DataLoader::new(
-            status::StatusLoader(app_state.pg_pool.clone()),
-            tokio::spawn,
-        ));
+        ),
+    );
 
     let response = schema.execute(request).await;
     axum::Json(response)

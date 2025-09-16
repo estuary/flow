@@ -49,15 +49,11 @@ pub struct Alert {
     // pub resolved_arguments: Json<async_graphql::Value>,
 }
 
-pub struct AlertLoader(pub sqlx::PgPool);
-
 /// A typed key for loading all of the currently firing alerts for a given `catalog_name`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FiringAlerts {
-    pub catalog_name: String,
-}
+pub struct FiringAlerts(pub String);
 
-impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
+impl async_graphql::dataloader::Loader<FiringAlerts> for super::PgDataLoader {
     type Value = Vec<Alert>;
     type Error = String;
 
@@ -66,10 +62,7 @@ impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
         keys: &[FiringAlerts],
     ) -> Result<std::collections::HashMap<FiringAlerts, Self::Value>, Self::Error> {
         use itertools::Itertools;
-        let catalog_names = keys
-            .iter()
-            .map(|k| k.catalog_name.as_str())
-            .collect::<Vec<_>>();
+        let catalog_names = keys.iter().map(|k| k.0.as_str()).collect::<Vec<_>>();
         let rows = sqlx::query!(
             r#"select
             alert_type as "alert_type: AlertType",
@@ -91,9 +84,7 @@ impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
         let result = rows
             .into_iter()
             .map(|row| {
-                let key = FiringAlerts {
-                    catalog_name: row.catalog_name.clone(),
-                };
+                let key = FiringAlerts(row.catalog_name.clone());
                 let alert = Alert {
                     alert_type: row.alert_type,
                     catalog_name: row.catalog_name,
@@ -106,58 +97,6 @@ impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
             .into_group_map();
         Ok(result)
     }
-}
-
-/// Get alerts from alert_history by catalog_name
-pub async fn list_alerts_firing(
-    ctx: &Context<'_>,
-    prefixes: Vec<String>,
-) -> async_graphql::Result<Vec<Alert>> {
-    let app = ctx.data::<Arc<App>>()?;
-    let claims = ctx.data::<ControlClaims>()?;
-
-    // Verify user authorization
-    let authorized_names = app
-        .verify_user_authorization(claims, prefixes.clone(), models::Capability::Read)
-        .await
-        .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
-
-    if authorized_names.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Query alert_history table
-    let rows = sqlx::query!(
-        r#"
-        select
-            alert_type as "alert_type!: AlertType",
-            catalog_name as "catalog_name!: String",
-            fired_at,
-            resolved_at,
-            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
-        from unnest($1::text[]) p(prefix)
-        join alert_history a on a.resolved_at is null and starts_with(a.catalog_name, p.prefix)
-        order by a.fired_at desc
-        limit 100
-        "#,
-        &authorized_names as &[String],
-    )
-    .fetch_all(&app.pg_pool)
-    .await
-    .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
-
-    let results = rows
-        .into_iter()
-        .map(|row| Alert {
-            alert_type: row.alert_type,
-            catalog_name: row.catalog_name,
-            fired_at: row.fired_at,
-            resolved_at: row.resolved_at,
-            arguments: Json(row.arguments.0),
-        })
-        .collect();
-
-    Ok(results)
 }
 
 pub type PaginatedAlerts = connection::Connection<
