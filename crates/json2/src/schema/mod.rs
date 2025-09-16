@@ -6,6 +6,7 @@ pub mod keywords;
 pub mod types;
 
 pub use frozen::{FrozenSlice, FrozenString};
+pub use index::Index;
 pub use keywords::{Annotation, CoreAnnotation, Keyword};
 
 #[derive(Debug)]

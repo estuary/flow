@@ -1,5 +1,5 @@
 use crate::schema::{Annotation, Keyword, Schema};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use thiserror;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
@@ -14,15 +14,15 @@ pub enum Error {
     NotFound { uri: String },
 }
 
-/// IndexBuilder builds an index of Schemas indexed on their
+/// Builder builds an index of Schemas indexed on their
 /// canonical and alternative anchor-form URIs.
-/// Once built, an IndexBuilder is converted into a packed Index
+/// Once populated, it's converted into a packed Index
 /// for fast query lookups.
-pub struct IndexBuilder<'s, A>(BTreeMap<&'s str, &'s Schema<A>>)
+pub struct Builder<'s, A>(BTreeMap<&'s str, &'s Schema<A>>)
 where
     A: Annotation;
 
-impl<'s, A> IndexBuilder<'s, A>
+impl<'s, A> Builder<'s, A>
 where
     A: Annotation,
 {
@@ -148,6 +148,10 @@ where
             .map(|(u, s)| (u.to_string().into(), s))
             .collect();
 
+        // For `slow`, we're paying an up-front hashing cost to avoid multiple
+        // fetches into random memory (as would be required with binary search).
+        let slow: HashMap<&str, _> = slow.into_iter().collect();
+
         Index { fast, slow }
     }
 
@@ -169,10 +173,10 @@ where
     A: Annotation,
 {
     // Store is subdivided between a `fast` and `slow` index.
-    // `fast` items are statically known to be referenced, and there are fewer of them.
-    // `slow` items may still be referenced, and there are more of them.
+    // - `fast` items are statically known to be referenced, and there are fewer of them.
+    // - `slow` items may still be referenced, and there are more of them.
     fast: Vec<(super::FrozenString, &'s Schema<A>)>,
-    slow: Vec<(&'s str, &'s Schema<A>)>,
+    slow: HashMap<&'s str, &'s Schema<A>>,
 }
 
 impl<'s, A> Index<'s, A>
@@ -182,8 +186,8 @@ where
     pub fn fetch(&self, uri: &str) -> Option<&'s Schema<A>> {
         if let Ok(ind) = self.fast.binary_search_by_key(&uri, |(u, _)| u) {
             Some(self.fast[ind].1)
-        } else if let Ok(ind) = self.slow.binary_search_by_key(&uri, |(u, _)| u) {
-            Some(self.slow[ind].1)
+        } else if let Some(schema) = self.slow.get(&uri) {
+            Some(schema)
         } else {
             None
         }
@@ -201,7 +205,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{super::build::build_schema, super::CoreAnnotation, IndexBuilder};
+    use super::{super::build::build_schema, super::CoreAnnotation, Builder};
+    use itertools::Itertools;
     use serde_json::json;
 
     #[test]
@@ -233,7 +238,7 @@ mod test {
         let curi = url::Url::parse("http://example/schema").unwrap();
         let schema = build_schema::<CoreAnnotation>(&curi, &schema).unwrap();
 
-        let mut builder = IndexBuilder::new();
+        let mut builder = Builder::new();
         builder.add(&schema).unwrap();
         builder.verify_references().unwrap();
         let index = builder.into_index();
@@ -243,7 +248,12 @@ mod test {
             vec!["http://example/schema#Two", "http://other/"]
         );
         assert_eq!(
-            index.slow.iter().map(|(u, _)| *u).collect::<Vec<_>>(),
+            index
+                .slow
+                .iter()
+                .map(|(u, _)| *u)
+                .sorted()
+                .collect::<Vec<_>>(),
             vec![
                 "http://example/schema",
                 "http://example/schema#/$defs/one",
