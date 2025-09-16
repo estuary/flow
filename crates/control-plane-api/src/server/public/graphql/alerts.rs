@@ -14,18 +14,18 @@ pub struct AlertsQuery;
 
 #[async_graphql::Object]
 impl AlertsQuery {
-    /// Returns a list of alerts that are currently firing for the given catalog
+    /// Returns a list of alerts that are currently active for the given catalog
     /// prefixes.
     async fn alerts(
         &self,
         ctx: &Context<'_>,
         #[graphql(desc = "Show alerts for the given catalog prefixes")] prefix: String,
-        #[graphql(desc = "Optionally filter alerts by whether or not they are firing")]
-        firing: Option<bool>,
+        #[graphql(desc = "Optionally filter alerts by whether or not they are active")]
+        active: Option<bool>,
         before: Option<String>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlerts> {
-        prefix_alert_history(ctx, prefix.as_str(), firing, before, last).await
+        prefix_alert_history(ctx, prefix.as_str(), active, before, last).await
     }
 }
 
@@ -36,9 +36,9 @@ pub struct Alert {
     pub alert_type: AlertType,
     /// The catalog name that the alert pertains to.
     pub catalog_name: String,
-    /// Time at which the alert started firing.
+    /// Time at which the alert became active.
     pub fired_at: DateTime<Utc>,
-    /// The time at which the alert was resolved, or null if it is still firing.
+    /// The time at which the alert was resolved, or null if it is still active.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
@@ -49,18 +49,18 @@ pub struct Alert {
     // pub resolved_arguments: Json<async_graphql::Value>,
 }
 
-/// A typed key for loading all of the currently firing alerts for a given `catalog_name`.
+/// A typed key for loading all of the currently active alerts for a given `catalog_name`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FiringAlerts(pub String);
+pub struct ActiveAlerts(pub String);
 
-impl async_graphql::dataloader::Loader<FiringAlerts> for super::PgDataLoader {
+impl async_graphql::dataloader::Loader<ActiveAlerts> for super::PgDataLoader {
     type Value = Vec<Alert>;
     type Error = String;
 
     async fn load(
         &self,
-        keys: &[FiringAlerts],
-    ) -> Result<std::collections::HashMap<FiringAlerts, Self::Value>, Self::Error> {
+        keys: &[ActiveAlerts],
+    ) -> Result<std::collections::HashMap<ActiveAlerts, Self::Value>, Self::Error> {
         use itertools::Itertools;
         let catalog_names = keys.iter().map(|k| k.0.as_str()).collect::<Vec<_>>();
         let rows = sqlx::query!(
@@ -84,7 +84,7 @@ impl async_graphql::dataloader::Loader<FiringAlerts> for super::PgDataLoader {
         let result = rows
             .into_iter()
             .map(|row| {
-                let key = FiringAlerts(row.catalog_name.clone());
+                let key = ActiveAlerts(row.catalog_name.clone());
                 let alert = Alert {
                     alert_type: row.alert_type,
                     catalog_name: row.catalog_name,
@@ -112,7 +112,7 @@ pub type PaginatedAlerts = connection::Connection<
 pub async fn prefix_alert_history(
     ctx: &Context<'_>,
     prefix: &str,
-    filter_firing: Option<bool>,
+    filter_active: Option<bool>,
     before_timestamp: Option<String>,
     limit: Option<i32>,
 ) -> async_graphql::Result<PaginatedAlerts> {
@@ -154,7 +154,7 @@ pub async fn prefix_alert_history(
         "#,
                 prefix,
                 before.unwrap_or(Utc::now()),
-                filter_firing,
+                filter_active,
                 effective_limit as i64,
             )
             .fetch_all(&app.pg_pool)
@@ -183,7 +183,7 @@ pub async fn prefix_alert_history(
 
 /// Queries the history of alert for a single given live spec.
 /// Note that this currently only returns alerts that are resolved, though
-/// we could allow this to return firing alerts as well if we wanted.
+/// we could allow this to return active alerts as well if we wanted.
 pub async fn live_spec_alert_history(
     ctx: &Context<'_>,
     catalog_name: &str,

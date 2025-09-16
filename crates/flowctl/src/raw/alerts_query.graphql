@@ -1,15 +1,15 @@
 query FiringAlertsQuery($prefix: String!, $before: String, $last: Int!) {
-  alerts(prefix: $prefix, before: $before, last: $last, firing: true) {
-    pageInfo {
-      endCursor,
-    },
-    edges {
-      node {
-        catalogName,
-        alertType,
-        firedAt,
-        arguments
-      }
+    alerts(prefix: $prefix, before: $before, last: $last, active: true) {
+        pageInfo {
+            endCursor
+        }
+        edges {
+            node {
+                catalogName
+                alertType
+                firedAt
+                arguments
+            }
+        }
     }
-  }
 }
