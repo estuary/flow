@@ -1,5 +1,6 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::{Arc, Mutex};
+use tables::UserGrant;
 
 mod authorize_dekaf;
 mod authorize_task;
@@ -97,6 +98,34 @@ impl App {
                 Err(Err(err)) => return Err(err),
             }
         }
+    }
+
+    /// Looks up the user's authorization grants for each item in
+    /// `prefixes_or_names`, and calls the provided `attach` function with each
+    /// item and its capability. The `Some` results are returned in a vec.
+    pub fn attach_user_capabilities<I, F, T>(
+        &self,
+        claims: &ControlClaims,
+        prefixes_or_names: I,
+        mut attach: F,
+    ) -> Vec<T>
+    where
+        I: IntoIterator<Item = String>,
+        F: FnMut(String, Option<models::Capability>) -> Option<T>,
+    {
+        let snapshot = self.snapshot.read().unwrap();
+        prefixes_or_names
+            .into_iter()
+            .flat_map(|prefix| {
+                let capability = UserGrant::get_user_capability(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    &prefix,
+                );
+                attach(prefix, capability)
+            })
+            .collect()
     }
 
     pub fn snapshot(&self) -> &std::sync::RwLock<Snapshot> {

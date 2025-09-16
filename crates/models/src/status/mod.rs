@@ -9,18 +9,18 @@ pub mod publications;
 pub mod summary;
 
 use crate::{datetime_schema, is_false, option_datetime_schema, CatalogType, Id};
-use activation::ActivationStatus;
-use capture::AutoDiscoverStatus;
 use chrono::{DateTime, Utc};
-use collection::InferredSchemaStatus;
-use materialization::SourceCaptureStatus;
-use publications::PublicationStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use self::alerts::{AlertState, AlertType, Alerts, ControllerAlert};
 pub use self::connector::ConnectorStatus;
 pub use self::summary::{StatusSummaryType, Summary};
+pub use activation::ActivationStatus;
+pub use capture::AutoDiscoverStatus;
+pub use collection::InferredSchemaStatus;
+pub use materialization::SourceCaptureStatus;
+pub use publications::PublicationStatus;
 
 /// Response type for the status endpoint
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
