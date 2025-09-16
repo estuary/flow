@@ -1,6 +1,7 @@
 pub mod build;
 pub mod formats;
 mod frozen;
+pub mod index;
 pub mod keywords;
 pub mod types;
 

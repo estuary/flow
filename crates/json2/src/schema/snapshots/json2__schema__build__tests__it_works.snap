@@ -1,0 +1,496 @@
+---
+source: crates/json2/src/schema/build.rs
+expression: schema
+---
+Schema {
+    kw: [
+        Id {
+            curi: "https://example.com/test-schema.json",
+            explicit: false,
+        },
+        Definitions {
+            definitions: [
+                (
+                    "outputItem",
+                    Schema {
+                        kw: [
+                            Id {
+                                curi: "https://example.com/test-schema.json#/definitions/outputItem",
+                                explicit: false,
+                            },
+                            Type {
+                                type: "object",
+                            },
+                            Properties {
+                                properties: [
+                                    (
+                                        "?absoluteKeywordLocation",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/absoluteKeywordLocation",
+                                                    explicit: false,
+                                                },
+                                                Format {
+                                                    format: Uri,
+                                                },
+                                                Annotation {
+                                                    annotation: Format(
+                                                        Uri,
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?annotations",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/annotations",
+                                                    explicit: false,
+                                                },
+                                                Items {
+                                                    items: Schema {
+                                                        kw: [
+                                                            Id {
+                                                                curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/annotations/items",
+                                                                explicit: false,
+                                                            },
+                                                            Ref {
+                                                                ref: "https://example.com/test-schema.json#/definitions/outputItem",
+                                                            },
+                                                        ],
+                                                    },
+                                                },
+                                                Type {
+                                                    type: "array",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?errors",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/errors",
+                                                    explicit: false,
+                                                },
+                                                Items {
+                                                    items: Schema {
+                                                        kw: [
+                                                            Id {
+                                                                curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/errors/items",
+                                                                explicit: false,
+                                                            },
+                                                            Ref {
+                                                                ref: "https://example.com/test-schema.json#/definitions/outputItem",
+                                                            },
+                                                        ],
+                                                    },
+                                                },
+                                                Type {
+                                                    type: "array",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?instanceLocation",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/instanceLocation",
+                                                    explicit: false,
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?keywordLocation",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/keywordLocation",
+                                                    explicit: false,
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?valid",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/outputItem/properties/valid",
+                                                    explicit: false,
+                                                },
+                                                Type {
+                                                    type: "boolean",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                ],
+                            },
+                        ],
+                    },
+                ),
+                (
+                    "test",
+                    Schema {
+                        kw: [
+                            Id {
+                                curi: "https://example.com/test-schema.json#/definitions/test",
+                                explicit: false,
+                            },
+                            AdditionalProperties {
+                                additional_properties: Schema {
+                                    kw: [
+                                        Id {
+                                            curi: "https://example.com/test-schema.json#/definitions/test/additionalProperties",
+                                            explicit: false,
+                                        },
+                                        False,
+                                    ],
+                                },
+                            },
+                            Annotation {
+                                annotation: Description(
+                                    "A single test",
+                                ),
+                            },
+                            Type {
+                                type: "object",
+                            },
+                            Properties {
+                                properties: [
+                                    (
+                                        "?comment",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/test/properties/comment",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "Any additional comments about the test",
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "!data",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/test/properties/data",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "This is the instance to be validated against the schema in \"schema\".",
+                                                    ),
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "!description",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/test/properties/description",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "The test description",
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?id",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/test/properties/id",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "Uniquely identifies a single test",
+                                                    ),
+                                                },
+                                                Format {
+                                                    format: Uri,
+                                                },
+                                                Annotation {
+                                                    annotation: Format(
+                                                        Uri,
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "?output",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/test/properties/output",
+                                                    explicit: false,
+                                                },
+                                                Type {
+                                                    type: "object",
+                                                },
+                                                Properties {
+                                                    properties: [
+                                                        (
+                                                            "!basic",
+                                                            Schema {
+                                                                kw: [
+                                                                    Id {
+                                                                        curi: "https://example.com/test-schema.json#/definitions/test/properties/output/properties/basic",
+                                                                        explicit: false,
+                                                                    },
+                                                                    Ref {
+                                                                        ref: "https://example.com/test-schema.json#/definitions/outputItem",
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                        (
+                                                            "!detailed",
+                                                            Schema {
+                                                                kw: [
+                                                                    Id {
+                                                                        curi: "https://example.com/test-schema.json#/definitions/test/properties/output/properties/detailed",
+                                                                        explicit: false,
+                                                                    },
+                                                                    Ref {
+                                                                        ref: "https://example.com/test-schema.json#/definitions/outputItem",
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                        (
+                                                            "!verbose",
+                                                            Schema {
+                                                                kw: [
+                                                                    Id {
+                                                                        curi: "https://example.com/test-schema.json#/definitions/test/properties/output/properties/verbose",
+                                                                        explicit: false,
+                                                                    },
+                                                                    Ref {
+                                                                        ref: "https://example.com/test-schema.json#/definitions/outputItem",
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "!valid",
+                                        Schema {
+                                            kw: [
+                                                Id {
+                                                    curi: "https://example.com/test-schema.json#/definitions/test/properties/valid",
+                                                    explicit: false,
+                                                },
+                                                Type {
+                                                    type: "boolean",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                ],
+                            },
+                        ],
+                    },
+                ),
+            ],
+        },
+        Annotation {
+            annotation: Description(
+                "Schema for tests",
+            ),
+        },
+        Items {
+            items: Schema {
+                kw: [
+                    Id {
+                        curi: "https://example.com/test-schema.json#/items",
+                        explicit: false,
+                    },
+                    AdditionalProperties {
+                        additional_properties: Schema {
+                            kw: [
+                                Id {
+                                    curi: "https://example.com/test-schema.json#/items/additionalProperties",
+                                    explicit: false,
+                                },
+                                False,
+                            ],
+                        },
+                    },
+                    MinItems {
+                        min_items: 1,
+                    },
+                    Type {
+                        type: "object",
+                    },
+                    Properties {
+                        properties: [
+                            (
+                                "?comment",
+                                Schema {
+                                    kw: [
+                                        Id {
+                                            curi: "https://example.com/test-schema.json#/items/properties/comment",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "Any additional comments about the test set",
+                                            ),
+                                        },
+                                        Type {
+                                            type: "string",
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "!description",
+                                Schema {
+                                    kw: [
+                                        Id {
+                                            curi: "https://example.com/test-schema.json#/items/properties/description",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "The test set description",
+                                            ),
+                                        },
+                                        Type {
+                                            type: "string",
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "?id",
+                                Schema {
+                                    kw: [
+                                        Id {
+                                            curi: "https://example.com/test-schema.json#/items/properties/id",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "Uniquely identifies a set of tests",
+                                            ),
+                                        },
+                                        Format {
+                                            format: Uri,
+                                        },
+                                        Annotation {
+                                            annotation: Format(
+                                                Uri,
+                                            ),
+                                        },
+                                        Type {
+                                            type: "string",
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "!schema",
+                                Schema {
+                                    kw: [
+                                        Id {
+                                            curi: "https://example.com/test-schema.json#/items/properties/schema",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "This should be a valid schema. This should be a ref to a meta-schema if schema keywords need testing.",
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "!tests",
+                                Schema {
+                                    kw: [
+                                        Id {
+                                            curi: "https://example.com/test-schema.json#/items/properties/tests",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "A set of related tests all using the same schema",
+                                            ),
+                                        },
+                                        Items {
+                                            items: Schema {
+                                                kw: [
+                                                    Id {
+                                                        curi: "https://example.com/test-schema.json#/items/properties/tests/items",
+                                                        explicit: false,
+                                                    },
+                                                    Ref {
+                                                        ref: "https://example.com/test-schema.json#/definitions/test",
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                        MinItems {
+                                            min_items: 1,
+                                        },
+                                        Type {
+                                            type: "array",
+                                        },
+                                    ],
+                                },
+                            ),
+                        ],
+                    },
+                ],
+            },
+        },
+        Type {
+            type: "array",
+        },
+    ],
+}

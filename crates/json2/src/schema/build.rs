@@ -1,723 +1,691 @@
-use crate::schema::{
-    intern, keywords, types, Annotation, Application, CoreAnnotation, FrozenSlice, FrozenString,
-    HashedLiteral, Keyword, Schema, Validation,
-};
-use crate::{de, NoopWalker, Number};
+use crate::schema::Keyword;
+use crate::schema::{self, keywords, types};
+use crate::scope::Scope;
 use itertools::Itertools;
 use serde::Deserialize;
-use serde_json as sj;
-use thiserror;
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("expected a boolean")]
-    ExpectedBool,
-    #[error("expected a string")]
-    ExpectedString,
-    #[error("expected an object")]
-    ExpectedObject,
+pub enum Error<A: schema::Annotation + 'static> {
     #[error("expected an array")]
     ExpectedArray,
-    #[error("expected a schema or array of schemas")]
-    ExpectedSchemaOrArrayOfSchemas,
-    #[error("expected a schema")]
-    ExpectedSchema,
-    #[error("unexpected fragment component '{0}' of $id keyword")]
-    UnexpectedFragment(String),
-    #[error("expected a type or array of types: {0}")]
-    ExpectedType(sj::Error),
-    #[error("expected an unsigned integer")]
-    ExpectedUnsigned,
+    #[error("expected a boolean")]
+    ExpectedBool,
+    #[error("unexpected JSON Schema keyword")]
+    ExpectedKeyword,
     #[error("expected a number")]
     ExpectedNumber,
-    #[error("expected an array of strings")]
-    ExpectedStringArray,
-    #[error("expected '{0}' to be a base URI")]
-    ExpectedBaseURI(url::Url),
-    #[error("unexpected keyword '{0}'")]
-    UnknownKeyword(String),
-    #[error("failed to intern property: {0}")]
-    InternErr(#[from] intern::Error),
-    #[error("failed to parse URL: {0}")]
-    URLErr(#[from] url::ParseError),
-    #[error("failed to parse regex: {0}")]
-    RegexErr(#[from] regex::Error),
-    #[error("failed to build annotation: {0}")]
-    AnnotationErr(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error("expected an object")]
+    ExpectedObject,
+    #[error("expected a JSON Schema")]
+    ExpectedSchema,
+    #[error("expected a string")]
+    ExpectedString,
+    #[error("expected an unsigned integer")]
+    ExpectedUnsigned,
+    #[error("expected a URL")]
+    ExpectedURL,
+
     #[error(transparent)]
-    FormatErr(#[from] serde_json::Error),
-
-    #[error("at schema '{curi}': {detail}")]
-    AtSchema { curi: url::Url, detail: Box<Error> },
-    #[error("at keyword '{keyword}' of schema '{curi}': {detail}")]
-    AtKeyword {
-        curi: url::Url,
-        detail: Box<Error>,
-        keyword: String,
-    },
-}
-use Error::*;
-
-pub trait AnnotationBuilder: Annotation {
-    /// uses_keyword returns true if the builder knows how to extract
-    /// an Annotation from the given keyword.
-    fn uses_keyword(keyword: &str) -> bool;
-    /// from_keyword builds an Annotation from the given keyword & value,
-    /// which MUST be a keyword for which uses_keyword returns true.
-    fn from_keyword(keyword: &str, value: &sj::Value) -> Result<Self, Error>;
+    Annotation(A::KeywordError),
+    #[error(transparent)]
+    Json(serde_json::Error),
+    #[error(transparent)]
+    Regex(#[from] regex::Error),
+    #[error(transparent)]
+    URL(#[from] url::ParseError),
 }
 
-struct Builder<A>
+#[derive(thiserror::Error, Debug)]
+#[error("invalid schema at '{scope}'")]
+pub struct ScopedError<A: schema::Annotation + 'static> {
+    pub scope: url::Url,
+    #[source]
+    pub inner: Error<A>,
+}
+pub type Errors<A> = Vec<ScopedError<A>>;
+
+/// Build a JSON Schema from a serde_json::Value having the canonical URI.
+/// If any errors are encountered, they are collected and returned.
+pub fn build_schema<'l, 's, A>(
+    curi: &'l url::Url,
+    value: &'s serde_json::Value,
+) -> Result<schema::Schema<A>, Errors<A>>
 where
-    A: AnnotationBuilder,
+    A: schema::Annotation,
 {
-    curi: url::Url,
-    kw: Vec<Keyword<A>>,
+    let scope = Scope::new(curi);
+    let mut errors = Errors::new();
+    let schema = build(scope, value, &mut errors);
 
-    // "nullable" support for OpenAPI schemas prior to version 3.1,
-    // which are still prevelant as of Sept 2021.
-    nullable: bool,
-}
-
-impl<A> Builder<A>
-where
-    A: AnnotationBuilder,
-{
-    fn build(mut self) -> Schema<A> {
-        // Special-case: the presence of a "contains" application implies the
-        // semantics of {"minContains": 1}, if a MinContains validation is not
-        // otherwise specified.
-        let (has_contains, has_min) = self.kw.iter().fold((false, false), |(c, m), kw| match kw {
-            Keyword::Contains { .. } => (true, m),
-            Keyword::MinContains { .. } => (c, true),
-            _ => (c, m),
-        });
-        if has_contains && !has_min {
-            self.kw.push(Keyword::MinContains { min_contains: 1 });
-        } else if !has_contains {
-            // The spec explicitly says to ignore minContains and maxContains if the schema
-            // does not include the "contains" keyword, so we remove those here if that's the case
-            self.kw.retain(|kw| match kw {
-                Keyword::MinContains { .. } => false,
-                Keyword::MaxContains { .. } => false,
-                _ => true,
-            })
-        }
-
-        self.kw.sort_unstable_by_key(|kw| -> u32 {
-            use Application as A;
-            use Keyword as K;
-
-            match kw {
-                // $dynamicAnchor updates the current dynamic base URI before other keywords apply.
-                K::DynamicAnchor => 0,
-
-                // Properties / PatternProperties conditions whether AdditionalProperties applies.
-                K::Properties { .. } => 2,
-                K::PatternProperties { .. } => 3,
-                // AdditionalProperties also conditions whether UnevaluatedProperties applies.
-                K::AdditionalProperties { .. } => 4,
-                // UnevaluatedProperties is evaluated last.
-
-                // Contains is always applied. PrefixItems conditions whether Items applies.
-                K::Contains { .. } => 5,
-                K::PrefixItems { .. } => 6,
-                // Items also conditions whether UnevaluatedItems applies.
-                K::Items { .. } => 7,
-                // UnevaluatedItems is evaluated last.
-
-                // When unwinding applications, we want to know which branch was taken before
-                // we examine branch results.
-                K::Else { .. } => 8,
-                K::Then { .. } => 9,
-                K::If { .. } => 10,
-
-                _ => 100,
-            }
-        });
-
-        // First keyword is always the canonical URI of this schema.
-        self.kw.insert(
-            0,
-            Keyword::CanonicalUri {
-                curi: FrozenString::new(self.curi.to_string(), false),
-            },
-        );
-        let kw = FrozenSlice::new(self.kw, false);
-
-        Schema { kw }
+    if errors.is_empty() {
+        Ok(schema)
+    } else {
+        Err(errors)
     }
+}
 
-    fn process_keyword(&mut self, keyword: &str, v: &serde_json::Value) -> Result<(), Error> {
-        let true_placeholder = sj::Value::Bool(true);
+impl<A: schema::Annotation> Error<A> {
+    fn push<'l>(self, scope: Scope<'l>, errors: &mut Vec<ScopedError<A>>) {
+        errors.push(ScopedError {
+            scope: scope.flatten(),
+            inner: self,
+        });
+    }
+}
 
+fn build<'l, 's, A>(
+    scope: Scope<'l>,
+    value: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> schema::Schema<A>
+where
+    A: schema::Annotation,
+{
+    let kw = match value {
+        serde_json::Value::Object(m) => build_object_keywords::<A>(scope, m, errors),
+        serde_json::Value::Bool(b) => {
+            let id = Keyword::Id {
+                curi: Into::<String>::into(scope.flatten()).into(),
+                explicit: false,
+            };
+
+            if *b {
+                vec![id] // Match anything.
+            } else {
+                vec![id, Keyword::False] // Match nothing.
+            }
+        }
+        _ => {
+            Error::ExpectedSchema.push(scope, errors);
+            vec![]
+        }
+    };
+    schema::Schema { kw: kw.into() }
+}
+
+fn build_object_keywords<'l, 's, A>(
+    scope: Scope<'l>,
+    map: &'s serde_json::Map<String, serde_json::Value>,
+    errors: &mut Errors<A>,
+) -> Vec<Keyword<A>>
+where
+    A: schema::Annotation,
+{
+    let maybe_id: Option<url::Url>;
+    let mut keywords: Vec<Keyword<A>> = Vec::new();
+
+    // First extract $id, as it changes the Scope's base resource.
+    let scope = if let Some(id) = map.get(keywords::ID) {
+        maybe_id = Some(expect_url(scope.push_prop(keywords::ID), id, errors));
+        let id = maybe_id.as_ref().unwrap();
+
+        keywords.push(Keyword::Id {
+            curi: id.to_string().into(),
+            explicit: true,
+        });
+        scope.push_resource(id)
+    } else {
+        keywords.push(Keyword::Id {
+            curi: Into::<String>::into(scope.flatten()).into(),
+            explicit: false,
+        });
+        scope
+    };
+
+    let mut properties = None;
+    let mut required = None;
+    let mut nullable = false;
+
+    for (keyword, value) in map {
+        let scope = scope.push_prop(keyword);
         let mut unknown = false;
-        match keyword {
-            // Already handled outside of this match.
-            keywords::ID => (),
-            keywords::NULLABLE => (),
 
-            // Meta keywords.
-            keywords::DYNAMIC_ANCHOR => match v {
-                sj::Value::Bool(b) if *b => self.kw.push(Keyword::DynamicAnchor),
-                sj::Value::Bool(b) if !*b => (), // Ignore.
-                _ => return Err(ExpectedBool),
-            },
-            keywords::ANCHOR => match v {
-                sj::Value::String(anchor) => {
-                    let anchor = self.curi.join(&format!("#{}", anchor))?;
-                    let anchor = FrozenString::new(anchor.into(), false);
-                    self.kw.push(Keyword::Anchor { anchor })
-                }
-                _ => return Err(ExpectedString),
-            },
-            keywords::DEF => match v {
-                sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        self.add_application(App::Def { key: prop.clone() }, child)?;
-                    }
-                }
-                _ => return Err(ExpectedObject),
-            },
-            keywords::DEFINITIONS => match v {
-                sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        self.add_application(App::Definition { key: prop.clone() }, child)?;
-                    }
-                }
-                _ => return Err(ExpectedObject),
-            },
-
-            // In-place application keywords.
-            keywords::REF => match v {
-                sj::Value::String(ref_uri) => {
-                    let mut ref_uri = self.curi.join(ref_uri)?;
-                    if let Some("") = ref_uri.fragment() {
-                        ref_uri.set_fragment(None);
-                    }
-                    self.add_application(App::Ref(ref_uri), &true_placeholder)?;
-                }
-                _ => return Err(ExpectedString),
-            },
-            keywords::RECURSIVE_REF => match v {
-                sj::Value::String(ref_uri) => {
-                    // Assert |ref_uri| parses correctly when joined with a base URL.
-                    url::Url::parse("http://example")?.join(ref_uri)?;
-                    self.add_application(App::RecursiveRef(ref_uri.clone()), &true_placeholder)?;
-                }
-                _ => return Err(ExpectedString),
-            },
-            keywords::ANY_OF => match v {
-                sj::Value::Array(children) => {
-                    for (i, child) in children.iter().enumerate() {
-                        self.add_application(App::AnyOf { index: i }, child)?;
-                    }
-                }
-                _ => return Err(ExpectedArray),
-            },
-            keywords::ALL_OF => match v {
-                sj::Value::Array(children) => {
-                    for (i, child) in children.iter().enumerate() {
-                        self.add_application(App::AllOf { index: i }, child)?;
-                    }
-                }
-                _ => return Err(ExpectedArray),
-            },
-            keywords::ONE_OF => match v {
-                sj::Value::Array(children) => {
-                    for (i, child) in children.iter().enumerate() {
-                        self.add_application(App::OneOf { index: i }, child)?;
-                    }
-                }
-                _ => return Err(ExpectedArray),
-            },
-            keywords::NOT => self.add_application(App::Not, v)?,
-            keywords::IF => self.add_application(App::If, v)?,
-            keywords::THEN => self.add_application(App::Then, v)?,
-            keywords::ELSE => self.add_application(App::Else, v)?,
-            keywords::DEPENDENT_SCHEMAS => match v {
-                sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        let app = App::DependentSchema {
-                            if_: prop.clone(),
-                            if_interned: self.tbl.intern(prop)?,
-                        };
-                        self.add_application(app, child)?;
-                    }
-                }
-                _ => return Err(ExpectedObject),
-            },
-
-            // Property application keywords.
-            keywords::PROPERTY_NAMES => self.add_application(App::PropertyNames, v)?,
-            keywords::PROPERTIES => match v {
-                sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        let app = App::Properties { name: prop.clone() };
-                        self.add_application(app, child)?;
-                    }
-                }
-                _ => return Err(ExpectedObject),
-            },
-            keywords::PATTERN_PROPERTIES => match v {
-                sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        self.add_application(
-                            App::PatternProperties {
-                                re: regex::Regex::new(prop)?,
-                            },
-                            child,
-                        )?;
-                    }
-                }
-                _ => return Err(ExpectedObject),
-            },
+        match keyword.as_str() {
+            // Note: Annotation and False are not keywords, they're handled elsewhere.
+            // $id is already handled outside of this match.
             keywords::ADDITIONAL_PROPERTIES => {
-                self.add_application(App::AdditionalProperties, v)?
+                keywords.push(Keyword::AdditionalProperties {
+                    additional_properties: Box::new(build::<A>(scope, value, errors)),
+                });
             }
-            keywords::UNEVALUATED_PROPERTIES => {
-                self.add_application(App::UnevaluatedProperties, v)?
+            keywords::ALL_OF => {
+                let all_of = build_schema_array(scope, value, errors).into();
+                keywords.push(Keyword::AllOf { all_of });
             }
+            keywords::ANCHOR => {
+                // Transform $anchor into its full, canonical URL form.
+                let anchor = expect_str(scope, value, errors);
+                let anchor = scope.resource().join(&format!("#{anchor}"));
 
-            // Item application keywords.
-            keywords::CONTAINS => self.add_application(App::Contains, v)?,
-            keywords::ITEMS => match v {
-                sj::Value::Object(_) | sj::Value::Bool(_) => {
-                    self.add_application(App::Items { index: None }, v)?
-                }
-                sj::Value::Array(vec) => {
-                    for (i, child) in vec.iter().enumerate() {
-                        self.add_application(App::Items { index: Some(i) }, child)?;
+                match anchor {
+                    Ok(anchor) => {
+                        keywords.push(Keyword::Anchor {
+                            anchor: anchor.to_string().into(),
+                        });
+                    }
+                    Err(err) => {
+                        Error::URL(err).push(scope, errors);
                     }
                 }
-                _ => return Err(ExpectedSchemaOrArrayOfSchemas),
-            },
-            keywords::ADDITIONAL_ITEMS => self.add_application(App::AdditionalItems, v)?,
-            keywords::UNEVALUATED_ITEMS => self.add_application(App::UnevaluatedItems, v)?,
+            }
+            keywords::ANY_OF => {
+                let any_of = build_schema_array(scope, value, errors).into();
+                keywords.push(Keyword::AnyOf { any_of });
+            }
+            keywords::COMMENT => {
+                let comment = expect_str(scope, value, errors).to_string().into();
+                keywords.push(Keyword::Comment { comment });
+            }
+            keywords::CONST => {
+                let r#const = Box::new(value.clone());
+                keywords.push(Keyword::Const { r#const });
+            }
+            keywords::CONTAINS => {
+                let contains = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::Contains { contains });
+            }
+            keywords::DEFS => {
+                let defs = build_frozen_schema_map(scope, value, errors);
+                keywords.push(Keyword::Defs { defs });
+            }
+            keywords::DEFINITIONS => {
+                let definitions = build_frozen_schema_map(scope, value, errors);
+                keywords.push(Keyword::Definitions { definitions });
+            }
+            keywords::DEPENDENT_REQUIRED => {
+                let dependent_required = expect_map(scope, value, errors)
+                    .iter()
+                    .map(|(prop, value)| {
+                        let scope = scope.push_prop(prop);
 
-            // Common validation keywords.
+                        let other_props = expect_array(scope, value, errors)
+                            .iter()
+                            .enumerate()
+                            .map(|(i, value)| {
+                                let other_prop = expect_str(scope.push_item(i), value, errors);
+                                other_prop.to_string().into()
+                            })
+                            .collect::<Vec<_>>()
+                            .into();
+
+                        (prop.to_string().into(), other_props)
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
+
+                keywords.push(Keyword::DependentRequired { dependent_required });
+            }
+            keywords::DEPENDENT_SCHEMAS => {
+                let dependent_schemas = build_frozen_schema_map(scope, value, errors);
+                keywords.push(Keyword::DependentSchemas { dependent_schemas });
+            }
+            keywords::DYNAMIC_ANCHOR => {
+                let dynamic_anchor = expect_str(scope, value, errors).to_string().into();
+                keywords.push(Keyword::DynamicAnchor { dynamic_anchor });
+            }
+            keywords::DYNAMIC_REF => {
+                let dynamic_ref = expect_str(scope, value, errors).to_string().into();
+                keywords.push(Keyword::DynamicRef { dynamic_ref });
+            }
+            keywords::ELSE => {
+                let r#else = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::Else { r#else });
+            }
+            keywords::ENUM => {
+                let r#enum = expect_array(scope, value, errors).to_vec().into();
+                keywords.push(Keyword::Enum { r#enum });
+            }
+            keywords::EXCLUSIVE_MAXIMUM => match expect_number(scope, value, errors) {
+                Number::PosInt(exclusive_maximum) => {
+                    keywords.push(Keyword::ExclusiveMaximumPosInt { exclusive_maximum })
+                }
+                Number::NegInt(exclusive_maximum) => {
+                    keywords.push(Keyword::ExclusiveMaximumNegInt { exclusive_maximum })
+                }
+                Number::Float(exclusive_maximum) => {
+                    keywords.push(Keyword::ExclusiveMaximumFloat { exclusive_maximum })
+                }
+            },
+            keywords::EXCLUSIVE_MINIMUM => match expect_number(scope, value, errors) {
+                Number::PosInt(exclusive_minimum) => {
+                    keywords.push(Keyword::ExclusiveMinimumPosInt { exclusive_minimum })
+                }
+                Number::NegInt(exclusive_minimum) => {
+                    keywords.push(Keyword::ExclusiveMinimumNegInt { exclusive_minimum })
+                }
+                Number::Float(exclusive_minimum) => {
+                    keywords.push(Keyword::ExclusiveMinimumFloat { exclusive_minimum })
+                }
+            },
+            keywords::FORMAT => match serde_json::from_value(value.clone()).map_err(Error::Json) {
+                Ok(format) => {
+                    keywords.push(Keyword::Format { format });
+                }
+                Err(err) => {
+                    err.push(scope, errors);
+                }
+            },
+            keywords::ID => (), // Already handled.
+            keywords::IF => {
+                let r#if = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::If { r#if });
+            }
+            keywords::ITEMS if value.is_array() => {
+                // 2019-09 "items" as array is equivalent to "prefixItems".
+                let prefix_items = build_schema_array(scope, value, errors).into();
+                keywords.push(Keyword::PrefixItems { prefix_items });
+            }
+            keywords::ITEMS | keywords::ADDITIONAL_ITEMS => {
+                let items = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::Items { items });
+            }
+            keywords::MAXIMUM => match expect_number(scope, value, errors) {
+                Number::PosInt(maximum) => keywords.push(Keyword::MaximumPosInt { maximum }),
+                Number::NegInt(maximum) => keywords.push(Keyword::MaximumNegInt { maximum }),
+                Number::Float(maximum) => keywords.push(Keyword::MaximumFloat { maximum }),
+            },
+            keywords::MAX_CONTAINS => {
+                let max_contains = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MaxContains { max_contains });
+            }
+            keywords::MAX_ITEMS => {
+                let max_items = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MaxItems { max_items });
+            }
+            keywords::MAX_LENGTH => {
+                let max_length = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MaxLength { max_length });
+            }
+            keywords::MAX_PROPERTIES => {
+                let max_properties = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MaxProperties { max_properties });
+            }
+            keywords::MINIMUM => match expect_number(scope, value, errors) {
+                Number::PosInt(minimum) => keywords.push(Keyword::MinimumPosInt { minimum }),
+                Number::NegInt(minimum) => keywords.push(Keyword::MinimumNegInt { minimum }),
+                Number::Float(minimum) => keywords.push(Keyword::MinimumFloat { minimum }),
+            },
+            keywords::MIN_CONTAINS => {
+                let min_contains = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MinContains { min_contains });
+            }
+            keywords::MIN_ITEMS => {
+                let min_items = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MinItems { min_items });
+            }
+            keywords::MIN_LENGTH => {
+                let min_length = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MinLength { min_length });
+            }
+            keywords::MIN_PROPERTIES => {
+                let min_properties = expect_unsigned(scope, value, errors);
+                keywords.push(Keyword::MinProperties { min_properties });
+            }
+            keywords::MULTIPLE_OF => match expect_number(scope, value, errors) {
+                Number::PosInt(multiple_of) => {
+                    keywords.push(Keyword::MultipleOfPosInt { multiple_of })
+                }
+                Number::NegInt(multiple_of) => {
+                    keywords.push(Keyword::MultipleOfNegInt { multiple_of })
+                }
+                Number::Float(multiple_of) => {
+                    keywords.push(Keyword::MultipleOfFloat { multiple_of })
+                }
+            },
+            keywords::NOT => {
+                let not = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::Not { not });
+            }
+            keywords::NULLABLE => {
+                // Support OpenAPI versions prior to 3.1, by merging `nullable` with `type`.
+                nullable = expect_bool(scope, value, errors);
+            }
+            keywords::ONE_OF => {
+                let one_of = build_schema_array(scope, value, errors).into();
+                keywords.push(Keyword::OneOf { one_of });
+            }
+            keywords::PATTERN => {
+                let pattern = expect_str(scope, value, errors);
+                let pattern = Box::new(match regex::Regex::new(pattern) {
+                    Ok(re) => re,
+                    Err(err) => {
+                        Error::Regex(err).push(scope, errors);
+                        regex::Regex::new("placeholder").unwrap()
+                    }
+                });
+                keywords.push(Keyword::Pattern { pattern });
+            }
+            keywords::PATTERN_PROPERTIES => {
+                let pattern_properties = build_schema_map(scope, value, errors)
+                    .into_iter()
+                    .map(|(pattern, schema)| {
+                        let pattern = match regex::Regex::new(pattern) {
+                            Ok(re) => re,
+                            Err(err) => {
+                                Error::Regex(err).push(scope.push_prop(pattern), errors);
+                                regex::Regex::new("placeholder").unwrap()
+                            }
+                        };
+                        (pattern, schema)
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
+                keywords.push(Keyword::PatternProperties { pattern_properties });
+            }
+            keywords::PREFIX_ITEMS => {
+                let prefix_items = build_schema_array(scope, value, errors).into();
+                keywords.push(Keyword::PrefixItems { prefix_items });
+            }
+            keywords::PROPERTIES => {
+                properties = Some(build_schema_map(scope, value, errors));
+                // We'll post-process with `required` after walking schema keywords.
+            }
+            keywords::PROPERTY_NAMES => {
+                let property_names = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::PropertyNames { property_names });
+            }
+            keywords::REF => {
+                // Transform $ref into its full, canonical URL form.
+                let r#ref = expect_str(scope, value, errors).to_string();
+                let r#ref = scope.resource().join(&r#ref);
+
+                match r#ref {
+                    Ok(mut r#ref) => {
+                        if let Some("") = r#ref.fragment() {
+                            r#ref.set_fragment(None);
+                        }
+                        keywords.push(Keyword::Ref {
+                            r#ref: r#ref.to_string().into(),
+                        });
+                    }
+                    Err(err) => {
+                        Error::URL(err).push(scope, errors);
+                    }
+                }
+            }
+            keywords::REQUIRED => {
+                let mut r = expect_array(scope, value, errors)
+                    .iter()
+                    .enumerate()
+                    .map(|(i, value)| expect_str(scope.push_item(i), value, errors))
+                    .collect::<Vec<_>>();
+                r.sort();
+                required = Some(r);
+                // We'll post-process with `properties` after walking schema keywords.
+            }
+            keywords::SCHEMA => {} // No-op.
+            keywords::THEN => {
+                let then = Box::new(build::<A>(scope, value, errors));
+                keywords.push(Keyword::Then { then });
+            }
             keywords::TYPE => {
                 // As a support crutch for OpenAPI versions prior to 3.1,
                 // merge a "nullable" keyword into the "type" keyword.
-                let nullable = if self.nullable {
-                    types::NULL
-                } else {
-                    types::INVALID
-                };
-                let actual = types::Set::deserialize(v).map_err(|e| ExpectedType(e))?;
-
-                self.add_validation(Val::Type(nullable | actual))
-            }
-            keywords::CONST => self.add_validation(Val::Const(extract_hash(v))),
-            keywords::ENUM => self.add_validation(Val::Enum {
-                variants: extract_hashes(v)?,
-            }),
-
-            // String-specific validation keywords.
-            keywords::MAX_LENGTH => self.add_validation(Val::MaxLength(extract_usize(v)?)),
-            keywords::MIN_LENGTH => self.add_validation(Val::MinLength(extract_usize(v)?)),
-            keywords::PATTERN => {
-                self.add_validation(Val::Pattern(regex::Regex::new(extract_str(v)?)?))
-            }
-
-            // Number-specific validation keywords.
-            keywords::MULTIPLE_OF => self.add_validation(Val::MultipleOf(extract_number(v)?)),
-            keywords::MAXIMUM => self.add_validation(Val::Maximum(extract_number(v)?)),
-            keywords::EXCLUSIVE_MAXIMUM => {
-                self.add_validation(Val::ExclusiveMaximum(extract_number(v)?))
-            }
-            keywords::MINIMUM => self.add_validation(Val::Minimum(extract_number(v)?)),
-            keywords::EXCLUSIVE_MINIMUM => {
-                self.add_validation(Val::ExclusiveMinimum(extract_number(v)?))
-            }
-
-            // Array-specific validation keywords.
-            keywords::MAX_ITEMS => self.add_validation(Val::MaxItems(extract_usize(v)?)),
-            keywords::MIN_ITEMS => self.add_validation(Val::MinItems(extract_usize(v)?)),
-            keywords::UNIQUE_ITEMS => match v {
-                sj::Value::Bool(true) => self.add_validation(Val::UniqueItems),
-                sj::Value::Bool(false) => (),
-                _ => return Err(ExpectedBool),
-            },
-            keywords::MAX_CONTAINS => self.add_validation(Val::MaxContains(extract_usize(v)?)),
-            keywords::MIN_CONTAINS => self.add_validation(Val::MinContains(extract_usize(v)?)),
-
-            // Object-specific validation keywords.
-            keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
-            keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
-            keywords::REQUIRED => panic!("`required` keyword should use process_required"),
-            keywords::DEPENDENT_REQUIRED => match v {
-                sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        let (then_set, then_props) = match child {
-                            sj::Value::Array(vec) => extract_intern_set(&mut self.tbl, vec.iter())?,
-                            _ => return Err(ExpectedStringArray),
-                        };
-
-                        let dr = Val::DependentRequired {
-                            if_: prop.clone(),
-                            if_interned: self.tbl.intern(prop)?,
-                            then_: then_props,
-                            then_interned: then_set,
-                        };
-                        self.add_validation(dr);
+                let actual = match types::Set::deserialize(value) {
+                    Ok(actual) => actual,
+                    Err(err) => {
+                        Error::Json(err).push(scope, errors);
+                        types::INVALID
                     }
+                };
+                keywords.push(Keyword::Type {
+                    r#type: actual
+                        | if nullable {
+                            types::NULL
+                        } else {
+                            types::INVALID
+                        },
+                });
+            }
+            keywords::UNEVALUATED_ITEMS => {
+                keywords.push(Keyword::UnevaluatedItems {
+                    unevaluated_items: Box::new(build::<A>(scope, value, errors)),
+                });
+            }
+            keywords::UNEVALUATED_PROPERTIES => {
+                keywords.push(Keyword::UnevaluatedProperties {
+                    unevaluated_properties: Box::new(build::<A>(scope, value, errors)),
+                });
+            }
+            keywords::UNIQUE_ITEMS => {
+                if expect_bool(scope, value, errors) {
+                    keywords.push(Keyword::UniqueItems {});
                 }
-                _ => return Err(ExpectedObject),
-            },
-            keywords::FORMAT => self.add_validation(Val::Format(
-                serde_json::from_value(v.clone()).map_err(|err| Error::FormatErr(err))?,
-            )),
+            }
+            keywords::VOCABULARY => {} // No-op.
 
-            keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
+            keyword if keyword.starts_with("x-") => (), // Ignore extension keywords.
 
-            // This is not a core validation keyword. Does the AnnotationBuilder consume it?
             _ => {
                 unknown = true;
             }
-        };
+        }
 
         if A::uses_keyword(keyword) {
-            self.kw
-                .push(Keyword::Annotation(A::from_keyword(keyword, v)?));
+            match A::from_keyword(keyword, value) {
+                Ok(annotation) => {
+                    keywords.push(Keyword::Annotation {
+                        annotation: Box::new(annotation),
+                    });
+                }
+                Err(err) => {
+                    Error::Annotation(err).push(scope, errors);
+                }
+            }
             unknown = false;
         }
 
         if unknown {
-            Err(UnknownKeyword(keyword.to_owned()).into())
-        } else {
-            Ok(())
+            Error::ExpectedKeyword.push(scope, errors)
         }
-    }
+    } // End loop over schema schema object map.
 
-    fn process_required(&mut self, child: &sj::Value) -> Result<(), Error> {
-        let vec = match child {
-            sj::Value::Array(vec) => vec,
-            _ => return Err(ExpectedStringArray),
-        };
+    if properties.is_some() || required.is_some() {
+        // `properties` and `required` are already sorted on ascending property.
+        let properties = properties.unwrap_or_default();
+        let required = required.unwrap_or_default();
 
-        // Split |vec| into a |head| which will fit within the remaining intern
-        // table space, and a |tail| which is chunked by the maximum table size
-        // and pushed down into inline schemas.
-        let (head, tail) = vec.split_at(vec.len().min(self.tbl.remaining()));
+        // Note we're walking properties in ascending order,
+        // allocating them into FrozenString and using concat() to ensure exact
+        // capacities are requested. This maximizes the likelihood of strings
+        // being packed and ordered in shared cache lines.
 
-        let (set, props) = extract_intern_set(&mut self.tbl, head.iter())?;
-        self.add_validation(Validation::Required {
-            props,
-            props_interned: set,
-        });
-
-        for chunk in tail.iter().chunks(intern::MAX_TABLE_SIZE).into_iter() {
-            let vec: Vec<_> = chunk.map(|v| v.clone()).collect();
-            self.add_application(Application::Inline, &sj::json!({ "required": vec }))?;
-        }
-        Ok(())
-    }
-
-    fn add_validation(&mut self, val: Validation) {
-        self.kw.push(Keyword::Validation(val))
-    }
-
-    // build_app builds a child of the current Builder schema,
-    // wrapped in an a Keyword::Application.
-    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
-        // Init a fragment pointer for the schema of this application.
-        let mut ptr = "#".to_string();
-        // Extend with path of this *this* schema, the application's parent.
-        if let Some(f) = self.curi.fragment() {
-            ptr.push_str(f);
-        }
-        // Then add pointer components from the application itself.
-        let ptr = app.extend_fragment_pointer(ptr);
-        // Finally build the complete lexical URI of the child.
-        // Note that it could still override with it's own $id keyword.
-        let child_uri = self.curi.join(ptr.as_str()).unwrap();
-
-        let child = build_schema(child_uri, child)?;
-        self.kw.push(Keyword::Application(app, child));
-
-        Ok(())
-    }
-}
-
-/// `build_schema` builds a Schema instance from a JSON-Schema document.
-pub fn build_schema<A>(curi: url::Url, v: &sj::Value) -> Result<Schema<A>, Error>
-where
-    A: AnnotationBuilder,
-{
-    let mut kw = Vec::new();
-    let tbl = intern::Table::new();
-
-    let obj = match v {
-        // Hoist map to outer scope if schema is a JSON object.
-        sj::Value::Object(m) => m,
-
-        // If schema is a JSON bool, early-return an empty Schema (if true)
-        // or a schema with a lone False validation (if false).
-        sj::Value::Bool(b) => {
-            if !b {
-                kw.push(Keyword::Validation(Validation::False));
-            }
-            return Ok(Schema { curi, tbl, kw });
-        }
-        _ => {
-            return Err(AtSchema {
-                detail: Box::new(ExpectedSchema),
-                curi,
-            })
-        }
-    };
-
-    // This is a schema object. We'll walk its properties and JSON values
-    // to extract its applications and validations.
-
-    let mut builder = Builder {
-        curi: build_curi(curi, obj.get(keywords::ID))?,
-        kw,
-        tbl,
-        nullable: obj
-            .get(keywords::NULLABLE)
-            .and_then(|n| n.as_bool())
-            .unwrap_or_default(),
-    };
-
-    let mapped_err = |err: Error, curi: &url::Url, keyword: &str| match err {
-        // Pass through errors that have already been located.
-        AtSchema { .. } | AtKeyword { .. } => err,
-        // Otherwise, wrap error with its keyword location.
-        _ => {
-            return AtKeyword {
-                detail: Box::new(err),
-                curi: curi.clone(),
-                keyword: keyword.to_string(),
-            }
-        }
-    };
-
-    let mut required = None;
-    for (k, v) in obj {
-        if k == keywords::REQUIRED {
-            required = Some(v);
-            continue;
-        }
-        builder
-            .process_keyword(k, v)
-            .map_err(|e| mapped_err(e, &builder.curi, k))?;
-    }
-
-    // Process `required` last, once we know how much intern table space remains.
-    if let Some(required) = required {
-        builder
-            .process_required(required)
-            .map_err(|e| mapped_err(e, &builder.curi, keywords::REQUIRED))?;
-    }
-
-    Ok(builder.build())
-}
-
-fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url, Error> {
-    let curi = match id {
-        Some(sj::Value::String(id)) => {
-            let curi = curi.join(id)?;
-
-            if let Some(f) = curi.fragment() {
-                return Err(UnexpectedFragment(f.to_owned()));
-            }
-            curi
-        }
-        None => curi,
-        Some(_) => return Err(ExpectedString),
-    };
-    if curi.cannot_be_a_base() {
-        return Err(ExpectedBaseURI(curi));
-    }
-    Ok(curi)
-}
-
-fn extract_hash(v: &sj::Value) -> HashedLiteral {
-    let mut walker = NoopWalker;
-    let span = de::walk(v, &mut walker).unwrap();
-    HashedLiteral {
-        hash: span.hashed,
-        value: v.clone(),
-    }
-}
-
-fn extract_hashes(v: &sj::Value) -> Result<Vec<HashedLiteral>, Error> {
-    let arr = match v {
-        sj::Value::Array(arr) => arr,
-        _ => return Err(ExpectedArray),
-    };
-    Ok(arr.iter().map(|v| extract_hash(v)).collect())
-}
-
-fn extract_usize(v: &sj::Value) -> Result<usize, Error> {
-    match v {
-        sj::Value::Number(num) if num.is_u64() => Ok(num.as_u64().unwrap() as usize),
-        _ => return Err(ExpectedUnsigned),
-    }
-}
-
-fn extract_str(v: &sj::Value) -> Result<&str, Error> {
-    match v {
-        sj::Value::String(s) => Ok(s),
-        _ => return Err(ExpectedString),
-    }
-}
-
-fn extract_bool(v: &sj::Value) -> Result<bool, Error> {
-    match v {
-        sj::Value::Bool(b) => Ok(*b),
-        _ => return Err(ExpectedBool),
-    }
-}
-
-fn extract_number(v: &sj::Value) -> Result<Number, Error> {
-    match v {
-        sj::Value::Number(num) if num.is_u64() => Ok(Number::Unsigned(num.as_u64().unwrap())),
-        sj::Value::Number(num) if num.is_i64() => Ok(Number::Signed(num.as_i64().unwrap())),
-        sj::Value::Number(num) => Ok(Number::Float(num.as_f64().unwrap())),
-        _ => return Err(ExpectedNumber),
-    }
-}
-
-fn extract_intern_set<'a>(
-    tbl: &mut intern::Table,
-    vec: impl Iterator<Item = &'a sj::Value>,
-) -> Result<(intern::Set, Vec<String>), Error> {
-    let mut set: intern::Set = 0;
-    let mut props = Vec::new();
-
-    for item in vec {
-        let prop = extract_str(item)?;
-        set |= tbl.intern(extract_str(item)?)?;
-        props.push(prop.to_owned());
-    }
-    Ok((set, props))
-}
-
-impl AnnotationBuilder for CoreAnnotation {
-    fn uses_keyword(kw: &str) -> bool {
-        match kw {
-            keywords::CONTENT_ENCODING
-            | keywords::CONTENT_MEDIA_TYPE
-            | keywords::FORMAT
-            | keywords::DEFAULT
-            | keywords::DEPRECATED
-            | keywords::DESCRIPTION
-            | keywords::EXAMPLE
-            | keywords::EXAMPLES
-            | keywords::READ_ONLY
-            | keywords::TITLE
-            | keywords::WRITE_ONLY => true,
-            _ => false,
-        }
-    }
-
-    fn from_keyword(kw: &str, v: &sj::Value) -> Result<Self, Error> {
-        Ok(match kw {
-            keywords::CONTENT_ENCODING => {
-                CoreAnnotation::ContentEncoding(extract_str(v)?.to_owned())
-            }
-            keywords::CONTENT_MEDIA_TYPE => {
-                CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
-            }
-            keywords::FORMAT => CoreAnnotation::Format(
-                serde_json::from_value(v.clone()).map_err(|err| Error::FormatErr(err))?,
-            ),
-            keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
-            keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
-            keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),
-            keywords::EXAMPLE => CoreAnnotation::Examples(vec![v.clone()]),
-            keywords::EXAMPLES => CoreAnnotation::Examples(
-                match v {
-                    sj::Value::Array(v) => v,
-                    _ => return Err(ExpectedArray),
+        let properties = (properties.into_iter())
+            .merge_join_by(required.into_iter(), |(l, _), r| l.cmp(r))
+            .map(|eob| match eob {
+                itertools::EitherOrBoth::Left((prop, schema)) => {
+                    (["?", prop].concat().into(), schema) // Optional property.
                 }
-                .clone(),
-            ),
-            keywords::READ_ONLY => CoreAnnotation::ReadOnly(extract_bool(v)?),
-            keywords::TITLE => CoreAnnotation::Title(extract_str(v)?.to_owned()),
-            keywords::WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
-            _ => panic!("unexpected keyword: '{}'", kw),
-        })
+                itertools::EitherOrBoth::Both((prop, schema), _req) => {
+                    (["!", prop].concat().into(), schema) // Required property.
+                }
+                itertools::EitherOrBoth::Right(prop) => {
+                    let schema = schema::Schema {
+                        kw: Vec::new().into(),
+                    };
+                    (["+", prop].concat().into(), schema) // Only in `required`, not `properties`.
+                }
+            })
+            .collect::<Vec<_>>()
+            .into();
+
+        keywords.push(Keyword::Properties { properties });
     }
+
+    keywords
+}
+
+fn build_schema_array<'l, 's, A>(
+    scope: Scope<'l>,
+    value: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> Vec<schema::Schema<A>>
+where
+    A: schema::Annotation,
+{
+    expect_array(scope, value, errors)
+        .iter()
+        .enumerate()
+        .map(|(i, value)| build::<A>(scope.push_item(i), value, errors))
+        .collect::<Vec<_>>()
+}
+
+fn build_schema_map<'l, 's, A>(
+    scope: Scope<'l>,
+    value: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> Vec<(&'s str, schema::Schema<A>)>
+where
+    A: schema::Annotation,
+{
+    expect_map(scope, value, errors)
+        .iter()
+        .map(|(property, value)| {
+            (
+                property.as_str(),
+                build::<A>(scope.push_prop(property), value, errors),
+            )
+        })
+        .collect::<Vec<_>>()
+}
+
+fn build_frozen_schema_map<'l, 's, A>(
+    scope: Scope<'l>,
+    value: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> super::FrozenSlice<(super::FrozenString, schema::Schema<A>)>
+where
+    A: schema::Annotation,
+{
+    build_schema_map(scope, value, errors)
+        .into_iter()
+        .map(|(k, v)| (k.to_string().into(), v))
+        .collect::<Vec<_>>()
+        .into()
+}
+
+fn expect_unsigned<'l, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &serde_json::Value,
+    errors: &mut Errors<A>,
+) -> usize {
+    if let Some(v) = v.as_u64() {
+        v as usize
+    } else {
+        Error::ExpectedUnsigned.push(scope, errors);
+        0
+    }
+}
+
+fn expect_str<'l, 's, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> &'s str {
+    if let Some(v) = v.as_str() {
+        v
+    } else {
+        Error::ExpectedString.push(scope, errors);
+        ""
+    }
+}
+
+fn expect_array<'l, 's, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> &'s [serde_json::Value] {
+    if let Some(v) = v.as_array() {
+        v
+    } else {
+        Error::ExpectedArray.push(scope, errors);
+        &[]
+    }
+}
+
+fn expect_map<'l, 's, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &'s serde_json::Value,
+    errors: &mut Errors<A>,
+) -> &'s serde_json::Map<String, serde_json::Value> {
+    if let Some(v) = v.as_object() {
+        v
+    } else {
+        Error::ExpectedObject.push(scope, errors);
+        &EMPTY_MAP
+    }
+}
+
+fn expect_bool<'l, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &serde_json::Value,
+    errors: &mut Errors<A>,
+) -> bool {
+    if let Some(v) = v.as_bool() {
+        v
+    } else {
+        Error::ExpectedBool.push(scope, errors);
+        false
+    }
+}
+
+fn expect_number<'l, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &serde_json::Value,
+    errors: &mut Errors<A>,
+) -> Number {
+    if let Some(v) = v.as_u64() {
+        Number::PosInt(v)
+    } else if let Some(v) = v.as_i64() {
+        Number::NegInt(v)
+    } else if let Some(v) = v.as_f64() {
+        Number::Float(v)
+    } else {
+        Error::ExpectedNumber.push(scope, errors);
+        Number::PosInt(0)
+    }
+}
+
+fn expect_url<'l, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &serde_json::Value,
+    errors: &mut Errors<A>,
+) -> url::Url {
+    match v.as_str().map(|s| url::Url::parse(s)) {
+        None => {
+            Error::ExpectedURL.push(scope, errors);
+        }
+        Some(Err(err)) => {
+            Error::URL(err).push(scope, errors);
+        }
+        Some(Ok(url)) => return url,
+    }
+    url::Url::parse("https://placeholder.invalid").unwrap()
+}
+
+enum Number {
+    PosInt(u64),
+    NegInt(i64),
+    Float(f64),
+}
+
+lazy_static::lazy_static! {
+    static ref EMPTY_MAP: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
 }
 
 #[cfg(test)]
-mod test {
-    use super::{super::build::build_schema, super::CoreAnnotation};
-    use crate::schema::{intern, Application, Keyword, Validation};
+mod tests {
+    use super::schema;
 
     #[test]
-    fn test_required_splits_into_inline_schemas() {
-        let do_test = |fill_to: usize| {
-            // Our fixture under test uses seven properties other than those of `required`.
-            let required: Vec<_> = (0..fill_to).map(|i| i.to_string()).collect();
+    fn it_works() {
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../json/tests/official/test-schema.json"
+        ))
+        .unwrap();
+        let curi = url::Url::parse("https://example.com/test-schema.json").unwrap();
 
-            let schema = serde_json::json!({
-                "type": "object",
-                "dependentRequired": {
-                    "foo": ["bar", "baz"],
-                    "bar": ["baz"],
-                },
-                "dependentSchemas": {
-                    "bing": true,
-                    "quark": {},
-                    "baz": {},
-                },
-                "properties": {
-                    "these-props": true,
-                    "dont-get-interned": false,
-                },
-                "required": required,
-            });
-
-            let curi = url::Url::parse("http://example/schema").unwrap();
-            let schema = build_schema::<CoreAnnotation>(curi, &schema).unwrap();
-
-            let mut saw_required = false;
-            let mut total_inline = 0;
-            let mut total_required = 0;
-
-            for kw in &schema.kw {
-                match kw {
-                    Keyword::Application(Application::Inline, schema) => {
-                        assert_eq!(schema.kw.len(), 1, "{:?}", &schema.kw);
-                        match &schema.kw[0] {
-                            Keyword::Validation(Validation::Required { props, .. }) => {
-                                total_required += props.len();
-                            }
-                            kw => panic!("unexpected inline keyword: {:?}", kw),
-                        }
-                        total_inline += 1;
-                    }
-                    Keyword::Validation(Validation::Required { props, .. }) => {
-                        total_required += props.len();
-                        saw_required = true;
-                    }
-                    _ => {}
-                }
-            }
-            assert!(saw_required);
-            assert_eq!(total_required, fill_to);
-
-            (schema.tbl.len(), total_inline)
-        };
-
-        assert_eq!(do_test(0), (5, 0));
-        assert_eq!(do_test(3), (8, 0));
-        assert_eq!(
-            do_test(intern::MAX_TABLE_SIZE - 5),
-            (intern::MAX_TABLE_SIZE, 0)
-        );
-        assert_eq!(
-            do_test(intern::MAX_TABLE_SIZE * 3 - 5),
-            (intern::MAX_TABLE_SIZE, 2)
-        );
-        assert_eq!(
-            do_test(intern::MAX_TABLE_SIZE * 3 - 4),
-            (intern::MAX_TABLE_SIZE, 3)
-        );
+        let schema = super::build_schema::<schema::CoreAnnotation>(&curi, &schema).unwrap();
+        insta::assert_debug_snapshot!(schema);
     }
 }

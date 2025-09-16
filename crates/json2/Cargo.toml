@@ -29,6 +29,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 glob = { workspace = true }
+insta = { workspace = true }
 
 #[[bench]]
 #name = "github_events"

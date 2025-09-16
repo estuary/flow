@@ -4396,6 +4396,7 @@ dependencies = [
  "criterion",
  "fxhash",
  "glob",
+ "insta",
  "iri-string",
  "itertools 0.10.5",
  "lazy_static",
