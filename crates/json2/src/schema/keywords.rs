@@ -78,10 +78,10 @@ where
         definitions: FrozenSlice<(FrozenString, Schema<A>)>,
     },
     DependentRequired {
-        dependent_required: FrozenSlice<(FrozenString, FrozenSlice<FrozenString>)>,
+        dependent_required: Box<(FrozenString, FrozenSlice<FrozenString>)>,
     },
     DependentSchemas {
-        dependent_schemas: FrozenSlice<(FrozenString, Schema<A>)>,
+        dependent_schema: Box<(FrozenString, Schema<A>)>,
     },
     DynamicAnchor {
         // dynamicAnchor indicates that, should this schema appears first in

@@ -185,39 +185,46 @@ where
                 keywords.push(Keyword::Contains { contains });
             }
             keywords::DEFS => {
-                let defs = build_frozen_schema_map(scope, value, errors);
+                let defs = build_frozen_schema_map(scope, value, errors).into();
                 keywords.push(Keyword::Defs { defs });
             }
             keywords::DEFINITIONS => {
-                let definitions = build_frozen_schema_map(scope, value, errors);
+                let definitions = build_frozen_schema_map(scope, value, errors).into();
                 keywords.push(Keyword::Definitions { definitions });
             }
             keywords::DEPENDENT_REQUIRED => {
-                let dependent_required = expect_map(scope, value, errors)
-                    .iter()
-                    .map(|(prop, value)| {
-                        let scope = scope.push_prop(prop);
+                let dependent_required =
+                    expect_map(scope, value, errors)
+                        .iter()
+                        .map(|(prop, value)| {
+                            let scope = scope.push_prop(prop);
 
-                        let other_props = expect_array(scope, value, errors)
-                            .iter()
-                            .enumerate()
-                            .map(|(i, value)| {
-                                let other_prop = expect_str(scope.push_item(i), value, errors);
-                                other_prop.to_string().into()
-                            })
-                            .collect::<Vec<_>>()
-                            .into();
+                            let other_props = expect_array(scope, value, errors)
+                                .iter()
+                                .enumerate()
+                                .map(|(i, value)| {
+                                    let other_prop = expect_str(scope.push_item(i), value, errors);
+                                    other_prop.to_string().into()
+                                })
+                                .collect::<Vec<_>>()
+                                .into();
 
-                        (prop.to_string().into(), other_props)
-                    })
-                    .collect::<Vec<_>>()
-                    .into();
+                            (prop.to_string().into(), other_props)
+                        });
 
-                keywords.push(Keyword::DependentRequired { dependent_required });
+                for (property, other_required) in dependent_required {
+                    keywords.push(Keyword::DependentRequired {
+                        dependent_required: Box::new((property, other_required)),
+                    });
+                }
             }
             keywords::DEPENDENT_SCHEMAS => {
                 let dependent_schemas = build_frozen_schema_map(scope, value, errors);
-                keywords.push(Keyword::DependentSchemas { dependent_schemas });
+                for (property, schemas) in dependent_schemas.into_iter() {
+                    keywords.push(Keyword::DependentSchemas {
+                        dependent_schema: Box::new((property, schemas)),
+                    });
+                }
             }
             keywords::DYNAMIC_ANCHOR => {
                 let dynamic_anchor = expect_str(scope, value, errors).to_string().into();
@@ -553,7 +560,7 @@ fn build_frozen_schema_map<'l, 's, A>(
     scope: Scope<'l>,
     value: &'s serde_json::Value,
     errors: &mut Errors<A>,
-) -> super::FrozenSlice<(super::FrozenString, schema::Schema<A>)>
+) -> Vec<(super::FrozenString, schema::Schema<A>)>
 where
     A: schema::Annotation,
 {
@@ -561,7 +568,6 @@ where
         .into_iter()
         .map(|(k, v)| (k.to_string().into(), v))
         .collect::<Vec<_>>()
-        .into()
 }
 
 fn expect_unsigned<'l, A: schema::Annotation>(

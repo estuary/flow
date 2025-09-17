@@ -52,6 +52,14 @@ where
                         return Err(Error::DuplicateAnchorURI(anchor.to_string()));
                     }
                 }
+                // Index an alternative, dynamic anchor-form canonical URI.
+                // These behave identically during indexing, but use a dynamically
+                // scoped resolution strategy when resolved through $dynamicRef.
+                Keyword::DynamicAnchor { dynamic_anchor } => {
+                    if let Some(_) = self.0.insert(dynamic_anchor.as_ref(), schema) {
+                        return Err(Error::DuplicateAnchorURI(dynamic_anchor.to_string()));
+                    }
+                }
                 // Recurse to index subordinate schemas.
                 Keyword::AdditionalProperties {
                     additional_properties,
@@ -77,10 +85,11 @@ where
                         self.add(child)?;
                     }
                 }
-                Keyword::DependentSchemas { dependent_schemas } => {
-                    for (_, child) in dependent_schemas.iter() {
-                        self.add(child)?;
-                    }
+                Keyword::DependentSchemas {
+                    dependent_schema: dependent_schemas,
+                } => {
+                    let (_, child) = dependent_schemas.as_ref();
+                    self.add(child)?;
                 }
                 Keyword::Else { r#else } => self.add(r#else)?,
                 Keyword::If { r#if } => self.add(r#if)?,
@@ -122,10 +131,10 @@ where
     }
 
     pub fn verify_references(&self) -> Result<(), Error> {
-        for (referrer, referrent) in self.references() {
-            if !self.0.contains_key(referrent) {
+        for (referrer, referent) in self.references() {
+            if !self.0.contains_key(referent) {
                 return Err(Error::InvalidReference {
-                    ruri: referrent.to_string(),
+                    ruri: referent.to_string(),
                     curi: referrer.to_string(),
                 });
             }
