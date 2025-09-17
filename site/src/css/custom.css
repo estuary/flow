@@ -60,3 +60,13 @@ body.running-in-iframe .theme-doc-breadcrumbs {
     cursor: pointer;
     /* Changes cursor to pointer to indicate it's clickable */
 }
+
+.docs-section-link {
+    border-radius: 30px;
+    color: var(--ifm-color-primary);
+}
+
+.docs-section-link:hover {
+    text-decoration: underline;
+    background-color: rgb(233, 238, 237);
+}
