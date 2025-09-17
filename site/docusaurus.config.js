@@ -43,7 +43,7 @@ function sortSidebarAlphabetically(items) {
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Estuary Flow Documentation',
-  tagline: 'Dinosaurs are cool',
+  tagline: 'Fast, configurable ETL your way',
   url: URL,
   baseUrl: BASE_URL,
   onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
