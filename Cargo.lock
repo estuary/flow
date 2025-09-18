@@ -4412,7 +4412,6 @@ dependencies = [
  "bigdecimal 0.3.1",
  "bitvec 1.0.1",
  "criterion",
- "fxhash",
  "glob",
  "insta",
  "iri-string",
@@ -4427,6 +4426,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid 1.10.0",
+ "xxhash-rust",
 ]
 
 [[package]]

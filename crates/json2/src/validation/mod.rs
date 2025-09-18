@@ -1,9 +1,11 @@
 use crate::{
     node::{Field, Fields},
-    schema::{self, Annotation, Keyword, Schema},
-    AsNode, Node,
+    schema::{self, types, Annotation, Keyword, Schema},
+    AsNode, Node, Number,
 };
 use bitvec::{order::Lsb0, view::BitView};
+use itertools::Itertools;
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Outcome<'s, A: Annotation> {
@@ -14,6 +16,7 @@ pub enum Outcome<'s, A: Annotation> {
     OneOfMultipleMatched,
     OneOfNotMatched,
     ReferenceNotFound(&'s Keyword<A>),
+    MissingRequiredProperty(&'s str),
 }
 
 struct Frame<'s, A>
@@ -57,6 +60,8 @@ where
     // Outcomes of Keyword::UnevaluatedItems/Properties of *this* Frame,
     // as (child-index, tape-index, outcome).
     outcomes_unevaluated: Vec<(u32, i32, Outcome<'s, A>)>,
+
+    properties_index: u32,
 }
 
 pub struct Stack<'s, A>
@@ -71,82 +76,36 @@ where
     active_frames: Vec<usize>,
 }
 
-impl<'s, A> Stack<'s, A>
-where
-    A: Annotation,
-{
-    fn foobar(&mut self) {
-        let active_begin = *self.active_frames.last().unwrap();
-        let active_end = self.frames.len();
-
-        for eval_idx in (active_end..active_begin).rev() {}
-    }
-
-    /*
-    fn push_property(&mut self, tape_index: i32, property: &str) {
-        let active_begin = *self.active_frames.last().unwrap();
-        let active_end = self.frames.len();
-
-        // Push propertyNames applications to evaluate the property name.
-        for eval_idx in active_begin..active_end {
-            for kw in self.frames[eval_idx].keywords {
-                if let Keyword::PropertyNames { property_names } = &kw {
-                    wind_frame(
-                        self,
-                        Some((eval_idx as u32, kw)),
-                        property_names,
-                        tape_index,
-                        false,
-                    );
-                }
-            }
-        }
-
-        if self.frames.len() != active_end {
-            // Mark eval_begin..eval_end as inactive.
-            self.active_frames.push(active_end);
-            // Apply the property name as a string, which pops propertyName applications.
-            self.end_str(tape_index, property);
-        }
-    }
-    */
-
-    fn push_item(&mut self, tape_index: i32, item_index: u32) {}
-
-    fn begin_array(&mut self, num_items: usize) -> bool {
-        false
-    }
-    fn begin_object(&mut self, num_fields: usize) -> bool {
-        false
-    }
-
-    fn end_array<'n, N: AsNode>(&mut self, tape_index: i32, items: &'n [N]) {}
-    fn end_bool(&mut self, tape_index: i32, value: bool) {}
-    fn end_bytes<'n>(&mut self, tape_index: i32, value: &'n [u8]) {}
-    fn end_null(&mut self, tape_index: i32) {}
-    fn end_number<'n, N: AsNode>(&mut self, tape_index: i32, value: Node<'n, N>) {}
-    fn end_object<'n, N: AsNode>(&mut self, tape_index: i32, fields: &'n N::Fields) {}
-    fn end_str<'n>(&mut self, tape_index: i32, value: &'n str) {}
-}
-
-fn walk<'s, 'n, N: AsNode, A: Annotation>(
-    validator: &mut Stack<'s, A>,
+fn walk<'s, 'n, N, A, F>(
+    active: &mut Vec<u32>,
+    child_index: u32,
+    filter: &F,
+    index: &schema::Index<'s, A>,
+    node: &'n N,
+    property: &str,
+    stack: &mut Vec<Frame<'s, A>>,
     tape_index: &mut i32,
-    doc: &'n N,
-) {
-    match doc.as_node() {
+) where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+    N: AsNode,
+{
+    match node.as_node() {
         Node::Array(items) => {
             let arr_tape_index = *tape_index;
 
-            if validator.begin_array(items.len()) {
-                *tape_index += 1; // Consume self.
-                for (i, item) in items.iter().enumerate() {
-                    validator.push_item(*tape_index, i as u32);
-                    walk(validator, tape_index, item);
+            *tape_index += 1; // Consume self.
+            for (child_index, item) in items.iter().enumerate() {
+                if push_item(active, child_index, filter, index, node, stack, *tape_index) {
+                    // recursive walk
+                } else {
+                    // consume child but don't walk
                 }
-            } else {
-                *tape_index += doc.tape_length(); // Consume self and children.
+
+                validator.push_item(*tape_index, i as u32);
+                walk(validator, tape_index, item);
             }
+            *tape_index += doc.tape_length(); // Consume self and children.
 
             validator.end_array(arr_tape_index, items);
         }
@@ -185,6 +144,289 @@ fn walk<'s, 'n, N: AsNode, A: Annotation>(
             validator.end_str(*tape_index, s);
             *tape_index += 1;
         }
+    }
+}
+
+fn push_property<'n, 's, A, F, N>(
+    active: &mut Vec<u32>,
+    child_index: usize,
+    filter: &F,
+    index: &schema::Index<'s, A>,
+    node: &'n N,
+    property: &str,
+    stack: &mut Vec<Frame<'s, A>>,
+    tape_index: i32,
+) -> bool
+where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+    N: AsNode,
+{
+    let active_begin = *active.last().unwrap() as usize;
+    let active_end = stack.len();
+
+    // Push propertyNames applications to evaluate the property name.
+    for frame in active_begin..active_end {
+        for kw in stack[frame].keywords {
+            if let Keyword::PropertyNames { property_names } = &kw {
+                wind_frame(
+                    filter,
+                    index,
+                    node,
+                    frame as u32,
+                    Some(kw),
+                    property_names,
+                    stack,
+                    tape_index,
+                    0,
+                );
+            }
+        }
+    }
+
+    if stack.len() != active_end {
+        // Mark eval_begin..eval_end as inactive.
+        active.push(active_end as u32);
+
+        pop_string(
+            &mut stack[active_begin..active_end],
+            filter,
+            property,
+            tape_index,
+        );
+        pop_node(
+            &mut stack[active_begin..active_end],
+            filter,
+            Node::<N>::String(property),
+            types::STRING,
+            tape_index,
+        );
+        unwind(active_end, child_index, filter, stack, tape_index);
+        active.pop();
+    }
+
+    for frame in active_begin..active_end {
+        let mut evaluated = false;
+
+        for kw in stack[frame].keywords {
+            // Property applications have preference rules (which keywords are sorted by).
+            // C.f. https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.9.3.2
+            match kw {
+                Keyword::Properties { properties } => {
+                    for (next, schema) in &(*properties)[stack[frame].properties_index as usize..] {
+                        match next[1..].cmp(property) {
+                            Ordering::Less => {
+                                if next.as_bytes()[0] != b'?' {
+                                    if let Some(outcome) =
+                                        filter(Outcome::MissingRequiredProperty(&next[1..]))
+                                    {
+                                        stack[frame].outcomes.push((tape_index, outcome));
+                                    }
+                                    stack[frame].invalid = true;
+                                }
+                                stack[frame].properties_index += 1;
+                            }
+                            Ordering::Equal => {
+                                wind_frame(
+                                    filter,
+                                    index,
+                                    node,
+                                    frame as u32,
+                                    Some(kw),
+                                    schema,
+                                    stack,
+                                    tape_index,
+                                    0,
+                                );
+                                evaluated = true;
+                                stack[frame].properties_index += 1;
+                                break;
+                            }
+                            Ordering::Greater => {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Keyword::PatternProperties { pattern_properties } => {
+                    for (pattern, schema) in &**pattern_properties {
+                        if pattern.is_match(property) {
+                            wind_frame(
+                                filter,
+                                index,
+                                node,
+                                frame as u32,
+                                Some(kw),
+                                schema,
+                                stack,
+                                tape_index,
+                                0,
+                            );
+                            evaluated = true;
+                        }
+                    }
+                }
+                Keyword::AdditionalProperties {
+                    additional_properties,
+                } => {
+                    if !evaluated {
+                        wind_frame(
+                            filter,
+                            index,
+                            node,
+                            frame as u32,
+                            Some(kw),
+                            additional_properties,
+                            stack,
+                            tape_index,
+                            0,
+                        );
+                        evaluated = true;
+                    }
+                }
+                Keyword::UnevaluatedProperties {
+                    unevaluated_properties,
+                } => {
+                    if !evaluated {
+                        wind_frame(
+                            filter,
+                            index,
+                            node,
+                            frame as u32,
+                            Some(kw),
+                            unevaluated_properties,
+                            stack,
+                            tape_index,
+                            0,
+                        );
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        if let Some(unevaluated) = stack[frame].unevaluated.as_mut() {
+            if !evaluated {
+                unevaluated
+                    .view_bits_mut::<Lsb0>()
+                    .set(child_index as usize, true);
+            }
+        }
+    }
+
+    if stack.len() != active_end {
+        active.push(active_end as u32);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+fn push_item<'n, 's, A, F, N>(
+    active: &mut Vec<u32>,
+    child_index: usize,
+    filter: &F,
+    index: &schema::Index<'s, A>,
+    node: &'n N,
+    stack: &mut Vec<Frame<'s, A>>,
+    tape_index: i32,
+) -> bool
+where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+    N: AsNode,
+{
+    let active_begin = *active.last().unwrap() as usize;
+    let active_end = stack.len();
+
+    for frame in active_begin..active_end {
+        let mut evaluated = false;
+
+        for kw in stack[frame].keywords {
+            // Property applications have preference rules (which keywords are sorted by).
+            // C.f. https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.9.3.2
+            match kw {
+                Keyword::PrefixItems { prefix_items } => {
+                    let Some(schema) = prefix_items.get(child_index as usize) else {
+                        continue;
+                    };
+
+                    wind_frame(
+                        filter,
+                        index,
+                        node,
+                        frame as u32,
+                        Some(kw),
+                        schema,
+                        stack,
+                        tape_index,
+                        0,
+                    );
+                    evaluated = true;
+                }
+                Keyword::Items { items } => {
+                    if !evaluated {
+                        wind_frame(
+                            filter,
+                            index,
+                            node,
+                            frame as u32,
+                            Some(kw),
+                            items,
+                            stack,
+                            tape_index,
+                            0,
+                        );
+                        evaluated = true;
+                    }
+                }
+                Keyword::Contains { contains } => {
+                    wind_frame(
+                        filter,
+                        index,
+                        node,
+                        frame as u32,
+                        Some(kw),
+                        contains,
+                        stack,
+                        tape_index,
+                        0,
+                    );
+                    evaluated = true;
+                }
+                Keyword::UnevaluatedItems { unevaluated_items } => {
+                    if !evaluated {
+                        wind_frame(
+                            filter,
+                            index,
+                            node,
+                            frame as u32,
+                            Some(kw),
+                            unevaluated_items,
+                            stack,
+                            tape_index,
+                            0,
+                        );
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        if let Some(unevaluated) = stack[frame].unevaluated.as_mut() {
+            if !evaluated {
+                unevaluated
+                    .view_bits_mut::<Lsb0>()
+                    .set(child_index as usize, true);
+            }
+        }
+    }
+
+    if stack.len() != active_end {
+        active.push(active_end as u32);
+        return true;
+    } else {
+        return false;
     }
 }
 
@@ -263,6 +505,7 @@ fn wind_frame<'n, 's, A, F, N>(
         unevaluated,
         invalid_unevaluated,
         outcomes_unevaluated: Vec::new(),
+        properties_index: 0,
     });
 
     // Look for in-place applications which also need to be wound.
@@ -340,124 +583,324 @@ fn wind_frame<'n, 's, A, F, N>(
     }
 }
 
-fn unwind_frame<'n, 's, A, F, N>(
+#[inline]
+fn pop_array<'n, 's, A, F, N>(frames: &mut [Frame<'s, A>], filter: &F, items: &[N], tape_index: i32)
+where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+    N: AsNode,
+{
+    for frame in frames {
+        for kw in frame.keywords {
+            let invalid: Option<Outcome<'s, A>> = match kw {
+                Keyword::MaxItems { max_items } => {
+                    (items.len() > *max_items).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MinItems { min_items } => {
+                    (items.len() < *min_items).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::UniqueItems {} => {
+                    let mut sorted = items.iter().collect::<Vec<_>>();
+                    sorted.sort_by(|a, b| crate::node::compare(*a, *b));
+
+                    sorted
+                        .iter()
+                        .tuple_windows()
+                        .any(|(a, b)| crate::node::compare(*a, *b).is_eq())
+                        .then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MinContains { min_contains } => {
+                    (frame.valid_contains < *min_contains as u32).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MaxContains { max_contains } => {
+                    (frame.valid_contains > *max_contains as u32).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::UnevaluatedItems { .. } => {
+                    pop_unevaluated(frame);
+                    None
+                }
+                _ => None,
+            };
+
+            if let Some(outcome) = invalid {
+                if let Some(outcome) = filter(outcome) {
+                    frame.outcomes.push((tape_index, outcome));
+                }
+                frame.invalid = true;
+            }
+        }
+    }
+}
+
+#[inline]
+fn pop_object<'n, 's, A, F, N>(
+    frames: &mut [Frame<'s, A>],
     filter: &F,
-    node: &'n N,
-    schema: &'s Schema<A>,
-    stack: &mut Vec<Frame<'s, A>>,
+    fields: &[N::Fields],
     tape_index: i32,
-    child_index: u32,
+) where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+    N: AsNode,
+    N::Fields: Sized,
+{
+    for frame in frames {
+        for kw in frame.keywords {
+            let invalid: Option<Outcome<'s, A>> = match kw {
+                Keyword::MaxProperties { max_properties } => {
+                    (fields.len() > *max_properties).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MinProperties { min_properties } => {
+                    (fields.len() < *min_properties).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::Properties { properties } => {
+                    // Fail if any remaining, un-walked properties were required.
+                    (*properties)[frame.properties_index as usize..]
+                        .iter()
+                        .filter_map(|(property, _)| {
+                            if property.as_bytes()[0] != b'?' {
+                                Some(Outcome::MissingRequiredProperty(&(&**property)[1..]))
+                            } else {
+                                None
+                            }
+                        })
+                        .next()
+                }
+                Keyword::UnevaluatedProperties { .. } => {
+                    pop_unevaluated(frame);
+                    None
+                }
+                _ => None,
+            };
+
+            if let Some(outcome) = invalid {
+                if let Some(outcome) = filter(outcome) {
+                    frame.outcomes.push((tape_index, outcome));
+                }
+                frame.invalid = true;
+            }
+        }
+    }
+}
+
+#[inline]
+fn pop_string<'s, A, F>(frames: &mut [Frame<'s, A>], filter: &F, val: &str, tape_index: i32)
+where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+{
+    for frame in frames {
+        for kw in frame.keywords {
+            let invalid: Option<Outcome<'s, A>> = match kw {
+                Keyword::Format { format } => {
+                    (!format.validate(val)).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MaxLength { max_length } => {
+                    (val.chars().count() > *max_length as usize).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MinLength { min_length } => {
+                    (val.chars().count() < *min_length as usize).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::Pattern { pattern } => {
+                    (!pattern.is_match(val)).then_some(Outcome::Invalid(kw))
+                }
+                _ => None,
+            };
+
+            if let Some(outcome) = invalid {
+                if let Some(outcome) = filter(outcome) {
+                    frame.outcomes.push((tape_index, outcome));
+                }
+                frame.invalid = true;
+            }
+        }
+    }
+}
+
+#[inline]
+fn pop_number<'s, A, F>(
+    frames: &mut [Frame<'s, A>],
+    filter: &F,
+    val: crate::Number,
+    tape_index: i32,
+) where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+{
+    for frame in frames {
+        for kw in frame.keywords {
+            let invalid: Option<Outcome<'s, A>> = match kw {
+                Keyword::Minimum { minimum } => (val < *minimum).then_some(Outcome::Invalid(kw)),
+                Keyword::Maximum { maximum } => (val > *maximum).then_some(Outcome::Invalid(kw)),
+                Keyword::ExclusiveMinimum { exclusive_minimum } => {
+                    (val <= *exclusive_minimum).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::ExclusiveMaximum { exclusive_maximum } => {
+                    (val >= *exclusive_maximum).then_some(Outcome::Invalid(kw))
+                }
+                Keyword::MultipleOf { multiple_of } => {
+                    (!val.is_multiple_of(multiple_of)).then_some(Outcome::Invalid(kw))
+                }
+
+                _ => None,
+            };
+
+            if let Some(outcome) = invalid {
+                if let Some(outcome) = filter(outcome) {
+                    frame.outcomes.push((tape_index, outcome));
+                }
+                frame.invalid = true;
+            }
+        }
+    }
+}
+
+#[inline]
+fn pop_node<'n, 's, A, F, N>(
+    frames: &mut [Frame<'s, A>],
+    filter: &F,
+    node: Node<'n, N>,
+    node_type: types::Set,
+    tape_index: i32,
 ) where
     A: Annotation,
     F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
     N: AsNode,
 {
-    let frame = &mut stack.last_mut().expect("stack must be non-empty");
-
-    // Did we speculatively validate unevaluated children?
-    if let Some(invalid_unevaluated) = &mut frame.invalid_unevaluated {
-        let invalid_unevaluated = invalid_unevaluated.view_bits::<Lsb0>();
-        let unevaluated = frame.unevaluated.as_mut().unwrap().view_bits_mut::<Lsb0>();
-
-        // Filter outcomes from unevaluated applications if the child was in-fact evaluated.
-        // Then apply the remainder (from unevaluated children) to outcomes.
-        frame
-            .outcomes
-            .extend(frame.outcomes_unevaluated.drain(..).filter_map(
-                |(child_index, tape_index, outcome)| {
-                    if unevaluated[child_index as usize] {
-                        Some((tape_index, outcome))
-                    } else {
-                        None
-                    }
-                },
-            ));
-
-        // For each child, if our speculative validation succeeded then the
-        // child is no longer unevaluated.
-        *unevaluated &= invalid_unevaluated;
-
-        // If any unevaluated child remains, then it was both unevaluated and
-        // also failed speculative validation.
-        frame.invalid = unevaluated.any();
-    }
-
-    // Verify AnyOf & OneOf applications, and apply annotations.
-    for kw in frame.keywords {
-        match kw {
-            Keyword::AnyOf { .. } => {
-                if !frame.valid_any_of {
-                    if let Some(outcome) = filter(Outcome::AnyOfNotMatched) {
-                        frame.outcomes.push((tape_index, outcome));
-                    }
-                    frame.invalid = true;
+    for frame in frames {
+        for kw in frame.keywords {
+            let invalid: Option<Outcome<'s, A>> = match kw {
+                // Keywords that are common across all node types.
+                Keyword::False => Some(Outcome::Invalid(kw)),
+                Keyword::Type { r#type } => {
+                    (*r#type & node_type == types::INVALID).then_some(Outcome::Invalid(kw))
                 }
-            }
-            Keyword::OneOf { .. } => {
-                if !frame.valid_one_of {
-                    if let Some(outcome) = filter(Outcome::OneOfNotMatched) {
-                        frame.outcomes.push((tape_index, outcome));
-                    }
-                    frame.invalid = true;
+                Keyword::Const { r#const } => {
+                    (!crate::node::compare_node(&node, &r#const.as_node()).is_eq())
+                        .then_some(Outcome::Invalid(kw))
                 }
-            }
-            // Note that Annotation is ordered after AnyOf & OneOf.
-            Keyword::Annotation { annotation } if !frame.invalid => {
-                if let Some(outcome) = filter(Outcome::Annotation(annotation)) {
+                Keyword::Enum { r#enum } => r#enum
+                    .iter()
+                    .all(|r#enum| !crate::node::compare_node(&node, &r#enum.as_node()).is_eq())
+                    .then_some(Outcome::Invalid(kw)),
+                Keyword::AnyOf { .. } => (!frame.valid_any_of).then_some(Outcome::AnyOfNotMatched),
+                Keyword::OneOf { .. } => (!frame.valid_one_of).then_some(Outcome::OneOfNotMatched),
+
+                _ => None,
+            };
+
+            if let Some(outcome) = invalid {
+                if let Some(outcome) = filter(outcome) {
                     frame.outcomes.push((tape_index, outcome));
                 }
+                frame.invalid = true;
             }
-            _ => (),
+
+            // Note that Annotation is ordered after all validation keywords.
+            if let Keyword::Annotation { annotation } = kw {
+                if !frame.invalid {
+                    if let Some(outcome) = filter(Outcome::Annotation(annotation)) {
+                        frame.outcomes.push((tape_index, outcome));
+                    }
+                }
+            }
         }
     }
+}
 
-    let Some(keyword) = frame.parent_keyword else {
-        return; // Root frame. No parent to return to.
-    };
-    let frame = stack.pop().unwrap();
+#[cold]
+#[inline(never)]
+fn pop_unevaluated<'s, A: Annotation>(frame: &mut Frame<'s, A>) {
+    let invalid_unevaluated = frame
+        .invalid_unevaluated
+        .as_ref()
+        .unwrap()
+        .view_bits::<Lsb0>();
+    let unevaluated = frame.unevaluated.as_mut().unwrap().view_bits_mut::<Lsb0>();
+
+    // Remove outcomes from speculative unevaluatedProperties/Items applications
+    // where the child was in fact evaluated elsewhere. Then apply the remainder
+    // (from actually-unevaluated children) to outcomes.
+    frame
+        .outcomes
+        .extend(frame.outcomes_unevaluated.drain(..).filter_map(
+            |(child_index, tape_index, outcome)| {
+                if unevaluated[child_index as usize] {
+                    Some((tape_index, outcome))
+                } else {
+                    None
+                }
+            },
+        ));
+
+    // For each child, if our speculative validation succeeded then the
+    // child is no longer unevaluated. Note it's possible that our parent
+    // *also* has an unevaluated* keyword, so we need to yield a correct
+    // bit-field of unevaluated children.
+    *unevaluated &= invalid_unevaluated;
+
+    // If any unevaluated child remains, then it was both unevaluated and
+    // also failed speculative validation.
+    frame.invalid = unevaluated.any();
+}
+
+fn unwind<'n, 's, A, F>(
+    bound: usize,
+    child_index: u32,
+    filter: &F,
+    stack: &mut Vec<Frame<'s, A>>,
+    tape_index: i32,
+) where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+{
+    while stack.len() != bound as usize {
+        unwind_frame(child_index, filter, stack, tape_index);
+    }
+}
+
+#[inline]
+fn unwind_frame<'n, 's, A, F>(
+    child_index: u32,
+    filter: &F,
+    stack: &mut Vec<Frame<'s, A>>,
+    tape_index: i32,
+) where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+{
+    let mut frame = stack.pop().unwrap();
     let parent = &mut stack[frame.parent_frame as usize];
 
-    enum Handling {
-        RequiredInPlace,
-        RequiredChild,
-        OptionalInPlace,
-        UnevaluatedChild,
-        Ignore,
-    }
-    use Handling::*;
+    let required: bool; // Invalid `frame` also invalidates `parent`.
+    let in_place: bool; // `frame` is an in-place application such as $ref.
 
-    let handling = match keyword {
-        // Speculative evaluations of children which may be otherwise unevaluated.
-        Keyword::UnevaluatedItems { .. } | Keyword::UnevaluatedProperties { .. } => {
-            UnevaluatedChild
-        }
-
+    match frame.parent_keyword.unwrap() {
         Keyword::Not { .. } => {
-            // Invert the child's outcome.
-            frame.invalid = !frame.invalid;
             frame.outcomes.clear();
 
-            if frame.invalid {
+            if !frame.invalid {
                 if let Some(outcome) = filter(Outcome::NotIsValid) {
                     frame.outcomes.push((tape_index, outcome));
                 }
             }
+            frame.invalid = !frame.invalid;
 
-            RequiredInPlace
+            (required, in_place) = (true, true);
         }
-
         Keyword::AllOf { .. }
         | Keyword::Ref { .. }
         | Keyword::DynamicRef { .. }
-        | Keyword::DependentSchemas { .. } => RequiredInPlace,
-
+        | Keyword::DependentSchemas { .. } => {
+            (required, in_place) = (true, true);
+        }
         Keyword::If { .. } => {
             parent.valid_if = !frame.invalid;
-            OptionalInPlace
+            (required, in_place) = (false, true);
         }
         Keyword::AnyOf { .. } => {
             parent.valid_any_of |= !frame.invalid;
-            OptionalInPlace
+            (required, in_place) = (false, true);
         }
         Keyword::OneOf { .. } => {
             if parent.valid_one_of {
@@ -466,37 +909,39 @@ fn unwind_frame<'n, 's, A, F, N>(
                 }
                 parent.invalid = true;
             }
-            OptionalInPlace
+            parent.valid_one_of |= !frame.invalid;
+            (required, in_place) = (false, true);
         }
         Keyword::Contains { .. } => {
             if !frame.invalid {
                 parent.valid_contains += 1;
-                parent.outcomes.extend(frame.outcomes.into_iter());
             }
-            Ignore
+            (required, in_place) = (false, false);
         }
-
-        Keyword::Then { .. } => parent.valid_if.then_some(RequiredInPlace).unwrap_or(Ignore),
-        Keyword::Else { .. } => parent.valid_if.then_some(Ignore).unwrap_or(RequiredInPlace),
-
-        // Child applications which must always succeed.
+        Keyword::Then { .. } => {
+            (required, in_place) = (parent.valid_if, true);
+        }
+        Keyword::Else { .. } => {
+            (required, in_place) = (!parent.valid_if, true);
+        }
         Keyword::Pattern { .. }
         | Keyword::PatternProperties { .. }
         | Keyword::PrefixItems { .. }
         | Keyword::Items { .. }
         | Keyword::Properties { .. }
         | Keyword::PropertyNames { .. }
-        | Keyword::AdditionalProperties { .. } => RequiredChild,
-    };
+        | Keyword::AdditionalProperties { .. } => {
+            (required, in_place) = (true, false);
+        }
 
-    match handling {
-        UnevaluatedChild => {
+        Keyword::UnevaluatedItems { .. } | Keyword::UnevaluatedProperties { .. } => {
             if frame.invalid {
                 parent
                     .invalid_unevaluated
                     .as_mut()
                     .unwrap()
-                    .view_bits_mut::<Lsb0>()[child_index as usize] = true;
+                    .view_bits_mut::<Lsb0>()
+                    .set(child_index as usize, true);
             }
             parent.outcomes_unevaluated.extend(
                 frame
@@ -504,66 +949,25 @@ fn unwind_frame<'n, 's, A, F, N>(
                     .drain(..)
                     .map(|(tape_index, outcome)| (child_index, tape_index, outcome)),
             );
+            return;
         }
-        RequiredChild => {
-            parent.invalid |= frame.invalid;
+
+        _ => return,
+    };
+
+    parent.invalid |= required && frame.invalid;
+
+    if required || !frame.invalid {
+        if parent.outcomes.is_empty() {
+            std::mem::swap(&mut parent.outcomes, &mut frame.outcomes);
+        } else {
             parent.outcomes.extend(frame.outcomes.into_iter());
         }
     }
-
-    // Don't forget Not
-
-    todo()
-}
-
-fn unwind<'n, 's, A, F, N>(
-    filter: &F,
-    index: &schema::Index<'s, A>,
-    node: &'n N,
-    parent: Option<(u32, &'s Keyword<A>)>,
-    schema: &'s Schema<A>,
-    stack: &mut Vec<Frame<'s, A>>,
-    active: &mut Vec<u32>,
-    tape_index: i32,
-    mut track_validations: bool,
-) where
-    A: Annotation,
-    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
-    N: AsNode,
-{
-    let active_begin = *active.last().unwrap() as usize;
-    let active_end = stack.len();
-
-    for frame in (active_end..active_begin).rev() {
-
-        /*
-        if let Some(unevaluated) = &mut stack[frame].unevaluated {
-            let unevaluated = unevaluated.view_bits_mut::<bitvec::order::Lsb0>();
-
-            let mu = vec![0u32; 8];
-            let unevaluated_valid = mu.view_bits::<bitvec::order::Lsb0>();
-
-            unevaluated_valid.iter_ones()
-
-            for (index, (unevaluated, unevaluated_valid)) in
-                unevaluated.iter().zip(unevaluated_valid.iter()).enumerate()
-            {
-
-                // If *unevaluated
-                let baz = *bar;
-            }
-
-            for index in bar.iter_ones() {}
-
-            for (foo, bar, baz) in stack[frame].outcomes_unevaluated.drain(..) {}
-        }
-        */
-
-        // Note that child applications "allOf", "if", "then", "else", and "not"
-        // already applied outcomes to this Frame when their Frame was unwound.
+    if in_place && !frame.invalid && parent.unevaluated.is_some() {
+        *parent.unevaluated.as_mut().unwrap().view_bits_mut::<Lsb0>() &=
+            frame.unevaluated.as_ref().unwrap().view_bits::<Lsb0>();
     }
-
-    todo!()
 }
 
 fn resolve_dynamic_ref<'s, A: Annotation>(

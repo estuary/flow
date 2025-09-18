@@ -1,3 +1,5 @@
+use crate::{AsNode, Node};
+
 // Set of JSON node types, represented as a bitfield.
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Set(u32);
@@ -181,23 +183,37 @@ impl Set {
         }
     }
 
-    pub fn for_value(val: &serde_json::Value) -> Set {
-        match val {
-            serde_json::Value::Array(_) => ARRAY,
-            serde_json::Value::Bool(_) => BOOLEAN,
-            serde_json::Value::Null => NULL,
-            serde_json::Value::Object(_) => OBJECT,
-            serde_json::Value::String(_) => STRING,
-            serde_json::Value::Number(n) => {
+    #[inline]
+    pub fn for_node<N: AsNode>(node: &N) -> Set {
+        match node.as_node() {
+            Node::Array(_) => ARRAY,
+            Node::Bool(_) => BOOLEAN,
+            Node::Bytes(_) => STRING,
+            Node::NegInt(_) => INTEGER,
+            Node::Null => NULL,
+            Node::Object(_) => OBJECT,
+            Node::PosInt(_) => INTEGER,
+            Node::String(_) => STRING,
+            Node::Float(f) => {
                 // The json schema spec says that the "integer" type must match
                 // "any number with a zero fractional part":
                 // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
                 // So if there's an actual fractional part, then only "number" is valid,
                 // but for any other numeric value, then "integer" is also valid.
-                let f = n
-                    .as_f64()
-                    .expect("not using serde_json arbitrary precision");
+                if f.fract() != 0.0 {
+                    FRACTIONAL
+                } else {
+                    INTEGER
+                }
+            }
+        }
+    }
 
+    #[inline]
+    pub fn for_number(number: &crate::Number) -> Set {
+        match number {
+            crate::Number::PosInt(_) | crate::Number::NegInt(_) => INTEGER,
+            crate::Number::Float(f) => {
                 if f.fract() != 0.0 {
                     FRACTIONAL
                 } else {

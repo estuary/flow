@@ -1,4 +1,4 @@
-use super::{AsNode, Field, Fields, Node, Number};
+use super::{AsNode, Field, Fields, Node};
 
 impl AsNode for serde_json::Value {
     type Fields = serde_json::Map<String, serde_json::Value>;
@@ -57,17 +57,5 @@ impl<'a> Field<'a, serde_json::Value> for (&'a String, &'a serde_json::Value) {
     #[inline]
     fn value(&self) -> &'a serde_json::Value {
         self.1
-    }
-}
-
-impl From<&serde_json::Number> for Number {
-    fn from(n: &serde_json::Number) -> Self {
-        if let Some(n) = n.as_u64() {
-            Self::PosInt(n)
-        } else if let Some(n) = n.as_i64() {
-            Self::NegInt(n)
-        } else {
-            Self::Float(n.as_f64().unwrap())
-        }
     }
 }

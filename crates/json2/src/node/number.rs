@@ -1,20 +1,40 @@
-/*
+use std::cmp::Ordering;
+
+// Number is a type-erased subset of the Node variants that hold a native number.
+#[derive(Debug, Copy, Clone)]
+pub enum Number {
+    Float(f64),
+    NegInt(i64),
+    PosInt(u64),
+}
+
+impl Number {
+    #[inline]
+    pub fn from_node<N: crate::AsNode>(node: &N) -> Option<Self> {
+        match node.as_node() {
+            crate::Node::PosInt(n) => Some(Self::PosInt(n)),
+            crate::Node::NegInt(n) => Some(Self::NegInt(n)),
+            crate::Node::Float(n) => Some(Self::Float(n)),
+            _ => None,
+        }
+    }
+}
+
 impl Ord for Number {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (Self::PosInt(lhs), Self::PosInt(rhs)) => lhs.cmp(rhs),
-            (Self::PosInt(_), Self::NegInt(rhs)) if *rhs < 0 => Ordering::Greater,
-            (Self::PosInt(lhs), Self::NegInt(rhs)) => lhs.cmp(&(*rhs as u64)),
-            (Self::PosInt(lhs), Self::Float(rhs)) => f64_cmp(&(*lhs as f64), rhs),
+            // Trivial numeric comparisons.
+            (Number::NegInt(lhs), Number::NegInt(rhs)) => lhs.cmp(&rhs),
+            (Number::PosInt(lhs), Number::PosInt(rhs)) => lhs.cmp(&rhs),
+            (Number::Float(lhs), Number::Float(rhs)) => lhs.total_cmp(&rhs),
+            (Number::NegInt(_), Number::PosInt(_)) => Ordering::Less,
+            (Number::PosInt(_), Number::NegInt(_)) => Ordering::Greater,
 
-            (Self::NegInt(lhs), Self::PosInt(_)) if *lhs < 0 => Ordering::Less,
-            (Self::NegInt(lhs), Self::PosInt(rhs)) => (*lhs as u64).cmp(&rhs),
-            (Self::NegInt(lhs), Self::NegInt(rhs)) => lhs.cmp(rhs),
-            (Self::NegInt(lhs), Self::Float(rhs)) => f64_cmp(&(*lhs as f64), rhs),
-
-            (Self::Float(lhs), Self::PosInt(rhs)) => f64_cmp(lhs, &(*rhs as f64)),
-            (Self::Float(lhs), Self::NegInt(rhs)) => f64_cmp(lhs, &(*rhs as f64)),
-            (Self::Float(lhs), Self::Float(rhs)) => f64_cmp(lhs, rhs),
+            // Cross-type numeric comparisons that project to f64.
+            (Number::PosInt(lhs), Number::Float(rhs)) => (*lhs as f64).total_cmp(&rhs),
+            (Number::Float(lhs), Number::PosInt(rhs)) => lhs.total_cmp(&(*rhs as f64)),
+            (Number::NegInt(lhs), Number::Float(rhs)) => (*lhs as f64).total_cmp(&rhs),
+            (Number::Float(lhs), Number::NegInt(rhs)) => lhs.total_cmp(&(*rhs as f64)),
         }
     }
 }
@@ -54,23 +74,7 @@ impl Number {
     }
 }
 
-fn f64_cmp(lhs: &f64, rhs: &f64) -> Ordering {
-    lhs.total_cmp(rhs)
-
-    /*
-    lhs.partial_cmp(rhs).unwrap_or_else(|| {
-        if lhs.is_nan() && rhs.is_nan() {
-            Ordering::Equal
-        } else if lhs.is_nan() {
-            Ordering::Less
-        } else if rhs.is_nan() {
-            Ordering::Greater
-        } else {
-            panic!("couldn't compare {} and {}", lhs, rhs);
-        }
-    })
-    */
-}
+/*
 
 #[cfg(test)]
 mod test {

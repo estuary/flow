@@ -13,7 +13,7 @@ addr = { workspace = true }
 bigdecimal = { workspace = true }
 bitvec = "1"
 regex = { workspace = true }
-fxhash = { workspace = true }
+xxhash-rust = { workspace = true }
 iri-string = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }

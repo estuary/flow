@@ -2,6 +2,9 @@ mod compare;
 mod number;
 mod value; // Implement AsNode for serde_json::Value.
 
+pub use compare::{compare, compare_node};
+pub use number::Number;
+
 /// Node is the fundamental representation of a JSON document node.
 /// It's implemented by serde_json::Value, doc::HeapNode, and doc::ArchivedNode.
 #[derive(Debug)]
@@ -55,22 +58,4 @@ pub trait Fields<N: AsNode> {
 pub trait Field<'a, N: AsNode> {
     fn property(&self) -> &'a str;
     fn value(&self) -> &'a N;
-}
-
-// Number is a type-erased subset of the Node variants that hold a native number.
-#[derive(Debug, Copy, Clone)]
-pub enum Number {
-    Float(f64),
-    NegInt(i64),
-    PosInt(u64),
-}
-
-impl<'a, N: crate::AsNode> Into<crate::Node<'a, N>> for Number {
-    fn into(self) -> crate::Node<'a, N> {
-        match self {
-            Self::PosInt(n) => crate::Node::PosInt(n),
-            Self::NegInt(n) => crate::Node::NegInt(n),
-            Self::Float(n) => crate::Node::Float(n),
-        }
-    }
 }

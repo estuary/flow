@@ -2,16 +2,29 @@ use super::{AsNode, Field, Fields, Node};
 use itertools::{EitherOrBoth, Itertools};
 use std::cmp::Ordering;
 
-/// compare evaluates the deep ordering of |lhs| and |rhs|.
-/// This function establishes an arbitrary ordering over
-/// Documents in order to provide a total ordering. Arrays and
-/// objects are compared lexicographically, and the natural
-/// Object order is used (by default, sorted on property name).
+/// compare evaluates the deep ordering of `lhs` and `rhs`.
+/// This function establishes an arbitrary, total ordering over
+/// which is stable across AsNode implementations. Arrays and
+/// objects are compared lexicographically by walking their ordered
+/// items or lexicographic properties.
 pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
-    match (lhs.as_node(), rhs.as_node()) {
+    compare_node(&lhs.as_node(), &rhs.as_node())
+}
+
+/// compare_node evaluates the deep ordering of `lhs` and `rhs`,
+/// which have already been unwrapped into Node instances.
+/// Generally you should use compare() instead, which allows the compiler
+/// to collapse an internal match statement of as_node() with the match
+/// statement within compare_node().
+#[inline]
+pub fn compare_node<'l, 'r, L: AsNode, R: AsNode>(
+    lhs: &Node<'l, L>,
+    rhs: &Node<'r, R>,
+) -> Ordering {
+    match (lhs, rhs) {
         (Node::Array(lhs), Node::Array(rhs)) => lhs
             .iter()
-            .zip_longest(rhs)
+            .zip_longest(rhs.iter())
             .map(|eob| match eob {
                 EitherOrBoth::Both(lhs, rhs) => compare(lhs, rhs),
                 EitherOrBoth::Right(_) => Ordering::Less,
@@ -48,10 +61,10 @@ pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
         (Node::PosInt(_), Node::NegInt(_)) => Ordering::Greater,
 
         // Cross-type numeric comparisons that project to f64.
-        (Node::PosInt(lhs), Node::Float(rhs)) => (lhs as f64).total_cmp(&rhs),
-        (Node::Float(lhs), Node::PosInt(rhs)) => lhs.total_cmp(&(rhs as f64)),
-        (Node::NegInt(lhs), Node::Float(rhs)) => (lhs as f64).total_cmp(&rhs),
-        (Node::Float(lhs), Node::NegInt(rhs)) => lhs.total_cmp(&(rhs as f64)),
+        (Node::PosInt(lhs), Node::Float(rhs)) => (*lhs as f64).total_cmp(&rhs),
+        (Node::Float(lhs), Node::PosInt(rhs)) => lhs.total_cmp(&(*rhs as f64)),
+        (Node::NegInt(lhs), Node::Float(rhs)) => (*lhs as f64).total_cmp(&rhs),
+        (Node::Float(lhs), Node::NegInt(rhs)) => lhs.total_cmp(&(*rhs as f64)),
 
         // Types are not comparable. Define an (arbitrary) total ordering.
         (Node::Null, _) => Ordering::Less,

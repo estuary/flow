@@ -5,4 +5,4 @@ pub mod scope;
 pub mod validation;
 
 pub use location::Location;
-pub use node::{AsNode, Node};
+pub use node::{AsNode, Node, Number};

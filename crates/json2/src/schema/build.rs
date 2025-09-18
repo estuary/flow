@@ -231,28 +231,14 @@ where
                 let r#enum = expect_array(scope, value, errors).to_vec().into();
                 keywords.push(Keyword::Enum { r#enum });
             }
-            keywords::EXCLUSIVE_MAXIMUM => match expect_number(scope, value, errors) {
-                Number::PosInt(exclusive_maximum) => {
-                    keywords.push(Keyword::ExclusiveMaximumPosInt { exclusive_maximum })
-                }
-                Number::NegInt(exclusive_maximum) => {
-                    keywords.push(Keyword::ExclusiveMaximumNegInt { exclusive_maximum })
-                }
-                Number::Float(exclusive_maximum) => {
-                    keywords.push(Keyword::ExclusiveMaximumFloat { exclusive_maximum })
-                }
-            },
-            keywords::EXCLUSIVE_MINIMUM => match expect_number(scope, value, errors) {
-                Number::PosInt(exclusive_minimum) => {
-                    keywords.push(Keyword::ExclusiveMinimumPosInt { exclusive_minimum })
-                }
-                Number::NegInt(exclusive_minimum) => {
-                    keywords.push(Keyword::ExclusiveMinimumNegInt { exclusive_minimum })
-                }
-                Number::Float(exclusive_minimum) => {
-                    keywords.push(Keyword::ExclusiveMinimumFloat { exclusive_minimum })
-                }
-            },
+            keywords::EXCLUSIVE_MAXIMUM => {
+                let exclusive_maximum = expect_number(scope, value, errors);
+                keywords.push(Keyword::ExclusiveMaximum { exclusive_maximum });
+            }
+            keywords::EXCLUSIVE_MINIMUM => {
+                let exclusive_minimum = expect_number(scope, value, errors);
+                keywords.push(Keyword::ExclusiveMinimum { exclusive_minimum });
+            }
             keywords::FORMAT => match serde_json::from_value(value.clone()).map_err(Error::Json) {
                 Ok(format) => {
                     keywords.push(Keyword::Format { format });
@@ -275,11 +261,10 @@ where
                 let items = Box::new(build::<A>(scope, value, errors));
                 keywords.push(Keyword::Items { items });
             }
-            keywords::MAXIMUM => match expect_number(scope, value, errors) {
-                Number::PosInt(maximum) => keywords.push(Keyword::MaximumPosInt { maximum }),
-                Number::NegInt(maximum) => keywords.push(Keyword::MaximumNegInt { maximum }),
-                Number::Float(maximum) => keywords.push(Keyword::MaximumFloat { maximum }),
-            },
+            keywords::MAXIMUM => {
+                let maximum = expect_number(scope, value, errors);
+                keywords.push(Keyword::Maximum { maximum });
+            }
             keywords::MAX_CONTAINS => {
                 let max_contains = expect_unsigned(scope, value, errors);
                 keywords.push(Keyword::MaxContains { max_contains });
@@ -296,11 +281,10 @@ where
                 let max_properties = expect_unsigned(scope, value, errors);
                 keywords.push(Keyword::MaxProperties { max_properties });
             }
-            keywords::MINIMUM => match expect_number(scope, value, errors) {
-                Number::PosInt(minimum) => keywords.push(Keyword::MinimumPosInt { minimum }),
-                Number::NegInt(minimum) => keywords.push(Keyword::MinimumNegInt { minimum }),
-                Number::Float(minimum) => keywords.push(Keyword::MinimumFloat { minimum }),
-            },
+            keywords::MINIMUM => {
+                let minimum = expect_number(scope, value, errors);
+                keywords.push(Keyword::Minimum { minimum });
+            }
             keywords::MIN_CONTAINS => {
                 let min_contains = expect_unsigned(scope, value, errors);
                 keywords.push(Keyword::MinContains { min_contains });
@@ -317,17 +301,10 @@ where
                 let min_properties = expect_unsigned(scope, value, errors);
                 keywords.push(Keyword::MinProperties { min_properties });
             }
-            keywords::MULTIPLE_OF => match expect_number(scope, value, errors) {
-                Number::PosInt(multiple_of) => {
-                    keywords.push(Keyword::MultipleOfPosInt { multiple_of })
-                }
-                Number::NegInt(multiple_of) => {
-                    keywords.push(Keyword::MultipleOfNegInt { multiple_of })
-                }
-                Number::Float(multiple_of) => {
-                    keywords.push(Keyword::MultipleOfFloat { multiple_of })
-                }
-            },
+            keywords::MULTIPLE_OF => {
+                let multiple_of = expect_number(scope, value, errors);
+                keywords.push(Keyword::MultipleOf { multiple_of });
+            }
             keywords::NOT => {
                 let not = Box::new(build::<A>(scope, value, errors));
                 keywords.push(Keyword::Not { not });
@@ -629,16 +606,12 @@ fn expect_number<'l, A: schema::Annotation>(
     scope: Scope<'l>,
     v: &serde_json::Value,
     errors: &mut Errors<A>,
-) -> Number {
-    if let Some(v) = v.as_u64() {
-        Number::PosInt(v)
-    } else if let Some(v) = v.as_i64() {
-        Number::NegInt(v)
-    } else if let Some(v) = v.as_f64() {
-        Number::Float(v)
+) -> crate::Number {
+    if let Some(num) = crate::Number::from_node(v) {
+        num
     } else {
         Error::ExpectedNumber.push(scope, errors);
-        Number::PosInt(0)
+        crate::Number::PosInt(0)
     }
 }
 
@@ -657,12 +630,6 @@ fn expect_url<'l, A: schema::Annotation>(
         Some(Ok(url)) => return url,
     }
     url::Url::parse("https://placeholder.invalid").unwrap()
-}
-
-enum Number {
-    PosInt(u64),
-    NegInt(i64),
-    Float(f64),
 }
 
 lazy_static::lazy_static! {

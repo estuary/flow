@@ -95,23 +95,11 @@ where
     Enum {
         r#enum: FrozenSlice<serde_json::Value>,
     },
-    ExclusiveMaximumPosInt {
-        exclusive_maximum: u64,
+    ExclusiveMaximum {
+        exclusive_maximum: crate::Number,
     },
-    ExclusiveMaximumNegInt {
-        exclusive_maximum: i64,
-    },
-    ExclusiveMaximumFloat {
-        exclusive_maximum: f64,
-    },
-    ExclusiveMinimumPosInt {
-        exclusive_minimum: u64,
-    },
-    ExclusiveMinimumNegInt {
-        exclusive_minimum: i64,
-    },
-    ExclusiveMinimumFloat {
-        exclusive_minimum: f64,
+    ExclusiveMinimum {
+        exclusive_minimum: crate::Number,
     },
     Format {
         format: formats::Format,
@@ -126,14 +114,8 @@ where
     Items {
         items: Box<Schema<A>>,
     },
-    MaximumPosInt {
-        maximum: u64,
-    },
-    MaximumNegInt {
-        maximum: i64,
-    },
-    MaximumFloat {
-        maximum: f64,
+    Maximum {
+        maximum: crate::Number,
     },
     MaxContains {
         max_contains: usize,
@@ -147,14 +129,8 @@ where
     MaxProperties {
         max_properties: usize,
     },
-    MinimumPosInt {
-        minimum: u64,
-    },
-    MinimumNegInt {
-        minimum: i64,
-    },
-    MinimumFloat {
-        minimum: f64,
+    Minimum {
+        minimum: crate::Number,
     },
     MinContains {
         min_contains: usize,
@@ -168,14 +144,8 @@ where
     MinProperties {
         min_properties: usize,
     },
-    MultipleOfPosInt {
-        multiple_of: u64,
-    },
-    MultipleOfNegInt {
-        multiple_of: i64,
-    },
-    MultipleOfFloat {
-        multiple_of: f64,
+    MultipleOf {
+        multiple_of: crate::Number,
     },
     Not {
         not: Box<Schema<A>>,
