@@ -122,12 +122,14 @@ pub struct TestHarness {
     pub control_plane: TestControlPlane,
     pub test_name: String,
     pub pool: sqlx::PgPool,
-    pub publisher: Publisher<MockDiscoverConnectors>,
+    pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
+    // Control plane API app instance for GraphQL queries
+    control_plane_app: Option<Arc<control_plane_api::server::App>>,
 }
 
 impl TestHarness {
@@ -201,6 +203,7 @@ impl TestHarness {
             control_plane,
             controller_exec,
             directive_exec,
+            control_plane_app: None,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -1315,6 +1318,102 @@ impl TestHarness {
         assert_eq!(1, results.len(), "expected 1 status for '{catalog_name}'");
         let status = results.into_iter().next().unwrap();
         status.summary
+    }
+
+    /// Execute a GraphQL query as the given user and return the deserialized response.
+    /// This will initialize the control plane API app if it hasn't been created yet.
+    pub async fn execute_graphql_query<T>(
+        &mut self,
+        user_id: Uuid,
+        query: &str,
+        variables: &serde_json::Value,
+    ) -> Result<T, anyhow::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        // Initialize the control plane app if needed
+        if self.control_plane_app.is_none() {
+            self.init_control_plane_app().await;
+        }
+
+        let app = self.control_plane_app.as_ref().unwrap();
+
+        // Create control claims for the user
+        let claims = models::authorizations::ControlClaims {
+            sub: user_id,
+            iat: chrono::Utc::now().timestamp() as u64,
+            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as u64,
+            role: "authenticated".to_string(),
+            email: Some(format!("user-{user_id}@example.com")),
+        };
+
+        // Create GraphQL schema
+        let schema = control_plane_api::server::public::graphql::create_schema();
+
+        // Create GraphQL request
+        let request = async_graphql::Request::new(query)
+            .variables(async_graphql::Variables::from_json(variables.clone()))
+            .data(app.clone())
+            .data(claims)
+            .data(async_graphql::dataloader::DataLoader::new(
+                control_plane_api::server::public::graphql::PgDataLoader(self.pool.clone()),
+                tokio::spawn,
+            ));
+
+        // Execute the query
+        let response = schema.execute(request).await;
+
+        // Check for errors
+        if !response.errors.is_empty() {
+            return Err(anyhow::anyhow!("GraphQL errors: {:?}", response.errors));
+        }
+
+        // Deserialize the data
+        let data = response.data;
+        let value = serde_json::to_value(data)?;
+        let result = serde_json::from_value(value)?;
+
+        Ok(result)
+    }
+
+    /// Manually trigger a snapshot refresh and wait for it to complete
+    pub async fn refresh_snapshot(&mut self) {
+        if self.control_plane_app.is_none() {
+            self.init_control_plane_app().await;
+        }
+
+        let app = self.control_plane_app.as_ref().unwrap();
+
+        // Take the refresh_tx to trigger a refresh
+        {
+            let mut snapshot = app.snapshot().write().unwrap();
+            snapshot.refresh_tx.take();
+        }
+
+        // Wait a bit for the refresh to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    /// Initialize the control plane API app instance
+    async fn init_control_plane_app(&mut self) {
+        let jwt_secret = vec![0u8; 32]; // Test JWT secret
+        let id_gen = models::IdGenerator::new(1);
+
+        let app = Arc::new(control_plane_api::server::App::new(
+            id_gen,
+            jwt_secret,
+            self.pool.clone(),
+            self.publisher.clone(),
+        ));
+
+        // Start the snapshot fetch loop
+        let app_clone = app.clone();
+        tokio::spawn(control_plane_api::server::snapshot::fetch_loop(app_clone));
+
+        // Give it time to load initial snapshot
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        self.control_plane_app = Some(app);
     }
 }
 
