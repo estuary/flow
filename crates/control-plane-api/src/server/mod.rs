@@ -10,7 +10,7 @@ mod authorize_user_task;
 mod create_data_plane;
 mod error;
 pub mod public;
-mod snapshot;
+pub mod snapshot;
 mod update_l2_reporting;
 
 use anyhow::Context;
@@ -48,17 +48,38 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
-pub(crate) struct App {
+pub struct App {
     _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher<DataPlaneConnectors>,
+    publisher: crate::publications::Publisher,
     snapshot: std::sync::RwLock<Snapshot>,
 }
 
 impl App {
+    /// Create a new App instance for testing or other uses
+    pub fn new(
+        id_generator: models::IdGenerator,
+        jwt_secret: Vec<u8>,
+        pg_pool: sqlx::PgPool,
+        publisher: crate::publications::Publisher,
+    ) -> Self {
+        let mut jwt_validation = jsonwebtoken::Validation::default();
+        jwt_validation.set_audience(&["authenticated"]);
+
+        Self {
+            _id_generator: Mutex::new(id_generator),
+            control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
+            control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
+            jwt_validation,
+            pg_pool,
+            publisher,
+            snapshot: std::sync::RwLock::new(Snapshot::empty()),
+        }
+    }
+    
     // TODO(johnny): This should return a VerifiedClaims struct which
     // wraps the validated prefixes, with a const generic over the Capability.
     // It's a larger lift then I want to do right now, because models::Capability
@@ -182,15 +203,7 @@ pub fn build_router(
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
-    let app = Arc::new(App {
-        _id_generator: Mutex::new(id_generator),
-        control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
-        control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
-        jwt_validation,
-        pg_pool,
-        publisher,
-        snapshot: std::sync::RwLock::new(Snapshot::empty()),
-    });
+    let app = Arc::new(App::new(id_generator, jwt_secret, pg_pool, publisher));
     tokio::spawn(snapshot::fetch_loop(app.clone()));
 
     use axum::routing::post;

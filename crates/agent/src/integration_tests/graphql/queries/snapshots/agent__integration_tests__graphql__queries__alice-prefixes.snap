@@ -1,0 +1,18 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: alice_result
+---
+{
+  "prefixes": {
+    "edges": [
+      {
+        "cursor": "aliceCo/",
+        "node": {}
+      },
+      {
+        "cursor": "ops/dp/public/",
+        "node": {}
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+query Prefixes {
+    prefixes(minCapability: read) {
+        edges {
+            cursor
+            node
+        }
+    }
+}

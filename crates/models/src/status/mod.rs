@@ -77,7 +77,6 @@ pub enum ControllerStatus {
     Collection(collection::CollectionStatus),
     Materialization(materialization::MaterializationStatus),
     Test(catalog_test::TestStatus),
-    #[serde(other, untagged)]
     Uninitialized,
 }
 
