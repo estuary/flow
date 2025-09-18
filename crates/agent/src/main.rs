@@ -226,6 +226,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     // Range starts at 1 because 0 is always used for ids generated in postgres.
     let id_gen_shard = rand::thread_rng().gen_range(1u16..1024u16);
     let id_gen = models::IdGenerator::new(id_gen_shard);
+    let builder = control_plane_api::publications::builds::new_builder(connectors);
     let publisher = Publisher::new(
         &bindir,
         &args.builds_root,
@@ -233,7 +234,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         &logs_tx,
         pg_pool.clone(),
         id_gen.clone(),
-        connectors,
+        builder,
     );
 
     let decrypted_hmac_keys = Arc::new(RwLock::new(HashMap::new()));

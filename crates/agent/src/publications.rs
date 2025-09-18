@@ -5,7 +5,6 @@ use tracing::info;
 
 use control_plane_api::{
     draft,
-    proxy_connectors::MakeConnectors,
     publications::{
         delete_draft, resolve, specs, ClearDraftErrors, DefaultRetryPolicy, DraftPublication,
         ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher, StatusType,
@@ -13,12 +12,12 @@ use control_plane_api::{
     },
 };
 
-pub struct PublicationsExecutor<MC: MakeConnectors> {
-    pub publisher: Publisher<MC>,
+pub struct PublicationsExecutor {
+    pub publisher: Publisher,
     pub pg_pool: sqlx::PgPool,
 }
 
-impl<MC: MakeConnectors> automations::Executor for PublicationsExecutor<MC> {
+impl automations::Executor for PublicationsExecutor {
     const TASK_TYPE: automations::TaskType = automations::task_types::PUBLICATIONS;
 
     /// We don't do anything with the inbox except log it, so this is just a
@@ -47,7 +46,7 @@ impl<MC: MakeConnectors> automations::Executor for PublicationsExecutor<MC> {
     }
 }
 
-impl<MC: MakeConnectors> PublicationsExecutor<MC> {
+impl PublicationsExecutor {
     async fn handle_task(&self, row: Row) -> anyhow::Result<()> {
         let id = row.id;
 
