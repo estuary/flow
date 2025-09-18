@@ -10,7 +10,7 @@ pub struct TestArgs {
     /// This data-plane must be included in the set of data-planes associated
     /// with the specification's covering prefix.
     /// If omitted, the default data-plane of the covering prefix is used.
-    #[clap(long)]
+    #[clap(long, alias = "default-data-plane")]
     init_data_plane: Option<String>,
 }
 
