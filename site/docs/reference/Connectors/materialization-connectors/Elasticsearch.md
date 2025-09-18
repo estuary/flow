@@ -88,21 +88,25 @@ This connector supports both standard and delta updates. You must choose an opti
 
 [Learn more about delta updates](../../../concepts/materialization.md#delta-updates) and the implications of using each update type.
 
-## Keyword Fields
+## Field Configuration
 
-Collection fields with `type: string` will have `keyword` index mappings created for them if they
-are part of the collection key, and `text` mappings for them if they are not part of the collection
-key.
+Materialized fields can be configured through their [field
+selection](../../../concepts/materialization.md#projected-fields). This can be
+changed by updating the JSON in the **Advanced Specification Editor** in the web
+app or by using `flowctl` to edit the specification directly, see [edit a
+materialization](../../../guides/edit-data-flows.md#edit-a-materialization) for
+more details.
 
-To materialize a collection field with `type: string` as a `keyword` mapping instead of a `text`
-mapping, configure the [field selection](../../../concepts/materialization.md#projected-fields) for
-the binding to indicate which fields should having keyword mappings created for them using the key
-and value of `"keyword": true`. This can be changed by updating the JSON in the **Advanced
-Specification Editor** in the web app or by using `flowctl` to edit the specification directly, see
-[edit a materialization](../../../guides/edit-data-flows.md#edit-a-materialization) for more details.
+The options supported currently are:
+- **routing**: A single key field may be selected for routing documents to index
+  shards. The value of this field is used as the `routing` parameter in all
+  operations performed by the connector.
+- **keyword**: Fields with `type: string` will have `keyword` index mappings
+  created for them only they are part of the key. Set the `keyword` field
+  configuration on non-key fields to have them created as `keyword` mappings
+  also, instead of `text`.
 
-An example JSON configuration for a binding that materializes `stringField` as a `keyword` mapping
-is shown below:
+An example JSON configuration for this field configurations is shown below:
 
 ```json
 {
@@ -114,6 +118,9 @@ is shown below:
       "source": "PREFIX/source_collection",
       "fields": {
         "include": {
+          "myKey": {
+            "routing": true
+          },
           "stringField": {
             "keyword": true
           }
