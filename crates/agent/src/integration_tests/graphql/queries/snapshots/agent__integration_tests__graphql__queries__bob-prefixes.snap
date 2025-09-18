@@ -1,0 +1,22 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "prefixes": {
+    "edges": [
+      {
+        "cursor": "aliceCo/shared/",
+        "node": {}
+      },
+      {
+        "cursor": "bobCo/",
+        "node": {}
+      },
+      {
+        "cursor": "ops/dp/public/",
+        "node": {}
+      }
+    ]
+  }
+}

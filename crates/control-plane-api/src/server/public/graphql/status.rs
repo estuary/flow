@@ -45,8 +45,10 @@ impl Status {
     }
 }
 
-impl From<StatusRow> for Status {
-    fn from(value: StatusRow) -> Self {
+impl TryFrom<StatusRow> for Status {
+    type Error = serde_json::Error;
+
+    fn try_from(value: StatusRow) -> Result<Self, Self::Error> {
         let StatusRow {
             catalog_name: _,
             disabled,
@@ -54,10 +56,17 @@ impl From<StatusRow> for Status {
             connector_status,
             controller_next_run,
             controller_updated_at,
-            controller_status,
+            controller_status_json,
+            controller_version,
             controller_error,
             controller_failures,
         } = value;
+
+        let controller_status = if controller_version == 0 {
+            ControllerStatus::Uninitialized
+        } else {
+            serde_json::from_str(controller_status_json.as_str())?
+        };
 
         let summary = Summary::of(
             disabled,
@@ -67,9 +76,7 @@ impl From<StatusRow> for Status {
             connector_status.as_ref(),
         );
 
-        //let gql_status = map_controller_status(controller_status);
-
-        Status {
+        Ok(Status {
             r#type: summary.status,
             summary: summary.message,
             controller: Controller {
@@ -80,7 +87,7 @@ impl From<StatusRow> for Status {
                 updated_at: controller_updated_at,
             },
             connector: connector_status,
-        }
+        })
     }
 }
 
@@ -109,10 +116,11 @@ struct StatusRow {
     catalog_name: String,
     last_build_id: models::Id,
     disabled: bool,
+    controller_version: i32,
     connector_status: Option<ConnectorStatus>,
     controller_next_run: Option<DateTime<Utc>>,
     controller_updated_at: DateTime<Utc>,
-    controller_status: ControllerStatus,
+    controller_status_json: String,
     controller_error: Option<String>,
     controller_failures: i32,
 }
@@ -120,17 +128,18 @@ struct StatusRow {
 async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[&str],
-) -> sqlx::Result<HashMap<StatusKey, Status>> {
+) -> anyhow::Result<HashMap<StatusKey, Status>> {
     let rows = sqlx::query_as!(
         StatusRow,
         r#"select
         ls.catalog_name as "catalog_name: String",
         ls.last_build_id as "last_build_id: models::Id",
         coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as "disabled!: bool",
+        cj.controller_version as "controller_version: i32",
         cs.flow_document as "connector_status?: ConnectorStatus",
         t.wake_at as "controller_next_run: DateTime<Utc>",
         cj.updated_at as "controller_updated_at: DateTime<Utc>",
-        cj.status as "controller_status: ControllerStatus",
+        coalesce(cj.status::text, '{}') as "controller_status_json!: String",
         cj.error as "controller_error: String",
         cj.failures as "controller_failures: i32"
     from live_specs ls
@@ -149,9 +158,9 @@ async fn fetch_status(
         .into_iter()
         .map(|mut row| {
             let name = StatusKey(std::mem::take(&mut row.catalog_name));
-            let status = Status::from(row);
-            (name, status)
+            let status = Status::try_from(row)?;
+            Ok((name, status))
         })
-        .collect();
+        .collect::<anyhow::Result<HashMap<StatusKey, Status>>>()?;
     Ok(resp)
 }

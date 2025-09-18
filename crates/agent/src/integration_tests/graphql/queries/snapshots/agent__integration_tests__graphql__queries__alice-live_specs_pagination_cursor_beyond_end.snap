@@ -1,0 +1,13 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: alice_result
+---
+{
+  "liveSpecs": {
+    "edges": [],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}
