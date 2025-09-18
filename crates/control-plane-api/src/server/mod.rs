@@ -18,7 +18,6 @@ use snapshot::Snapshot;
 
 pub use error::{ApiError, ApiErrorExt};
 
-use crate::proxy_connectors::DataPlaneConnectors;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -177,7 +176,7 @@ pub fn build_router(
     id_generator: models::IdGenerator,
     jwt_secret: Vec<u8>,
     pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher<DataPlaneConnectors>,
+    publisher: crate::publications::Publisher,
     allow_origin: &[String],
 ) -> anyhow::Result<axum::Router<()>> {
     let mut jwt_validation = jsonwebtoken::Validation::default();

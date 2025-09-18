@@ -164,6 +164,7 @@ impl TestHarness {
         let mock_connectors = connectors::MockDiscoverConnectors::default();
         let discover_handler = DiscoverHandler::new(mock_connectors.clone());
 
+        let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
         let publisher = Publisher::new(
             "/not/a/real/bin/dir",
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
@@ -171,7 +172,7 @@ impl TestHarness {
             &logs_tx,
             pool.clone(),
             id_gen.clone(),
-            mock_connectors,
+            builder,
         )
         .with_skip_all_tests();
 
