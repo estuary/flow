@@ -1,0 +1,28 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "liveSpecs": {
+    "edges": [
+      {
+        "cursor": "aliceCo/shared/b",
+        "node": {
+          "catalogName": "aliceCo/shared/b",
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/c",
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "userCapability": "read"
+        }
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false
+    }
+  }
+}
