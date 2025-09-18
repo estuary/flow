@@ -120,7 +120,7 @@ async fn test_specs(
                     "catalog",
                     "publish",
                     "--auto-approve",
-                    "--default-data-plane",
+                    "--init-data-plane",
                     "ops/dp/public/local-cluster",
                     "--source",
                     temp_flow.path().to_str().unwrap(),
