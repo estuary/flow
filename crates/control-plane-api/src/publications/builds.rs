@@ -1,4 +1,4 @@
-use crate::{jobs, logs};
+use crate::{jobs, logs, proxy_connectors::MakeConnectors};
 use anyhow::Context;
 use models::Id;
 use rand::RngCore;
@@ -7,7 +7,70 @@ use std::path;
 use tables::BuiltRow;
 use validation::Connectors;
 
-pub async fn build_catalog<Conn: Connectors>(
+#[async_trait::async_trait]
+pub trait Builder: Send + Sync + std::fmt::Debug {
+    async fn build(
+        &self,
+        builds_root: &url::Url,
+        draft: tables::DraftCatalog,
+        live: tables::LiveCatalog,
+        pub_id: Id,
+        build_id: Id,
+        tmpdir: &path::Path,
+        logs_tx: logs::Tx,
+        logs_token: sqlx::types::Uuid,
+        explicit_plane_name: Option<&str>,
+    ) -> anyhow::Result<build::Output>;
+}
+
+#[derive(Debug)]
+pub struct BuilderImpl<MC: MakeConnectors> {
+    make_connectors: MC,
+}
+
+impl<MC: MakeConnectors> BuilderImpl<MC> {
+    pub fn new(make_connectors: MC) -> Self {
+        Self { make_connectors }
+    }
+}
+
+#[async_trait::async_trait]
+impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
+    async fn build(
+        &self,
+        builds_root: &url::Url,
+        draft: tables::DraftCatalog,
+        live: tables::LiveCatalog,
+        pub_id: Id,
+        build_id: Id,
+        tmpdir: &path::Path,
+        logs_tx: logs::Tx,
+        logs_token: sqlx::types::Uuid,
+        explicit_plane_name: Option<&str>,
+    ) -> anyhow::Result<build::Output> {
+        let connectors = self.make_connectors.make_connectors(logs_token);
+        build_catalog(
+            builds_root,
+            draft,
+            live,
+            pub_id,
+            build_id,
+            tmpdir,
+            logs_tx,
+            logs_token,
+            &connectors,
+            explicit_plane_name,
+        )
+        .await
+    }
+}
+
+/// Create a new Builder instance
+pub fn new_builder<MC: MakeConnectors>(make_connectors: MC) -> Box<dyn Builder> {
+    Box::new(BuilderImpl::new(make_connectors))
+}
+
+async fn build_catalog<Conn: Connectors>(
     builds_root: &url::Url,
     draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
