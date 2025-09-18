@@ -77,11 +77,8 @@ where
         // having identical semantics, which we continue to support.
         definitions: FrozenSlice<(FrozenString, Schema<A>)>,
     },
-    DependentRequired {
-        dependent_required: Box<(FrozenString, FrozenSlice<FrozenString>)>,
-    },
     DependentSchemas {
-        dependent_schema: Box<(FrozenString, Schema<A>)>,
+        dependent_schemas: FrozenSlice<(FrozenString, Schema<A>)>,
     },
     DynamicAnchor {
         // dynamicAnchor indicates that, should this schema appears first in

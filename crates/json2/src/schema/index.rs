@@ -85,11 +85,10 @@ where
                         self.add(child)?;
                     }
                 }
-                Keyword::DependentSchemas {
-                    dependent_schema: dependent_schemas,
-                } => {
-                    let (_, child) = dependent_schemas.as_ref();
-                    self.add(child)?;
+                Keyword::DependentSchemas { dependent_schemas } => {
+                    for (_, child) in dependent_schemas.iter() {
+                        self.add(child)?;
+                    }
                 }
                 Keyword::Else { r#else } => self.add(r#else)?,
                 Keyword::If { r#if } => self.add(r#if)?,
