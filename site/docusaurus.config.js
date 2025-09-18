@@ -43,7 +43,7 @@ function sortSidebarAlphabetically(items) {
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Estuary Flow Documentation',
-  tagline: 'Dinosaurs are cool',
+  tagline: 'Fast, configurable ETL your way',
   url: URL,
   baseUrl: BASE_URL,
   onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
@@ -91,12 +91,8 @@ const config = {
             from: '/guides/create-derivation/',
           },
           {
-            to: '/reference/Connectors/capture-connectors/HubSpot/',
-            from: '/reference/Connectors/capture-connectors/hubspot/',
-          },
-          {
-            to: '/reference/Connectors/capture-connectors/HubSpot-real-time/',
-            from: '/reference/Connectors/capture-connectors/hubspot-real-time/',
+            to: '/getting-started/tutorials/dataflow-s3-snowflake/',
+            from: '/guides/system-specific-dataflows/s3-to-snowflake/',
           },
         ],
       },
@@ -153,7 +149,15 @@ const config = {
             type: 'doc',
             docId: 'getting-started/getting-started',
             position: 'left',
-            label: 'Documentation',
+            className: 'docs-section-link',
+            label: 'Platform',
+          },
+          {
+            type: 'doc',
+            docId: 'reference/Connectors/README',
+            position: 'left',
+            className: 'docs-section-link',
+            label: 'Connectors',
           },
           {
             type: 'html',

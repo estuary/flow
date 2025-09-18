@@ -5,6 +5,69 @@ description: High level explanations of Flow in terms of the systems you already
 
 # Comparisons
 
+Estuary Flow is a hosted data pipeline platform. To understand what makes Estuary unique, it's useful to compare across other similar offerings in the ETL and ELT space.
+
+This document will explore main comparison points with other solutions. For detailed feature, cost, and pro/con breakdowns, evaluate solutions in our [comparison center](https://estuary.dev/etl-tools/).
+
+You can also find more [technical comparison information below](#technical-comparisons) to understand how Flow's underlying technology and assumptions compare to other data frameworks and systems, like Kafka, Apache Beam, and Hadoop.
+
+## Comparison Overview
+
+Estuary distinguishes itself from other platforms in a number of ways. Some of Estuary's main features include:
+
+* Supports both real-time and batch data
+* Hundreds of in-house, purpose-built [connectors](/reference/Connectors)
+* Efficient pipelines with CDC and techniques to reduce compute costs
+* Flexible [deployment options](/getting-started/deployment-options) for sensitive data
+* Automatic [schema inference](/concepts/schemas/#continuous-schema-inference) and [evolution](/guides/schema-evolution)
+* Intuitive, low pricing
+
+[Learn more about who should use Flow](/getting-started/who-should-use-flow).
+
+### Batch ELT (Fivetran)
+
+A number of data pipeline solutions are batch-only or batch-first.
+While useful for analytics reports and other scheduled jobs, this inherently limits the use cases a tool can support.
+Users must either leave real-time analytical capabilities out of their final product or fragment their data architecture to implement real-time pipelines with other tools.
+
+Estuary supports batch use cases with configurable sync schedules while also supporting real-time CDC and streaming use cases.
+Because of Estuary's unique technical capabilities, a single connector can often handle both real-time streams and batch jobs of specific data collections going to the same destination.
+
+Many batch-based systems are also ELT by default, saving the transformation step until after data is loaded into the destination system.
+Estuary provides a [dbt Cloud](/guides/dbt-integration) integration option for ELT workflows and also allows users to create SQL or TypeScript [transformations](/guides/flowctl/create-derivation) that get applied before data reaches the destination.
+This can increase efficiency when materializing transformed data to multiple different destinations, as well as saving on compute and storage costs with destination systems.
+
+### Streaming Solutions (Confluent, Debezium)
+
+On the other end of the scale from batch solutions are the streaming-centric solutions.
+A number of these solutions are based on Kafka or other services that require extensive setup and maintenance, giving real-time data a reputation for complexity.
+
+With optimized no-code CDC connectors, Estuary is built to simplify real-time data.
+Flow's underlying technology, Gazette, solves for complex real-time problems like exactly-once delivery and highly available reliability.
+
+Real-time data can also have a reputation for expense, especially if teams forego batch data entirely.
+Many destinations calculate compute pricing on active per-time-unit usage.
+Since real-time solutions are often transferring data constantly, this can lead to steep destination costs.
+
+Since Estuary supports both real-time and batch pipelines, users can save on unnecessary expense by sticking with batch schedules for use cases that don't require real-time data.
+It's also easy to switch to real-time later if the situation changes.
+
+### Open-Source Platforms (Airbyte, Meltano)
+
+Open-source data pipeline platforms often boast a high connector count by relying on contributions from the community.
+This can be misleading, as many of the connectors can be inefficient, unfit for a user's specific use case, vary in quality, or simply be unmaintained.
+This leads to hidden costs in engineering hours for setup and troubleshooting.
+
+Estuary creates in-house, purpose-built connectors which are continually maintained and improved.
+This ongoing optimization means connectors move data faster and require fewer compute resources in the destination system.
+
+If your solution requires a new connector that Estuary doesn't currently support, or new resources on an existing connector, [you can always request new features](https://go.estuary.dev/request-connector).
+
+There are still many benefits in open-source, especially in terms of transparency.
+To that end, Estuary is **open-core** software, with [platform](https://github.com/estuary/flow) and [connector code](https://github.com/estuary/connectors) available for anyone to view and evaluate on GitHub.
+
+## Technical Comparisons
+
 Because Flow combines many functionalities, it's related to many types of data systems. Choose a familiar system from the list below to jump to an explanation of how it compares with Flow (or how you can use the two together).
 
 * [Apache Beam and Google Cloud Dataflow](comparisons.md#apache-beam-and-google-cloud-dataflow)
@@ -16,7 +79,7 @@ Because Flow combines many functionalities, it's related to many types of data s
 * [Materialize, Rockset, ksqlDB, and other realtime databases](comparisons.md#materialize-rockset-ksqldb-and-other-real-time-databases)
 * [Snowflake, BigQuery, and other OLAP databases](comparisons.md#snowflake-bigquery-and-other-olap-databases)
 
-## Apache Beam and Google Cloud Dataflow
+### Apache Beam and Google Cloud Dataflow
 
 Flow’s most apt comparison is to Apache Beam. You may use a variety of runners (processing engines) for your Beam deployment. One of the most popular, Google Cloud Dataflow, is a more robust redistribution under an additional SDK. Regardless of how you use Beam, there’s a lot of conceptual overlap with Flow. This makes Beam and Flow alternatives rather than complementary technologies, but there are key differences.
 
@@ -28,7 +91,7 @@ Also, while Beam allows you the option to define combine operators, Flow’s run
 
 Finally, Flow allows stateful stream-to-stream joins without the windowing semantics imposed by Beam. Notably, Flow’s modeling of state – via its per-key **register** concept – is substantially more powerful than Beam's per-key-and-window model. For example, registers can trivially model the cumulative lifetime value of a customer.
 
-## Kafka
+### Kafka
 
 Flow inhabits a different space than Kafka does by itself. Kafka is an infrastructure that supports streaming applications running elsewhere. Flow is an opinionated framework for working with real-time data. You might think of Flow as an analog to an opinionated bundling of several important features from the broader Kafka ecosystem.
 
@@ -47,7 +110,7 @@ See how Flow compares to popular stream processing platforms that use Kafka:
 * [Flow vs Confluent feature and pricing breakdown](https://estuary.dev/vs-confluent/)
 * [Flow vs Debezium feature and pricing breakdown](https://estuary.dev/vs-debezium/)
 
-## Spark
+### Spark
 
 Spark can be described as a batch engine with stream processing add-ons, where Flow is fundamentally a streaming system that is able to easily integrate with batch systems.
 
@@ -61,7 +124,7 @@ In Flow, a task is a logical unit of work that does _one_ of capture (ingest), d
 
 Composing Flow tasks is also a little different than composing Spark jobs. Flow tasks always produce and/or consume data in collections, instead of piping data directly from one shard to another. This is because every task in Flow is transactional and, to the greatest degree possible, fault-tolerant. This design also affords painless backfills of historical data when you want to add new transformations or materializations.
 
-## Hadoop, HDFS, and Hive
+### Hadoop, HDFS, and Hive
 
 There are many different ways to use Hadoop, HDFS, and the ecosystem of related projects, several of which are useful comparisons to Flow.
 
@@ -75,12 +138,12 @@ To make this more concrete, imagine a hypothetical example of a workflow in the 
 
 In Flow, you instead define a **capture** of data from the source, which runs continuously and keeps a collection up to date with the latest data from the source. Then you transform the data with Flow **derivations**, which again apply the transformations incrementally and in real time. While you _could_ actually use tools like Hive to directly query data from Flow collections — the layout of collection data in cloud storage is intentionally compatible with this — you could also **materialize** a view of your transformation results to any database, which is also kept up to date in real time.
 
-## Fivetran, Airbyte, and other ELT solutions
+### Fivetran, Airbyte, and other ELT solutions
 
 Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the world in terms of independent scheduled jobs that copy data from source to destination, Data Flows model a directed graph of
 [**captures**](../../concepts/captures) (reads from sources),
 [**derivations**](../../concepts/derivations) (transforms), and
-[**materializations**](../../concepts/materialization) (writes to destinations).
+[**materializations**](/concepts/materialization) (writes to destinations).
 Collectively, these are called _tasks_.
 
 Tasks in Flow are only indirectly linked. Captures read data from a source and output to **collections**. Flow collections store all the data in cloud storage, with configurable retention for historical data. You can then materialize each collection to any number of destination systems. Each one will be kept up to date in real time, and new materializations can automatically backfill all your historical data. Collections in Flow always have an associated JSON schema, and they use that to ensure the validity of all collection data. Tasks are also transactional and generally guarantee end-to-end exactly-once processing (so long as the endpoint system can accommodate them).
@@ -99,7 +162,7 @@ At the same time, Flow offers declarative YAML for configuration, which works ex
 [Flow vs Fivetran feature and pricing breakdown.](https://estuary.dev/vs-fivetran/)
 
 
-## dbt
+### dbt
 
 dbt is a tool that enables data analysts and engineers to transform data in their warehouses more effectively.
 
@@ -116,7 +179,7 @@ productionize important insights as materialized views or by pushing to another 
 Put another way, Flow is a complete ELT platform, but you might choose to perform and manage more complex transformations in
 a separate, dedicated tool like dbt. While Flow and dbt don’t interact directly, both offer easy integration through your data warehouse.
 
-## Materialize, Rockset, ksqlDB, and other real-time databases
+### Materialize, Rockset, ksqlDB, and other real-time databases
 
 Modern real-time databases like Materialize, Rockset, and ksqlDB consume streams of data, oftentimes from Kafka brokers,
 and can keep SQL views up to date in real time.
@@ -128,7 +191,7 @@ Flow adds real-time data capture and materialization options that many real-time
 Once data has arrived in the database, you have access to real-time SQL analysis and other analytical tools not native to Flow.
 For further explanation, read the section below on OLAP databases.
 
-## Snowflake, BigQuery, and other OLAP databases
+### Snowflake, BigQuery, and other OLAP databases
 
 Flow differs from OLAP databases mainly in that it's not a database. Flow has no query interface, and no plans to add one. Instead, Flow allows you to use the query interfaces of any database by **materializing** views into it.
 

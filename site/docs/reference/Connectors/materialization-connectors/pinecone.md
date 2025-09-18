@@ -30,7 +30,7 @@ on the collection fields.
 
 By default, fields of a single scalar type are including in the embedding: strings, integers,
 numbers, and booleans. You can include additional array or object type fields using [projected
-fields](../../../../concepts/materialization/#projected-fields).
+fields](/concepts/materialization/#projected-fields).
 
 The text generated for the embedding has this structure, with field names and their values separated
 by newlines:
@@ -93,13 +93,13 @@ materializations:
 
 ## Delta Updates
 
-This connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
+This connector operates only in [delta updates](/concepts/materialization/#delta-updates) mode.
 
 Pinecone [upserts](https://docs.pinecone.io/reference/upsert) vectors based on their `id`. The `id`
 for materialized vectors is based on the Flow Collection key.
 
 For collections with a a top-level reduction strategy of
-[merge](../../reduction-strategies/merge.md) and a strategy of
-[lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) for all nested
+[merge](/reference/reduction-strategies/merge) and a strategy of
+[lastWriteWins](/reference/reduction-strategies/firstwritewins-and-lastwritewins) for all nested
 values (this is also the default), collections will be materialized "effectively once", with any
 updated Flow documents replacing vectors in the Pinecone index if they have the same key.

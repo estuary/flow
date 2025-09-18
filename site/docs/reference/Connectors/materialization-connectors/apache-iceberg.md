@@ -219,7 +219,7 @@ aws lakeformation grant-permissions \
 
 :::info
 If you have enabled
-[sourceCapture](../../../concepts/materialization.md#using-sourcecapture-to-synchronize-capture-and-materialization-bindings)
+[sourceCapture](/concepts/materialization/#using-sourcecapture-to-synchronize-capture-and-materialization-bindings)
 for your materialization and a new binding is added with a new namespace, you
 will need the repeat step 7 to grant access to that database to the EMR
 execution role.
@@ -642,7 +642,7 @@ See below for a full list of configuration options.
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read
-about how to configure this [here](../../materialization-sync-schedule.md).
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Iceberg Column Types
 
