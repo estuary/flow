@@ -89,6 +89,6 @@ This connector does not yet support webhook signature verification. If this is a
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **** | ResourceConfig |  | object | Required |
-| `/idFromHeader` |  | Set the &#x2F;&#x5F;meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;&#x5F;meta&#x2F;webhookId&#x60;. | null, string |  |
+| `/idFromHeader` |  | Set the `/_meta/webhookId` from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of `/_meta/webhookId`. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
 | `/stream` |  | The name of the binding, which is used as a merge key when doing Discovers. | null, string |
