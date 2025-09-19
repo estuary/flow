@@ -16,7 +16,11 @@ By default, each resource is mapped to a Flow collection through a separate bind
 ## Prerequisites
 
 * A Datadog account.
-* A Datadog API key and Application key with `rum_apps_read` permission scope. See Datadog's [documentation](https://docs.datadoghq.com/account_management/api-app-keys) for instructions on generating these credentials.
+* A Datadog API key and Application key with the proper permissions:
+    * `rum_apps_read` permission for RUM data
+    * `logs_read_data` permission for logs data
+
+    See Datadog's [documentation](https://docs.datadoghq.com/account_management/api-app-keys) for instructions on generating these credentials.
 
 ## Configuration
 

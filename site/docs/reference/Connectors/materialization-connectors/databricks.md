@@ -126,6 +126,24 @@ You can enable delta updates on a per-binding basis:
     source: ${PREFIX}/${source_collection}
 ```
 
+## Column mapping
+
+If your Databricks setup does not support column alteration, you can enable [column mapping](https://docs.databricks.com/aws/en/delta/column-mapping).
+This requires Delta protocol reader version 2+ and writer version 5+; column mapping will not work well with legacy workloads.
+
+To enable column mapping, along with ensuring the correct protocol versions, you can run:
+```
+ALTER TABLE <table-name>
+SET TBLPROPERTIES (
+  'delta.columnMapping.mode' = 'name'
+);
+ALTER TABLE <table-name>
+SET TBLPROPERTIES (
+  delta.minReaderVersion = 2,
+  delta.minWriterVersion = 5
+);
+```
+
 ## Reserved words
 
 Databricks has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Databricks's documentation [here](https://docs.databricks.com/en/sql/language-manual/sql-ref-reserved-words.html) and in the table below.
