@@ -223,13 +223,17 @@ pub async fn common_setup() -> (TestHarness, Uuid, Uuid) {
         } else {
             models::status::AlertType::ShardFailed
         };
+
         let args = alert_args(models::CatalogType::Capture, fired_at, Some(resolved_at));
+        // Make sure we have multiple alerts that have the exact same `fired_at` time.
+        // This is typical in production, because the alert evaluation runs periodically
+        // and will set the same `fired_at` time for every alert in the same run.
         sqlx::query!(
             r#"
             INSERT INTO alert_history (catalog_name, alert_type, arguments, fired_at, resolved_at)
-            VALUES ($1, $2::alert_type, $3, $4, $5)
+            VALUES ('aliceCo/shared/capture', $1::alert_type, $2, $3, $4),
+            ('aliceCo/private/capture', $1::alert_type, $2, $3, $4)
             "#,
-            "aliceCo/shared/capture" as &str,
             alert_type as models::status::AlertType,
             args,
             fired_at,
