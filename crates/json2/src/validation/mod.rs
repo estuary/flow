@@ -71,9 +71,40 @@ where
     // Index of schemas over canonical URIs and anchors.
     index: &'s schema::Index<'s, A>,
     // Stack-like frames of concurrent evaluations.
-    frames: Vec<Frame<'s, A>>,
+    stack: Vec<Frame<'s, A>>,
     // Stack of offsets tracking frames which are active (being evaluated concurrently).
-    active_frames: Vec<usize>,
+    active: Vec<u32>,
+}
+
+pub fn do_it<'s, 'n, N, A, F>(
+    doc: &'n N,
+    filter: &F,
+    index: &'s schema::Index<'s, A>,
+    schema: &'s Schema<A>,
+) -> (bool, Vec<(i32, Outcome<'s, A>)>)
+where
+    A: Annotation,
+    F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
+    N: AsNode,
+{
+    let mut stack = Vec::new();
+    let mut active = vec![0];
+    let mut tape_index = 0;
+
+    wind_frame(filter, index, doc, 0, None, schema, &mut stack, 0, 0);
+
+    walk(
+        &mut active,
+        0,
+        filter,
+        index,
+        doc,
+        &mut stack,
+        &mut tape_index,
+    );
+
+    let root = stack.pop().unwrap();
+    (root.invalid == false, root.outcomes)
 }
 
 fn walk<'s, 'n, N, A, F>(
@@ -82,7 +113,6 @@ fn walk<'s, 'n, N, A, F>(
     filter: &F,
     index: &schema::Index<'s, A>,
     node: &'n N,
-    property: &str,
     stack: &mut Vec<Frame<'s, A>>,
     tape_index: &mut i32,
 ) where
@@ -90,61 +120,113 @@ fn walk<'s, 'n, N, A, F>(
     F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
     N: AsNode,
 {
-    match node.as_node() {
-        Node::Array(items) => {
-            let arr_tape_index = *tape_index;
+    let my_tape_index = *tape_index;
+    *tape_index += 1; // Consume self.
 
-            *tape_index += 1; // Consume self.
+    let active_begin = *active.last().unwrap() as usize;
+
+    let node_type = match node.as_node() {
+        Node::Array(items) => {
             for (child_index, item) in items.iter().enumerate() {
                 if push_item(active, child_index, filter, index, node, stack, *tape_index) {
-                    // recursive walk
+                    walk(
+                        active,
+                        child_index as u32,
+                        filter,
+                        index,
+                        item,
+                        stack,
+                        tape_index,
+                    );
                 } else {
-                    // consume child but don't walk
+                    *tape_index += item.tape_length(); // Skip child.
                 }
-
-                validator.push_item(*tape_index, i as u32);
-                walk(validator, tape_index, item);
             }
-            *tape_index += doc.tape_length(); // Consume self and children.
-
-            validator.end_array(arr_tape_index, items);
+            pop_array(&mut stack[active_begin..], filter, items, my_tape_index);
+            types::ARRAY
         }
         Node::Object(fields) => {
-            let obj_tape_index = *tape_index;
-
-            if validator.begin_object(fields.len()) {
-                *tape_index += 1; // Consume self.
-                for field in fields.iter() {
-                    // validator.push_property(*tape_index, field.property());
-                    walk(validator, tape_index, field.value());
+            for (child_index, field) in fields.iter().enumerate() {
+                if push_property(
+                    active,
+                    child_index as usize,
+                    filter,
+                    index,
+                    node,
+                    field.property(),
+                    stack,
+                    *tape_index,
+                ) {
+                    walk(
+                        active,
+                        child_index as u32,
+                        filter,
+                        index,
+                        field.value(),
+                        stack,
+                        tape_index,
+                    );
+                } else {
+                    *tape_index += field.value().tape_length(); // Skip child.
                 }
-            } else {
-                *tape_index += doc.tape_length(); // Consume self and children.
             }
+            pop_object::<A, _, N>(&mut stack[active_begin..], filter, fields, my_tape_index);
+            types::OBJECT
+        }
+        Node::Bool(_) => types::BOOLEAN,
+        Node::Bytes(_) => types::INVALID,
+        Node::PosInt(n) => {
+            pop_number(
+                &mut stack[active_begin..],
+                filter,
+                Number::PosInt(n),
+                my_tape_index,
+            );
+            types::INTEGER
+        }
+        Node::NegInt(n) => {
+            pop_number(
+                &mut stack[active_begin..],
+                filter,
+                Number::NegInt(n),
+                my_tape_index,
+            );
+            types::INTEGER
+        }
+        Node::Float(f) => {
+            pop_number(
+                &mut stack[active_begin..],
+                filter,
+                Number::Float(f),
+                my_tape_index,
+            );
+            if f.fract() == 0.0 {
+                types::INTEGER
+            } else {
+                types::FRACTIONAL
+            }
+        }
+        Node::Null => types::NULL,
+        Node::String(val) => {
+            pop_string(&mut stack[active_begin..], filter, val, my_tape_index);
+            types::STRING
+        }
+    };
 
-            validator.end_object::<N>(obj_tape_index, fields);
-        }
-        Node::Bool(b) => {
-            validator.end_bool(*tape_index, b);
-            *tape_index += 1;
-        }
-        Node::Bytes(b) => {
-            validator.end_bytes(*tape_index, b);
-            *tape_index += 1;
-        }
-        node @ (Node::Float(_) | Node::NegInt(_) | Node::PosInt(_)) => {
-            validator.end_number(*tape_index, node);
-            *tape_index += 1;
-        }
-        Node::Null => {
-            validator.end_null(*tape_index);
-            *tape_index += 1;
-        }
-        Node::String(s) => {
-            validator.end_str(*tape_index, s);
-            *tape_index += 1;
-        }
-    }
+    pop_node(
+        &mut stack[active_begin..],
+        filter,
+        node.as_node(),
+        node_type,
+        my_tape_index,
+    );
+    unwind(
+        std::cmp::max(active.pop().unwrap(), 1) as usize,
+        child_index as u32,
+        filter,
+        stack,
+        my_tape_index,
+    );
 }
 
 fn push_property<'n, 's, A, F, N>(
@@ -201,7 +283,7 @@ where
             types::STRING,
             tape_index,
         );
-        unwind(active_end, child_index, filter, stack, tape_index);
+        unwind(active_end, child_index as u32, filter, stack, tape_index);
         active.pop();
     }
 
@@ -636,13 +718,12 @@ where
 fn pop_object<'n, 's, A, F, N>(
     frames: &mut [Frame<'s, A>],
     filter: &F,
-    fields: &[N::Fields],
+    fields: &N::Fields,
     tape_index: i32,
 ) where
     A: Annotation,
     F: Fn(Outcome<'s, A>) -> Option<Outcome<'s, A>>,
     N: AsNode,
-    N::Fields: Sized,
 {
     for frame in frames {
         for kw in frame.keywords {
@@ -786,6 +867,13 @@ fn pop_node<'n, 's, A, F, N>(
                 Keyword::AnyOf { .. } => (!frame.valid_any_of).then_some(Outcome::AnyOfNotMatched),
                 Keyword::OneOf { .. } => (!frame.valid_one_of).then_some(Outcome::OneOfNotMatched),
 
+                Keyword::Annotation { annotation } => {
+                    if let Some(outcome) = filter(Outcome::Annotation(annotation)) {
+                        frame.outcomes.push((tape_index, outcome));
+                    }
+                    None
+                }
+
                 _ => None,
             };
 
@@ -794,15 +882,6 @@ fn pop_node<'n, 's, A, F, N>(
                     frame.outcomes.push((tape_index, outcome));
                 }
                 frame.invalid = true;
-            }
-
-            // Note that Annotation is ordered after all validation keywords.
-            if let Keyword::Annotation { annotation } = kw {
-                if !frame.invalid {
-                    if let Some(outcome) = filter(Outcome::Annotation(annotation)) {
-                        frame.outcomes.push((tape_index, outcome));
-                    }
-                }
             }
         }
     }
@@ -1008,5 +1087,44 @@ fn resolve_dynamic_ref<'s, A: Annotation>(
             .and_then(|url| index.fetch(url.as_str()))
     } else {
         None // Let our child query `index`.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        let schema: serde_json::Value = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "hello": {"const": "hi"},
+
+                "world": {
+                    "type": "string",
+                    "format": "number",
+                    "maxLength": 10,
+                }
+            },
+            "required": ["world"],
+        });
+        let doc: serde_json::Value =
+            serde_json::json!({"a": "extra", "hello": "hi", "world": "1234567890"});
+
+        let curi = url::Url::parse("https://example.com/test-schema.json").unwrap();
+
+        let schema =
+            crate::schema::build::build_schema::<crate::schema::CoreAnnotation>(&curi, &schema)
+                .unwrap();
+
+        // insta::assert_debug_snapshot!(&schema, @"");
+
+        let mut builder = crate::schema::index::Builder::new();
+        builder.add(&schema).unwrap();
+        builder.verify_references().unwrap();
+        let index = builder.into_index();
+
+        let (valid, outcomes) = super::do_it(&doc, &|outcome| Some(outcome), &index, &schema);
+
+        insta::assert_debug_snapshot!((valid, outcomes), @"");
     }
 }

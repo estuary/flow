@@ -19,7 +19,7 @@ pub enum CoreAnnotation {
 
 /// Annotation is a parsed JSON-Schema annotation that's associated with a Schema instance.
 /// An Annotation may wrap, and is potentially convertible to a CoreAnnotation.
-pub trait Annotation: Sized + std::fmt::Debug {
+pub trait Annotation: Sized + std::fmt::Debug + 'static {
     type KeywordError: std::error::Error + Send + Sync + 'static;
 
     /// Returns true if the Annotation knows how to extract itself from the given keyword.
@@ -81,9 +81,10 @@ where
         dependent_schemas: FrozenSlice<(FrozenString, Schema<A>)>,
     },
     DynamicAnchor {
-        // dynamicAnchor indicates that, should this schema appears first in
-        // the current *dynamic* scope, then its base URI should be used when
-        // resolving a $dynamicRef of a sub-schema of the current scope.
+        // $dynamicAnchor does two things:
+        // 1) It indexes this schema under an additional anchor-form URI.
+        // 2) It advertises that, when used, this schema's base URL is part
+        //    of the "dynamic scope" against which $dynamicRef is evaluated.
         dynamic_anchor: FrozenString,
     },
     DynamicRef {
@@ -189,7 +190,7 @@ where
     UniqueItems {},
 }
 
-pub const ADDITIONAL_ITEMS: &str = "additionalItems"; // Legacy keyword for `items`.
+pub const ADDITIONAL_ITEMS: &str = "additionalItems"; // Legacy 2019-09 keyword for `items`.
 pub const ADDITIONAL_PROPERTIES: &str = "additionalProperties";
 pub const ALL_OF: &str = "allOf";
 pub const ANCHOR: &str = "$anchor";
@@ -239,6 +240,8 @@ pub const PREFIX_ITEMS: &str = "prefixItems";
 pub const PROPERTIES: &str = "properties";
 pub const PROPERTY_NAMES: &str = "propertyNames";
 pub const READ_ONLY: &str = "readOnly";
+pub const RECURSIVE_ANCHOR: &str = "$recursiveAnchor"; // Legacy 2019-09 name for $dynamicAnchor.
+pub const RECURSIVE_REF: &str = "$recursiveRef"; // Legacy 2019-09 name for $dynamicRef.
 pub const REF: &str = "$ref";
 pub const REQUIRED: &str = "required";
 pub const SCHEMA: &str = "$schema";

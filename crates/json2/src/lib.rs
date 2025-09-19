@@ -6,3 +6,4 @@ pub mod validation;
 
 pub use location::Location;
 pub use node::{AsNode, Node, Number};
+pub use schema::Schema;

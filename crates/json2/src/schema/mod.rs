@@ -5,6 +5,7 @@ pub mod index;
 pub mod keywords;
 pub mod types;
 
+pub use build::build_schema as build;
 pub use frozen::{FrozenSlice, FrozenString};
 pub use index::Index;
 pub use keywords::{Annotation, CoreAnnotation, Keyword};

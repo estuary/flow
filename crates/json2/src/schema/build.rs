@@ -143,6 +143,15 @@ where
         match keyword.as_str() {
             // Note: Annotation and False are not keywords, they're handled elsewhere.
             // $id is already handled outside of this match.
+            keywords::ADDITIONAL_ITEMS => {
+                if map.get(keywords::ITEMS).filter(|v| v.is_array()).is_none() {
+                    // 2019-09 "additionalItems" is ignored if "items" is not present,
+                    // or is present and is not an array.
+                } else {
+                    let items = Box::new(build::<A>(scope, value, errors));
+                    keywords.push(Keyword::Items { items });
+                }
+            }
             keywords::ADDITIONAL_PROPERTIES => {
                 keywords.push(Keyword::AdditionalProperties {
                     additional_properties: Box::new(build::<A>(scope, value, errors)),
@@ -153,20 +162,10 @@ where
                 keywords.push(Keyword::AllOf { all_of });
             }
             keywords::ANCHOR => {
-                // Transform $anchor into its full, canonical URL form.
-                let anchor = expect_str(scope, value, errors);
-                let anchor = scope.resource().join(&format!("#{anchor}"));
-
-                match anchor {
-                    Ok(anchor) => {
-                        keywords.push(Keyword::Anchor {
-                            anchor: anchor.to_string().into(),
-                        });
-                    }
-                    Err(err) => {
-                        Error::URL(err).push(scope, errors);
-                    }
-                }
+                let anchor = expect_relative_url(scope, true, value, errors)
+                    .to_string()
+                    .into();
+                keywords.push(Keyword::Anchor { anchor });
             }
             keywords::ANY_OF => {
                 let any_of = build_schema_array(scope, value, errors).into();
@@ -183,6 +182,12 @@ where
             keywords::CONTAINS => {
                 let contains = Box::new(build::<A>(scope, value, errors));
                 keywords.push(Keyword::Contains { contains });
+
+                // The presence of "contains" implies "minContains: 1" if
+                // it's not explicitly specified.
+                if !map.contains_key(keywords::MIN_CONTAINS) {
+                    keywords.push(Keyword::MinContains { min_contains: 1 });
+                }
             }
             keywords::DEFS => {
                 let defs = build_frozen_schema_map(scope, value, errors);
@@ -216,10 +221,15 @@ where
                 keywords.push(Keyword::DependentSchemas { dependent_schemas });
             }
             keywords::DYNAMIC_ANCHOR => {
-                let dynamic_anchor = expect_str(scope, value, errors).to_string().into();
+                let dynamic_anchor = expect_relative_url(scope, true, value, errors)
+                    .to_string()
+                    .into();
                 keywords.push(Keyword::DynamicAnchor { dynamic_anchor });
             }
-            keywords::DYNAMIC_REF => {
+            keywords::DYNAMIC_REF | keywords::RECURSIVE_REF => {
+                // Unlike $ref, we do NOT canonicalize $dynamicRef.
+                // That happens at validation time, where we walk the dynamic
+                // scope to determine base URL(s) to join and query against.
                 let dynamic_ref = expect_str(scope, value, errors).to_string().into();
                 keywords.push(Keyword::DynamicRef { dynamic_ref });
             }
@@ -257,7 +267,7 @@ where
                 let prefix_items = build_schema_array(scope, value, errors).into();
                 keywords.push(Keyword::PrefixItems { prefix_items });
             }
-            keywords::ITEMS | keywords::ADDITIONAL_ITEMS => {
+            keywords::ITEMS => {
                 let items = Box::new(build::<A>(scope, value, errors));
                 keywords.push(Keyword::Items { items });
             }
@@ -357,24 +367,22 @@ where
                 let property_names = Box::new(build::<A>(scope, value, errors));
                 keywords.push(Keyword::PropertyNames { property_names });
             }
-            keywords::REF => {
-                // Transform $ref into its full, canonical URL form.
-                let r#ref = expect_str(scope, value, errors).to_string();
-                let r#ref = scope.resource().join(&r#ref);
-
-                match r#ref {
-                    Ok(mut r#ref) => {
-                        if let Some("") = r#ref.fragment() {
-                            r#ref.set_fragment(None);
-                        }
-                        keywords.push(Keyword::Ref {
-                            r#ref: r#ref.to_string().into(),
-                        });
-                    }
-                    Err(err) => {
-                        Error::URL(err).push(scope, errors);
-                    }
+            keywords::RECURSIVE_ANCHOR => {
+                // Legacy name for $dynamicAnchor.
+                if expect_bool(scope, value, errors) {
+                    let value = serde_json::Value::String("#legacy-recursive-anchor".to_string());
+                    let dynamic_anchor = expect_relative_url(scope, true, &value, errors)
+                        .to_string()
+                        .into();
+                    keywords.push(Keyword::DynamicAnchor { dynamic_anchor });
                 }
+            }
+            keywords::REF => {
+                // A relative $ref is projected into its canonical and absolute URL.
+                let r#ref = expect_relative_url(scope, false, value, errors)
+                    .to_string()
+                    .into();
+                keywords.push(Keyword::Ref { r#ref });
             }
             keywords::REQUIRED => {
                 let mut r = expect_array(scope, value, errors)
@@ -383,8 +391,8 @@ where
                     .map(|(i, value)| expect_str(scope.push_item(i), value, errors))
                     .collect::<Vec<_>>();
                 r.sort();
-                required = Some(r);
-                // We'll post-process with `properties` after walking schema keywords.
+                r.dedup();
+                required = Some(r); // We'll post-process after walking keywords.
             }
             keywords::SCHEMA => {} // No-op.
             keywords::THEN => {
@@ -484,6 +492,36 @@ where
 
         keywords.push(Keyword::Properties { properties });
     }
+
+    keywords.sort_by_key(|kw| -> u32 {
+        match kw {
+            Keyword::Id { .. } => 0, // Always first.
+
+            // Properties / PatternProperties must appear before
+            // AdditionalProperties or UnevaluatedProperties.
+            Keyword::Properties { .. } => 10,
+            Keyword::PatternProperties { .. } => 11,
+            Keyword::AdditionalProperties { .. } => 12,
+            Keyword::UnevaluatedProperties { .. } => 13,
+
+            // PrefixItems conditions whether AdditionalItems is applied.
+            // Contains is always applied, but evaluates before UnevaluatedItems.
+            Keyword::PrefixItems { .. } => 20,
+            Keyword::Items { .. } => 21,
+            Keyword::Contains { .. } => 22,
+            Keyword::UnevaluatedItems { .. } => 23,
+
+            // When unwinding frames, we want to know which branch was taken before
+            // we examine branch results.
+            Keyword::Else { .. } => 30,
+            Keyword::Then { .. } => 31,
+            Keyword::If { .. } => 32,
+
+            Keyword::Annotation { .. } => u32::MAX,
+
+            _ => u32::MAX - 1,
+        }
+    });
 
     keywords
 }
@@ -621,6 +659,28 @@ fn expect_url<'l, A: schema::Annotation>(
     errors: &mut Errors<A>,
 ) -> url::Url {
     match v.as_str().map(|s| url::Url::parse(s)) {
+        None => {
+            Error::ExpectedURL.push(scope, errors);
+        }
+        Some(Err(err)) => {
+            Error::URL(err).push(scope, errors);
+        }
+        Some(Ok(url)) => return url,
+    }
+    url::Url::parse("https://placeholder.invalid").unwrap()
+}
+
+fn expect_relative_url<'l, A: schema::Annotation>(
+    scope: Scope<'l>,
+    anchor: bool,
+    v: &serde_json::Value,
+    errors: &mut Errors<A>,
+) -> url::Url {
+    match v.as_str().map(str::to_string).map(|s| {
+        scope
+            .resource()
+            .join(&if anchor { format!("#{s}") } else { s })
+    }) {
         None => {
             Error::ExpectedURL.push(scope, errors);
         }
