@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 
 /// Summary of a publication that was attempted by a controller.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PublicationInfo {
     /// The id of the publication, which will match the `last_pub_id` of the
     /// spec after a successful publication, at least until the next publication.
@@ -108,6 +109,7 @@ impl PublicationInfo {
 /// Information on the publications performed by the controller.
 /// This does not include any information on user-initiated publications.
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PublicationStatus {
     /// Hash of all of the dependencies of this spec at the time of the last
     /// observation. This is compared against the `dependency_hash` of the live
@@ -159,7 +161,7 @@ mod test {
             created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
             completed: Some("2024-11-22T17:01:01Z".parse().unwrap()),
             detail: Some("touch success".to_string()),
-            result: Some(publications::JobStatus::Success),
+            result: Some(publications::StatusType::Success.into()),
             errors: Vec::new(),
             is_touch: true,
             count: 1,
@@ -182,7 +184,7 @@ mod test {
                 completed: Some("2024-11-22T22:22:22Z".parse().unwrap()),
                 created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
                 detail: Some("other touch success".to_string()),
-                result: Some(publications::JobStatus::Success),
+                result: Some(publications::StatusType::Success.into()),
                 errors: Vec::new(),
                 is_touch: true,
                 count: 2,
@@ -194,7 +196,7 @@ mod test {
             completed: Some("2024-11-23T23:33:33Z".parse().unwrap()),
             created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
             detail: Some("non-touch success".to_string()),
-            result: Some(publications::JobStatus::Success),
+            result: Some(publications::StatusType::Success.into()),
             errors: Vec::new(),
             is_touch: false,
             count: 1,
@@ -218,7 +220,7 @@ mod test {
             completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
             created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
             detail: Some("reg failure".to_string()),
-            result: Some(publications::JobStatus::build_failed()),
+            result: Some(publications::StatusType::BuildFailed.into()),
             errors: vec![draft_error::Error {
                 catalog_name: "acmeCo/fail-thing".to_string(),
                 scope: None,
@@ -256,7 +258,7 @@ mod test {
                     scope: None,
                     detail: "a different error".to_string(),
                 }],
-                result: Some(publications::JobStatus::build_failed()),
+                result: Some(publications::StatusType::BuildFailed.into()),
                 is_touch: false,
                 count: 2,
             }
@@ -264,7 +266,7 @@ mod test {
 
         // A publication with a different status should not be combined
         let diff_reg_fail = PublicationInfo {
-            result: Some(publications::JobStatus::EmptyDraft),
+            result: Some(publications::StatusType::EmptyDraft.into()),
             ..same_reg_fail.clone()
         };
         let mut reg_subject = reg_fail.clone();

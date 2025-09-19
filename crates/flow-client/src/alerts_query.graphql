@@ -1,9 +1,0 @@
-query FiringAlertsQuery($prefixes: [String!]!) {
-  alerts(prefixes: $prefixes) {
-    alertType
-    catalogName
-    firedAt
-    resolvedAt
-    arguments
-  }
-}

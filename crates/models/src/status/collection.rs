@@ -21,6 +21,7 @@ pub struct CollectionStatus {
 
 /// Status of the inferred schema
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct InferredSchemaStatus {
     /// The time at which the inferred schema was last published. This will only
     /// be present if the inferred schema was published at least once.

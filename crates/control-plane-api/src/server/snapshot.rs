@@ -193,8 +193,10 @@ impl Snapshot {
     where
         P: FnOnce(
             &Self,
-        )
-            -> Result<(Option<chrono::DateTime<chrono::Utc>>, Ok), crate::server::error::ApiError>,
+        ) -> Result<
+            (Option<chrono::DateTime<chrono::Utc>>, Ok),
+            crate::server::error::ApiError,
+        >,
     {
         let snapshot = mu.read().unwrap();
 
@@ -244,6 +246,56 @@ impl Snapshot {
         Self::signal_refresh(snapshot, mu);
 
         Err(Ok(backoff.to_std().unwrap()))
+    }
+
+    /// Returns an iterator of tasks matching the given prefix. If `after_task` is provided,
+    /// only tasks with names greater than `after_task` will be returned.
+    pub fn list_tasks<'a, 'p: 'a>(
+        &'a self,
+        prefix: &'p models::Prefix,
+        after_task: Option<&str>,
+    ) -> impl Iterator<Item = &'a SnapshotTask> + 'a {
+        let Snapshot {
+            tasks,
+            tasks_idx_name,
+            ..
+        } = self;
+
+        let start_index = tasks_idx_name.partition_point(|task_idx| {
+            let candidate = tasks[*task_idx].task_name.as_str();
+            candidate < prefix.as_str() || after_task.is_some_and(|after| candidate <= after)
+        });
+
+        let slice = tasks_idx_name.get(start_index..).unwrap_or_default();
+
+        slice
+            .iter()
+            .map(move |task_idx| &tasks[*task_idx])
+            .take_while(move |task| task.task_name.starts_with(prefix.as_str()))
+    }
+
+    /// Returns an iterator of collections matching the given prefix. If `after_collection` is provided,
+    /// only collections with names greater than `after_collection` will be returned.
+    pub fn list_collections<'a, 'p: 'a>(
+        &'a self,
+        prefix: &'p models::Prefix,
+        after_collection: Option<&str>,
+    ) -> impl Iterator<Item = &'a SnapshotCollection> + 'a {
+        let Snapshot {
+            collections,
+            collections_idx_name,
+            ..
+        } = self;
+
+        let start_index = collections_idx_name.partition_point(|collection_idx| {
+            let candidate = collections[*collection_idx].collection_name.as_str();
+            candidate < prefix.as_str() || after_collection.is_some_and(|after| candidate <= after)
+        });
+        let slice = collections_idx_name.get(start_index..).unwrap_or_default();
+        slice
+            .iter()
+            .map(move |collection_idx| &collections[*collection_idx])
+            .take_while(move |collection| collection.collection_name.starts_with(prefix.as_str()))
     }
 
     // Retrieve task having the exact catalog `name`.

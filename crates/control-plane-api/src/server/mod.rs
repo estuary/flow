@@ -1,5 +1,6 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::{Arc, Mutex};
+use tables::UserGrant;
 
 mod authorize_dekaf;
 mod authorize_task;
@@ -9,7 +10,7 @@ mod authorize_user_task;
 mod create_data_plane;
 mod error;
 pub mod public;
-mod snapshot;
+pub mod snapshot;
 mod update_l2_reporting;
 
 use anyhow::Context;
@@ -17,7 +18,6 @@ use snapshot::Snapshot;
 
 pub use error::{ApiError, ApiErrorExt};
 
-use crate::proxy_connectors::DataPlaneConnectors;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -48,17 +48,38 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
-pub(crate) struct App {
+pub struct App {
     _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher<DataPlaneConnectors>,
+    publisher: crate::publications::Publisher,
     snapshot: std::sync::RwLock<Snapshot>,
 }
 
 impl App {
+    /// Create a new App instance for testing or other uses
+    pub fn new(
+        id_generator: models::IdGenerator,
+        jwt_secret: Vec<u8>,
+        pg_pool: sqlx::PgPool,
+        publisher: crate::publications::Publisher,
+    ) -> Self {
+        let mut jwt_validation = jsonwebtoken::Validation::default();
+        jwt_validation.set_audience(&["authenticated"]);
+
+        Self {
+            _id_generator: Mutex::new(id_generator),
+            control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
+            control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
+            jwt_validation,
+            pg_pool,
+            publisher,
+            snapshot: std::sync::RwLock::new(Snapshot::empty()),
+        }
+    }
+    
     // TODO(johnny): This should return a VerifiedClaims struct which
     // wraps the validated prefixes, with a const generic over the Capability.
     // It's a larger lift then I want to do right now, because models::Capability
@@ -97,6 +118,34 @@ impl App {
                 Err(Err(err)) => return Err(err),
             }
         }
+    }
+
+    /// Looks up the user's authorization grants for each item in
+    /// `prefixes_or_names`, and calls the provided `attach` function with each
+    /// item and its capability. The `Some` results are returned in a vec.
+    pub fn attach_user_capabilities<I, F, T>(
+        &self,
+        claims: &ControlClaims,
+        prefixes_or_names: I,
+        mut attach: F,
+    ) -> Vec<T>
+    where
+        I: IntoIterator<Item = String>,
+        F: FnMut(String, Option<models::Capability>) -> Option<T>,
+    {
+        let snapshot = self.snapshot.read().unwrap();
+        prefixes_or_names
+            .into_iter()
+            .flat_map(|prefix| {
+                let capability = UserGrant::get_user_capability(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    &prefix,
+                );
+                attach(prefix, capability)
+            })
+            .collect()
     }
 
     pub fn snapshot(&self) -> &std::sync::RwLock<Snapshot> {
@@ -148,21 +197,13 @@ pub fn build_router(
     id_generator: models::IdGenerator,
     jwt_secret: Vec<u8>,
     pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher<DataPlaneConnectors>,
+    publisher: crate::publications::Publisher,
     allow_origin: &[String],
 ) -> anyhow::Result<axum::Router<()>> {
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
-    let app = Arc::new(App {
-        _id_generator: Mutex::new(id_generator),
-        control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
-        control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
-        jwt_validation,
-        pg_pool,
-        publisher,
-        snapshot: std::sync::RwLock::new(Snapshot::empty()),
-    });
+    let app = Arc::new(App::new(id_generator, jwt_secret, pg_pool, publisher));
     tokio::spawn(snapshot::fetch_loop(app.clone()));
 
     use axum::routing::post;

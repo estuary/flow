@@ -198,7 +198,7 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
-    pub publications_handler: Publisher<C>,
+    pub publications_handler: Publisher,
     pub id_generator: models::IdGenerator,
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
@@ -210,7 +210,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
-        publications_handler: Publisher<C>,
+        publications_handler: Publisher,
         id_generator: models::IdGenerator,
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,

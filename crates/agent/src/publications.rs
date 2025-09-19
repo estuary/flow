@@ -5,20 +5,19 @@ use tracing::info;
 
 use control_plane_api::{
     draft,
-    proxy_connectors::MakeConnectors,
     publications::{
         delete_draft, resolve, specs, ClearDraftErrors, DefaultRetryPolicy, DraftPublication,
-        ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher,
+        ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher, StatusType,
         UpdatePublicationsRow,
     },
 };
 
-pub struct PublicationsExecutor<MC: MakeConnectors> {
-    pub publisher: Publisher<MC>,
+pub struct PublicationsExecutor {
+    pub publisher: Publisher,
     pub pg_pool: sqlx::PgPool,
 }
 
-impl<MC: MakeConnectors> automations::Executor for PublicationsExecutor<MC> {
+impl automations::Executor for PublicationsExecutor {
     const TASK_TYPE: automations::TaskType = automations::task_types::PUBLICATIONS;
 
     /// We don't do anything with the inbox except log it, so this is just a
@@ -47,14 +46,14 @@ impl<MC: MakeConnectors> automations::Executor for PublicationsExecutor<MC> {
     }
 }
 
-impl<MC: MakeConnectors> PublicationsExecutor<MC> {
+impl PublicationsExecutor {
     async fn handle_task(&self, row: Row) -> anyhow::Result<()> {
         let id = row.id;
 
         // First ensure that the publication status is queued. Otherwise,
         // there's nothing for us to do.
-        match serde_json::from_str(row.job_status.get()) {
-            Ok(JobStatus::Queued) => { /* continue to publish */ }
+        match serde_json::from_str::<'_, JobStatus>(row.job_status.get()) {
+            Ok(status) if status.r#type == StatusType::Queued => { /* continue to publish */ }
             Ok(other) => {
                 tracing::warn!(?other, "skipping publication which is no longer queued");
                 return Ok(());
@@ -97,7 +96,7 @@ impl<MC: MakeConnectors> PublicationsExecutor<MC> {
                     scope: None,
                     detail: format!("{error:#}"),
                 }];
-                (JobStatus::PublishFailed, errors, None)
+                (StatusType::PublishFailed.into(), errors, None)
             }
         };
 
@@ -157,7 +156,7 @@ impl<MC: MakeConnectors> PublicationsExecutor<MC> {
                     ..Default::default()
                 },
                 tables::Errors::default(),
-                JobStatus::build_failed(),
+                StatusType::BuildFailed.into(),
                 0, //retry_count
             ));
         }
