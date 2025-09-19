@@ -1,0 +1,84 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "allAlerts": {
+    "edges": [
+      {
+        "cursor": "2024-08-09T12:26:12+00:00;shard_failed;aliceCo/shared/capture",
+        "node": {
+          "alertType": "shard_failed",
+          "catalogName": "aliceCo/shared/capture",
+          "firedAt": "2024-08-09T12:26:12+00:00",
+          "resolvedAt": null
+        }
+      },
+      {
+        "cursor": "2024-08-09T11:41:12+00:00;auto_discover_failed;aliceCo/shared/capture",
+        "node": {
+          "alertType": "auto_discover_failed",
+          "catalogName": "aliceCo/shared/capture",
+          "firedAt": "2024-08-09T11:41:12+00:00",
+          "resolvedAt": "2024-08-09T12:11:12+00:00"
+        }
+      },
+      {
+        "cursor": "2024-08-09T10:56:12+00:00;shard_failed;aliceCo/shared/capture",
+        "node": {
+          "alertType": "shard_failed",
+          "catalogName": "aliceCo/shared/capture",
+          "firedAt": "2024-08-09T10:56:12+00:00",
+          "resolvedAt": "2024-08-09T11:26:12+00:00"
+        }
+      },
+      {
+        "cursor": "2024-08-09T10:11:12+00:00;auto_discover_failed;aliceCo/shared/capture",
+        "node": {
+          "alertType": "auto_discover_failed",
+          "catalogName": "aliceCo/shared/capture",
+          "firedAt": "2024-08-09T10:11:12+00:00",
+          "resolvedAt": "2024-08-09T10:41:12+00:00"
+        }
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  },
+  "firingAlerts": {
+    "edges": [
+      {
+        "cursor": "2024-08-09T12:26:12+00:00;shard_failed;aliceCo/shared/capture",
+        "node": {
+          "alertType": "shard_failed",
+          "catalogName": "aliceCo/shared/capture",
+          "firedAt": "2024-08-09T12:26:12+00:00",
+          "resolvedAt": null
+        }
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  },
+  "resolvedAlerts": {
+    "edges": [
+      {
+        "cursor": "2024-08-09T10:56:12+00:00;shard_failed;aliceCo/shared/capture",
+        "node": {
+          "alertType": "shard_failed",
+          "catalogName": "aliceCo/shared/capture",
+          "firedAt": "2024-08-09T10:56:12+00:00",
+          "resolvedAt": "2024-08-09T11:26:12+00:00"
+        }
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": true
+    }
+  }
+}
