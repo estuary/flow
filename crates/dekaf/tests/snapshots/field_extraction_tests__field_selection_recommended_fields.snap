@@ -1,5 +1,5 @@
 ---
-source: crates/dekaf/tests/dekaf_schema_test.rs
+source: crates/dekaf/tests/field_extraction_tests.rs
 expression: output?
 ---
 Record(
@@ -33,6 +33,54 @@ Record(
                             String(
                                 "null",
                             ),
+                        ),
+                    ],
+                ),
+            ),
+        ),
+        (
+            "invoice_additional_charges",
+            Union(
+                0,
+                Array(
+                    [
+                        Record(
+                            [
+                                (
+                                    "cost",
+                                    Union(
+                                        0,
+                                        Double(
+                                            12.34,
+                                        ),
+                                    ),
+                                ),
+                                (
+                                    "_flow_extra",
+                                    Map(
+                                        {},
+                                    ),
+                                ),
+                            ],
+                        ),
+                        Record(
+                            [
+                                (
+                                    "cost",
+                                    Union(
+                                        0,
+                                        Double(
+                                            56.78,
+                                        ),
+                                    ),
+                                ),
+                                (
+                                    "_flow_extra",
+                                    Map(
+                                        {},
+                                    ),
+                                ),
+                            ],
                         ),
                     ],
                 ),
