@@ -1,0 +1,52 @@
+query AlertsByPrefix {
+    allAlerts: alerts(prefix: "aliceCo/shared/", last: 10) {
+        pageInfo {
+            hasNextPage
+            hasPreviousPage
+        }
+        edges {
+            cursor
+            node {
+                alertType
+                catalogName
+                firedAt
+                resolvedAt
+            }
+        }
+    }
+    firingAlerts: alerts(prefix: "aliceCo/shared/", active: true) {
+        pageInfo {
+            hasNextPage
+            hasPreviousPage
+        }
+        edges {
+            cursor
+            node {
+                alertType
+                catalogName
+                firedAt
+                resolvedAt
+            }
+        }
+    }
+    resolvedAlerts: alerts(
+        prefix: "aliceCo/shared/"
+        active: false
+        before: "2024-08-09T11:41:12+00:00;auto_discover_failed;aliceCo/shared/capture"
+        last: 1
+    ) {
+        pageInfo {
+            hasNextPage
+            hasPreviousPage
+        }
+        edges {
+            cursor
+            node {
+                alertType
+                catalogName
+                firedAt
+                resolvedAt
+            }
+        }
+    }
+}
