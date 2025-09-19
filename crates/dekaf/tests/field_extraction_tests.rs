@@ -222,7 +222,13 @@ async fn test_field_selection_recommended_fields() -> anyhow::Result<()> {
     let docs = vec![json!({
         "key": "first",
         "field_a": "foo",
-        "field_b": "bar"
+        "field_b": "bar",
+        "invoice": {
+            "additional_charges": [
+                { "cost": 12.34 },
+                { "cost": 56.78 }
+            ]
+        }
     })];
 
     for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {

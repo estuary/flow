@@ -10,11 +10,22 @@ collections:
           type: string
         field_b:
           type: string
+        invoice:
+          type: object
+          properties:
+            additional_charges:
+              type: [array, "null"]
+              items:
+                type: object
+                properties:
+                  cost:
+                    type: number
       type: object
       required:
         - key
         - field_a
         - field_b
+        - invoice
 materializations:
   test/materialization:
     endpoint:

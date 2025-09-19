@@ -100,7 +100,8 @@ pub fn build_field_extractors(
 
                 let avro_field = avro::RecordField {
                     schema: located_shape_to_avro(
-                        json::Location::Root.push_prop(proj.field.as_str()),
+                        json::Location::Root
+                            .push_prop(dekaf_connector::field_fold(&proj.field).as_str()),
                         source_shape.to_owned(),
                         required,
                     ),
@@ -160,7 +161,6 @@ pub fn build_field_extractors(
             .collect_vec(),
     ))
 }
-
 
 pub fn fetch_all_collection_names(spec: &MaterializationSpec) -> anyhow::Result<Vec<String>> {
     spec.bindings
