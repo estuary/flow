@@ -66,16 +66,23 @@ impl<'a> Scope<'a> {
     /// Flatten the scope into its current resource URI, extended with a
     /// URL fragment-encoded JSON pointer of the current location.
     pub fn flatten(self) -> url::Url {
-        let mut f = self.resource().clone();
+        let base = self.resource().as_str();
 
-        if !matches!(self.location, Location::Root) {
-            f.set_fragment(Some(&format!(
-                "{}{}",
-                f.fragment().unwrap_or(""),
-                self.location.pointer_str().to_string()
-            )));
+        if matches!(self.location, Location::Root) {
+            return url::Url::parse(base).unwrap();
         }
-        f
+
+        // We cannot use set_fragment() because it munges certain escape characters.
+
+        if base.contains('#') {
+            format!("{base}{}", self.location.url_escaped())
+                .parse()
+                .unwrap()
+        } else {
+            format!("{base}#{}", self.location.url_escaped())
+                .parse()
+                .unwrap()
+        }
     }
 }
 

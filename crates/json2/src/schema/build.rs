@@ -24,6 +24,8 @@ pub enum Error<A: schema::Annotation + 'static> {
     ExpectedUnsigned,
     #[error("expected a URL")]
     ExpectedURL,
+    #[error("unexpected URL fragment")]
+    UnexpectedURLFragment,
 
     #[error(transparent)]
     Annotation(A::KeywordError),
@@ -234,8 +236,10 @@ where
                 keywords.push(Keyword::DynamicRef { dynamic_ref });
             }
             keywords::ELSE => {
-                let r#else = Box::new(build::<A>(scope, value, errors));
-                keywords.push(Keyword::Else { r#else });
+                if map.get(keywords::IF).is_some() {
+                    let r#else = Box::new(build::<A>(scope, value, errors));
+                    keywords.push(Keyword::Else { r#else });
+                }
             }
             keywords::ENUM => {
                 let r#enum = expect_array(scope, value, errors).to_vec().into();
@@ -296,8 +300,10 @@ where
                 keywords.push(Keyword::Minimum { minimum });
             }
             keywords::MIN_CONTAINS => {
-                let min_contains = expect_unsigned(scope, value, errors);
-                keywords.push(Keyword::MinContains { min_contains });
+                if map.contains_key(keywords::CONTAINS) {
+                    let min_contains = expect_unsigned(scope, value, errors);
+                    keywords.push(Keyword::MinContains { min_contains });
+                }
             }
             keywords::MIN_ITEMS => {
                 let min_items = expect_unsigned(scope, value, errors);
@@ -396,8 +402,10 @@ where
             }
             keywords::SCHEMA => {} // No-op.
             keywords::THEN => {
-                let then = Box::new(build::<A>(scope, value, errors));
-                keywords.push(Keyword::Then { then });
+                if map.get(keywords::IF).is_some() {
+                    let then = Box::new(build::<A>(scope, value, errors));
+                    keywords.push(Keyword::Then { then });
+                }
             }
             keywords::TYPE => {
                 // As a support crutch for OpenAPI versions prior to 3.1,
@@ -481,8 +489,15 @@ where
                     (["!", prop].concat().into(), schema) // Required property.
                 }
                 itertools::EitherOrBoth::Right(prop) => {
+                    let id = Keyword::Id {
+                        curi: Into::<String>::into(
+                            scope.push_prop("require").push_prop(prop).flatten(),
+                        )
+                        .into(),
+                        explicit: false,
+                    };
                     let schema = schema::Schema {
-                        kw: Vec::new().into(),
+                        kw: vec![id].into(),
                     };
                     (["+", prop].concat().into(), schema) // Only in `required`, not `properties`.
                 }
@@ -658,14 +673,19 @@ fn expect_url<'l, A: schema::Annotation>(
     v: &serde_json::Value,
     errors: &mut Errors<A>,
 ) -> url::Url {
-    match v.as_str().map(|s| url::Url::parse(s)) {
+    match v.as_str().map(|s| scope.resource().join(s)) {
         None => {
             Error::ExpectedURL.push(scope, errors);
         }
         Some(Err(err)) => {
             Error::URL(err).push(scope, errors);
         }
-        Some(Ok(url)) => return url,
+        Some(Ok(url)) if url.fragment().is_some() => {
+            Error::UnexpectedURLFragment.push(scope, errors);
+        }
+        Some(Ok(url)) => {
+            return url;
+        }
     }
     url::Url::parse("https://placeholder.invalid").unwrap()
 }
@@ -687,7 +707,12 @@ fn expect_relative_url<'l, A: schema::Annotation>(
         Some(Err(err)) => {
             Error::URL(err).push(scope, errors);
         }
-        Some(Ok(url)) => return url,
+        Some(Ok(mut url)) => {
+            if url.fragment() == Some("") {
+                url.set_fragment(None); // Normalize empty fragment to no fragment.
+            }
+            return url;
+        }
     }
     url::Url::parse("https://placeholder.invalid").unwrap()
 }

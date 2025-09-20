@@ -62,6 +62,9 @@ where
     outcomes_unevaluated: Vec<(u32, i32, Outcome<'s, A>)>,
 
     properties_index: u32,
+
+    has_in_place_child: bool,
+    first_in_place_child: bool,
 }
 
 pub struct Stack<'s, A>
@@ -91,7 +94,7 @@ where
     let mut active = vec![0];
     let mut tape_index = 0;
 
-    wind_frame(filter, index, doc, 0, None, schema, &mut stack, 0, 0);
+    wind_frame(filter, index, doc, 0, None, schema, &mut stack, 0, false, 0);
 
     walk(
         &mut active,
@@ -260,6 +263,7 @@ where
                     property_names,
                     stack,
                     tape_index,
+                    false,
                     0,
                 );
             }
@@ -318,6 +322,7 @@ where
                                     schema,
                                     stack,
                                     tape_index,
+                                    false,
                                     0,
                                 );
                                 evaluated = true;
@@ -342,6 +347,7 @@ where
                                 schema,
                                 stack,
                                 tape_index,
+                                false,
                                 0,
                             );
                             evaluated = true;
@@ -361,6 +367,7 @@ where
                             additional_properties,
                             stack,
                             tape_index,
+                            false,
                             0,
                         );
                         evaluated = true;
@@ -379,8 +386,14 @@ where
                             unevaluated_properties,
                             stack,
                             tape_index,
+                            false,
                             0,
                         );
+                        // If this frame has no in-place children, then we know
+                        // this property has no other possible evaluations.
+                        if !stack[frame].has_in_place_child {
+                            evaluated = true;
+                        }
                     }
                 }
                 _ => (),
@@ -442,6 +455,7 @@ where
                         schema,
                         stack,
                         tape_index,
+                        false,
                         0,
                     );
                     evaluated = true;
@@ -457,6 +471,7 @@ where
                             items,
                             stack,
                             tape_index,
+                            false,
                             0,
                         );
                         evaluated = true;
@@ -472,6 +487,7 @@ where
                         contains,
                         stack,
                         tape_index,
+                        false,
                         0,
                     );
                     evaluated = true;
@@ -487,8 +503,14 @@ where
                             unevaluated_items,
                             stack,
                             tape_index,
+                            false,
                             0,
                         );
+                        // If this frame has no in-place children, then we know
+                        // this property has no other possible evaluations.
+                        if !stack[frame].has_in_place_child {
+                            evaluated = true;
+                        }
                     }
                 }
                 _ => (),
@@ -521,6 +543,7 @@ fn wind_frame<'n, 's, A, F, N>(
     schema: &'s Schema<A>,
     stack: &mut Vec<Frame<'s, A>>,
     tape_index: i32,
+    first_in_place_child: bool,
     mut track_unevaluated: usize,
 ) where
     A: Annotation,
@@ -588,12 +611,16 @@ fn wind_frame<'n, 's, A, F, N>(
         invalid_unevaluated,
         outcomes_unevaluated: Vec::new(),
         properties_index: 0,
+        first_in_place_child,
+        has_in_place_child: false,
     });
 
     // Look for in-place applications which also need to be wound.
     // Use a helper macro to reduce repetition in wind_frame calls.
     macro_rules! wind {
-        ($kw:expr, $schema:expr) => {
+        ($kw:expr, $schema:expr) => {{
+            let first_in_place_child =
+                !std::mem::replace(&mut stack[frame].has_in_place_child, true);
             wind_frame(
                 filter,
                 index,
@@ -603,9 +630,10 @@ fn wind_frame<'n, 's, A, F, N>(
                 $schema,
                 stack,
                 tape_index,
+                first_in_place_child,
                 track_unevaluated,
-            )
-        };
+            );
+        }};
     }
 
     for kw in keywords {
@@ -697,10 +725,6 @@ where
                 Keyword::MaxContains { max_contains } => {
                     (frame.valid_contains > *max_contains as u32).then_some(Outcome::Invalid(kw))
                 }
-                Keyword::UnevaluatedItems { .. } => {
-                    pop_unevaluated(frame);
-                    None
-                }
                 _ => None,
             };
 
@@ -746,10 +770,6 @@ fn pop_object<'n, 's, A, F, N>(
                             }
                         })
                         .next()
-                }
-                Keyword::UnevaluatedProperties { .. } => {
-                    pop_unevaluated(frame);
-                    None
                 }
                 _ => None,
             };
@@ -864,8 +884,6 @@ fn pop_node<'n, 's, A, F, N>(
                     .iter()
                     .all(|r#enum| !crate::node::compare_node(&node, &r#enum.as_node()).is_eq())
                     .then_some(Outcome::Invalid(kw)),
-                Keyword::AnyOf { .. } => (!frame.valid_any_of).then_some(Outcome::AnyOfNotMatched),
-                Keyword::OneOf { .. } => (!frame.valid_one_of).then_some(Outcome::OneOfNotMatched),
 
                 Keyword::Annotation { annotation } => {
                     if let Some(outcome) = filter(Outcome::Annotation(annotation)) {
@@ -920,7 +938,7 @@ fn pop_unevaluated<'s, A: Annotation>(frame: &mut Frame<'s, A>) {
 
     // If any unevaluated child remains, then it was both unevaluated and
     // also failed speculative validation.
-    frame.invalid = unevaluated.any();
+    frame.invalid |= unevaluated.any();
 }
 
 fn unwind<'n, 's, A, F>(
@@ -952,7 +970,7 @@ fn unwind_frame<'n, 's, A, F>(
     let parent = &mut stack[frame.parent_frame as usize];
 
     let required: bool; // Invalid `frame` also invalidates `parent`.
-    let in_place: bool; // `frame` is an in-place application such as $ref.
+    let fold_evaluations: bool; // Fold evaluations from an in-place application such as $ref.
 
     match frame.parent_keyword.unwrap() {
         Keyword::Not { .. } => {
@@ -965,43 +983,46 @@ fn unwind_frame<'n, 's, A, F>(
             }
             frame.invalid = !frame.invalid;
 
-            (required, in_place) = (true, true);
+            (required, fold_evaluations) = (true, true);
         }
         Keyword::AllOf { .. }
         | Keyword::Ref { .. }
         | Keyword::DynamicRef { .. }
         | Keyword::DependentSchemas { .. } => {
-            (required, in_place) = (true, true);
+            (required, fold_evaluations) = (true, true);
         }
         Keyword::If { .. } => {
             parent.valid_if = !frame.invalid;
-            (required, in_place) = (false, true);
+            (required, fold_evaluations) = (false, true);
         }
         Keyword::AnyOf { .. } => {
             parent.valid_any_of |= !frame.invalid;
-            (required, in_place) = (false, true);
+            (required, fold_evaluations) = (false, true);
         }
         Keyword::OneOf { .. } => {
-            if parent.valid_one_of {
+            if frame.invalid {
+                // Pass
+            } else if parent.valid_one_of {
                 if let Some(outcome) = filter(Outcome::OneOfMultipleMatched) {
                     parent.outcomes.push((tape_index, outcome));
                 }
                 parent.invalid = true;
+            } else {
+                parent.valid_one_of = true;
             }
-            parent.valid_one_of |= !frame.invalid;
-            (required, in_place) = (false, true);
+            (required, fold_evaluations) = (false, true);
         }
         Keyword::Contains { .. } => {
             if !frame.invalid {
                 parent.valid_contains += 1;
             }
-            (required, in_place) = (false, false);
+            (required, fold_evaluations) = (false, false);
         }
         Keyword::Then { .. } => {
-            (required, in_place) = (parent.valid_if, true);
+            (required, fold_evaluations) = (parent.valid_if, parent.valid_if);
         }
         Keyword::Else { .. } => {
-            (required, in_place) = (!parent.valid_if, true);
+            (required, fold_evaluations) = (!parent.valid_if, !parent.valid_if);
         }
         Keyword::Pattern { .. }
         | Keyword::PatternProperties { .. }
@@ -1010,25 +1031,28 @@ fn unwind_frame<'n, 's, A, F>(
         | Keyword::Properties { .. }
         | Keyword::PropertyNames { .. }
         | Keyword::AdditionalProperties { .. } => {
-            (required, in_place) = (true, false);
+            (required, fold_evaluations) = (true, false);
         }
 
         Keyword::UnevaluatedItems { .. } | Keyword::UnevaluatedProperties { .. } => {
-            if frame.invalid {
-                parent
-                    .invalid_unevaluated
-                    .as_mut()
-                    .unwrap()
-                    .view_bits_mut::<Lsb0>()
-                    .set(child_index as usize, true);
+            if parent.has_in_place_child {
+                if frame.invalid {
+                    parent
+                        .invalid_unevaluated
+                        .as_mut()
+                        .unwrap()
+                        .view_bits_mut::<Lsb0>()
+                        .set(child_index as usize, true);
+                }
+                parent.outcomes_unevaluated.extend(
+                    frame
+                        .outcomes
+                        .drain(..)
+                        .map(|(tape_index, outcome)| (child_index, tape_index, outcome)),
+                );
+                return;
             }
-            parent.outcomes_unevaluated.extend(
-                frame
-                    .outcomes
-                    .drain(..)
-                    .map(|(tape_index, outcome)| (child_index, tape_index, outcome)),
-            );
-            return;
+            (required, fold_evaluations) = (true, false);
         }
 
         _ => return,
@@ -1043,9 +1067,30 @@ fn unwind_frame<'n, 's, A, F>(
             parent.outcomes.extend(frame.outcomes.into_iter());
         }
     }
-    if in_place && !frame.invalid && parent.unevaluated.is_some() {
+    if fold_evaluations && !frame.invalid && parent.unevaluated.is_some() {
         *parent.unevaluated.as_mut().unwrap().view_bits_mut::<Lsb0>() &=
             frame.unevaluated.as_ref().unwrap().view_bits::<Lsb0>();
+    }
+
+    if !frame.first_in_place_child {
+        return;
+    }
+
+    for kw in parent.keywords {
+        let invalid = match kw {
+            Keyword::AnyOf { .. } => (!parent.valid_any_of).then_some(Outcome::AnyOfNotMatched), // doesn't work because allOf could have been first.
+            Keyword::OneOf { .. } => (!parent.valid_one_of).then_some(Outcome::OneOfNotMatched),
+            _ => None,
+        };
+        if let Some(outcome) = invalid {
+            if let Some(outcome) = filter(outcome) {
+                parent.outcomes.push((tape_index, outcome));
+            }
+            parent.invalid = true;
+        }
+    }
+    if parent.invalid_unevaluated.is_some() {
+        pop_unevaluated(parent);
     }
 }
 
@@ -1084,7 +1129,12 @@ fn resolve_dynamic_ref<'s, A: Annotation>(
             .unwrap()
             .join(dynamic_ref)
             .ok()
-            .and_then(|url| index.fetch(url.as_str()))
+            .and_then(|mut url| {
+                if url.fragment() == Some("") {
+                    url.set_fragment(None);
+                }
+                index.fetch(url.as_str())
+            })
     } else {
         None // Let our child query `index`.
     }
@@ -1094,21 +1144,10 @@ fn resolve_dynamic_ref<'s, A: Annotation>(
 mod tests {
     #[test]
     fn it_works() {
-        let schema: serde_json::Value = serde_json::json!({
-            "type": "object",
-            "properties": {
-                "hello": {"const": "hi"},
-
-                "world": {
-                    "type": "string",
-                    "format": "number",
-                    "maxLength": 10,
-                }
-            },
-            "required": ["world"],
-        });
-        let doc: serde_json::Value =
-            serde_json::json!({"a": "extra", "hello": "hi", "world": "1234567890"});
+        let schema: serde_json::Value = serde_json::json!(
+            {"allOf":[{"unevaluatedProperties":false}],"properties":{"foo":{"type":"string"}},"type":"object","unevaluatedProperties":true}
+        );
+        let doc: serde_json::Value = serde_json::json!({"foo":"foo"});
 
         let curi = url::Url::parse("https://example.com/test-schema.json").unwrap();
 
