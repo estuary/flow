@@ -244,13 +244,13 @@ impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
-        // If we're unauthenticated then return a placeholder LiveCatalog.
+        // Use NoOpCatalogResolver to prime with a catch-all storage mapping.
+        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
+
+        // If we're unauthenticated then return the placeholder LiveCatalog.
         if !self.client.is_authenticated() {
-            return Ok(build::NoOpCatalogResolver
-                .resolve(catalog_names.to_vec())
-                .await);
+            return Ok(live);
         }
-        let mut live = tables::LiveCatalog::default();
 
         // Query storage mappings from the tenants of `catalog_names`.
         #[derive(serde::Deserialize)]
