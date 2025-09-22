@@ -24,9 +24,7 @@ collections:
       - /date
     derive:
       using:
-        sqlite:
-          migrations:
-            - user-fact-table.migration.0.sql
+        sqlite: {}
       transforms:
         - name: dailychangesbyuser
           source: demo/wikipedia/recentchange

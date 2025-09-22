@@ -3,7 +3,7 @@
 This guide will show you how to flatten an array field in a collection by creating a TypeScript derivation in Estuary Flow.
 
 :::note
-We'll be using GitPod and TypeScript for our derivation in this guide. Check out our other guides if you're interested in [creating derivations locally with `flowctl`](./flowctl/create-derivation.md) or [using SQL for transformations](./derivation_tutorial_sql.md).
+We'll be using TypeScript for our derivation in this guide. Check out our other guides if you're interested in [using SQL for transformations](./derivation_tutorial_sql.md).
 :::
 
 The collection we'll be working with (`user_content`) contains a field called `tags`, which is an array of objects. Each object in the array has a name and a value. We'll be flattening this array into a new collection, with two separate fields: `tag_name` and `tag_value`.
@@ -36,84 +36,60 @@ The resulting data will have the following structure:
 }
 ```
 
-## Step 1: Set up your GitPod environment
+## Step 1: Set up your development environment
 
-1. In the Estuary Flow dashboard, click on the **Collections** tab.
-2. Select the checkbox next to the collection you want to work with.
-3. Click on the **Transform** button at the top of the table.
-4. Select **TypeScript** as the language, and give your new derived collection a name.
-5. Click **Proceed to GitPod** to open the GitPod environment.
-
-The GitPod environment will generate a file structure and stub files to get you started. This may take a few moments.
+1. Ensure you have `flowctl` [installed and authenticated](/guides/get-started-with-flowctl).
+2. In the Estuary Flow dashboard, note the name of the collection you'd like to transform.
+3. In your local development environment, create a working directory with a new `flow.yaml` file.
 
 ## Step 2: Set up your schema
 
-In a folder called `<your_tenant>`, you'll find a file called `flow.yaml`. This file contains the schema for your derived collection. You'll need to modify this file to match the structure of the data you're working with.
+Open your new `flow.yaml` file. This file will contain the schema for your derived collection. You'll need to modify this file to match what we want our derived collection to look like.
 
-1. Open the `flow.yaml` file in the GitPod environment.
+We'll be using the `tags` field from the original data, so we'll need to add a new property for each field we want to include in the derived collection. We'll also need to set a key for the derived collection.
 
-   Your schema should look something like this:
+Your `flow.yaml` file will therefore look something like this:
 
-   ```yaml
-   ---
-   collections:
-     <your_tenant>/<derivation_name>:
-       schema:
-         type: object
-         properties:
-           your_key:
-             type: string
-         required:
-           - your_key
-       key:
-         - /your_key
-       derive:
-         using:
-           typescript:
-             module: <derivation_name>.ts
-         transforms:
-           - name: user_content
-             source: <your_tenant>/<capture_name>/public/<collection_name>
-             shuffle: any
-   ```
+```yaml
+---
+collections:
+  <your_tenant>/<derivation_name>:
+    schema:
+      type: object
+      properties:
+        tag_name:
+          type: string
+        tag_value:
+          type: string
+      required:
+        - tag_name
+        - tag_value
+    key:
+      - /tag_name
+    derive:
+      using:
+        typescript:
+          module: <derivation_name>.ts
+      transforms:
+        - name: user_content
+          source: <your_tenant>/<capture_name>/public/<collection_name>
+          shuffle: any
+```
 
-2. We need to modify the schema to match what we want our derived collection to look like. We'll be using the `tags` field from the original data, so we'll need to add a new property for each field we want to include in the derived collection. We'll also need to set a key for the derived collection.
-
-   These updates to the `flow.yaml` file will look something like this:
-
-   ```yaml
-   ---
-   collections:
-     <your_tenant>/<derivation_name>:
-       schema:
-         type: object
-         properties:
-           tag_name:
-             type: string
-           tag_value:
-             type: string
-         required:
-           - tag_name
-           - tag_value
-       key:
-         - /tag_name
-       derive:
-         using:
-           typescript:
-             module: <derivation_name>.ts
-         transforms:
-           - name: user_content
-             source: <your_tenant>/<capture_name>/public/<collection_name>
-             shuffle: any
-   ```
-
-3. Save the `flow.yaml` file.
+Copy this into your `flow.yaml` file. Replace resource names within angle brackets (eg. `<your_tenant>`) with your own information and save your changes.
 
 ## Step 3: Write your TypeScript derivation
 
-In the GitPod environment, you'll find a file called `<derivation_name>.ts` in the same folder as the `flow.yaml` file you just edited. This is where you'll write your TypeScript code to flatten the array.
+Note that the YAML specification references a TypeScript file (`<derivation_name>.ts`) that doesn't exist yet.
+You can generate a stub file for your TypeScript transformation using:
 
-1. Open the `<derivation_name>.ts` file in the GitPod environment.
+```bash
+flowctl generate --source flow.yaml
+```
+
+This file is where you'll write your TypeScript code to flatten the array.
+
+1. Open the new `<derivation_name>.ts` file.
 
    You'll see a basic structure for your TypeScript code. It should look something like this:
 
@@ -165,14 +141,13 @@ In the GitPod environment, you'll find a file called `<derivation_name>.ts` in t
 
 ## Step 4: Preview your derivation
 
-1. In the GitPod environment, open a terminal.
-2. Run the following command to test your derivation:
+1. Run the following command to test your derivation:
 
    ```bash
    flowctl preview --source flow.yaml
    ```
 
-3. This will show you a preview of the derived collection, including the flattened fields. Make sure everything looks good.
+2. This will show you a preview of the derived collection, including the flattened fields. Make sure everything looks good.
 
    For example, an original row like this:
 
@@ -206,7 +181,7 @@ In the GitPod environment, you'll find a file called `<derivation_name>.ts` in t
    }
    ```
 
-4. Once you've confirmed your results, you can proceed to publish your derivation to Estuary Flow:
+3. Once you've confirmed your results, you can proceed to publish your derivation to Estuary Flow:
 
    ```bash
    flowctl catalog publish --source flow.yaml
