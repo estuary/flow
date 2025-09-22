@@ -1,4 +1,8 @@
-# NetSuite SuiteTalk REST
+# NetSuite SuiteTalk REST (Deprecated)
+
+:::warning
+This connector is deprecated. For new pipelines, we recommend you use our actively maintained [NetSuite connector](./netsuite-suiteanalytics.md) instead.
+:::
 
 This connector captures data from Oracle NetSuite into Flow collections. It connects to the NetSuite Analytics Data Warehouse using the SuiteQL REST endpoint and a custom role.
 
