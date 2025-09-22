@@ -64,6 +64,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
 
         live.data_planes
             .get_by_key(&data_plane_id)
+            .filter(|dp| dp.control_id != models::Id::zero()) // NoOpCatalogResolver fixture.
             .with_context(|| {
                 format!("couldn't resolve data-plane {data_plane_id}; you may not have access")
             })?
