@@ -1,3 +1,4 @@
+use anyhow::Context;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use proto_flow::flow;
@@ -8,11 +9,15 @@ use tables::CatalogResolver;
 pub(crate) async fn load_and_validate(
     client: &crate::Client,
     source: &str,
-) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
+) -> anyhow::Result<(
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+)> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, built) = validate(client, true, false, true, draft, "").await;
-    Ok((draft, surface_errors(built.into_result())?))
+    let (draft, live, built) = validate(client, true, false, true, draft, "").await;
+    Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Load and validate sources and all connectors.
@@ -20,11 +25,15 @@ pub(crate) async fn load_and_validate_full(
     client: &crate::Client,
     source: &str,
     network: &str,
-) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
+) -> anyhow::Result<(
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, built) = validate(client, false, false, false, sources, network).await;
-    Ok((draft, surface_errors(built.into_result())?))
+    let (draft, live, built) = validate(client, false, false, false, sources, network).await;
+    Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Generate connector files by validating sources with derivation connectors.
@@ -32,7 +41,7 @@ pub(crate) async fn generate_files(
     client: &crate::Client,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, built) = validate(client, true, false, true, sources, "").await;
+    let (mut draft, _live, built) = validate(client, true, false, true, sources, "").await;
 
     let project_root = build::project_root(&draft.fetches[0].resource);
     build::generate_files(&project_root, &built)?;
@@ -73,7 +82,11 @@ async fn validate(
     noop_materializations: bool,
     draft: tables::DraftCatalog,
     network: &str,
-) -> (tables::DraftCatalog, tables::Validations) {
+) -> (
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+) {
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
@@ -90,10 +103,9 @@ async fn validate(
         built.errors = std::mem::take(&mut live.errors);
         build::Output { draft, live, built }
     } else {
-        build::validate(
+        build::local(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
             models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
-            true,                       // Allow local connectors.
             network,
             ops::tracing_log_handler,
             noop_captures,
@@ -119,8 +131,8 @@ async fn validate(
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    let (draft, _live, built) = output.into_parts();
-    (draft, built)
+    let (draft, live, built) = output.into_parts();
+    (draft, live, built)
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
@@ -232,18 +244,98 @@ impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
-        // NoOpCatalogResolver provides a storage mapping and data-plane fixture.
-        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
-
-        // If we're unauthenticated then return an empty LiveCatalog rather than an error.
+        // If we're unauthenticated then return a placeholder LiveCatalog.
         if !self.client.is_authenticated() {
-            return Ok(live);
+            return Ok(build::NoOpCatalogResolver
+                .resolve(catalog_names.to_vec())
+                .await);
+        }
+        let mut live = tables::LiveCatalog::default();
+
+        // Query storage mappings from the tenants of `catalog_names`.
+        #[derive(serde::Deserialize)]
+        struct StorageMappingRow {
+            catalog_prefix: models::Prefix,
+            id: models::Id,
+            spec: models::StorageDef,
+        }
+
+        // Extract all unique slash-terminated prefixes from catalog names.
+        // For example, "acmeCo/team-A/anvils/orders" produces:
+        // ["acmeCo/", "acmeCo/team-A/", "acmeCo/team-A/anvils/"]
+        let mut prefixes = Vec::new();
+        for name in catalog_names.iter() {
+            let mut index = 0;
+            while let Some(pos) = name[index..].find('/') {
+                index = index + pos + 1;
+                prefixes.push(&name[..index]);
+            }
+        }
+        prefixes.sort();
+        prefixes.dedup();
+
+        let storage_mappings = crate::api_exec::<Vec<StorageMappingRow>>(
+            self.client
+                .from("storage_mappings")
+                .select("catalog_prefix,id,spec")
+                .in_("catalog_prefix", prefixes),
+        )
+        .await
+        .context("failed to fetch storage mappings")?;
+
+        for row in storage_mappings {
+            // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
+            // Work around for now, by synthesizing them. This should switch to GraphQL.
+            if row.catalog_prefix.starts_with("recovery/") {
+                continue; // Does not actually happen in practice.
+            }
+
+            live.storage_mappings.insert_row(
+                &row.catalog_prefix,
+                row.id,
+                &row.spec.stores,
+                &row.spec.data_planes,
+            );
+            live.storage_mappings.insert_row(
+                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
+                models::Id::zero(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+
+        // Query all data planes.
+        #[derive(serde::Deserialize)]
+        struct DataPlaneRow {
+            id: models::Id,
+            data_plane_name: String,
+        }
+
+        let data_planes = crate::api_exec::<Vec<DataPlaneRow>>(
+            self.client.from("data_planes").select("id,data_plane_name"),
+        )
+        .await
+        .context("failed to fetch data planes")?;
+
+        for row in data_planes {
+            live.data_planes.insert_row(
+                row.id,
+                row.data_plane_name,
+                String::new(),                 // data_plane_fqdn
+                Vec::new(),                    // hmac_keys
+                models::RawValue::default(),   // encrypted_hmac_keys
+                models::Collection::default(), // ops_logs_name
+                models::Collection::default(), // ops_stats_name
+                String::new(),                 // broker_address
+                String::new(),                 // reactor_address
+            );
         }
 
         #[derive(serde::Deserialize)]
         struct LiveSpec {
             id: models::Id,
             catalog_name: String,
+            data_plane_id: models::Id,
             spec_type: CatalogType,
             #[serde(alias = "spec")]
             model: models::RawValue,
@@ -261,7 +353,7 @@ impl Resolver {
                 let builder = self
                     .client
                     .from("live_specs_ext")
-                    .select("id,catalog_name,spec_type,spec,built_spec,last_pub_id,last_build_id")
+                    .select("id,catalog_name,data_plane_id,spec_type,spec,built_spec,last_pub_id,last_build_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
 
@@ -269,7 +361,8 @@ impl Resolver {
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<LiveSpec>>>()
-            .await?;
+            .await
+            .context("failed to fetch live specs")?;
 
         for LiveSpec {
             id,
@@ -279,6 +372,7 @@ impl Resolver {
             built_spec,
             last_pub_id,
             last_build_id,
+            data_plane_id,
             dependency_hash,
         } in rows.into_iter().flat_map(|i| i.into_iter())
         {
@@ -286,7 +380,7 @@ impl Resolver {
                 CatalogType::Capture => live.captures.insert_row(
                     models::Capture::new(catalog_name),
                     id,
-                    models::Id::zero(),
+                    data_plane_id,
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::CaptureDef>(model.get())?,
@@ -296,7 +390,7 @@ impl Resolver {
                 CatalogType::Collection => live.collections.insert_row(
                     models::Collection::new(catalog_name),
                     id,
-                    models::Id::zero(),
+                    data_plane_id,
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
@@ -306,7 +400,7 @@ impl Resolver {
                 CatalogType::Materialization => live.materializations.insert_row(
                     models::Materialization::new(catalog_name),
                     id,
-                    models::Id::zero(),
+                    data_plane_id,
                     last_pub_id,
                     last_build_id,
                     serde_json::from_str::<models::MaterializationDef>(model.get())?,
@@ -359,7 +453,8 @@ impl Resolver {
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<Row>>>()
-            .await?;
+            .await
+            .context("failed to fetch inferred schemas")?;
 
         let mut inferred = tables::InferredSchemas::default();
 

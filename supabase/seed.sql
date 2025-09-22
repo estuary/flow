@@ -42,10 +42,10 @@ insert into public.role_grants (subject_role, object_role, capability) values
 
 -- Ops collections are directed to estuary-flow-poc and not estuary-trial for $reasons.
 insert into public.storage_mappings (catalog_prefix, spec) values
-  ('ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc", "prefix": "collection-data/"}]}'),
+  ('ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc", "prefix": "collection-data/"}], "data_planes": ["ops/dp/public/local-cluster"]}'),
   ('recovery/ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc"}]}'),
   -- For access within local stack contexts:
-  ('ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}'),
+  ('ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}], "data_planes": ["ops/dp/public/local-cluster"]}'),
   ('recovery/ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}')
   ;
 

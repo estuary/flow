@@ -11,6 +11,7 @@ license.workspace = true
 
 [dependencies]
 allocator = { path = "../allocator" }
+dekaf-connector = { path = "../dekaf-connector" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }

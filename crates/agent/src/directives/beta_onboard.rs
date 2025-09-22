@@ -44,19 +44,23 @@ pub async fn apply(
             row.catalog_prefix
         )));
     }
-    if agent_sql::directives::beta_onboard::is_user_provisioned(row.user_id, &mut *txn).await? {
+    if control_plane_api::directives::beta_onboard::is_user_provisioned(row.user_id, &mut *txn)
+        .await?
+    {
         return Ok(JobStatus::invalid_claims(anyhow::anyhow!(
             "Cannot provision a new tenant because the user has existing grants",
         )));
     }
-    if agent_sql::directives::beta_onboard::tenant_exists(&requested_tenant, &mut *txn).await? {
+    if control_plane_api::directives::beta_onboard::tenant_exists(&requested_tenant, &mut *txn)
+        .await?
+    {
         return Ok(JobStatus::invalid_claims(anyhow::anyhow!(
             "The organization name {} is already in use, please choose a different one or contact support@estuary.dev.",
             requested_tenant.as_str()
         )));
     }
 
-    agent_sql::directives::beta_onboard::provision_tenant(
+    control_plane_api::directives::beta_onboard::provision_tenant(
         accounts_user_email,
         Some("applied via directive".to_string()),
         &requested_tenant,

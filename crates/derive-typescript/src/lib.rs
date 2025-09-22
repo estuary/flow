@@ -24,8 +24,8 @@ pub fn run() -> anyhow::Result<()> {
                 &serde_json::to_vec(&derive::Response {
                     spec: Some(derive::response::Spec {
                         protocol: 3032023,
-                        config_schema_json: "{}".to_string(),
-                        resource_config_schema_json: "{}".to_string(),
+                        config_schema_json: "{}".to_string().into(),
+                        resource_config_schema_json: "{}".to_string().into(),
                         documentation_url: "https://docs.estuary.dev".to_string(),
                         oauth2: None,
                     }),
@@ -52,7 +52,7 @@ pub fn run() -> anyhow::Result<()> {
     let collection = open.open.as_ref().unwrap().collection.as_ref().unwrap();
     let derivation = collection.derivation.as_ref().unwrap();
 
-    let config = serde_json::from_str::<Config>(&derivation.config_json).unwrap();
+    let config = serde_json::from_slice::<Config>(&derivation.config_json).unwrap();
     let transforms = derivation
         .transforms
         .iter()
@@ -67,7 +67,7 @@ pub fn run() -> anyhow::Result<()> {
             let lambda = if lambda_config_json == "null" {
                 LambdaConfig { read_only: false }
             } else {
-                serde_json::from_str::<LambdaConfig>(&lambda_config_json).unwrap()
+                serde_json::from_slice::<LambdaConfig>(lambda_config_json).unwrap()
             };
 
             (name.as_str(), collection.as_ref().unwrap(), lambda)
@@ -138,8 +138,8 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
 
     let collection = collection.as_ref().unwrap();
 
-    let config = serde_json::from_str::<Config>(&config_json)
-        .with_context(|| format!("invalid derivation configuration: {config_json}"))?;
+    let config = serde_json::from_slice::<Config>(config_json)
+        .with_context(|| format!("invalid derivation configuration: {config_json:?}"))?;
 
     let transforms = transforms
         .iter()
@@ -155,7 +155,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
             let lambda = if lambda_config_json == "null" {
                 LambdaConfig { read_only: false }
             } else {
-                serde_json::from_str::<LambdaConfig>(&lambda_config_json)
+                serde_json::from_slice::<LambdaConfig>(lambda_config_json)
                     .with_context(|| format!("invalid lambda configuration for transform {name}"))?
             };
 

@@ -1,10 +1,11 @@
 // Links in the allocator crate, which sets the global allocator to jemalloc
 extern crate allocator;
 
-use agent::publications::Publisher;
-use agent::{DataPlaneConnectors, DiscoverHandler};
 use anyhow::Context;
 use clap::Parser;
+use control_plane_api::{
+    discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
+};
 use derivative::Derivative;
 use futures::FutureExt;
 use rand::Rng;
@@ -80,6 +81,18 @@ struct Args {
 
     #[clap(long = "log-format", env = "LOG_FORMAT", default_value = "json")]
     log_format: LogFormat,
+
+    /// Probability of running an auto-discover when one is due, expressed as a
+    /// decimal value between 0 and 1. 1 means a 100% chance of running an
+    /// auto-discover when one is due, and 0 disables auto-discovers completely.
+    /// This is intended to allow globally throttling down our overall rate of
+    /// auto-discover tasks, or to disable them entirely.
+    #[clap(
+        long = "auto-discover-probability",
+        env = "AUTO_DISCOVER_PROBABILITY",
+        default_value = "1.0"
+    )]
+    auto_discover_probability: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -191,7 +204,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         }
     });
 
-    let system_user_id = agent_sql::get_user_id_for_email(&args.accounts_email, &pg_pool)
+    let system_user_id = control_plane_api::get_user_id_for_email(&args.accounts_email, &pg_pool)
         .await
         .context("querying for agent user id")?;
     let jwt_secret: String =
@@ -204,7 +217,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
-    let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
+    let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
     let discover_handler = DiscoverHandler::new(connectors.clone());
@@ -238,6 +251,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         discover_handler.clone(),
         logs_tx.clone(),
         decrypted_hmac_keys,
+        args.auto_discover_probability,
     );
     let connector_tags_executor =
         agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);
@@ -246,7 +260,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
 
     // Wire up the agent's API server.
-    let api_router = agent::api::build_router(
+    let api_router = control_plane_api::build_router(
         id_gen.clone(),
         jwt_secret.into_bytes(),
         pg_pool.clone(),
@@ -262,8 +276,13 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,
             ))
-            .register(publisher)
-            .register(discover_handler)
+            .register(agent::publications::PublicationsExecutor {
+                publisher,
+                pg_pool: pg_pool.clone(),
+            })
+            .register(agent::DiscoverExecutor {
+                handler: discover_handler,
+            })
             .register(directive_executor)
             .register(connector_tags_executor)
             .register(migrate::automation::MigrationExecutor)
@@ -293,23 +312,24 @@ async fn refresh_decrypted_hmac_keys(
     const REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(60);
 
     loop {
-        let mut data_planes: Vec<_> = agent_sql::data_plane::fetch_all_data_planes(&pg_pool)
-            .await?
-            .into_iter()
-            .filter(|dp| {
-                !decrypted_hmac_keys
-                    .read()
-                    .unwrap()
-                    .contains_key(&dp.data_plane_name)
-            })
-            .filter(|dp| {
-                !dp.encrypted_hmac_keys
-                    .to_value()
-                    .as_object()
-                    .unwrap()
-                    .is_empty()
-            })
-            .collect();
+        let mut data_planes: Vec<_> =
+            control_plane_api::data_plane::fetch_all_data_planes(&pg_pool)
+                .await?
+                .into_iter()
+                .filter(|dp| {
+                    !decrypted_hmac_keys
+                        .read()
+                        .unwrap()
+                        .contains_key(&dp.data_plane_name)
+                })
+                .filter(|dp| {
+                    !dp.encrypted_hmac_keys
+                        .to_value()
+                        .as_object()
+                        .unwrap()
+                        .is_empty()
+                })
+                .collect();
 
         futures::future::try_join_all(
             data_planes

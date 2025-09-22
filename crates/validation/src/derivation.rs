@@ -1,7 +1,4 @@
-use super::{
-    collection, indexed, reference, schema, storage_mapping, Connectors, Error, NoOpConnectors,
-    Scope,
-};
+use super::{collection, indexed, reference, schema, Connectors, Error, NoOpConnectors, Scope};
 use futures::SinkExt;
 use proto_flow::{
     derive, flow,
@@ -11,6 +8,7 @@ use proto_flow::{
 use std::collections::BTreeMap;
 use superslice::Ext;
 use tables::EitherOrBoth as EOB;
+use xxhash_rust::xxh3::Xxh3;
 
 pub async fn walk_all_derivations<C: Connectors>(
     pub_id: models::Id,
@@ -20,12 +18,12 @@ pub async fn walk_all_derivations<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    init_vector: &[u8],
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
@@ -56,12 +54,12 @@ pub async fn walk_all_derivations<C: Connectors>(
                 built_collections,
                 connectors,
                 data_planes,
-                default_plane_id,
                 dependencies,
                 imports,
                 noop_derivations,
                 project_root,
                 storage_mappings,
+                init_vector,
                 &mut local_errors,
             )
             .await;
@@ -89,12 +87,12 @@ async fn walk_derivation<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    init_vector: &[u8],
     errors: &mut tables::Errors,
 ) -> Option<(
     usize,
@@ -108,7 +106,6 @@ async fn walk_derivation<C: Connectors>(
         collection,
         scope,
         model,
-        data_plane_id,
         expect_build_id,
         live_model,
         live_spec,
@@ -130,7 +127,6 @@ async fn walk_derivation<C: Connectors>(
             collection,
             scope,
             model.clone(),
-            default_plane_id.unwrap_or(models::Id::zero()),
             models::Id::zero(),
             None,
             None,
@@ -143,7 +139,6 @@ async fn walk_derivation<C: Connectors>(
                     models::CollectionDef {
                         derive: live_model, ..
                     },
-                data_plane_id,
                 last_build_id,
                 spec,
                 ..
@@ -164,7 +159,6 @@ async fn walk_derivation<C: Connectors>(
             collection,
             scope,
             model.clone(),
-            *data_plane_id,
             if spec.derivation.is_some() {
                 *last_build_id
             } else {
@@ -214,6 +208,7 @@ async fn walk_derivation<C: Connectors>(
         using,
         transforms: transforms_model,
         shuffle_key_types: shuffle_key_types_model,
+        redact_salt: model_redact_salt,
         shards,
     } = model;
 
@@ -243,13 +238,9 @@ async fn walk_derivation<C: Connectors>(
     };
     let built_collection = &built_collections[built_index];
 
-    let data_plane = reference::walk_data_plane(
-        scope,
-        &built_collection.collection,
-        built_collection.data_plane_id,
-        data_planes,
-        errors,
-    )?;
+    let data_plane = data_planes
+        .get_by_key(&built_collection.data_plane_id)
+        .expect("collection was built and has a known-valid data-plane");
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
@@ -324,7 +315,7 @@ async fn walk_derivation<C: Connectors>(
                 transform,
                 collection,
                 built_collections,
-                data_plane_id,
+                data_plane.control_id,
                 noop_derivations || shards.disable,
                 &live_transforms_model,
                 &live_transforms_spec,
@@ -412,13 +403,17 @@ async fn walk_derivation<C: Connectors>(
     .collect();
 
     // Determine storage mappings for task recovery logs.
-    let recovery_stores = storage_mapping::mapped_stores(
-        scope,
+    let recovery_stores = match crate::storage_mapping::lookup_mapping(
         "derivation",
         &format!("recovery/{collection}"),
         storage_mappings,
-        errors,
-    );
+    ) {
+        Ok(mapping) => mapping.stores.as_slice(),
+        Err(err) => {
+            err.push(scope, errors);
+            &[]
+        }
+    };
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -635,6 +630,19 @@ async fn walk_derivation<C: Connectors>(
         .map(|v| (*v).clone())
         .collect();
 
+    // Use manual salt if provided, otherwise the live salt, otherwise generate a new one.
+    let redact_salt = if let Some(salt) = &model_redact_salt {
+        salt.clone()
+    } else if let Some(live_derivation) = live_spec.and_then(|l| l.derivation.as_ref()) {
+        live_derivation.redact_salt.clone()
+    } else {
+        // Generate deterministic salt using xxhash of init_vector + derivation name.
+        let mut hasher = Xxh3::new();
+        hasher.update(init_vector);
+        hasher.update(shard_id_prefix.as_bytes());
+        hasher.digest128().to_be_bytes().to_vec().into()
+    };
+
     let recovery_log_template = assemble::recovery_log_template(
         build_id,
         collection,
@@ -660,12 +668,14 @@ async fn walk_derivation<C: Connectors>(
         shard_template: Some(shard_template),
         network_ports,
         inactive_transforms,
+        redact_salt,
     };
     let model = models::Derivation {
-        shards,
-        shuffle_key_types: shuffle_key_types_model,
-        transforms: transforms_model,
         using,
+        transforms: transforms_model,
+        shuffle_key_types: shuffle_key_types_model,
+        redact_salt: model_redact_salt,
+        shards,
     };
 
     std::mem::drop(request_tx);
@@ -738,7 +748,8 @@ fn walk_derive_transform<'a>(
     };
     let Some((source_spec, source_built)) = reference::walk_reference(
         scope,
-        &format!("transform {}", model.name),
+        "transform",
+        || model.name.to_string(),
         source_name,
         built_collections,
         modified_source.then_some(errors),

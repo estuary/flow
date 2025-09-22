@@ -413,7 +413,8 @@ impl Collection {
 
         let request = broker::ReadRequest {
             journal: partition.spec.name.clone(),
-            offset: -1, // Fetch write head
+            offset: 0,
+            metadata_only: true,
             ..Default::default()
         };
         let response_stream = self.journal_client.clone().read(request);

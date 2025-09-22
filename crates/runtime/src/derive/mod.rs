@@ -27,6 +27,8 @@ pub struct Task {
     key_extractors: Vec<doc::Extractor>,
     // Partition values which are extracted from written documents.
     partition_extractors: Vec<doc::Extractor>,
+    // Salt used for redacting sensitive fields.
+    redact_salt: bytes::Bytes,
     // Serialization policy for the Target collection.
     ser_policy: doc::SerPolicy,
     // ShardRef of this task.

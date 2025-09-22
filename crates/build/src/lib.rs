@@ -90,13 +90,13 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
     loader.into_tables()
 }
 
-/// Perform validations and produce built specifications for `draft` and `live`.
-/// * If `generate_ops_collections` is set, then ops collections are added into `sources`.
-/// * If any of `noop_*` is true, then validations are skipped for connectors of that type.
-pub async fn validate(
+/// Perform validations over `draft` and `live` using a local runtime.
+/// This is as close to "production" as possible, while still being
+/// self-contained and able to run anywhere (CI and CLIs).
+/// If any of `noop_*` is true, then validations are skipped for connectors of that type.
+pub async fn local(
     pub_id: models::Id,
     build_id: models::Id,
-    allow_local: bool,
     connector_network: &str,
     log_handler: impl runtime::LogHandler,
     noop_captures: bool,
@@ -109,7 +109,7 @@ pub async fn validate(
     ::sources::inline_draft_catalog(&mut draft);
 
     let runtime = runtime::Runtime::new(
-        allow_local,
+        true, // Allow local connectors.
         connector_network.to_string(),
         log_handler,
         None,
@@ -122,12 +122,15 @@ pub async fn validate(
         build_id,
         project_root,
         &connectors,
+        None, // No explicit data-plane name.
         &draft,
         &live,
         true, // Fail-fast.
         noop_captures,
         noop_derivations,
         noop_materializations,
+        // Use a constant for deterministic builds and snapshots.
+        b"initialization vector",
     )
     .await;
 
@@ -421,13 +424,13 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
                     bucket: "example-bucket".to_string(),
                     prefix: None,
                 })],
+                vec!["ops/dp/public/noop".to_string()],
             );
 
             live.data_planes.insert_row(
                 models::Id::zero(),
                 "ops/dp/public/noop".to_string(),
                 "noop.dp.estuary-data.com".to_string(),
-                true,
                 vec!["hmac-key".to_string()],
                 models::RawValue::from_string("{}".to_string()).unwrap(),
                 models::Collection::new("ops/logs"),

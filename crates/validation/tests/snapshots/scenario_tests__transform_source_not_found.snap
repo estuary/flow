@@ -5,10 +5,10 @@ expression: errors
 [
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0,
-        error: collection testinG/Int-String, referenced by transform halveIntString, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string ?,
+        error: collection testinG/Int-String, referenced by transform halveIntString, was not found; did you mean collection testing/int-string?,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/1,
-        error: collection wildly/off/name, referenced by transform halveSelf, is not defined,
+        error: collection wildly/off/name, referenced by transform halveSelf, was not found; did you mean collection testing/int-halve?,
     },
 ]

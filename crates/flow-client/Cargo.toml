@@ -8,6 +8,9 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[build-dependencies]
+control-plane-api = { path = "../control-plane-api" }
+
 [dependencies]
 gazette = { path = "../gazette" }
 models = { path = "../models" }
@@ -17,7 +20,9 @@ proto-gazette = { path = "../proto-gazette" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }
+chrono = { workspace = true }
 futures = { workspace = true }
+graphql_client = { workspace = true }
 jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
 page-turner = { workspace = true }

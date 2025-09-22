@@ -1,6 +1,6 @@
 use doc::{
     reduce::Strategy,
-    shape::{location::Exists, Reduction},
+    shape::{location::Exists, Reduce},
     Annotation, Shape,
 };
 use json::schema;
@@ -36,19 +36,19 @@ pub struct Property {
     pub string_format: Option<String>,
 }
 
-fn reduce_description(reduce: Reduction) -> &'static str {
+fn reduce_description(reduce: Reduce) -> &'static str {
     match reduce {
-        Reduction::Multiple => "multiple strategies may apply",
-        Reduction::Strategy(Strategy::Append) => "append",
-        Reduction::Strategy(Strategy::FirstWriteWins(_)) => "first-write-wins",
-        Reduction::Strategy(Strategy::JsonSchemaMerge) => "merge json schemas",
-        Reduction::Strategy(Strategy::LastWriteWins(_)) => "last-write-wins",
-        Reduction::Strategy(Strategy::Maximize(_)) => "maximize",
-        Reduction::Strategy(Strategy::Merge(_)) => "merge",
-        Reduction::Strategy(Strategy::Minimize(_)) => "minimize",
-        Reduction::Strategy(Strategy::Set(_)) => "set",
-        Reduction::Strategy(Strategy::Sum) => "sum",
-        Reduction::Unset => "unset",
+        Reduce::Multiple => "multiple strategies may apply",
+        Reduce::Strategy(Strategy::Append) => "append",
+        Reduce::Strategy(Strategy::FirstWriteWins(_)) => "first-write-wins",
+        Reduce::Strategy(Strategy::JsonSchemaMerge) => "merge json schemas",
+        Reduce::Strategy(Strategy::LastWriteWins(_)) => "last-write-wins",
+        Reduce::Strategy(Strategy::Maximize(_)) => "maximize",
+        Reduce::Strategy(Strategy::Merge(_)) => "merge",
+        Reduce::Strategy(Strategy::Minimize(_)) => "minimize",
+        Reduce::Strategy(Strategy::Set(_)) => "set",
+        Reduce::Strategy(Strategy::Sum) => "sum",
+        Reduce::Unset => "unset",
     }
 }
 
@@ -111,7 +111,7 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
                 is_pattern_property: is_pattern,
                 title: prop_shape.title.clone().map(Into::into),
                 description: prop_shape.description.clone().map(Into::into),
-                reduction: reduce_description(prop_shape.reduction.clone()).to_string(),
+                reduction: reduce_description(prop_shape.reduce.clone()).to_string(),
                 pointer: ptr.to_string(),
                 types,
                 enum_vals,

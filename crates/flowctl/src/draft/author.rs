@@ -35,7 +35,7 @@ pub async fn author(
     upsert_draft_specs(client, draft_id, &*draft).await
 }
 
-async fn upsert_draft_specs(
+pub async fn upsert_draft_specs(
     client: &crate::Client,
     draft_id: models::Id,
     draft: &tables::DraftCatalog,
@@ -142,7 +142,7 @@ pub async fn do_author(
     Author { source }: &Author,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
-    let (mut draft, _) = local_specs::load_and_validate(&ctx.client, &source).await?;
+    let (mut draft, _live, _built) = local_specs::load_and_validate(&ctx.client, &source).await?;
 
     clear_draft(&ctx.client, draft_id).await?;
     let rows = author(&ctx.client, draft_id, &mut draft).await?;

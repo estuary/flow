@@ -23,18 +23,9 @@ fn assert_docs_fit_schema(docs: Vec<Value>, shape: Shape) -> bool {
     for val in docs {
         let res = validator.validate(None, &val);
         if let Ok(validation) = res {
-            if validation.validator.invalid() {
-                let errs = validation
-                    .validator
-                    .outcomes()
-                    .iter()
-                    .map(|(outcome, _span)| format!("{}", outcome))
-                    .collect_vec()
-                    .join(r#","#);
-
+            if let Err(invalid) = validation.ok() {
                 println!(
-                    r#"Schema {} failed validation for document {}: "{}\n"#,
-                    schema_yaml, val, errs
+                    r#"Schema {schema_yaml} failed validation for document {val}: {invalid:?}"#,
                 );
                 return false;
             }

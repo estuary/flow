@@ -1,0 +1,93 @@
+---
+source: crates/control-plane-api/src/discovers/specs.rs
+expression: out
+---
+(
+    [
+        Binding {
+            target: Collection(
+                "acmeCo/renamed",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered"},
+                ),
+            ),
+            collection_key: [],
+            is_fallback_key: false,
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
+        },
+        Binding {
+            target: Collection(
+                "acmeCo/renamed-namepaced",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered-namepaced"},
+                ),
+            ),
+            collection_key: [],
+            is_fallback_key: false,
+            resource_path: [
+                "foo",
+                "spacename",
+            ],
+            disable: false,
+        },
+        Binding {
+            target: Collection(
+                "acmeCo/other",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            collection_key: [],
+            is_fallback_key: false,
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
+        },
+        Binding {
+            target: Collection(
+                "test/collection/disabled",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            collection_key: [],
+            is_fallback_key: false,
+            resource_path: [
+                "disabled",
+            ],
+            disable: true,
+        },
+    ],
+    {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/other",
+            ),
+            disable: true,
+        },
+    },
+    {
+        [
+            "removed",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/discarded",
+            ),
+            disable: false,
+        },
+    },
+)

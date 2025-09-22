@@ -264,6 +264,11 @@
           ],
           "pattern": "^\\d+(s|m|h|d)$"
         },
+        "redactSalt": {
+          "title": "Salt used for redacting sensitive fields in captured documents.",
+          "description": "When provided, this salt is used instead of a generated one.",
+          "type": "string"
+        },
         "shards": {
           "title": "Template for shards of this capture task.",
           "$ref": "#/definitions/ShardTemplate"
@@ -487,6 +492,11 @@
         "using"
       ],
       "properties": {
+        "redactSalt": {
+          "title": "Salt used for redacting sensitive fields in derived documents.",
+          "description": "When provided, this salt is used instead of a generated one.",
+          "type": "string"
+        },
         "shards": {
           "title": "Template for shards of this derivation task.",
           "$ref": "#/definitions/ShardTemplate"

@@ -104,6 +104,7 @@ pub fn combiner_perf() {
         true, // Full reductions.
         vec![Extractor::new("/key", &doc::SerPolicy::noop())],
         "source-name",
+        Vec::new(),
         None,
         Validator::new(schema).unwrap(),
     );

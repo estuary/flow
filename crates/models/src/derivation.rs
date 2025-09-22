@@ -21,6 +21,15 @@ pub struct Derivation {
     /// your shuffled key types.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shuffle_key_types: Vec<ShuffleType>,
+    /// # Salt used for redacting sensitive fields in derived documents.
+    /// When provided, this salt is used instead of a generated one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_opt_bytes"
+    )]
+    #[schemars(schema_with = "crate::schema_opt_bytes")]
+    pub redact_salt: Option<bytes::Bytes>,
     /// # Template for shards of this derivation task.
     #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,

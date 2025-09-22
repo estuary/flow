@@ -108,10 +108,9 @@ async fn managed_build(source: url::Url) -> build::Output {
         return build::Output::new(draft, live, Default::default());
     }
 
-    build::validate(
+    build::local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        true,
         "",
         ops::tracing_log_handler,
         false,
@@ -223,7 +222,13 @@ async fn test_field_selection_recommended_fields() -> anyhow::Result<()> {
     let docs = vec![json!({
         "key": "first",
         "field_a": "foo",
-        "field_b": "bar"
+        "field_b": "bar",
+        "invoice": {
+            "additional_charges": [
+                { "cost": 12.34 },
+                { "cost": 56.78 }
+            ]
+        }
     })];
 
     for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {

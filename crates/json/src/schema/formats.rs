@@ -47,6 +47,8 @@ pub enum Format {
     #[serde(alias = "uint32", alias = "uint64")]
     Integer,
     Number,
+    #[serde(rename = "sha256")]
+    Sha256,
 }
 
 // Some are from https://github.com/JamesNK/Newtonsoft.Json.Schema/blob/master/Src/Newtonsoft.Json.Schema/Infrastructure/FormatHelpers.cs
@@ -165,6 +167,12 @@ impl Format {
                 BigDecimal::from_str(val).is_ok() && !val.contains("_")
                     || ["NaN", "Infinity", "-Infinity"].contains(&val),
             ),
+            Self::Sha256 => ValidationResult::from(
+                // See also doc::redact::Strategy::apply() for Sha256.
+                val.len() == 71
+                    && &val.as_bytes()[0..7] == b"sha256:"
+                    && val[7..].bytes().all(|b| b.is_ascii_hexdigit()),
+            ),
         }
     }
 
@@ -176,6 +184,7 @@ impl Format {
             _ if Format::DateTime.validate(val).is_ok() => Some(Format::DateTime),
             _ if Format::Date.validate(val).is_ok() => Some(Format::Date),
             _ if Format::Uuid.validate(val).is_ok() => Some(Format::Uuid),
+            _ if Format::Sha256.validate(val).is_ok() => Some(Format::Sha256),
             _ => None,
         }
     }
@@ -296,6 +305,53 @@ mod test {
             ("number", "Infinity", true),
             ("number", "-Infinity", true),
             ("number", "infinity", false),
+            (
+                "sha256",
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                true,
+            ),
+            (
+                "sha256",
+                "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                true,
+            ),
+            (
+                "sha256",
+                "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+                true,
+            ),
+            (
+                "sha256",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                false, // No prefix
+            ),
+            (
+                "sha256",
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85",
+                false, // Too short
+            ),
+            (
+                "sha256",
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8555",
+                false, // Too long
+            ),
+            (
+                "sha256",
+                "sha256:g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                false, // Invalid hex char 'g'
+            ),
+            (
+                "sha256",
+                "sha512:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                false, // Wrong prefix
+            ),
+            (
+                "sha256",
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85 ",
+                false, // Space at end
+            ),
+            ("sha256", "", false),
+            ("sha256", "sha256:", false), // Prefix only
         ] {
             let format: Format =
                 serde_json::from_value(serde_json::Value::String(format.to_string())).unwrap();
@@ -307,7 +363,9 @@ mod test {
                     panic!("expected {format:?} with {value} to be invalid, but it's valid")
                 }
                 ValidationResult::Invalid(reason) => {
-                    panic!("expected {format:?} with {value} to be valid, but it's invalid with {reason:?}")
+                    panic!(
+                        "expected {format:?} with {value} to be valid, but it's invalid with {reason:?}"
+                    )
                 }
             }
         }

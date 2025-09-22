@@ -940,10 +940,9 @@ mod test {
             return build::Output::new(draft, live, Default::default());
         }
 
-        build::validate(
+        build::local(
             models::Id::new([32; 8]), // pub_id
             models::Id::new([1; 8]),  // build_id
-            true,                     // allow_local
             "",                       // connector_network
             ops::tracing_log_handler,
             false, // don't no-op validations

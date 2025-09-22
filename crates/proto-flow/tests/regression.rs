@@ -38,6 +38,12 @@ fn ex_projections() -> Vec<flow::Projection> {
                 max_items: 20,
                 item_types: vec!["null".to_string(), "integer".to_string()],
             }),
+            enum_json_vec: vec![
+                json!("const-one").to_string().into(),
+                json!("const-two").to_string().into(),
+            ],
+            redact: flow::inference::Redact::Sha256 as i32,
+            reduce: flow::inference::Reduce::Merge as i32,
         }),
     }]
 }
@@ -208,6 +214,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         }],
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
+        redact_salt: b"test-capture-salt".to_vec().into(),
     }
 }
 
@@ -246,6 +253,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         ],
         network_ports: ex_network_ports(),
         inactive_transforms: Vec::new(),
+        redact_salt: b"test-derivation-salt".to_vec().into(),
     });
 
     spec

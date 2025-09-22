@@ -79,6 +79,10 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         } else {
             None
         },
+        // TODO(johnny): Populate these after connectors are updated.
+        enum_json_vec: Vec::new(),
+        reduce: flow::inference::Reduce::Unset as i32,
+        redact: flow::inference::Redact::Unset as i32,
     }
 }
 

@@ -1,0 +1,46 @@
+---
+source: crates/control-plane-api/src/discovers/specs.rs
+expression: fetched_capture
+---
+{
+  "endpoint": {
+    "connector": {
+      "image": "an/image",
+      "config": {
+        "$serde_json::private::RawValue": "{\"fetched\":1}"
+      }
+    }
+  },
+  "bindings": [
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"modified\":1,\"stream\":\"foo\"}"
+      },
+      "target": "acmeCo/renamed"
+    },
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"modified\":2,\"namespace\":\"spacename\",\"stream\":\"foo\"}"
+      },
+      "target": "acmeCo/renamed-namepaced"
+    },
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"modified\":0,\"stream\":\"bar\"}"
+      },
+      "disable": true,
+      "target": "acmeCo/other"
+    },
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"modified\":\"yup\",\"stream\":\"disabled\"}"
+      },
+      "disable": true,
+      "target": "test/collection/disabled"
+    }
+  ],
+  "interval": "34s",
+  "shards": {
+    "maxTxnDuration": "12s"
+  }
+}

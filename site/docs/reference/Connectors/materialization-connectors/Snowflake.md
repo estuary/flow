@@ -1,3 +1,6 @@
+
+import ReactPlayer from "react-player";
+
 # Snowflake
 
 This connector materializes Flow collections into tables in a Snowflake database.
@@ -8,6 +11,8 @@ From there, it transactionally applies the changes to the Snowflake table.
 
 [`ghcr.io/estuary/materialize-snowflake:dev`](https://ghcr.io/estuary/materialize-snowflake:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
+<ReactPlayer controls url="https://www.youtube.com/watch?v=nC_zDUz4SQw" />
+
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -17,6 +22,8 @@ To use this connector, you'll need:
     * A [schema](https://docs.snowflake.com/en/sql-reference/ddl-database.html) — a logical grouping of database objects — within the target database
     * A virtual warehouse
     * A user with a role assigned that grants the appropriate access levels to these resources.
+    * The correct timezone setting (see [Timestamp Data Type Mapping](#timestamp-data-type-mapping))
+
     See the [script below](#setup) for details.
 * Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
 for example, `orgname-accountname.snowflakecomputing.com`.
@@ -72,6 +79,8 @@ grant CREATE SCHEMA, MONITOR, USAGE on database identifier($database_name) to ro
 use role ACCOUNTADMIN;
 grant CREATE INTEGRATION on account to role identifier($estuary_role);
 use role sysadmin;
+-- Optional: Set the timestamp type to `TIMESTAMP_TZ` or `TIMESTAMP_NTZ`; otherwise defaults to using `TIMESTAMP_LTZ`
+-- ALTER USER $estuary_user SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_TZ';
 COMMIT;
 ```
 
@@ -276,13 +285,13 @@ Snowpipe Streaming is used by default for [delta updates](#delta-updates) bindin
 
 ## Timestamp Data Type Mapping
 
-Flow materializes timestamp data types as either `TIMESTAMP_LTZ` or
-`TIMESTAMP_TZ` columns in Snowflake. `TIMESTAMP_LTZ` is used unless the
-Snowflake  `TIMESTAMP_TYPE_MAPPING` configuration is set to `TIMESTAMP_TZ`,
-which will cause Flow to use `TIMESTAMP_TZ` columns. Flow never creates columns
-as `TIMESTAMP_NTZ`. See [Snowflake documentation on `TIMESTAMP_TYPE_MAPPING` for
-more
-information](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping).
+Flow materializes timestamp data types as `TIMESTAMP_LTZ` columns in Snowflake by default.
+Alternatively, the Snowflake `TIMESTAMP_TYPE_MAPPING` configuration can be specifically set to `TIMESTAMP_TZ` or `TIMESTAMP_NTZ` to use columns of these types.
+
+While Snowflake defaults to `TIMESTAMP_NTZ`, Flow never creates columns with NTZ timestamps unless the user's `TIMESTAMP_TYPE_MAPPING` is specifically configured to use `TIMESTAMP_NTZ`.
+
+See Snowflake documentation on the [`TIMESTAMP_TYPE_MAPPING` configuration](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping) and
+the [timestamp data types](https://docs.snowflake.com/en/sql-reference/data-types-datetime#label-datatypes-timestamp-variations) for more information.
 
 ## Reserved words
 

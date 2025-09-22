@@ -22,11 +22,15 @@ To use this connector, you'll need:
 * An S3 bucket to write files to. See [this
   guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) for
   instructions on setting up a new S3 bucket.
-* An AWS root or IAM user with the
+* An AWS root, IAM user or role with the
   [`s3:PutObject`](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html) permission
-  for the S3 bucket. For this user, you'll need the **access key** and **secret access key**. See
-  the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help
-  finding these credentials.
+  for the S3 bucket.
+
+  When authenticating as user, you'll need the **access key** and **secret access key**. See the
+  [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding
+  these credentials.  When authenticating using a role, you'll need the **region** and the **role
+  arn**.  Follow the steps in the [AWS IAM guide](/guides/iam-auth/aws.md) to setup the role.
+
 
 ## Configuration
 
@@ -37,18 +41,21 @@ Flow collections to your bucket.
 
 #### Endpoint
 
-| Property                           | Title                 | Description                                                                                                                                   | Type    | Required/Default |
-|------------------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
-| **`/bucket`**                      | Bucket                | Bucket to store materialized objects.                                                                                                         | string  | Required         |
-| **`/awsAccessKeyId`**              | AWS Access Key ID     | Access Key ID for writing data to the bucket.                                                                                                 | string  | Required         |
-| **`/awsSecretAccessKey`**          | AWS Secret Access key | Secret Access Key for writing data to the bucket.                                                                                             | string  | Required         |
-| **`/region`**                      | Region                | Region of the bucket to write to.                                                                                                             | string  | Required         |
-| **`/uploadInterval`**              | Upload Interval       | Frequency at which files will be uploaded.                                                                                                    | string  | 5m               |
-| `/prefix`                          | Prefix                | Optional prefix that will be used to store objects.                                                                                           | string  |                  |
-| `/fileSizeLimit`                   | File Size Limit       | Approximate maximum size of materialized files in bytes. Defaults to 10737418240 (10 GiB) if blank.                                           | integer |                  |
-| `/endpoint`                        | Custom S3 Endpoint    | The S3 endpoint URI to connect to. Use if you're materializing to a compatible API that isn't provided by AWS. Should normally be left blank. | string  |                  |
-| `/parquetConfig/rowGroupRowLimit`  | Row Group Row Limit   | Maximum number of rows in a row group. Defaults to 1000000 if blank.                                                                          | integer |                  |
-| `/parquetConfig/rowGroupByteLimit` | Row Group Byte Limit  | Approximate maximum number of bytes in a row group. Defaults to 536870912 (512 MiB) if blank.                                                 | integer |                  |
+| Property                             | Title                 | Description                                                                                                                                   | Type    | Required/Default |
+|--------------------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
+| **`/bucket`**                        | Bucket                | Bucket to store materialized objects.                                                                                                         | string  | Required         |
+| **`/region`**                        | Region                | Region of the bucket to write to.                                                                                                             | string  | Required         |
+| **`/uploadInterval`**                | Upload Interval       | Frequency at which files will be uploaded.                                                                                                    | string  | 5m               |
+| **`/credentials/auth_type`**         | Auth Type             | Method to use for authentication.  Must be set to either AWSAccessKey or AWSIAM.                                                              | string  | AWSAccessKey     |
+| `/credentials/awsAccessKeyId`        | AWS Access Key ID     | Access Key ID for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                              | string  |                  |
+| `/credentials/awsSecretAccessKey`    | AWS Secret Access key | Secret Access Key for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                          | string  |                  |
+| `/credentials/aws_role_arn`          | AWS Role ARN          | Role to assume for writing data to the bucket.  Required when using the `AWSIAM` auth type.                                                   | string  |                  |
+| `/credentials/aws_region`            | Region                | Region of the bucket to write to.  Required when using the `AWSIAM` auth type.                                                                | string  |                  |
+| `/prefix`                            | Prefix                | Optional prefix that will be used to store objects.                                                                                           | string  |                  |
+| `/fileSizeLimit`                     | File Size Limit       | Approximate maximum size of materialized files in bytes. Defaults to 10737418240 (10 GiB) if blank.                                           | integer |                  |
+| `/endpoint`                          | Custom S3 Endpoint    | The S3 endpoint URI to connect to. Use if you're materializing to a compatible API that isn't provided by AWS. Should normally be left blank. | string  |                  |
+| `/parquetConfig/rowGroupRowLimit`    | Row Group Row Limit   | Maximum number of rows in a row group. Defaults to 1000000 if blank.                                                                          | integer |                  |
+| `/parquetConfig/rowGroupByteLimit`   | Row Group Byte Limit  | Approximate maximum number of bytes in a row group. Defaults to 536870912 (512 MiB) if blank.                                                 | integer |                  |
 
 #### Bindings
 

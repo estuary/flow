@@ -26,7 +26,9 @@ pub struct Shape {
     /// Annotated `description` of the location.
     pub description: Option<Box<str>>,
     /// Location's `reduce` strategy.
-    pub reduction: Reduction,
+    pub reduce: Reduce,
+    /// Location's `redact` strategy.
+    pub redact: Redact,
     /// Does this location's schema flow from a `$ref`?
     pub provenance: Provenance,
     /// Default value of this document location, if any. A validation error is recorded if the
@@ -99,11 +101,21 @@ pub struct NumericShape {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Reduction {
+pub enum Reduce {
     // Equivalent to Option::None.
     Unset,
     // Reduce using a strategy.
     Strategy(crate::reduce::Strategy),
+    // Multiple concrete strategies may apply at the location.
+    Multiple,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Redact {
+    // Equivalent to Option::None.
+    Unset,
+    // Redact using a strategy.
+    Strategy(crate::redact::Strategy),
     // Multiple concrete strategies may apply at the location.
     Multiple,
 }
@@ -169,7 +181,8 @@ impl Shape {
             enum_: None,
             title: None,
             description: None,
-            reduction: Reduction::Unset,
+            reduce: Reduce::Unset,
+            redact: Redact::Unset,
             provenance: Provenance::Unset,
             default: None,
             secret: None,
@@ -189,7 +202,8 @@ impl Shape {
             enum_: None,
             title: None,
             description: None,
-            reduction: Reduction::Unset,
+            reduce: Reduce::Unset,
+            redact: Redact::Unset,
             provenance: Provenance::Inline,
             default: None,
             secret: None,

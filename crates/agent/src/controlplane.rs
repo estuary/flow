@@ -12,15 +12,15 @@ use sqlx::types::Uuid;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 
-use crate::{
-    discovers::{Discover, DiscoverOutput},
-    logs,
-    proxy_connectors::MakeConnectors,
+use control_plane_api::{
+    connector_tags, controllers, data_plane,
+    discovers::{Discover, DiscoverHandler, DiscoverOutput},
+    live_specs, logs,
+    proxy_connectors::{DiscoverConnectors, MakeConnectors},
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
         PublicationResult, Publisher,
     },
-    DiscoverConnectors, DiscoverHandler,
 };
 
 macro_rules! unwrap_single {
@@ -60,6 +60,9 @@ pub trait ControlPlane: Send + Sync {
     /// Returns the current time. Having controllers access the current time through this api
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
+
+    /// Returns whether an auto-discover is allowed to happen at this time.
+    fn can_auto_discover(&self) -> bool;
 
     async fn get_config_updates(
         &self,
@@ -200,6 +203,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
     pub decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    pub auto_discover_probability: f64,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -211,6 +215,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,
         decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+        auto_discover_probability: f64,
     ) -> Self {
         Self {
             pool,
@@ -220,6 +225,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             discovers_handler,
             logs_tx,
             decrypted_hmac_keys,
+            auto_discover_probability,
         }
     }
 
@@ -232,25 +238,11 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         Option<broker::JournalSpec>, // ops logs template.
         Option<broker::JournalSpec>, // ops stats template.
     )> {
-        let mut fetched = agent_sql::data_plane::fetch_data_planes(
-            &self.pool,
-            vec![data_plane_id],
-            "", // Don't fetch default data-plane.
-            uuid::Uuid::nil(),
-        )
-        .await?;
-
-        let Some(mut data_plane) = fetched.pop() else {
-            anyhow::bail!("data-plane {data_plane_id} does not exist");
-        };
-        let ops_logs_template = agent_sql::data_plane::fetch_ops_journal_template(
-            &self.pool,
-            &data_plane.ops_logs_name,
-        );
-        let ops_stats_template = agent_sql::data_plane::fetch_ops_journal_template(
-            &self.pool,
-            &data_plane.ops_stats_name,
-        );
+        let mut data_plane = data_plane::fetch_data_plane(&self.pool, data_plane_id).await?;
+        let ops_logs_template =
+            data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_logs_name);
+        let ops_stats_template =
+            data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_stats_name);
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
@@ -298,9 +290,18 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 
 #[async_trait::async_trait]
 impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
+    fn can_auto_discover(&self) -> bool {
+        if self.auto_discover_probability == 1.0 {
+            return true;
+        } else if self.auto_discover_probability == 0.0 {
+            return false;
+        }
+        rand::random::<f64>() < self.auto_discover_probability
+    }
+
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
-        agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;
+        controllers::notify_dependents(live_spec_id, &self.pool).await?;
         Ok(())
     }
 
@@ -424,13 +425,12 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
         let (image_name, image_tag) = models::split_image_tag(&image);
         let Some(row) =
-            agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool)
-                .await?
+            connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool).await?
         else {
             anyhow::bail!("no connector spec found for image '{}'", image);
         };
 
-        let agent_sql::connector_tags::ConnectorSpec {
+        let connector_tags::ConnectorSpec {
             protocol,
             documentation_url,
             endpoint_config_schema,
@@ -466,7 +466,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
         let names = names.into_iter().collect::<Vec<_>>();
-        let mut live = crate::live_specs::get_live_specs(
+        let mut live = live_specs::get_live_specs(
             self.system_user_id,
             &names,
             None, // don't filter based on user capability
@@ -482,11 +482,11 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             .map(|c| c.collection.as_str())
             .collect::<Vec<_>>();
         let inferred_schema_rows =
-            agent_sql::live_specs::fetch_inferred_schemas(&collection_names, &self.pool)
+            live_specs::fetch_inferred_schemas(&collection_names, &self.pool)
                 .await
                 .context("fetching inferred schemas")?;
         for row in inferred_schema_rows {
-            let agent_sql::live_specs::InferredSchemaRow {
+            let live_specs::InferredSchemaRow {
                 collection_name,
                 schema,
                 md5,
@@ -522,16 +522,8 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             system_user_id,
             ..
         } = self;
-        let data_planes = agent_sql::data_plane::fetch_data_planes(
-            pool,
-            vec![data_plane_id],
-            "not-a-real-default",
-            *system_user_id,
-        )
-        .await?;
-        let Some(data_plane) = data_planes.into_iter().next() else {
-            anyhow::bail!("data plane '{data_plane_id}' not found");
-        };
+        let data_plane = data_plane::fetch_data_plane(&self.pool, data_plane_id).await?;
+
         let req = Discover {
             user_id: *system_user_id,
             filter_user_authz: false,

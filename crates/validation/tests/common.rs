@@ -18,7 +18,6 @@ pub struct Outcome {
     pub imports: tables::Imports,
     pub materializations: tables::DraftMaterializations,
     pub resources: tables::Resources,
-    pub storage_mappings: tables::StorageMappings,
     pub tests: tables::DraftTests,
 }
 
@@ -38,7 +37,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         } = self;
 
@@ -55,7 +53,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         ]
     }
@@ -75,7 +72,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         } = self;
 
@@ -92,7 +88,6 @@ impl Outcome {
             imports,
             materializations,
             resources,
-            storage_mappings,
             tests,
         ]
     }
@@ -120,12 +115,11 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         config: models::RawValue::from_str("{\"live\":\"config\"}").unwrap(),
     };
 
-    for (control_id, mock) in &mock_calls.data_planes {
+    for (control_id, _mock) in &mock_calls.data_planes {
         live.data_planes.insert_row(
             control_id,
-            "ops/dp/public/test".to_string(),
+            format!("ops/dp/public/test-{control_id}"),
             "the-data-plane.dp.estuary-data.com".to_string(),
-            mock.default,
             vec!["hmac-key".to_string()],
             models::RawValue::from_string("{}".to_string()).unwrap(),
             models::Collection::new("ops/logs"),
@@ -145,6 +139,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             interval: std::time::Duration::from_secs(32),
             shards: models::ShardTemplate::default(),
             delete: false,
+            redact_salt: None,
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
             id: format!("capture/{capture}/0000000000000001"),
@@ -185,6 +180,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             shard_template: Some(shard_template),
             config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
+            redact_salt: b"pass-through-capture-salt".as_slice().into(),
         };
         live.captures.insert_row(
             capture,
@@ -260,6 +256,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 shuffle_key_types: Vec::new(),
                 transforms,
                 inactive_transforms: Vec::new(),
+                redact_salt: b"pass-through-derivation-salt".as_slice().into(),
             })
         } else {
             None
@@ -384,8 +381,12 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
-        live.storage_mappings
-            .insert_row(prefix, models::Id::zero(), &storage.stores);
+        live.storage_mappings.insert_row(
+            prefix,
+            models::Id::zero(),
+            &storage.stores,
+            &storage.data_planes,
+        );
     }
     // Allow fixtures to omit a storage mapping by providing a default.
     if mock_calls.storage_mappings.is_empty() {
@@ -394,21 +395,35 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             prefix: None,
             region: None,
         });
-        live.storage_mappings
-            .insert_row(models::Prefix::new(""), models::Id::zero(), vec![store]);
+        let data_planes: Vec<_> = live
+            .data_planes
+            .iter()
+            .map(|r| r.data_plane_name.clone())
+            .collect();
+        live.storage_mappings.insert_row(
+            models::Prefix::new(""),
+            models::Id::zero(),
+            vec![store],
+            data_planes,
+        );
     }
+
+    // Use a constant initialization vector for deterministic test output.
+    const TEST_INIT_VECTOR: &[u8] = b"test-init-vector";
 
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
         models::Id::new([33; 8]),
         &url::Url::parse("file:///project/root").unwrap(),
         &mock_calls,
+        None, // No default data plane name.
         &draft,
         &live,
         false, // Don't fail-fast.
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
+        TEST_INIT_VECTOR,
     ));
 
     let tables::DraftCatalog {
@@ -421,10 +436,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         resources,
         tests,
     } = draft;
-
-    let tables::LiveCatalog {
-        storage_mappings, ..
-    } = live;
 
     let tables::Validations {
         built_captures,
@@ -447,7 +458,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         imports,
         materializations,
         resources,
-        storage_mappings,
         tests,
     }
 }
@@ -556,10 +566,7 @@ struct MockLiveTest {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct MockDataPlane {
-    #[serde(default)]
-    default: bool,
-}
+struct MockDataPlane {}
 
 #[derive(Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

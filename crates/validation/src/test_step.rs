@@ -9,7 +9,9 @@ pub fn walk_all_tests(
     draft_tests: &tables::DraftTests,
     live_tests: &tables::LiveTests,
     built_collections: &tables::BuiltCollections,
+    data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltTests {
     // Outer join of live and draft tests.
@@ -25,7 +27,9 @@ pub fn walk_all_tests(
             build_id,
             eob,
             built_collections,
+            data_planes,
             dependencies,
+            storage_mappings,
             errors,
         )
     })
@@ -37,7 +41,9 @@ fn walk_test(
     build_id: models::Id,
     eob: EOB<&tables::LiveTest, &tables::DraftTest>,
     built_collections: &tables::BuiltCollections,
+    data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltTest> {
     let (
@@ -45,15 +51,26 @@ fn walk_test(
         scope,
         model,
         control_id,
-        _data_plane_id,
+        _data_plane,
+        _partition_stores,
+        _recovery_stores,
         expect_pub_id,
         expect_build_id,
         _live_model,
         live_spec,
         is_touch,
-    ) = match walk_transition(pub_id, build_id, Some(models::Id::zero()), eob, errors) {
+    ) = match walk_transition(
+        pub_id,
+        build_id,
+        "test",
+        None,
+        eob,
+        data_planes,
+        storage_mappings,
+        errors,
+    ) {
         Ok(ok) => ok,
-        Err(built) => return Some(built),
+        Err(built) => return built,
     };
     let scope = Scope::new(scope);
     let model_fixes = Vec::new();
@@ -164,7 +181,8 @@ pub fn walk_test_step<'a>(
 
     let (spec, _) = reference::walk_reference(
         scope.push_prop("collection"),
-        "this test step",
+        "test step",
+        || format!("at index {step_index}"),
         collection,
         built_collections,
         Some(errors),
@@ -181,10 +199,11 @@ pub fn walk_test_step<'a>(
 
         for (doc_index, doc) in documents.iter().enumerate() {
             for schema in [&mut read_schema, &mut write_schema] {
-                if let Some(err) = schema
+                if let Some(invalid) = schema
                     .as_mut()
                     .and_then(|s| s.validator.validate(None, doc).unwrap().ok().err())
                 {
+                    let err = invalid.revalidate_with_context(doc);
                     Error::IngestDocInvalid(err)
                         .push(scope.push_prop("documents").push_item(doc_index), errors);
                 }

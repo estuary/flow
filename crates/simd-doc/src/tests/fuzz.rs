@@ -4,6 +4,7 @@ use std::hash::Hasher;
 use xxhash_rust::xxh3::Xxh3;
 
 use super::ArbitraryValue;
+use doc::AsNode;
 
 quickcheck! {
     fn transcode_matches_fallback_fuzz(input: Vec<ArbitraryValue>) -> bool {
@@ -14,7 +15,7 @@ quickcheck! {
     fn parse_matches_fallback_fuzz(input: Vec<ArbitraryValue>) -> bool {
         let alloc = doc::Allocator::new();
         let (simd, fallback) = super::parsed_and_fallback(&mut extend_fixture(Vec::new(), input), &alloc);
-        return simd.iter().zip(fallback.iter()).all(|((l_d, l_o), (r_d, r_o))| l_o == r_o && doc::compare(l_d, r_d).is_eq());
+        return simd.iter().zip(fallback.iter()).all(|((l_d, l_o), (r_d, r_o))| l_o == r_o && doc::compare(l_d, r_d).is_eq() && l_d.tape_length() == r_d.tape_length());
     }
 
     fn parse_and_transcode_with_errors( in1: Vec<ArbitraryValue>, in2: Vec<ArbitraryValue>, in3: Vec<ArbitraryValue>, s1: u16, s2: u16) -> bool {

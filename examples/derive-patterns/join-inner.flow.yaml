@@ -47,29 +47,30 @@ collections:
             ON CONFLICT (key) DO UPDATE SET rhs = JSON_INSERT(COALESCE(rhs, '[]'), '$[#]', $String);
             -- now emit the joined result
             SELECT json FROM joined_output WHERE key = $Key;
-   
+
 tests:
   patterns/test/inner-join:
-    - ingest:
-        collection: patterns/ints
-        documents: [{ Key: key, Int: 5 }]
-    - verify:
-        description: Both sides must be matched before a document is published.
-        collection: patterns/inner-join
-        documents: []
-    - ingest:
-        collection: patterns/strings
-        documents: [{ Key: key, String: hello }]
-    - verify:
-        collection: patterns/inner-join
-        documents: [{ Key: key, LHS: 5, RHS: [hello] }]
-    - ingest:
-        collection: patterns/ints
-        documents: [{ Key: key, Int: 7 }]
-    - ingest:
-        collection: patterns/strings
-        documents: [{ Key: key, String: goodbye }]
-    - verify:
-        description: Reacts to accumulated updates of both sides.
-        collection: patterns/inner-join
-        documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
+    steps:
+      - ingest:
+          collection: patterns/ints
+          documents: [{ Key: key, Int: 5 }]
+      - verify:
+          description: Both sides must be matched before a document is published.
+          collection: patterns/inner-join
+          documents: []
+      - ingest:
+          collection: patterns/strings
+          documents: [{ Key: key, String: hello }]
+      - verify:
+          collection: patterns/inner-join
+          documents: [{ Key: key, LHS: 5, RHS: [hello] }]
+      - ingest:
+          collection: patterns/ints
+          documents: [{ Key: key, Int: 7 }]
+      - ingest:
+          collection: patterns/strings
+          documents: [{ Key: key, String: goodbye }]
+      - verify:
+          description: Reacts to accumulated updates of both sides.
+          collection: patterns/inner-join
+          documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]

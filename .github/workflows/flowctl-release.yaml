@@ -13,6 +13,7 @@ jobs:
       ASSET_NAME: ${{ matrix.config.assetName }}
       # build.rs reads this env variable and uses to set the value that's printed by flowctl --version
       FLOW_VERSION: ${{ github.event.release.tag_name }}
+      SQLX_OFFLINE: "1"
     strategy:
       fail-fast: false
       matrix:

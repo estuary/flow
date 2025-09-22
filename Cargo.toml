@@ -67,6 +67,7 @@ futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 fxhash = "0.2" # Used in `json` crate. Replace with xxhash.
+graphql_client = "*"
 hex = "0.4.3"
 hexdump = "0.1"
 humantime = "2.1"
@@ -125,7 +126,7 @@ rocksdb = { version = "0.22", default-features = false, features = [
     "snappy",
     "rtti",
 ] }
-rkyv = { version = "0.7", features = ["archive_le"] }
+rkyv = { version = "0" }
 rsasl = { version = "2.1.0", default-features = false, features = [
     "provider",
     "config_builder",
@@ -142,6 +143,7 @@ serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0.8"
 serde-transcode = "1.1"
 serde-wasm-bindgen = "0.6.5"
+sha2 = "0"
 size = "0.4"
 socket2 = "0.5.7"
 strsim = "0.10"
@@ -225,6 +227,22 @@ aws-credential-types = "1.2.0"
 aws-msk-iam-sasl-signer = "1.0.0"
 aws-sdk-sts = "1.16"
 
+warp = "0.3.3" # TODO(johnny) remove me in favor of axum
+# Used for the agent http server
+axum = { version = "0.7", features = ["macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-extra = { version = "0.9", features = ["typed-header", "query"] }
+async-graphql = { version = "7.0", features = [
+    "chrono",
+    "dataloader",
+    "raw_value",
+    "tracing",
+    "uuid",
+    "url",
+    "graphiql",
+] }
+async-graphql-axum = "7.0"
+
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
 criterion = "0.3"
@@ -249,11 +267,6 @@ pbjson-build = "0.7"
 prost-build = "0.13"
 tonic-build = "0.12"
 
-warp = "0.3.3" # TODO(johnny) remove me in favor of axum
-# Used for the agent http server
-axum = { version = "0.7", features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-axum-extra = { version = "0.9", features = ["typed-header", "query"] }
 
 [profile.release]
 incremental = true

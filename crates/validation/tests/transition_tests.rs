@@ -185,6 +185,23 @@ driver:
 }
 
 #[test]
+fn test_update_but_missing_data_planes() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+    "12:12:12:12:12:12:12:01": null
+    "12:12:12:12:12:12:12:02": null
+    "12:12:12:12:12:12:12:03": null
+    "12:12:12:12:12:12:12:04": null
+    "#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_live_last_build_id_is_larger_than_current_build_id() {
     let errors = common::run_errors(
         MODEL_YAML,
@@ -551,9 +568,12 @@ fn test_cronut_migration_errors() {
         MODEL_YAML,
         r#"
 driver:
+  dataPlanes:
+    "0e:8e:17:d0:4f:ac:d4:00": {} # Cronut ID.
+
   liveCollections:
     the/collection:
-      dataPlaneId: "0e:8e:17:d0:4f:ac:d4:00" # Cronut ID.
+      dataPlaneId: "0e:8e:17:d0:4f:ac:d4:00"
     "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -575,4 +595,40 @@ driver:
         &outcome.built_materializations[0].model,
         &outcome.built_materializations[0].model_fixes
     ));
+}
+
+#[test]
+fn test_manual_redact_salt_override() {
+    // Test that manually specified redact_salt overrides existing salt
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  captures:
+    the/capture:
+      # Manually specify a redact salt (base64 encoded)
+      redactSalt: bWFudWFsLWNhcHR1cmUtc2FsdA==
+
+  collections:
+    the/derivation:
+      derive:
+        redactSalt: bWFudWFsLWRlcml2YXRpb24tc2FsdA==
+    "#,
+    );
+
+    // Verify that the manual salts are used in the built specs
+    let capture_salt = &outcome.built_captures[0].spec.as_ref().unwrap().redact_salt;
+    let derivation_salt = &outcome.built_collections[1]
+        .spec
+        .as_ref()
+        .unwrap()
+        .derivation
+        .as_ref()
+        .unwrap()
+        .redact_salt;
+
+    assert_eq!(capture_salt.as_ref(), b"manual-capture-salt");
+    assert_eq!(derivation_salt.as_ref(), b"manual-derivation-salt");
+
+    insta::assert_debug_snapshot!(outcome);
 }

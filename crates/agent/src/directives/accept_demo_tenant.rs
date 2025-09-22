@@ -34,7 +34,7 @@ pub async fn apply(
         )));
     }
 
-    agent_sql::directives::accept_demo_tenant::create_demo_role_grant(
+    control_plane_api::directives::accept_demo_tenant::create_demo_role_grant(
         Some("applied via directive".to_string()),
         &tenant,
         txn,

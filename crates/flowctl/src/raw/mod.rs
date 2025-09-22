@@ -2,6 +2,7 @@ use crate::{
     collection::read::ReadBounds,
     local_specs,
     ops::{OpsCollection, TaskSelector},
+    output,
 };
 use anyhow::Context;
 use doc::combine;
@@ -24,9 +25,18 @@ pub struct Advanced {
     cmd: Command,
 }
 
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Alerts {
+    #[clap(long)]
+    prefix: Vec<String>,
+}
+
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
+    /// Fetch currently firing alerts
+    Alerts(Alerts),
     /// Issue a custom table select request to the API.
     ///
     /// Requests are issued to a specific --table and support optional
@@ -213,6 +223,7 @@ impl BearerLogs {
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
+            Command::Alerts(alerts) => do_alerts(ctx, alerts).await,
             Command::Get(get) => do_get(ctx, get).await,
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
@@ -234,6 +245,28 @@ impl Advanced {
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
         }
+    }
+}
+
+async fn do_alerts(ctx: &mut crate::CliContext, alerts: &Alerts) -> anyhow::Result<()> {
+    let resp = flow_client::alerts::fetch_firing_alerts(&ctx.client, alerts.prefix.clone()).await?;
+    ctx.write_all(resp, ())
+}
+
+impl output::CliOutput for flow_client::alerts::FiringAlert {
+    type TableAlt = ();
+
+    type CellValue = output::JsonCell;
+
+    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+        vec!["Catalog Name", "Fired At", "Alert Type", "Error detail"]
+    }
+
+    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+        output::to_table_row(
+            self,
+            &["/catalogName", "/firedAt", "/alertType", "/arguments/error"],
+        )
     }
 }
 
@@ -294,10 +327,9 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let live = resolver.resolve(draft.all_catalog_names()).await;
     let live = local_specs::surface_errors(live.into_result())?;
 
-    let output = build::validate(
+    let output = build::local(
         pub_id,
         build_id,
-        true, // Allow local connectors.
         &connector_network,
         ops::tracing_log_handler,
         false, // Don't no-op captures.
@@ -336,7 +368,8 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, validations) = local_specs::load_and_validate(&ctx.client, source).await?;
+    let (_sources, _live, validations) =
+        local_specs::load_and_validate(&ctx.client, source).await?;
 
     let collection = match validations
         .built_collections
@@ -358,6 +391,7 @@ async fn do_combine(
             true, // Full reductions. Make this an option?
             extractors::for_key(&spec.key, &spec.projections, &doc::SerPolicy::noop())?,
             "source",
+            Vec::new(), // Empty redact_salt
             None,
             doc::Validator::new(schema).unwrap(),
         ),

@@ -92,7 +92,7 @@ impl Preview {
         let source = build::arg_source_to_url(source, false)?;
 
         // TODO(johnny): validate only `name`, if presented.
-        let (_sources, validations) =
+        let (_sources, _live, validations) =
             local_specs::load_and_validate_full(&ctx.client, source.as_str(), &network).await?;
 
         let runtime = runtime::Runtime::new(

@@ -1,22 +1,25 @@
 collections:
   example/reductions/min-max-key:
     schema:
-      type: object
-      reduce: { strategy: merge }
-      properties:
-        key: { type: string }
-        min:
-          $anchor: min-max-value
+      $defs:
+        inner:
+          $anchor: inner
           type: array
           items:
             - type: string
             - type: number
               reduce: { strategy: sum }
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        min:
+          $ref: "#inner"
           reduce:
             strategy: minimize
             key: [/0]
         max:
-          $ref: "#min-max-value"
+          $ref: "#inner"
           reduce:
             strategy: maximize
             key: [/0]
@@ -25,15 +28,16 @@ collections:
 
 tests:
   example/reductions/test/min-max-by-extracted-key:
-    - ingest:
-        collection: example/reductions/min-max-key
-        documents:
-          - { key: "key", min: ["a", 1], max: ["a", 1] }
-          - { key: "key", min: ["c", 2], max: ["c", 2] }
-          - { key: "key", min: ["b", 3], max: ["b", 3] }
-          - { key: "key", min: ["a", 4], max: ["a", 4] }
-    - verify:
-        collection: example/reductions/min-max-key
-        documents:
-          # Min of equal keys ["a", 1] and ["a", 4] => ["a", 5].
-          - { key: "key", min: ["a", 5], max: ["c", 2] }
+    steps:
+      - ingest:
+          collection: example/reductions/min-max-key
+          documents:
+            - { key: "key", min: ["a", 1], max: ["a", 1] }
+            - { key: "key", min: ["c", 2], max: ["c", 2] }
+            - { key: "key", min: ["b", 3], max: ["b", 3] }
+            - { key: "key", min: ["a", 4], max: ["a", 4] }
+      - verify:
+          collection: example/reductions/min-max-key
+          documents:
+            # Min of equal keys ["a", 1] and ["a", 4] => ["a", 5].
+            - { key: "key", min: ["a", 5], max: ["c", 2] }

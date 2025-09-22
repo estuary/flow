@@ -98,8 +98,8 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
             Validator::new(schema).unwrap(),
         )
     };
-    let memtable_1 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter()));
-    let memtable_2 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter()));
+    let memtable_1 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter(), Vec::new()));
+    let memtable_2 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter(), Vec::new()));
 
     let seed = json!({"hello": "world", "null": null});
     let mut expect = seed.clone();

@@ -232,6 +232,9 @@ impl Read {
             if timeout_at > self.stream_exp {
                 timeout_at = self.stream_exp;
             }
+            if timeout_at < now {
+                anyhow::bail!("Encountered a read stream with token expiring in the past. This should not happen, cancelling the read.");
+            }
             tokio::time::Instant::now() + timeout_at.duration_since(now)?
         };
 
@@ -259,7 +262,7 @@ impl Read {
                 Some(resp) => match resp {
                     Ok(data @ ReadJsonLine::Meta(_)) => Ok(data),
                     Ok(ReadJsonLine::Doc { root, next_offset }) => match root.get() {
-                        doc::heap::ArchivedNode::Object(_) => {
+                        doc::heap::ArchivedNode::Object(_, _) => {
                             Ok(ReadJsonLine::Doc { root, next_offset })
                         }
                         non_object => {

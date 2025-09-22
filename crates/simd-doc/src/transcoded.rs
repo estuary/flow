@@ -4,7 +4,7 @@ pub struct Transcoded {
     /// Begin input offset of this Transcoded instance.
     pub offset: i64,
 
-    pub(crate) v: rkyv::AlignedVec,
+    pub(crate) v: rkyv::util::AlignedVec,
 }
 
 impl Transcoded {
@@ -29,7 +29,7 @@ impl Transcoded {
         }
     }
 
-    pub fn into_inner(self) -> rkyv::AlignedVec {
+    pub fn into_inner(self) -> rkyv::util::AlignedVec {
         self.v
     }
 }

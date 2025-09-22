@@ -33,10 +33,10 @@ Finally, in the details page of your role, head to "Trust relationships" tab and
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:aud": "<ARN OF ROLE>"
+                    "openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:aud": "<ARN OF ROLE>"
                 },
                 "StringLike": {
-                    "estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:sub": "acmeCo/*"
+                    "openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/:sub": "acmeCo/*"
                 }
             }
         }

@@ -19,7 +19,8 @@ fn to_sub_schema(shape: Shape) -> Schema {
         enum_,
         title,
         description,
-        reduction,
+        reduce,
+        redact,
         provenance: _, // Not mapped to a schema.
         default,
         secret,
@@ -168,11 +169,19 @@ fn to_sub_schema(shape: Shape) -> Schema {
                 .insert("secret".to_string(), serde_json::json!(true));
         }
 
-        match reduction {
-            Reduction::Unset | Reduction::Multiple => {}
-            Reduction::Strategy(strategy) => {
+        match reduce {
+            Reduce::Unset | Reduce::Multiple => {}
+            Reduce::Strategy(strategy) => {
                 out.extensions
                     .insert("reduce".to_string(), serde_json::json!(strategy));
+            }
+        }
+
+        match redact {
+            Redact::Unset | Redact::Multiple => {}
+            Redact::Strategy(strategy) => {
+                out.extensions
+                    .insert("redact".to_string(), serde_json::json!(strategy));
             }
         }
 
@@ -264,6 +273,9 @@ mod tests {
                     "contentMediaType": "application/some.mime",
                     "reduce": {
                         "strategy": "append"
+                    },
+                    "redact": {
+                        "strategy": "sha256"
                     }
                 },
                 "emptyObj": {
@@ -299,7 +311,11 @@ mod tests {
                     "type": "array",
                     "items": false,
                 },
-                "any": {},
+                "any": {
+                    "redact": {
+                        "strategy": "block"
+                    }
+                },
             },
             "patternProperties": {
                 "hello.*": {"type": "boolean"},

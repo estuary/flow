@@ -55,6 +55,9 @@ macro_rules! string_reference_types {
         #[schemars(example = "Self::example")]
         pub struct $Wrapper(#[schemars(schema_with = $WrapperStr)] String);
 
+        #[cfg(feature = "async-graphql")]
+        async_graphql::scalar!($Wrapper);
+
         impl $Wrapper {
             pub fn new(s: impl Into<String>) -> Self {
                 Self(s.into())

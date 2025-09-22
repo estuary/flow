@@ -1,6 +1,6 @@
 use crate::{
     status::{connector::ConnectorStatus, ControllerStatus},
-    CatalogType, Id,
+    Id,
 };
 
 use super::activation::ShardsStatus;

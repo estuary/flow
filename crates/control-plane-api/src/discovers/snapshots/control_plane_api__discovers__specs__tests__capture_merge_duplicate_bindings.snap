@@ -1,0 +1,5 @@
+---
+source: crates/control-plane-api/src/discovers/specs.rs
+expression: error
+---
+existing capture model contains multiple bindings with the same resource path (foo)

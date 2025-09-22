@@ -1,27 +1,23 @@
-pub mod api;
 pub(crate) mod connector_tags;
 pub mod controllers;
 pub(crate) mod controlplane;
 mod directives;
 mod discovers;
-pub(crate) mod draft;
-mod jobs;
-pub(crate) mod live_specs;
-pub mod logs;
-mod proxy_connectors;
 pub mod publications;
 
 #[cfg(test)]
 pub(crate) mod integration_tests;
 
-pub use agent_sql::{CatalogType, Id};
 use anyhow::Context;
 pub use connector_tags::TagExecutor;
+pub use control_plane_api::proxy_connectors::{
+    DataPlaneConnectors, DiscoverConnectors, ProxyConnectors,
+};
 pub use controlplane::{ControlPlane, PGControlPlane};
 pub use directives::DirectiveHandler;
-pub use discovers::DiscoverHandler;
+pub use discovers::DiscoverExecutor;
 use lazy_static::lazy_static;
-pub use proxy_connectors::{DataPlaneConnectors, DiscoverConnectors, ProxyConnectors};
+pub use models::{CatalogType, Id};
 use regex::Regex;
 
 lazy_static! {

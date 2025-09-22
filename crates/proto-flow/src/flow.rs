@@ -88,6 +88,15 @@ pub struct Inference {
     pub numeric: ::core::option::Option<inference::Numeric>,
     #[prost(message, optional, tag = "10")]
     pub array: ::core::option::Option<inference::Array>,
+    /// Possible enum values from the schema, or empty if the location is not an enum.
+    #[prost(bytes = "bytes", repeated, tag = "11")]
+    pub enum_json_vec: ::prost::alloc::vec::Vec<::prost::bytes::Bytes>,
+    /// Applied `reduce` strategy.
+    #[prost(enumeration = "inference::Reduce", tag = "12")]
+    pub reduce: i32,
+    /// Applied `redact` strategy.
+    #[prost(enumeration = "inference::Redact", tag = "13")]
+    pub redact: i32,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -210,6 +219,113 @@ pub mod inference {
             }
         }
     }
+    /// Reduce enumerates the possible `reduce` strategies for a location.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Reduce {
+        Unset = 0,
+        Multiple = 1,
+        Append = 2,
+        FirstWriteWins = 3,
+        LastWriteWins = 4,
+        Maximize = 5,
+        Merge = 6,
+        Minimize = 7,
+        Set = 8,
+        Sum = 9,
+        JsonSchemaMerge = 10,
+    }
+    impl Reduce {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Reduce::Unset => "REDUCE_UNSET",
+                Reduce::Multiple => "REDUCE_MULTIPLE",
+                Reduce::Append => "REDUCE_APPEND",
+                Reduce::FirstWriteWins => "REDUCE_FIRST_WRITE_WINS",
+                Reduce::LastWriteWins => "REDUCE_LAST_WRITE_WINS",
+                Reduce::Maximize => "REDUCE_MAXIMIZE",
+                Reduce::Merge => "REDUCE_MERGE",
+                Reduce::Minimize => "REDUCE_MINIMIZE",
+                Reduce::Set => "REDUCE_SET",
+                Reduce::Sum => "REDUCE_SUM",
+                Reduce::JsonSchemaMerge => "REDUCE_JSON_SCHEMA_MERGE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "REDUCE_UNSET" => Some(Self::Unset),
+                "REDUCE_MULTIPLE" => Some(Self::Multiple),
+                "REDUCE_APPEND" => Some(Self::Append),
+                "REDUCE_FIRST_WRITE_WINS" => Some(Self::FirstWriteWins),
+                "REDUCE_LAST_WRITE_WINS" => Some(Self::LastWriteWins),
+                "REDUCE_MAXIMIZE" => Some(Self::Maximize),
+                "REDUCE_MERGE" => Some(Self::Merge),
+                "REDUCE_MINIMIZE" => Some(Self::Minimize),
+                "REDUCE_SET" => Some(Self::Set),
+                "REDUCE_SUM" => Some(Self::Sum),
+                "REDUCE_JSON_SCHEMA_MERGE" => Some(Self::JsonSchemaMerge),
+                _ => None,
+            }
+        }
+    }
+    /// Redact enumerates the possible `redact` strategies for a location.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Redact {
+        Unset = 0,
+        Multiple = 1,
+        Block = 2,
+        Sha256 = 3,
+    }
+    impl Redact {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Redact::Unset => "REDACT_UNSET",
+                Redact::Multiple => "REDACT_MULTIPLE",
+                Redact::Block => "REDACT_BLOCK",
+                Redact::Sha256 => "REDACT_SHA256",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "REDACT_UNSET" => Some(Self::Unset),
+                "REDACT_MULTIPLE" => Some(Self::Multiple),
+                "REDACT_BLOCK" => Some(Self::Block),
+                "REDACT_SHA256" => Some(Self::Sha256),
+                _ => None,
+            }
+        }
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -299,6 +415,9 @@ pub mod collection_spec {
         /// overlap with active transforms.
         #[prost(message, repeated, tag = "8")]
         pub inactive_transforms: ::prost::alloc::vec::Vec<derivation::Transform>,
+        /// Salt used for redacting sensitive fields in derived documents.
+        #[prost(bytes = "bytes", tag = "9")]
+        pub redact_salt: ::prost::bytes::Bytes,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -502,6 +621,9 @@ pub struct CaptureSpec {
     /// overlap with active bindings.
     #[prost(message, repeated, tag = "9")]
     pub inactive_bindings: ::prost::alloc::vec::Vec<capture_spec::Binding>,
+    /// Salt used for redacting sensitive fields in captured documents.
+    #[prost(bytes = "bytes", tag = "10")]
+    pub redact_salt: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {

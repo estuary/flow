@@ -1,6 +1,6 @@
 use super::{
-    collection, field_selection, indexed, reference, storage_mapping, walk_transition, Connectors,
-    Error, NoOpConnectors, Scope,
+    collection, field_selection, indexed, reference, walk_transition, Connectors, Error,
+    NoOpConnectors, Scope,
 };
 use futures::SinkExt;
 use json::schema::types;
@@ -16,7 +16,7 @@ pub async fn walk_all_materializations<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
+    explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
     noop_materializations: bool,
     storage_mappings: &tables::StorageMappings,
@@ -45,7 +45,7 @@ pub async fn walk_all_materializations<C: Connectors>(
                 built_collections,
                 connectors,
                 data_planes,
-                default_plane_id,
+                explicit_plane,
                 dependencies,
                 noop_materializations,
                 storage_mappings,
@@ -76,7 +76,7 @@ async fn walk_materialization<C: Connectors>(
     built_collections: &tables::BuiltCollections,
     connectors: &C,
     data_planes: &tables::DataPlanes,
-    default_plane_id: Option<models::Id>,
+    explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
     noop_materializations: bool,
     storage_mappings: &tables::StorageMappings,
@@ -87,15 +87,26 @@ async fn walk_materialization<C: Connectors>(
         scope,
         model,
         control_id,
-        data_plane_id,
+        data_plane,
+        _partition_stores,
+        recovery_stores,
         expect_pub_id,
         expect_build_id,
         live_model,
         live_spec,
         is_touch,
-    ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
+    ) = match walk_transition(
+        pub_id,
+        build_id,
+        "materialization",
+        explicit_plane,
+        eob,
+        data_planes,
+        storage_mappings,
+        errors,
+    ) {
         Ok(ok) => ok,
-        Err(built) => return Some(built),
+        Err(built) => return built,
     };
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
@@ -133,9 +144,6 @@ async fn walk_materialization<C: Connectors>(
             serde_json::to_string(config).unwrap().into(),
         ),
     };
-    // Resolve the data-plane for this task. We cannot continue without it.
-    let data_plane =
-        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
@@ -222,7 +230,7 @@ async fn walk_materialization<C: Connectors>(
                 model,
                 built_collections,
                 materialization,
-                data_plane_id,
+                data_plane.control_id,
                 noop_materializations || shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
@@ -243,15 +251,6 @@ async fn walk_materialization<C: Connectors>(
         ));
         shards.disable = true;
     }
-
-    // Determine storage mappings for task recovery logs.
-    let recovery_stores = storage_mapping::mapped_stores(
-        scope,
-        "materialization",
-        &format!("recovery/{materialization}"),
-        storage_mappings,
-        errors,
-    );
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -607,7 +606,7 @@ async fn walk_materialization<C: Connectors>(
         materialization: materialization.clone(),
         scope: scope.flatten(),
         control_id,
-        data_plane_id,
+        data_plane_id: data_plane.control_id,
         dependency_hash,
         expect_build_id,
         expect_pub_id,
@@ -668,7 +667,14 @@ fn walk_materialization_binding<'a>(
     };
     let Some((mut source_spec, built_collection)) = reference::walk_reference(
         scope,
-        "this materialization binding",
+        "materialization binding",
+        || {
+            if !model_path.is_empty() {
+                model_path.join(".")
+            } else {
+                model.resource.get().to_string()
+            }
+        },
         source,
         built_collections,
         modified_source.then_some(errors),
