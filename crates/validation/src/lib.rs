@@ -324,6 +324,7 @@ fn walk_prefix<'a>(
         if !partition
             .data_planes
             .contains(&explicit_plane.data_plane_name)
+            && partition.catalog_prefix.as_str() != "ops/"
         {
             Error::DataPlaneNotInStorageMapping {
                 entity,
