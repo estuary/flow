@@ -387,8 +387,14 @@ impl<MC: MakeConnectors> Publisher<MC> {
             });
         }
 
-        let live_catalog =
-            specs::resolve_live_specs(user_id, &draft, &self.db, verify_user_authz).await?;
+        let live_catalog = specs::resolve_live_specs(
+            user_id,
+            &draft,
+            &self.db,
+            verify_user_authz,
+            explicit_plane_name,
+        )
+        .await?;
 
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
