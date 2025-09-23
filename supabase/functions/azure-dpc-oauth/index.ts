@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
   const u = new URL(req.url);
   const code = u.searchParams.get("code");
   if (code) {
-    return new Response("data-plane-controller was successfully added to your Azure tenant, now continue with the next steps of https://docs.estuary.dev/guides/byoc/azure/")
+    return new Response("data-plane-controller was successfully added to your Azure tenant, now continue with the next steps of https://docs.estuary.dev/private-byoc/byoc-deployments/azure-byoc/")
   }
 
   const error = u.searchParams.get("error");
