@@ -1,0 +1,86 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "liveSpecs": {
+    "edges": [
+      {
+        "cursor": "aliceCo/shared/capture",
+        "node": {
+          "catalogName": "aliceCo/shared/capture",
+          "liveSpec": {
+            "readsFrom": {
+              "edges": [],
+              "pageInfo": {
+                "hasNextPage": false,
+                "hasPreviousPage": false
+              }
+            },
+            "writesTo": {
+              "edges": [
+                {
+                  "cursor": "aliceCo/shared/a",
+                  "node": {
+                    "catalogName": "aliceCo/shared/a",
+                    "userCapability": "read"
+                  }
+                },
+                {
+                  "cursor": "aliceCo/shared/b",
+                  "node": {
+                    "catalogName": "aliceCo/shared/b",
+                    "userCapability": "read"
+                  }
+                },
+                {
+                  "cursor": "aliceCo/shared/c",
+                  "node": {
+                    "catalogName": "aliceCo/shared/c",
+                    "userCapability": "read"
+                  }
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": false,
+                "hasPreviousPage": false
+              }
+            }
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/materialize",
+        "node": {
+          "catalogName": "aliceCo/shared/materialize",
+          "liveSpec": {
+            "readsFrom": {
+              "edges": [
+                {
+                  "cursor": "aliceCo/shared/a",
+                  "node": {
+                    "catalogName": "aliceCo/shared/a",
+                    "userCapability": "read"
+                  }
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": true,
+                "hasPreviousPage": false
+              }
+            },
+            "writesTo": {
+              "edges": [],
+              "pageInfo": {
+                "hasNextPage": false,
+                "hasPreviousPage": false
+              }
+            }
+          },
+          "userCapability": "read"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "liveSpecs": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "liveSpec": {
+            "readBy": {
+              "edges": [
+                {
+                  "cursor": "aliceCo/shared/materialize",
+                  "node": {
+                    "catalogName": "aliceCo/shared/materialize",
+                    "userCapability": "read"
+                  }
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": false,
+                "hasPreviousPage": false
+              }
+            },
+            "writtenBy": {
+              "edges": [
+                {
+                  "cursor": "aliceCo/shared/capture",
+                  "node": {
+                    "catalogName": "aliceCo/shared/capture",
+                    "userCapability": "read"
+                  }
+                }
+              ],
+              "pageInfo": {
+                "hasNextPage": false,
+                "hasPreviousPage": false
+              }
+            }
+          },
+          "userCapability": "read"
+        }
+      }
+    ]
+  }
+}

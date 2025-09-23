@@ -67,7 +67,14 @@ fragment ConnectedFields on LiveSpecRefConnection {
 }
 
 query LiveSpecsBasic {
-    liveSpecs(by: { prefix: "aliceCo/shared/", catalogType: collection }) {
+    liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
+    ) {
         edges {
             cursor
             node {
