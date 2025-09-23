@@ -548,7 +548,7 @@ where
                 entity,
                 draft.catalog_name().as_ref(),
                 data_planes,
-                explicit_plane,
+                None, // Ignore `explicit_plane` for existing specs.
                 storage_mappings,
                 errors,
             ) else {
