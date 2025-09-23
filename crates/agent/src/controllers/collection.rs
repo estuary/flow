@@ -190,14 +190,15 @@ pub async fn update_inferred_schema<C: ControlPlane>(
             // so we don't need to actually update the model here.
             draft_row.is_touch = false;
 
-            let pub_result = pending_pub
+            // Important that we only update the status fields if the publication suceeded.
+            // Note we use the default retry and backoff for these errors.
+            let successful_result = pending_pub
                 .finish(state, publication_status, control_plane)
                 .await?
-                .error_for_status()
-                .do_not_retry()?;
+                .error_for_status()?;
 
             status.schema_md5 = Some(md5);
-            status.schema_last_updated = Some(pub_result.started_at);
+            status.schema_last_updated = Some(successful_result.started_at);
             return Ok(true);
         }
     } else {
