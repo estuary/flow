@@ -45,13 +45,13 @@ async fn test_graphql_queries() {
         let alice_result: Value = harness
             .execute_graphql_query(alice_user_id, &query_content, &empty_vars)
             .await
-            .unwrap_or_else(|e| panic!("GraphQL query failed for Alice on {}: {}", file_stem, e));
+            .unwrap_or_else(|e| format!("GraphQL query failed with error: {}", e).into());
 
         // Execute query as Bob
         let bob_result: Value = harness
             .execute_graphql_query(bob_user_id, &query_content, &empty_vars)
             .await
-            .unwrap_or_else(|e| panic!("GraphQL query failed for Bob on {}: {}", file_stem, e));
+            .unwrap_or_else(|e| format!("GraphQL query failed with error: {}", e).into());
 
         // Snapshot the results
         insta::assert_json_snapshot!(format!("alice-{}", file_stem), alice_result);

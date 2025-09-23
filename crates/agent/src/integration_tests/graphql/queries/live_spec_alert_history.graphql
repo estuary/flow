@@ -1,5 +1,9 @@
 query LiveSpecAlertHistory {
-    liveSpecs(by: { prefix: "aliceCo/shared/", catalogType: capture }) {
+    liveSpecs(
+        by: {
+            prefixAndType: { prefix: "aliceCo/shared/", catalogType: capture }
+        }
+    ) {
         edges {
             node {
                 catalogName

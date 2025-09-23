@@ -46,29 +46,63 @@ impl LiveSpec {
         &self,
         ctx: &Context<'_>,
         after: Option<String>,
+        before: Option<String>,
         first: Option<i32>,
+        last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        paginate_live_specs_refs(ctx, &self.reads_from, after, first).await
+        paginate_live_specs_refs(
+            ctx,
+            None,
+            self.reads_from.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
     }
 
     async fn writes_to(
         &self,
         ctx: &Context<'_>,
         after: Option<String>,
+        before: Option<String>,
         first: Option<i32>,
+        last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        paginate_live_specs_refs(ctx, &self.writes_to, after, first).await
+        paginate_live_specs_refs(
+            ctx,
+            None,
+            self.writes_to.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
     }
 
     async fn source_capture(
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<LiveSpecRef>> {
-        // Yeah, this is a little hacky, but it allows us to re-use the same code for
-        // attaching user capabilities.
-        let conn =
-            paginate_live_specs_refs(ctx, self.source_capture.as_slice(), None, None).await?;
-        Ok(conn.edges.into_iter().next().map(|edge| edge.node))
+        let app = ctx.data::<Arc<App>>()?;
+        let claims = ctx.data::<ControlClaims>()?;
+
+        let Some(source_capture_name) = &self.source_capture else {
+            return Ok(None);
+        };
+        let attached = app.attach_user_capabilities(
+            claims,
+            vec![source_capture_name.clone()],
+            |name, user_capability| {
+                Some(LiveSpecRef {
+                    catalog_name: models::Name::new(name),
+                    user_capability,
+                })
+            },
+        );
+        Ok(attached.into_iter().next())
     }
 
     // Note that we must filter the `writtenBy` and `readBy` names before
@@ -87,18 +121,20 @@ impl LiveSpec {
         &self,
         ctx: &Context<'_>,
         after: Option<String>,
+        before: Option<String>,
         first: Option<i32>,
+        last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
-        let filtered_names = app.filter_results(
-            claims,
-            models::Capability::Read,
-            self.written_by.iter().cloned(),
-            String::as_str,
-        );
-        paginate_live_specs_refs(ctx, &filtered_names, after, first).await
+        paginate_live_specs_refs(
+            ctx,
+            Some(models::Capability::Read),
+            self.written_by.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
     }
 
     /// Returns a list of live specs that read from this spec. This will always
@@ -107,18 +143,20 @@ impl LiveSpec {
         &self,
         ctx: &Context<'_>,
         after: Option<String>,
+        before: Option<String>,
         first: Option<i32>,
+        last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
-        let filtered_names = app.filter_results(
-            claims,
-            models::Capability::Read,
-            self.read_by.iter().cloned(),
-            String::as_str,
-        );
-        paginate_live_specs_refs(ctx, &filtered_names, after, first).await
+        paginate_live_specs_refs(
+            ctx,
+            Some(models::Capability::Read),
+            self.read_by.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
     }
 }
 

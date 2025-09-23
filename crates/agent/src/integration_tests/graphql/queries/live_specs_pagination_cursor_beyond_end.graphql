@@ -1,7 +1,12 @@
 # Expect to just get an empty list, with `hasNextPage: false`
 query LiveSpecsPaginationCursor {
     liveSpecs(
-        by: { prefix: "aliceCo/shared/", catalogType: collection }
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
         after: "aliceCo/shared/c"
         first: 2
     ) {

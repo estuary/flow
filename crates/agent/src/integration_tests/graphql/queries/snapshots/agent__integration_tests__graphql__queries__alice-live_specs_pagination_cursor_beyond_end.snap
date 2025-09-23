@@ -7,7 +7,7 @@ expression: alice_result
     "edges": [],
     "pageInfo": {
       "hasNextPage": false,
-      "hasPreviousPage": false
+      "hasPreviousPage": true
     }
   }
 }
