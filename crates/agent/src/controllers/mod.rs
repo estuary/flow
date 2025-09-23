@@ -225,13 +225,6 @@ trait ControllerErrorExt {
     {
         self.with_maybe_retry(Some(after))
     }
-
-    fn do_not_retry(self) -> Result<Self::Success, RetryableError>
-    where
-        Self: Sized,
-    {
-        self.with_maybe_retry(None)
-    }
 }
 
 impl<T, E: Into<anyhow::Error>> ControllerErrorExt for Result<T, E> {
