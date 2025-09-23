@@ -1,0 +1,38 @@
+fragment Select on LiveSpecRefConnection {
+    pageInfo {
+        hasNextPage
+        hasPreviousPage
+    }
+    edges {
+        cursor
+        node {
+            catalogName
+            userCapability
+        }
+    }
+}
+
+query LiveSpecsConnectionsReverse {
+    liveSpecs(
+        by: { names: ["aliceCo/shared/capture", "aliceCo/shared/materialize"] }
+    ) {
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    readsFrom(before: "aliceCo/shared/b", last: 2) {
+                        ...Select
+                    }
+                    writesTo(
+                        before: "aliceCo/shared/x-does-not-exist"
+                        first: 20
+                    ) {
+                        ...Select
+                    }
+                }
+            }
+        }
+    }
+}

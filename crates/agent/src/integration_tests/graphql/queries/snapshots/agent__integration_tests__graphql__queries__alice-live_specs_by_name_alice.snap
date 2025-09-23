@@ -1,0 +1,62 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: alice_result
+---
+{
+  "liveSpecs": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/private/capture",
+          "liveSpec": {
+            "isDisabled": false,
+            "model": {
+              "bindings": [
+                {
+                  "resource": {
+                    "_meta": {
+                      "path": [
+                        "a"
+                      ]
+                    },
+                    "id": "a"
+                  },
+                  "target": "aliceCo/shared/a"
+                },
+                {
+                  "resource": {
+                    "_meta": {
+                      "path": [
+                        "b"
+                      ]
+                    },
+                    "id": "b"
+                  },
+                  "target": "aliceCo/shared/b"
+                },
+                {
+                  "resource": {
+                    "_meta": {
+                      "path": [
+                        "c"
+                      ]
+                    },
+                    "id": "c"
+                  },
+                  "target": "aliceCo/shared/c"
+                }
+              ],
+              "endpoint": {
+                "connector": {
+                  "config": {},
+                  "image": "source/test:test"
+                }
+              }
+            }
+          },
+          "userCapability": "admin"
+        }
+      }
+    ]
+  }
+}

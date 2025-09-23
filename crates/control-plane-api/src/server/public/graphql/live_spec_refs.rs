@@ -11,11 +11,19 @@ use crate::server::{
     App, ControlClaims,
 };
 
+const DEFAULT_PAGE_SIZE: usize = 50;
+
 /// Input type for returning live specs references by prefix and catalog type.
 #[derive(Debug, Clone, async_graphql::InputObject)]
-pub struct ByPrefix {
+pub struct ByPrefixAndType {
     pub prefix: models::Prefix,
     pub catalog_type: models::CatalogType,
+}
+
+#[derive(Debug, Clone, async_graphql::OneofObject)]
+pub enum LiveSpecsBy {
+    PrefixAndType(ByPrefixAndType),
+    Names(Vec<models::Name>),
 }
 
 /// Represents a reference from one live spec to another.
@@ -52,10 +60,8 @@ impl LiveSpecRef {
             with_built,
             with_model,
         };
-        let live_spec = loader.load_one(key).await?.ok_or_else(|| {
-            async_graphql::Error::new(format!("no live spec found for {}", self.catalog_name))
-        })?;
-        Ok(Some(live_spec))
+        let live_spec = loader.load_one(key).await?;
+        Ok(live_spec)
     }
 
     /// Returns all alerts that are currently firing for this live spec.
@@ -101,13 +107,23 @@ impl LiveSpecRef {
     }
 }
 
-/// Applies the given pagination parameters to `all_names` and returns a `Connection` suitable for a graphql response.
-/// `all_names` is expected to contain the complete list of **sorted** live specs names.
+/// Applies the given pagination parameters to `all_names` and returns a
+/// `Connection` suitable for a graphql response. `all_names` is expected to
+/// contain the complete list of **sorted** live specs names. Note that the sort
+/// order, both of `all_names` and the query results, must always be ascending,
+/// regardless of whether forward or reverse pagination is being used. Source:
+/// https://relay.dev/graphql/connections.htm#sec-Edge-order
+/// If `require_min_capability` is `Some`, then `all_specs` will be filtered to
+/// only include those specs for which the user has the required minimum
+/// capability.
 pub async fn paginate_live_specs_refs(
     ctx: &Context<'_>,
-    all_names: &[String],
+    require_min_capability: Option<models::Capability>,
+    all_names: Vec<String>,
     after: Option<String>,
+    before: Option<String>,
     first: Option<i32>,
+    last: Option<i32>,
 ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
     if all_names.is_empty() {
         return Ok(connection::Connection::new(false, false));
@@ -116,28 +132,61 @@ pub async fn paginate_live_specs_refs(
     let app = ctx.data::<Arc<App>>()?;
     let claims = ctx.data::<ControlClaims>()?;
 
-    connection::query(after, None, first, None, |after, _, first, _| async move {
-        let mut has_next = false;
-        let mut name_slice = all_names;
-        if let Some(after_name) = &after {
-            let cursor_idx = all_names.partition_point(|name| name <= after_name);
-            name_slice = &name_slice[cursor_idx..];
-        }
-        if let Some(take) = first {
-            has_next = name_slice.len() > take;
-            name_slice = &name_slice[..take.min(name_slice.len())];
+    let all_refs = app.attach_user_capabilities(claims, all_names, |name, maybe_capability| {
+        if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
+            return None;
         }
 
-        let edges: Vec<connection::Edge<String, LiveSpecRef, connection::EmptyFields>> = app
-            .attach_user_capabilities(
-                claims,
-                name_slice.iter().map(|n| n.to_string()),
-                |catalog_name, user_capability| Some(new_ref_edge(&catalog_name, user_capability)),
-            );
-        let mut conn = PaginatedLiveSpecsRefs::new(false, has_next);
-        conn.edges = edges;
-        Result::<PaginatedLiveSpecsRefs, async_graphql::Error>::Ok(conn)
-    })
+        Some(LiveSpecRef {
+            catalog_name: models::Name::new(name),
+            user_capability: maybe_capability,
+        })
+    });
+    apply_pagination(all_refs, after, before, first, last).await
+}
+
+async fn apply_pagination(
+    mut all_refs: Vec<LiveSpecRef>,
+    after: Option<String>,
+    before: Option<String>,
+    first: Option<i32>,
+    last: Option<i32>,
+) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+    connection::query_with::<String, _, _, _, String>(
+        after,
+        before,
+        first,
+        last,
+        |after, before, first, last| async move {
+            // Which direction to paginate in? Default to forward, if no parameters were given.
+            let (start_index, end_index) = if before.is_some() || last.is_some() {
+                let end = if let Some(before_name) = &before {
+                    all_refs.partition_point(|r| r.catalog_name.as_str() < before_name.as_str())
+                } else {
+                    all_refs.len()
+                };
+                let start = end.saturating_sub(last.unwrap_or(all_refs.len()));
+                (start, end)
+            } else {
+                let start = if let Some(after_name) = &after {
+                    all_refs.partition_point(|r| r.catalog_name.as_str() <= after_name.as_str())
+                } else {
+                    0
+                };
+                (start, first.unwrap_or(usize::MAX).min(all_refs.len()))
+            };
+            let has_prev = start_index > 0;
+            let has_next = end_index < all_refs.len().saturating_sub(1);
+            let edges = all_refs
+                .drain(start_index..end_index)
+                .map(|r| connection::Edge::new(r.catalog_name.to_string(), r))
+                .collect();
+            let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
+            conn.edges = edges;
+
+            async_graphql::Result::Ok(conn)
+        },
+    )
     .await
 }
 
@@ -167,76 +216,182 @@ impl LiveSpecsQuery {
     pub async fn live_specs(
         &self,
         ctx: &Context<'_>,
-        by: ByPrefix,
+        by: LiveSpecsBy,
         after: Option<String>,
+        before: Option<String>,
         first: Option<i32>,
+        last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
-        let snapshot = app.snapshot().read().unwrap();
-        // Verify user authorization for the entire prefix being requested. This is
-        // technically overkill, and maybe we'll someday want to instead allow users
-        // to request to list, for example, `a/` when all they have is a grant to
-        // `a/nested/`. But this seems like the easy way to do things for now.
-        let authorization = tables::UserGrant::get_user_capability(
-            snapshot.role_grants.as_slice(),
-            &snapshot.user_grants,
-            claims.sub,
-            &by.prefix,
-        );
-        let Some(user_capability) = authorization else {
-            return Err(async_graphql::Error::new(format!(
-                "user is not authorized to access prefix: '{}'",
-                by.prefix
-            )));
-        };
-
-        let limit = if let Some(f) = first {
-            if f < 1 {
-                return Err(async_graphql::Error::new(format!(
-                    "invalid limit, must be greater than 0: '{}'",
-                    f
-                )));
+        match by {
+            LiveSpecsBy::PrefixAndType(by_prefix) => {
+                fetch_live_specs_by_prefix(ctx, by_prefix, after, before, first, last).await
             }
-            f as usize
-        } else {
-            100
-        };
-
-        let edges: Vec<connection::Edge<String, LiveSpecRef, connection::EmptyFields>> =
-            match by.catalog_type {
-                models::CatalogType::Collection => snapshot
-                    .list_collections(&by.prefix, after.as_deref())
-                    .take(limit)
-                    .map(|collection| {
-                        new_ref_edge(collection.collection_name.as_str(), Some(user_capability))
-                    })
-                    .collect(),
-                task_type => snapshot
-                    .list_tasks(&by.prefix, after.as_deref())
-                    .filter(|task| task.spec_type == task_type)
-                    .take(limit)
-                    .map(|task| new_ref_edge(task.task_name.as_str(), Some(user_capability)))
-                    .collect(),
-            };
-        tracing::warn!(%limit, ?by, count = %edges.len(), "list live specs");
-
-        let mut conn = PaginatedLiveSpecsRefs::new(false, edges.len() == limit);
-        conn.edges = edges;
-        async_graphql::Result::<PaginatedLiveSpecsRefs>::Ok(conn)
+            LiveSpecsBy::Names(by_name) => {
+                fetch_live_specs_by_name(ctx, by_name, after, before, first, last).await
+            }
+        }
     }
 }
 
-fn new_ref_edge(
-    catalog_name: &str,
-    user_capability: Option<models::Capability>,
-) -> connection::Edge<String, LiveSpecRef, connection::EmptyFields> {
-    connection::Edge::new(
-        catalog_name.to_string(),
-        LiveSpecRef {
-            catalog_name: models::Name::new(catalog_name),
-            user_capability,
-        },
+async fn fetch_live_specs_by_name(
+    ctx: &Context<'_>,
+    by_names: Vec<models::Name>,
+    after: Option<String>,
+    before: Option<String>,
+    first: Option<i32>,
+    last: Option<i32>,
+) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+    let mut names: Vec<String> = by_names.into_iter().map(|n| n.into()).collect();
+    // Sort the names, so that we can paginate the results by liexicographic
+    // order, just like we do for fetching by prefix.
+    names.sort();
+
+    // We essentially just lookup the users capability to each spec that they've
+    // requested. There's no verification of whether the live spec exists
+    // unless/until the query resolves some sub-field on the `LiveSpecRef`.
+    // There's also no error if the user does not have access to the given
+    // names. We rely on our existing auth checks in `LiveSpecRef` resolver
+    // functions. This allows clients to easily check which specific names the
+    // user does not have access to by querying the user capability, just like
+    // it does for `readsFrom` and `writesTo`
+    paginate_live_specs_refs(ctx, None, names, after, before, first, last).await
+}
+
+async fn fetch_live_specs_by_prefix(
+    ctx: &Context<'_>,
+    by: ByPrefixAndType,
+    after: Option<String>,
+    before: Option<String>,
+    first: Option<i32>,
+    last: Option<i32>,
+) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+    let ByPrefixAndType {
+        prefix,
+        catalog_type,
+    } = by;
+    let app = ctx.data::<Arc<App>>()?;
+    let claims = ctx.data::<ControlClaims>()?;
+
+    let _ = app
+        .verify_user_authorization(claims, vec![prefix.to_string()], models::Capability::Read)
+        .await?;
+
+    let pg_pool = app.pg_pool.clone();
+    let (names, has_prev, has_next) =
+        connection::query_with::<String, _, _, _, async_graphql::Error>(
+            after,
+            before,
+            first,
+            last,
+            |after, before, first, last| async move {
+                let db = pg_pool;
+                let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
+
+                let result = if before.is_some() || last.is_some() {
+                    let names = fetch_live_specs_names_before(
+                        &db,
+                        prefix.as_str(),
+                        catalog_type,
+                        before.as_deref(),
+                        limit as i64,
+                    )
+                    .await
+                    .map_err(async_graphql::Error::from)?;
+                    // There is a previous page if there were enough names to fill this page.
+                    let has_prev = names.len() == limit;
+                    // There is implicitly a next page if this request provided a before cursor.
+                    (names, has_prev, before.is_some())
+                } else {
+                    // Default to forward pagination unless before or last is specified
+                    let names = fetch_live_specs_names_after(
+                        &db,
+                        prefix.as_str(),
+                        catalog_type,
+                        after.as_deref(),
+                        limit as i64,
+                    )
+                    .await
+                    .map_err(async_graphql::Error::from)?;
+                    // There is implicitly a previous page if this request provided an after cursor.
+                    // There is a next page if there were enough names to fill this page.
+                    let has_next = names.len() == limit;
+                    (names, after.is_some(), has_next)
+                };
+
+                async_graphql::Result::Ok(result)
+            },
+        )
+        .await?;
+
+    // We already know that the user at least has read capability to the prefix,
+    // but it's possible that they may have a greater capability to specific
+    // sub-prefixes, so resolve those here.
+    let edges = app.attach_user_capabilities(claims, names, |name, user_capability| {
+        Some(connection::Edge::new(
+            name.clone(),
+            LiveSpecRef {
+                catalog_name: models::Name::new(name),
+                user_capability,
+            },
+        ))
+    });
+
+    let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
+    conn.edges = edges;
+    async_graphql::Result::<PaginatedLiveSpecsRefs>::Ok(conn)
+}
+
+async fn fetch_live_specs_names_after(
+    db: &sqlx::PgPool,
+    prefix: &str,
+    catalog_type: models::CatalogType,
+    after: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<String>> {
+    let names = sqlx::query_scalar!(
+        r#"select catalog_name as "name!: String"
+        from live_specs
+        where starts_with(catalog_name, $1)
+        and case when $3::catalog_name is null then true else catalog_name > $3::catalog_name end
+        and spec_type = $2::catalog_spec_type
+        order by catalog_name asc
+        limit $4"#,
+        prefix as &str,
+        catalog_type as models::CatalogType,
+        after as Option<&str>,
+        limit
     )
+    .fetch_all(db)
+    .await?;
+    Ok(names)
+}
+
+/// Fetches names for reverse-paginated query. Note that the names must still
+/// be returned in asc order, according to:
+/// https://relay.dev/graphql/connections.htm#sec-Edge-order
+async fn fetch_live_specs_names_before(
+    db: &sqlx::PgPool,
+    prefix: &str,
+    catalog_type: models::CatalogType,
+    before: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<String>> {
+    let mut names = sqlx::query_scalar!(
+        r#"select catalog_name as "name!: String"
+        from live_specs
+        where starts_with(catalog_name, $1)
+        and case when $3::catalog_name is null then true else catalog_name < $3::catalog_name end
+        and spec_type = $2::catalog_spec_type
+        order by catalog_name desc
+        limit $4"#,
+        prefix as &str,
+        catalog_type as models::CatalogType,
+        before as Option<&str>,
+        limit
+    )
+    .fetch_all(db)
+    .await?;
+
+    names.reverse();
+    Ok(names)
 }

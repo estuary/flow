@@ -173,7 +173,7 @@ type AutoDiscoverStatus {
 """
 Input type for returning live specs references by prefix and catalog type.
 """
-input ByPrefix {
+input ByPrefixAndType {
 	prefix: Prefix!
 	catalogType: CatalogType!
 }
@@ -342,19 +342,19 @@ type LiveSpec {
 	updatedAt: DateTime!
 	builtSpec: JSON!
 	isDisabled: Boolean!
-	readsFrom(after: String, first: Int): LiveSpecRefConnection!
-	writesTo(after: String, first: Int): LiveSpecRefConnection!
+	readsFrom(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	writesTo(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 	sourceCapture: LiveSpecRef
 	"""
 	Returns a list of live specs that write to this spec. This will always
 	be empty if this spec is a not a collection.
 	"""
-	writtenBy(after: String, first: Int): LiveSpecRefConnection!
+	writtenBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 	"""
 	Returns a list of live specs that read from this spec. This will always
 	be empty if this spec is a not a collection.
 	"""
-	readBy(after: String, first: Int): LiveSpecRefConnection!
+	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 }
 
 """
@@ -413,6 +413,11 @@ type LiveSpecRefEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
+}
+
+input LiveSpecsBy @oneOf {
+	prefixAndType: ByPrefixAndType
+	names: [Name!]
 }
 
 """
@@ -582,7 +587,7 @@ type QueryRoot {
 	words, this capability represents the _minimum_ capability that the user
 	has for the given spec.
 	"""
-	liveSpecs(by: ByPrefix!, after: String, first: Int): LiveSpecRefConnection!
+	liveSpecs(by: LiveSpecsBy!, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 	"""
 	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
@@ -813,6 +818,10 @@ enum StatusType {
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

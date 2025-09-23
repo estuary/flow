@@ -1,0 +1,58 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "multiForward": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "liveSpec": {
+            "catalogType": "collection",
+            "isDisabled": false
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/does-not-exist",
+          "liveSpec": null,
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "bobCo/private/materialization",
+          "liveSpec": {
+            "catalogType": "materialization",
+            "isDisabled": false
+          },
+          "userCapability": "admin"
+        }
+      }
+    ]
+  },
+  "multiReverse": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/private/capture",
+          "liveSpec": null,
+          "userCapability": null
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "liveSpec": {
+            "catalogType": "collection",
+            "isDisabled": false
+          },
+          "userCapability": "read"
+        }
+      }
+    ]
+  }
+}

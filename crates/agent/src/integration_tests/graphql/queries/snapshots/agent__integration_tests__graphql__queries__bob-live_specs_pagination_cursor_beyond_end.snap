@@ -7,7 +7,7 @@ expression: bob_result
     "edges": [],
     "pageInfo": {
       "hasNextPage": false,
-      "hasPreviousPage": false
+      "hasPreviousPage": true
     }
   }
 }

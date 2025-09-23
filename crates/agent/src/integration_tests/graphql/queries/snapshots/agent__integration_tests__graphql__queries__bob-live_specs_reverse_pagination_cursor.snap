@@ -3,7 +3,29 @@ source: crates/agent/src/integration_tests/graphql/queries/mod.rs
 expression: bob_result
 ---
 {
-  "liveSpecs": {
+  "beforeC": {
+    "edges": [
+      {
+        "cursor": "aliceCo/shared/a",
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/b",
+        "node": {
+          "catalogName": "aliceCo/shared/b",
+          "userCapability": "read"
+        }
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": true
+    }
+  },
+  "last2": {
     "edges": [
       {
         "cursor": "aliceCo/shared/b",
@@ -21,7 +43,7 @@ expression: bob_result
       }
     ],
     "pageInfo": {
-      "hasNextPage": true,
+      "hasNextPage": false,
       "hasPreviousPage": true
     }
   }

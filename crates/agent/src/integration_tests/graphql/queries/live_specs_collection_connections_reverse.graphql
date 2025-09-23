@@ -1,0 +1,40 @@
+fragment Select on LiveSpecRefConnection {
+    pageInfo {
+        hasNextPage
+        hasPreviousPage
+    }
+    edges {
+        cursor
+        node {
+            catalogName
+            userCapability
+        }
+    }
+}
+
+query LiveSpecsCollectionConnectionsReverse {
+    liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
+        last: 1
+    ) {
+        edges {
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    writtenBy(last: 1) {
+                        ...Select
+                    }
+                    readBy(before: "aliceCo/x-not-real", last: 50) {
+                        ...Select
+                    }
+                }
+            }
+        }
+    }
+}
