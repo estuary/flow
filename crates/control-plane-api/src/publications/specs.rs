@@ -658,6 +658,7 @@ pub async fn resolve_live_specs(
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     verify_user_authz: bool,
+    explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -835,11 +836,12 @@ pub async fn resolve_live_specs(
     }
 
     // Fetch data planes that are referenced by live specs (`data_plane_ids`),
-    // or by storage mappings (`data_plane_names`).
+    // or by storage mappings (`data_plane_names`), or by `explicit_plane_name`.
     let data_plane_names: Vec<&str> = live
         .storage_mappings
         .iter()
         .flat_map(|m| m.data_planes.iter().map(String::as_str))
+        .chain(explicit_plane_name.into_iter())
         .sorted()
         .dedup()
         .collect();

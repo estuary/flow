@@ -3,4 +3,4 @@ database: postgres
 password: stats_loader_password
 user: stats_loader
 advanced:
-  feature_flags: allow_existing_tables_for_new_bindings
+  feature_flags: allow_existing_tables_for_new_bindings,no_datetime_keys_as_string
