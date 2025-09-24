@@ -87,7 +87,10 @@ impl JobStatus {
     }
 }
 
-/// Represents an optimistic lock failure when trying to update live specs.
+/// Represents an optimistic lock failure when trying to update a specification.
+/// This typically means that an expectPubId was not matched, implying that
+/// another publication has applied a conflicting update to this specification
+/// since it was last fetched.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 #[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct LockFailure {
