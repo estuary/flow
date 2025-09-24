@@ -514,6 +514,13 @@ type PrefixEdge {
 	cursor: String!
 }
 
+input PrefixesBy {
+	"""
+	Filter returned prefixes by user capability.
+	"""
+	minCapability: Capability!
+}
+
 """
 Summary of a publication that was attempted by a controller.
 """
@@ -605,7 +612,7 @@ type QueryRoot {
 	prefixes.
 	"""
 	alerts(by: AlertsBy!, before: String, last: Int): AlertConnection!
-	prefixes(minCapability: Capability!, after: String, first: Int): PrefixConnection!
+	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixConnection!
 }
 
 """

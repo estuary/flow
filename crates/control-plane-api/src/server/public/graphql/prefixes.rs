@@ -12,6 +12,12 @@ pub struct Prefix {
     pub capability: models::Capability,
 }
 
+#[derive(Debug, Clone, async_graphql::InputObject)]
+pub struct PrefixesBy {
+    /// Filter returned prefixes by user capability.
+    pub min_capability: models::Capability,
+}
+
 pub type PaginatedPrefixes = connection::Connection<
     String,
     Prefix,
@@ -30,7 +36,7 @@ impl PrefixesQuery {
     pub async fn prefixes(
         &self,
         ctx: &Context<'_>,
-        min_capability: models::Capability,
+        by: PrefixesBy,
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedPrefixes> {
@@ -44,7 +50,7 @@ impl PrefixesQuery {
                         &snapshot.user_grants,
                         claims.sub,
                     )
-                    .filter(|grant| grant.capability >= min_capability)
+                    .filter(|grant| grant.capability >= by.min_capability)
                     .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
                     .map(|grant| Prefix {
                         prefix: grant.object_role.to_string(),
