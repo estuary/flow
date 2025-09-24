@@ -415,7 +415,7 @@ expression: schema
       "type": "object"
     },
     "LockFailure": {
-      "description": "Represents an optimistic lock failure when trying to update live specs.",
+      "description": "Represents an optimistic lock failure when trying to update a specification. This typically means that an expectPubId was not matched, implying that another publication has applied a conflicting update to this specification since it was last fetched.",
       "properties": {
         "actual": {
           "anyOf": [
