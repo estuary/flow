@@ -12,6 +12,15 @@ use crate::server::{App, ControlClaims};
 #[derive(Debug, Default)]
 pub struct AlertsQuery;
 
+#[derive(Debug, Clone, async_graphql::InputObject)]
+pub struct AlertsBy {
+    /// Show alerts for the given catalog namespace prefix.
+    prefix: String,
+    /// Optionally filter alerts by active status. If unspecified, both active
+    /// and resolved alerts will be returned.
+    active: Option<bool>,
+}
+
 #[async_graphql::Object]
 impl AlertsQuery {
     /// Returns a list of alerts that are currently active for the given catalog
@@ -19,13 +28,11 @@ impl AlertsQuery {
     async fn alerts(
         &self,
         ctx: &Context<'_>,
-        #[graphql(desc = "Show alerts for the given catalog prefixes")] prefix: String,
-        #[graphql(desc = "Optionally filter alerts by whether or not they are active")]
-        active: Option<bool>,
+        by: AlertsBy,
         before: Option<String>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlerts> {
-        prefix_alert_history(ctx, prefix.as_str(), active, before, last).await
+        fetch_alert_history_by_prefix(ctx, by, before, last).await
     }
 }
 
@@ -165,10 +172,9 @@ impl async_graphql::connection::CursorType for PaginatedAlertsCursor {
     }
 }
 
-pub async fn prefix_alert_history(
+async fn fetch_alert_history_by_prefix(
     ctx: &Context<'_>,
-    prefix: &str,
-    filter_active: Option<bool>,
+    AlertsBy { prefix, active }: AlertsBy,
     before_cursor: Option<String>,
     limit: Option<i32>,
 ) -> async_graphql::Result<PaginatedAlerts> {
@@ -218,7 +224,7 @@ pub async fn prefix_alert_history(
                 before_ts as Option<DateTime<Utc>>,
                 before_alert_type as Option<AlertType>,
                 before_name,
-                filter_active,
+                active,
                 effective_limit as i64,
             )
             .fetch_all(&app.pg_pool)

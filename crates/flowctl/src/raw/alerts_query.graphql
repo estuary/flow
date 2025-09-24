@@ -1,5 +1,9 @@
 query FiringAlertsQuery($prefix: String!, $before: String, $last: Int!) {
-    alerts(prefix: $prefix, before: $before, last: $last, active: true) {
+    alerts(
+        by: { prefix: $prefix, active: true }
+        last: $last
+        before: $before
+    ) {
         pageInfo {
             endCursor
         }

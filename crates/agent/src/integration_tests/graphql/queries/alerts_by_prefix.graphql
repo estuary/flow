@@ -1,5 +1,5 @@
 query AlertsByPrefix {
-    allAlerts: alerts(prefix: "aliceCo/shared/", last: 10) {
+    allAlerts: alerts(by: { prefix: "aliceCo/shared/" }, last: 10) {
         pageInfo {
             hasNextPage
             hasPreviousPage
@@ -14,7 +14,7 @@ query AlertsByPrefix {
             }
         }
     }
-    firingAlerts: alerts(prefix: "aliceCo/shared/", active: true) {
+    firingAlerts: alerts(by: { prefix: "aliceCo/shared/", active: true }) {
         pageInfo {
             hasNextPage
             hasPreviousPage
@@ -30,8 +30,7 @@ query AlertsByPrefix {
         }
     }
     resolvedAlerts: alerts(
-        prefix: "aliceCo/shared/"
-        active: false
+        by: { prefix: "aliceCo/shared/", active: false }
         before: "2024-08-09T11:41:12+00:00;auto_discover_failed;aliceCo/shared/capture"
         last: 1
     ) {
