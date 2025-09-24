@@ -100,6 +100,18 @@ enum AlertType {
 	shard_failed
 }
 
+input AlertsBy {
+	"""
+	Show alerts for the given catalog namespace prefix.
+	"""
+	prefix: String!
+	"""
+	Optionally filter alerts by active status. If unspecified, both active
+	and resolved alerts will be returned.
+	"""
+	active: Boolean
+}
+
 type AutoDiscoverFailure {
 	"""
 	The number of consecutive failures that have been observed.
@@ -592,16 +604,7 @@ type QueryRoot {
 	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
 	"""
-	alerts(
-		"""
-		Show alerts for the given catalog prefixes
-		"""
-		prefix: String!,
-		"""
-		Optionally filter alerts by whether or not they are active
-		"""
-		active: Boolean,		before: String,		last: Int
-	): AlertConnection!
+	alerts(by: AlertsBy!, before: String, last: Int): AlertConnection!
 	prefixes(minCapability: Capability!, after: String, first: Int): PrefixConnection!
 }
 
