@@ -140,6 +140,11 @@ expression: schema
                       "const": "\t"
                     },
                     {
+                      "title": "Tilde (~)",
+                      "default": "~",
+                      "const": "~"
+                    },
+                    {
                       "title": "Vertical Tab (0x0B)",
                       "default": "\u000b",
                       "const": "\u000b"
