@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)."></script><link rel="stylesheet" href="/pr-preview/pr-2381/assets/css/styles.198b2111.css">
-<script src="/pr-preview/pr-2381/assets/js/runtime~main.58244f37.js" defer="defer"></script>
-<script src="/pr-preview/pr-2381/assets/js/main.79d8a859.js" defer="defer"></script>
+<script src="/pr-preview/pr-2381/assets/js/runtime~main.2ee31cf6.js" defer="defer"></script>
+<script src="/pr-preview/pr-2381/assets/js/main.b14ae680.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -32,68 +32,82 @@ If you don&#x27;t have an account yet, <a href="https://dashboard.estuary.dev" t
 If you need help, see the <a href="/pr-preview/pr-2381/guides/create-dataflow/">guide to create a Data Flow</a>.</p>
 </li>
 <li>
-<p>A development environment to work with flowctl. Choose between:</p>
-<ul>
-<li>
-<p><a href="https://www.gitpod.io/" target="_blank" rel="noopener noreferrer">GitPod</a>, the cloud development environment integrated with Flow.
-GitPod comes ready for derivation writing, with stubbed out files and flowctl installed. You&#x27;ll need a GitHub or Google account to log in.</p>
-</li>
-<li>
-<p>Your local development environment. <a href="/pr-preview/pr-2381/guides/get-started-with-flowctl/">Install flowctl locally</a>.</p>
-</li>
-</ul>
-</li>
-</ul>
-<h2 class="anchor anchorWithStickyNavbar_LWe7" id="get-started-with-gitpod">Get started with GitPod<a href="#get-started-with-gitpod" class="hash-link" aria-label="Direct link to Get started with GitPod" title="Direct link to Get started with GitPod">​</a></h2>
-<p>You&#x27;ll write your derivation using GitPod, a cloud development environment integrated in the Flow web app.</p>
+<p>The <code>flowctl</code> CLI <a href="/pr-preview/pr-2381/guides/get-started-with-flowctl/">installed and authenticated</a>.</p>
+<p>You can authorize <code>flowctl</code> with a refresh token:</p>
 <ol>
-<li>
-<p>Navigate to the <a href="https://dashboard.estuary.dev/collections" target="_blank" rel="noopener noreferrer">Collections</a> page in Flow.</p>
-</li>
-<li>
-<p>Click on the <strong>New Transformation</strong> button.</p>
-<p>The <strong>Derive A New Collection</strong> pop-up window appears.</p>
-</li>
-<li>
-<p>In the <strong>Available Collections</strong> dropdown, select the collection you want to use as the source.</p>
-<p>For example, if your organization is <code>acmeCo</code>, you might choose the <code>acmeCo/resources/anvils</code> collection.</p>
-</li>
-<li>
-<p>Set the transformation language to either <strong>SQL</strong> or <strong>TypeScript</strong>.</p>
-<p>SQL transformations can be a more approachable place to start if you&#x27;re new to derivations.
-TypeScript transformations can provide more resiliency against failures through static type checking.</p>
-</li>
-<li>
-<p>Give your derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example <code>acmeCo/resources/anvil-status</code>.</p>
-</li>
-<li>
-<p>Click <strong>Proceed to GitPod</strong> to create your development environment. Sign in with one of the available account types.</p>
-</li>
-<li>
-<p>On the <strong>New Workspace</strong> screen, keep the <strong>Context URL</strong> option selected and click <strong>Continue.</strong></p>
-<p>A GitPod development environment opens.
-A stubbed-out derivation with a transformation has already been created for you in the language you chose. Next, you&#x27;ll locate and open the source files.</p>
-</li>
-<li>
-<p>Each slash-delimited prefix of your derivation name has become a folder. Open the nested folders to find the <code>flow.yaml</code> file with the derivation specification.</p>
-<p>Following the example above, you&#x27;d open the folders called <code>acmeCo</code>, then <code>resources</code> to find the correct <code>flow.yaml</code> file.</p>
-<p>The file contains a placeholder collection specification and schema for the derivation.</p>
-<p>In the same folder, you&#x27;ll also find supplementary TypeScript or SQL files you&#x27;ll need for your transformation.</p>
-</li>
-</ol>
-<p><a href="#add-a-sql-derivation-in-gitpod">Continue with SQL</a></p>
-<p><a href="#add-a-typescript-derivation-in-gitpod">Continue with TypeScript</a></p>
-<div class="theme-admonition theme-admonition-info admonition_xJq3 alert alert--info"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 14 16"><path fill-rule="evenodd" d="M7 2.3c3.14 0 5.7 2.56 5.7 5.7s-2.56 5.7-5.7 5.7A5.71 5.71 0 0 1 1.3 8c0-3.14 2.56-5.7 5.7-5.7zM7 1C3.14 1 0 4.14 0 8s3.14 7 7 7 7-3.14 7-7-3.14-7-7-7zm1 3H6v5h2V4zm0 6H6v2h2v-2z"></path></svg></span>Authentication</div><div class="admonitionContent_BuS1"><p>When you first connect to GitPod, you will have already authenticated Flow, but if you leave GitPod opened for too long, you may have to reauthenticate Flow. To do this:</p><ol>
 <li>
 <p><a href="/pr-preview/pr-2381/guides/how_to_generate_refresh_token/">Generate an Estuary Flow refresh token</a>.</p>
 </li>
 <li>
-<p>Run <code>flowctl auth token --token &lt;paste-token-here&gt;</code> in the GitPod terminal.</p>
+<p>Run <code>flowctl auth token --token &lt;paste-token-here&gt;</code></p>
 </li>
-</ol></div></div>
-<h2 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-sql-derivation-in-gitpod">Add a SQL derivation in GitPod<a href="#add-a-sql-derivation-in-gitpod" class="hash-link" aria-label="Direct link to Add a SQL derivation in GitPod" title="Direct link to Add a SQL derivation in GitPod">​</a></h2>
+</ol>
+</li>
+</ul>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="create-a-derivation-locally">Create a derivation locally<a href="#create-a-derivation-locally" class="hash-link" aria-label="Direct link to Create a derivation locally" title="Direct link to Create a derivation locally">​</a></h2>
+<p>In Estuary, a derivation is a new collection that has been <strong>derived</strong> from an existing source collection.</p>
+<p>You can create a new <code>flow.yaml</code> with your derivation specification and publish it to Estuary.
+For this example, we will add our new derived collection to our source collection spec.</p>
+<ol>
+<li>
+<p>Locate the source collection for your derivation. Either:</p>
+<ul>
+<li>
+<p>Check the web app&#x27;s <strong>Collections</strong>.
+All published entities to which you have access are listed and can be searched.</p>
+</li>
+<li>
+<p>Run <code>flowctl catalog list --collections</code>. This command returns a complete list of collections to which you have access.
+You can refine by specifying a <code>--prefix</code>.</p>
+</li>
+</ul>
+</li>
+<li>
+<p>Pull the source collection locally using the full collection name.</p>
+<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl catalog pull-specs --name acmeCo/resources/anvils</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
+<p>The source files are written to your current working directory.</p>
+</li>
+<li>
+<p>Each slash-delimited prefix of your collection name has become a folder. Open the nested folders to find the <code>flow.yaml</code> file with the collection specification.</p>
+<p>Following the example above, you&#x27;d open the folders called <code>acmeCo</code>, then <code>resources</code> to find the correct <code>flow.yaml</code> file.</p>
+<p>The file contains the source collection specification and schema.</p>
+</li>
+<li>
+<p>Add the derivation as a second collection in the <code>flow.yaml</code> file.</p>
+<ol>
+<li>
+<p>Write the <a href="/pr-preview/pr-2381/concepts/schemas/">schema</a> you&#x27;d like your derivation to conform to and specify the <a href="/pr-preview/pr-2381/concepts/collections/#keys">collection key</a>. Reference the source collection&#x27;s schema, and keep in mind the transformation required to get from the source schema to the new schema.</p>
+</li>
+<li>
+<p>Add the <code>derive</code> stanza. See examples for <a href="#add-a-sql-derivation">SQL</a> and <a href="#add-a-sql-derivation">TypeScript</a> below. Give your transform a unique name.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>Stub out the SQL or TypeScript files for your transform.</p>
+<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl generate --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
+</li>
+<li>
+<p>Locate the generated file, likely in the same subdirectory as the <code>flow.yaml</code> file you&#x27;ve been working in.</p>
+</li>
+<li>
+<p>Write your transformation.</p>
+</li>
+<li>
+<p>Preview the derivation locally.</p>
+<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl preview --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
+</li>
+<li>
+<p>If the preview output appears how you&#x27;d expect, <strong>publish</strong> the derivation.</p>
+<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl catalog publish --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
+</li>
+</ol>
+<p>The derivation you created is now live and ready for further use.
+You can access it from the web application and <a href="/pr-preview/pr-2381/guides/create-dataflow/#create-a-materialization">materialize it to a destination</a>,
+just as you would any other Flow collection.</p>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-sql-derivation">Add a SQL derivation<a href="#add-a-sql-derivation" class="hash-link" aria-label="Direct link to Add a SQL derivation" title="Direct link to Add a SQL derivation">​</a></h2>
 <p>If you chose <strong>SQL</strong> as your transformation language, follow these steps.</p>
-<p>Along with the derivation&#x27;s <code>flow.yaml</code> you found in the previous steps, there are two other files:</p>
+<p>Along with the derivation&#x27;s <code>flow.yaml</code> you worked with in the previous steps, you may generate two types of SQL file:</p>
 <ul>
 <li>
 <p>A <strong>lambda</strong> file. This is where you&#x27;ll write your first SQL transformation.
@@ -137,6 +151,8 @@ Using the example above, it&#x27;d be called <code>anvil-status.migration.0.sql<
 <ol start="5">
 <li>
 <p>If necessary, open the migration file and write your migration.</p>
+<p>If you won&#x27;t be using a migration, you can omit the <code>migrations</code> stanza:</p>
+<div class="language-yaml codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-yaml codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token key atrule" style="color:#00a4db">derive</span><span class="token punctuation" style="color:#393A34">:</span><span class="token plain"></span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  </span><span class="token key atrule" style="color:#00a4db">using</span><span class="token punctuation" style="color:#393A34">:</span><span class="token plain"></span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    </span><span class="token key atrule" style="color:#00a4db">sqlite</span><span class="token punctuation" style="color:#393A34">:</span><span class="token plain"> </span><span class="token punctuation" style="color:#393A34">{</span><span class="token punctuation" style="color:#393A34">}</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
 </li>
 <li>
 <p>Preview the derivation locally.</p>
@@ -150,9 +166,9 @@ Using the example above, it&#x27;d be called <code>anvil-status.migration.0.sql<
 <p>The derivation you created is now live and ready for further use.
 You can access it from the web application and <a href="/pr-preview/pr-2381/guides/create-dataflow/#create-a-materialization">materialize it to a destination</a>,
 just as you would any other Flow collection.</p>
-<h2 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-typescript-derivation-in-gitpod">Add a TypeScript derivation in GitPod<a href="#add-a-typescript-derivation-in-gitpod" class="hash-link" aria-label="Direct link to Add a TypeScript derivation in GitPod" title="Direct link to Add a TypeScript derivation in GitPod">​</a></h2>
+<h2 class="anchor anchorWithStickyNavbar_LWe7" id="add-a-typescript-derivation">Add a TypeScript derivation<a href="#add-a-typescript-derivation" class="hash-link" aria-label="Direct link to Add a TypeScript derivation" title="Direct link to Add a TypeScript derivation">​</a></h2>
 <p>If you chose <strong>TypeScript</strong> as your transformation language, follow these steps.</p>
-<p>Along with the derivation&#x27;s <code>flow.yaml</code> you found in the previous steps, there&#x27;s another file for the TypeScript transformation.
+<p>Along with the derivation&#x27;s <code>flow.yaml</code> you worked with in the previous steps, you can create a file to handle the TypeScript transformation.
 It follows the naming convention <code>derivation-name.ts</code>.
 Using the example above, it&#x27;d be called <code>anvil-status.ts</code>.</p>
 <ol>
@@ -193,79 +209,9 @@ Using the example above, it&#x27;d be called <code>anvil-status.ts</code>.</p>
 <p>The derivation you created is now live and ready for further use.
 You can access it from the web application and <a href="/pr-preview/pr-2381/guides/create-dataflow/#create-a-materialization">materialize it to a destination</a>,
 just as you would any other Flow collection.</p>
-<h2 class="anchor anchorWithStickyNavbar_LWe7" id="create-a-derivation-locally">Create a derivation locally<a href="#create-a-derivation-locally" class="hash-link" aria-label="Direct link to Create a derivation locally" title="Direct link to Create a derivation locally">​</a></h2>
-<p>Creating a derivation locally is largely the same as using GitPod, but has some extra steps. Those extra steps are explained here, but you&#x27;ll find more useful context in the sections above.</p>
-<ol>
-<li>
-<p>Authorize flowctl.</p>
-<ol>
-<li>
-<p><a href="/pr-preview/pr-2381/guides/how_to_generate_refresh_token/">Generate an Estuary Flow refresh token</a>.</p>
-</li>
-<li>
-<p>Run <code>flowctl auth token --token &lt;paste-token-here&gt;</code> in your local environment.</p>
-</li>
-</ol>
-</li>
-<li>
-<p>Locate the source collection for your derivation.</p>
-<ul>
-<li>
-<p>Check the web app&#x27;s <strong>Collections</strong>.
-All published entities to which you have access are listed and can be searched.</p>
-</li>
-<li>
-<p>Run <code>flowctl catalog list --collections</code>. This command returns a complete list of collections to which you have access.
-You can refine by specifying a <code>--prefix</code>.</p>
-</li>
-</ul>
-</li>
-<li>
-<p>Pull the source collection locally using the full collection name.</p>
-<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl catalog pull-specs --name acmeCo/resources/anvils</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
-<p>The source files are written to your current working directory.</p>
-</li>
-<li>
-<p>Each slash-delimited prefix of your collection name has become a folder. Open the nested folders to find the <code>flow.yaml</code> file with the collection specification.</p>
-<p>Following the example above, you&#x27;d open the folders called <code>acmeCo</code>, then <code>resources</code> to find the correct <code>flow.yaml</code> file.</p>
-<p>The file contains the source collection specification and schema.</p>
-</li>
-<li>
-<p>Add the derivation as a second collection in the <code>flow.yaml</code> file.</p>
-<ol>
-<li>
-<p>Write the <a href="/pr-preview/pr-2381/concepts/schemas/">schema</a> you&#x27;d like your derivation to conform to and specify the <a href="/pr-preview/pr-2381/concepts/collections/#keys">collection key</a>. Reference the source collection&#x27;s schema, and keep in mind the transformation required to get from the source schema to the new schema.</p>
-</li>
-<li>
-<p>Add the <code>derive</code> stanza. See examples for <a href="#add-a-sql-derivation-in-gitpod">SQL</a> and <a href="#add-a-sql-derivation-in-gitpod">TypeScript</a> above. Give your transform a unique name.</p>
-</li>
-</ol>
-</li>
-<li>
-<p>Stub out the SQL or TypeScript files for your transform.</p>
-<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl generate --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
-</li>
-<li>
-<p>Locate the generated file, likely in the same subdirectory as the <code>flow.yaml</code> file you&#x27;ve been working in.</p>
-</li>
-<li>
-<p>Write your transformation.</p>
-</li>
-<li>
-<p>Preview the derivation locally.</p>
-</li>
-</ol>
-<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl preview --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
-<ol start="10">
-<li>If the preview output appears how you&#x27;d expect, <strong>publish</strong> the derivation.</li>
-</ol>
-<div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl catalog publish --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
-<p>The derivation you created is now live and ready for further use.
-You can access it from the web application and <a href="/pr-preview/pr-2381/guides/create-dataflow/#create-a-materialization">materialize it to a destination</a>,
-just as you would any other Flow collection.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="updating-an-existing-derivation">Updating an existing derivation<a href="#updating-an-existing-derivation" class="hash-link" aria-label="Direct link to Updating an existing derivation" title="Direct link to Updating an existing derivation">​</a></h2>
 <p>Derivations are applied on a go-forward basis only.</p>
 <p>If you would like to make an update to an existing derivation (for example, adding columns to the derived collection), you can add a new transform by changing the name of your existing transform to a new name, and at the same time updating your lambda or TypeScript module.</p>
-<p>From the Flow&#x27;s perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/estuary/flow/edit/master/site/docs/guides/flowctl/create-derivation.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/pr-preview/pr-2381/guides/flowctl/edit-draft-from-webapp/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Edit a draft created in the web app</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/pr-preview/pr-2381/guides/flowctl/troubleshoot-task/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Troubleshoot a task with flowctl</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#prerequisites" class="table-of-contents__link toc-highlight">Prerequisites</a></li><li><a href="#get-started-with-gitpod" class="table-of-contents__link toc-highlight">Get started with GitPod</a></li><li><a href="#add-a-sql-derivation-in-gitpod" class="table-of-contents__link toc-highlight">Add a SQL derivation in GitPod</a></li><li><a href="#add-a-typescript-derivation-in-gitpod" class="table-of-contents__link toc-highlight">Add a TypeScript derivation in GitPod</a></li><li><a href="#create-a-derivation-locally" class="table-of-contents__link toc-highlight">Create a derivation locally</a></li><li><a href="#updating-an-existing-derivation" class="table-of-contents__link toc-highlight">Updating an existing derivation</a></li></ul></div></div></div></div></main></div></div></div><footer class="footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Resources</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/pr-preview/pr-2381/">Flow Documentation</a></li><li class="footer__item"><a href="https://estuary.dev/success-stories/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Success Stories<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://go.estuary.dev/slack" target="_blank" rel="noopener noreferrer" class="footer__link-item">Slack<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.linkedin.com/company/estuary-tech/" target="_blank" rel="noopener noreferrer" class="footer__link-item">LinkedIn<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://twitter.com/EstuaryDev" target="_blank" rel="noopener noreferrer" class="footer__link-item">Twitter<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.youtube.com/@estuarydev" target="_blank" rel="noopener noreferrer" class="footer__link-item">YouTube<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://estuary.dev/contact-us/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Contact Us<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2025 Estuary Technologies, Inc. Built with Docusaurus.</div></div></div></footer></div>
+<p>From the Flow&#x27;s perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.</p></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/estuary/flow/edit/master/site/docs/guides/flowctl/create-derivation.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/pr-preview/pr-2381/guides/flowctl/edit-draft-from-webapp/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Edit a draft created in the web app</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/pr-preview/pr-2381/guides/flowctl/troubleshoot-task/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Troubleshoot a task with flowctl</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a href="#prerequisites" class="table-of-contents__link toc-highlight">Prerequisites</a></li><li><a href="#create-a-derivation-locally" class="table-of-contents__link toc-highlight">Create a derivation locally</a></li><li><a href="#add-a-sql-derivation" class="table-of-contents__link toc-highlight">Add a SQL derivation</a></li><li><a href="#add-a-typescript-derivation" class="table-of-contents__link toc-highlight">Add a TypeScript derivation</a></li><li><a href="#updating-an-existing-derivation" class="table-of-contents__link toc-highlight">Updating an existing derivation</a></li></ul></div></div></div></div></main></div></div></div><footer class="footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Resources</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/pr-preview/pr-2381/">Flow Documentation</a></li><li class="footer__item"><a href="https://estuary.dev/success-stories/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Success Stories<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://go.estuary.dev/slack" target="_blank" rel="noopener noreferrer" class="footer__link-item">Slack<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.linkedin.com/company/estuary-tech/" target="_blank" rel="noopener noreferrer" class="footer__link-item">LinkedIn<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://twitter.com/EstuaryDev" target="_blank" rel="noopener noreferrer" class="footer__link-item">Twitter<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://www.youtube.com/@estuarydev" target="_blank" rel="noopener noreferrer" class="footer__link-item">YouTube<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li><li class="footer__item"><a href="https://estuary.dev/contact-us/" target="_blank" rel="noopener noreferrer" class="footer__link-item">Contact Us<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2025 Estuary Technologies, Inc. Built with Docusaurus.</div></div></div></footer></div>
 </body>
 </html>
