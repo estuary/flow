@@ -7,8 +7,11 @@ expression: alice_result
     "edges": [
       {
         "node": {
+          "activeAlerts": null,
+          "alertHistory": null,
           "catalogName": "bobCo/private/materialization",
           "liveSpec": null,
+          "status": null,
           "userCapability": null
         }
       }

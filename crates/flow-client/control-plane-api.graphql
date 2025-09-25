@@ -378,8 +378,14 @@ type LiveSpecRef {
 	"""
 	catalogName: Name!
 	"""
-	The current user's capability to the referent. None indicates no access.
-	Note that
+	The current user's capability to the referent. Null indicates no access.
+	A query can obtain a reference to a catalog spec that the user has no
+	access to, which happens in scenarios where a LiveSpec that the user
+	does have access to references a spec in a different catalog namespace
+	that the user cannot access. It can also happen simply by listing by
+	name, and passing a name that the user cannot access. In either case,
+	the result would be `userCapability: null`, and all other fields on the
+	LiveSpecRef would also be null.
 	"""
 	userCapability: Capability
 	"""
@@ -389,13 +395,13 @@ type LiveSpecRef {
 	"""
 	Returns all alerts that are currently firing for this live spec.
 	"""
-	activeAlerts: [Alert!]!
+	activeAlerts: [Alert!]
 	"""
 	Returns the history of resolved alerts for this live spec. Alerts are
 	returned in reverse chronological order based on the `firedAt`
 	timestamp, and are paginated.
 	"""
-	alertHistory(before: String, last: Int!): AlertConnection!
+	alertHistory(before: String, last: Int!): AlertConnection
 	"""
 	Returns the status of the live spec.
 	"""

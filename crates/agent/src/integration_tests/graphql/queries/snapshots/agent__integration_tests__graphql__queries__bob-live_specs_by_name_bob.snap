@@ -7,6 +7,10 @@ expression: bob_result
     "edges": [
       {
         "node": {
+          "activeAlerts": [],
+          "alertHistory": {
+            "edges": []
+          },
           "catalogName": "bobCo/private/materialization",
           "liveSpec": {
             "isDisabled": false,
@@ -62,6 +66,9 @@ expression: bob_result
                 }
               }
             }
+          },
+          "status": {
+            "summary": "waiting for task shards to be ready"
           },
           "userCapability": "admin"
         }

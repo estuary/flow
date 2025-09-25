@@ -7,8 +7,11 @@ expression: bob_result
     "edges": [
       {
         "node": {
+          "activeAlerts": null,
+          "alertHistory": null,
           "catalogName": "aliceCo/private/capture",
           "liveSpec": null,
+          "status": null,
           "userCapability": null
         }
       }

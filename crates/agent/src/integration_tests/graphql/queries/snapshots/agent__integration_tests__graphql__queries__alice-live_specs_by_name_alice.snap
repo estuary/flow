@@ -7,6 +7,26 @@ expression: alice_result
     "edges": [
       {
         "node": {
+          "activeAlerts": [],
+          "alertHistory": {
+            "edges": [
+              {
+                "node": {
+                  "firedAt": "2024-08-09T11:41:12+00:00"
+                }
+              },
+              {
+                "node": {
+                  "firedAt": "2024-08-09T10:56:12+00:00"
+                }
+              },
+              {
+                "node": {
+                  "firedAt": "2024-08-09T10:11:12+00:00"
+                }
+              }
+            ]
+          },
           "catalogName": "aliceCo/private/capture",
           "liveSpec": {
             "isDisabled": false,
@@ -53,6 +73,9 @@ expression: alice_result
                 }
               }
             }
+          },
+          "status": {
+            "summary": "waiting for task shards to be ready"
           },
           "userCapability": "admin"
         }
