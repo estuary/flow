@@ -260,9 +260,6 @@ pub async fn common_setup() -> (TestHarness, Uuid, Uuid) {
     .await
     .expect("Failed to insert alert history");
 
-    // Refresh snapshot to ensure all data is visible
-    harness.refresh_snapshot().await;
-
     (harness, alice_user_id, bob_user_id)
 }
 
