@@ -1376,24 +1376,6 @@ impl TestHarness {
         Ok(result)
     }
 
-    /// Manually trigger a snapshot refresh and wait for it to complete
-    pub async fn refresh_snapshot(&mut self) {
-        if self.control_plane_app.is_none() {
-            self.init_control_plane_app().await;
-        }
-
-        let app = self.control_plane_app.as_ref().unwrap();
-
-        // Take the refresh_tx to trigger a refresh
-        {
-            let mut snapshot = app.snapshot().write().unwrap();
-            snapshot.refresh_tx.take();
-        }
-
-        // Wait a bit for the refresh to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    }
-
     /// Initialize the control plane API app instance
     async fn init_control_plane_app(&mut self) {
         let jwt_secret = vec![0u8; 32]; // Test JWT secret
@@ -1405,13 +1387,14 @@ impl TestHarness {
             self.pool.clone(),
             self.publisher.clone(),
         ));
-
-        // Start the snapshot fetch loop
-        let app_clone = app.clone();
-        tokio::spawn(control_plane_api::server::snapshot::fetch_loop(app_clone));
-
-        // Give it time to load initial snapshot
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        {
+            let snapshot =
+                control_plane_api::server::snapshot::try_fetch(&self.pool, &mut Default::default())
+                    .await
+                    .expect("failed to fetch Snapshot");
+            let mut lock = app.snapshot().write().unwrap();
+            *lock = snapshot;
+        }
 
         self.control_plane_app = Some(app);
     }
