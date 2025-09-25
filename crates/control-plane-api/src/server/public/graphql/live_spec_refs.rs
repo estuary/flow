@@ -73,7 +73,6 @@ impl LiveSpecRef {
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<Vec<alerts::Alert>>> {
         if self.user_capability.is_none() {
-            tracing::info!(catalog_name = %self.catalog_name, "not showing firing_alerts because user is not authorized");
             return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
@@ -94,7 +93,6 @@ impl LiveSpecRef {
         last: i32,
     ) -> async_graphql::Result<Option<alerts::PaginatedAlerts>> {
         if self.user_capability.is_none() {
-            tracing::info!(catalog_name = %self.catalog_name, "not showing alert_history because user is not authorized");
             return Ok(None);
         }
         alerts::live_spec_alert_history(ctx, &self.catalog_name, before, last)
@@ -105,7 +103,6 @@ impl LiveSpecRef {
     /// Returns the status of the live spec.
     async fn status(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<status::Status>> {
         if self.user_capability.is_none() {
-            tracing::info!(catalog_name = %self.catalog_name, "not showing alert_history because user is not authorized");
             return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
