@@ -11,6 +11,19 @@ query LiveSpecsByNameBob {
                     isDisabled
                     model
                 }
+                activeAlerts {
+                    alertType
+                }
+                alertHistory(last: 20) {
+                    edges {
+                        node {
+                            firedAt
+                        }
+                    }
+                }
+                status {
+                    summary
+                }
             }
         }
     }
