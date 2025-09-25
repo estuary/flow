@@ -108,7 +108,7 @@ pub async fn check_resource_quotas(
             // exceeds your quota, so long as you remove/disable more tasks than you add.
             if tasks_delta >= 0 && new_tasks_used > tenant.tasks_quota {
                 let value = anyhow::anyhow!(
-                    "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are currently in use.",
+                    "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are currently in use. Reach out to Estuary Support to request an increased task limit for your tenant.",
                     tasks_delta,
                     tenant.name,
                     tenant.tasks_quota,
