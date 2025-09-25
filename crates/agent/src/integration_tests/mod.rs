@@ -7,6 +7,7 @@ mod collection_resets;
 mod config_updates;
 mod dependencies_and_activations;
 pub mod harness;
+mod inferred_schemas;
 mod locking_retries;
 mod null_bytes;
 mod periodic_publications;

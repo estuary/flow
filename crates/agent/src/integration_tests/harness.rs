@@ -854,12 +854,11 @@ impl TestHarness {
         run
     }
 
-    pub async fn assert_controller_pending(&mut self, catalog_name: &str) {
-        let wake_at: Option<DateTime<Utc>> = self.get_controller_wake_at(catalog_name).await;
-        assert!(
-            wake_at.is_some(),
-            "expected controller for '{catalog_name}' to have a non-null wake_at, but it was null"
-        );
+    pub async fn assert_controller_pending(&mut self, catalog_name: &str) -> DateTime<Utc> {
+        let Some(wake_at) = self.get_controller_wake_at(catalog_name).await else {
+            panic!("expected controller for '{catalog_name}' to have a non-null wake_at, but it was null");
+        };
+        wake_at
     }
 
     pub async fn assert_controller_not_pending(&mut self, catalog_name: &str) {

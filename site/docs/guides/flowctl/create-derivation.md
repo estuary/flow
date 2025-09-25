@@ -19,73 +19,86 @@ If you don't have an account yet, [go to the web app](https://dashboard.estuary.
 * An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
 If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
 
-* A development environment to work with flowctl. Choose between:
+* The `flowctl` CLI [installed and authenticated](/guides/get-started-with-flowctl).
 
-   * [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
-   GitPod comes ready for derivation writing, with stubbed out files and flowctl installed. You'll need a GitHub or Google account to log in.
+   You can authorize `flowctl` with a refresh token:
 
-   * Your local development environment. [Install flowctl locally](../get-started-with-flowctl.md).
+   1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
 
-## Get started with GitPod
+   2. Run `flowctl auth token --token <paste-token-here>`
 
-You'll write your derivation using GitPod, a cloud development environment integrated in the Flow web app.
+## Create a derivation locally
 
-1. Navigate to the [Collections](https://dashboard.estuary.dev/collections) page in Flow.
+In Estuary, a derivation is a new collection that has been **derived** from an existing source collection.
 
-2. Click on the **New Transformation** button.
+You can create a new `flow.yaml` with your derivation specification and publish it to Estuary.
+For this example, we will add our new derived collection to our source collection spec.
 
-   The **Derive A New Collection** pop-up window appears.
+1. Locate the source collection for your derivation. Either:
 
-3. In the **Available Collections** dropdown, select the collection you want to use as the source.
+   * Check the web app's **Collections**.
+   All published entities to which you have access are listed and can be searched.
 
-   For example, if your organization is `acmeCo`, you might choose the `acmeCo/resources/anvils` collection.
+   * Run `flowctl catalog list --collections`. This command returns a complete list of collections to which you have access.
+   You can refine by specifying a `--prefix`.
 
-4. Set the transformation language to either **SQL** or **TypeScript**.
+2. Pull the source collection locally using the full collection name.
 
-   SQL transformations can be a more approachable place to start if you're new to derivations.
-   TypeScript transformations can provide more resiliency against failures through static type checking.
+   ```console
+   flowctl catalog pull-specs --name acmeCo/resources/anvils
+   ```
 
-5. Give your derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example `acmeCo/resources/anvil-status`.
+   The source files are written to your current working directory.
 
-6. Click **Proceed to GitPod** to create your development environment. Sign in with one of the available account types.
-
-7. On the **New Workspace** screen, keep the **Context URL** option selected and click **Continue.**
-
-   A GitPod development environment opens.
-   A stubbed-out derivation with a transformation has already been created for you in the language you chose. Next, you'll locate and open the source files.
-
-8. Each slash-delimited prefix of your derivation name has become a folder. Open the nested folders to find the `flow.yaml` file with the derivation specification.
+3. Each slash-delimited prefix of your collection name has become a folder. Open the nested folders to find the `flow.yaml` file with the collection specification.
 
    Following the example above, you'd open the folders called `acmeCo`, then `resources` to find the correct `flow.yaml` file.
 
-   The file contains a placeholder collection specification and schema for the derivation.
+   The file contains the source collection specification and schema.
 
-   In the same folder, you'll also find supplementary TypeScript or SQL files you'll need for your transformation.
+4. Add the derivation as a second collection in the `flow.yaml` file.
 
-[Continue with SQL](#add-a-sql-derivation-in-gitpod)
+   1. Write the [schema](/concepts/schemas) you'd like your derivation to conform to and specify the [collection key](/concepts/collections/#keys). Reference the source collection's schema, and keep in mind the transformation required to get from the source schema to the new schema.
 
-[Continue with TypeScript](#add-a-typescript-derivation-in-gitpod)
+   2. Add the `derive` stanza. See examples for [SQL](#add-a-sql-derivation) and [TypeScript](#add-a-sql-derivation) below. Give your transform a unique name.
 
-:::info Authentication
+5. Stub out the SQL or TypeScript files for your transform.
 
-When you first connect to GitPod, you will have already authenticated Flow, but if you leave GitPod opened for too long, you may have to reauthenticate Flow. To do this:
+   ```console
+   flowctl generate --source flow.yaml
+   ```
 
-1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
+6. Locate the generated file, likely in the same subdirectory as the `flow.yaml` file you've been working in.
 
-2. Run `flowctl auth token --token <paste-token-here>` in the GitPod terminal.
-:::
+7. Write your transformation.
 
-## Add a SQL derivation in GitPod
+8. Preview the derivation locally.
+
+   ```console
+   flowctl preview --source flow.yaml
+   ```
+
+9. If the preview output appears how you'd expect, **publish** the derivation.
+
+   ```console
+   flowctl catalog publish --source flow.yaml
+   ```
+
+The derivation you created is now live and ready for further use.
+You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
+just as you would any other Flow collection.
+
+## Add a SQL derivation
 
 If you chose **SQL** as your transformation language, follow these steps.
 
-Along with the derivation's `flow.yaml` you found in the previous steps, there are two other files:
+Along with the derivation's `flow.yaml` you worked with in the previous steps, you may generate two types of SQL file:
 
 * A **lambda** file. This is where you'll write your first SQL transformation.
 Its name follows the pattern `derivation-name.lambda.source-collection-name.sql`.
 Using the example above, it'd be called `anvil-status.lambda.anvils.sql`.
 
-* A **migrations** file. [Migrations](../../concepts/derivations.md#migrations) allow you to leverage other features of the sqlite database that backs your derivation by creating tables, indices, views, and more.
+* A **migrations** file. [Migrations](/concepts/derivations/#migrations) allow you to leverage other features of the sqlite database that backs your derivation by creating tables, indices, views, and more.
 Its name follows the pattern `derivation-name.migration.0.sql`.
 Using the example above, it'd be called `anvil-status.migration.0.sql`.
 
@@ -117,7 +130,7 @@ Using the example above, it'd be called `anvil-status.migration.0.sql`.
 
    Note the stubbed out schema and key.
 
-2. Write the [schema](../../concepts/schemas.md) you'd like your derivation to conform to and specify its [collection key](../../concepts/collections.md#keys). Keep in mind:
+2. Write the [schema](/concepts/schemas) you'd like your derivation to conform to and specify its [collection key](/concepts/collections/#keys). Keep in mind:
 
    * The source collection's schema.
 
@@ -130,13 +143,21 @@ Using the example above, it'd be called `anvil-status.migration.0.sql`.
 :::info Tip
 For help writing your derivation, start with these examples:
 
-* [Continuous materialized view tutorial](../../getting-started/tutorials/continuous-materialized-view.md)
-* [Acme Bank examples](../../getting-started/tutorials/derivations_acmebank.md)
+* [Continuous materialized view tutorial](/getting-started/tutorials/continuous-materialized-view)
+* [Acme Bank examples](/getting-started/tutorials/derivations_acmebank)
 
-The main [derivations page](../../concepts/derivations.md) includes many other examples and in-depth explanations of how derivations work.
+The main [derivations page](/concepts/derivations) includes many other examples and in-depth explanations of how derivations work.
 :::
 
 5. If necessary, open the migration file and write your migration.
+
+   If you won't be using a migration, you can omit the `migrations` stanza:
+
+   ```yaml
+   derive:
+     using:
+       sqlite: {}
+   ```
 
 6. Preview the derivation locally.
 
@@ -154,11 +175,11 @@ The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
 just as you would any other Flow collection.
 
-## Add a TypeScript derivation in GitPod
+## Add a TypeScript derivation
 
 If you chose **TypeScript** as your transformation language, follow these steps.
 
-Along with the derivation's `flow.yaml` you found in the previous steps, there's another file for the TypeScript transformation.
+Along with the derivation's `flow.yaml` you worked with in the previous steps, you can create a file to handle the TypeScript transformation.
 It follows the naming convention `derivation-name.ts`.
 Using the example above, it'd be called `anvil-status.ts`.
 
@@ -188,7 +209,7 @@ Using the example above, it'd be called `anvil-status.ts`.
 
    Note the stubbed out schema and key.
 
-2. Write the [schema](../../concepts/schemas.md) you'd like your derivation to conform to and specify the [collection key](../../concepts/collections.md#keys). Keep in mind:
+2. Write the [schema](/concepts/schemas) you'd like your derivation to conform to and specify the [collection key](/concepts/collections/#keys). Keep in mind:
 
    * The source collection's schema.
 
@@ -215,70 +236,6 @@ The main [derivations page](../../concepts/derivations.md) includes many other e
    ```console
    flowctl catalog publish --source flow.yaml
    ```
-
-The derivation you created is now live and ready for further use.
-You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
-just as you would any other Flow collection.
-
-## Create a derivation locally
-
-Creating a derivation locally is largely the same as using GitPod, but has some extra steps. Those extra steps are explained here, but you'll find more useful context in the sections above.
-
-1. Authorize flowctl.
-
-   1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
-
-   2. Run `flowctl auth token --token <paste-token-here>` in your local environment.
-
-2. Locate the source collection for your derivation.
-
-   * Check the web app's **Collections**.
-   All published entities to which you have access are listed and can be searched.
-
-   * Run `flowctl catalog list --collections`. This command returns a complete list of collections to which you have access.
-   You can refine by specifying a `--prefix`.
-
-3. Pull the source collection locally using the full collection name.
-
-   ```console
-   flowctl catalog pull-specs --name acmeCo/resources/anvils
-   ```
-
-   The source files are written to your current working directory.
-
-4. Each slash-delimited prefix of your collection name has become a folder. Open the nested folders to find the `flow.yaml` file with the collection specification.
-
-   Following the example above, you'd open the folders called `acmeCo`, then `resources` to find the correct `flow.yaml` file.
-
-   The file contains the source collection specification and schema.
-
-5. Add the derivation as a second collection in the `flow.yaml` file.
-
-   1. Write the [schema](../../concepts/schemas.md) you'd like your derivation to conform to and specify the [collection key](../../concepts/collections.md#keys). Reference the source collection's schema, and keep in mind the transformation required to get from the source schema to the new schema.
-
-   2. Add the `derive` stanza. See examples for [SQL](#add-a-sql-derivation-in-gitpod) and [TypeScript](#add-a-sql-derivation-in-gitpod) above. Give your transform a unique name.
-
-6. Stub out the SQL or TypeScript files for your transform.
-
-   ```console
-   flowctl generate --source flow.yaml
-   ```
-
-7. Locate the generated file, likely in the same subdirectory as the `flow.yaml` file you've been working in.
-
-8. Write your transformation.
-
-9. Preview the derivation locally.
-
-```console
-flowctl preview --source flow.yaml
-```
-
-10. If the preview output appears how you'd expect, **publish** the derivation.
-
-```console
-flowctl catalog publish --source flow.yaml
-```
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),

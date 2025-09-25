@@ -16,11 +16,7 @@ a materialized view that updates continuously based on a real-time data feed.
 
 * An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
 
-* A GitHub or Google account. You'll use this to log into [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
-
-   * Alternatively, you can complete this tutorial using a local development environment.
-   In that case, you'll need to [install flowctl locally](../../guides/get-started-with-flowctl.md).
-   Note that the steps you'll need to take will be different. Refer to this [guide](../../guides/flowctl/create-derivation.md#create-a-derivation-locally) for help.
+* `flowctl` [installed and authenticated](/guides/get-started-with-flowctl)
 
 * A Postgres database set up to [allow connections from Flow](/reference/Connectors/materialization-connectors/PostgreSQL/#setup).
 Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and self-hosted databases are supported.
@@ -72,112 +68,96 @@ You'll then materialize both the raw and transformed datasets to your Postgres i
 
 ## Add a derivation to transform data
 
-You'll write your derivation using a cloud development environment integrated in the Flow web app.
+You'll write your derivation with the help of `flowctl`, Estuary's CLI.
 
-1. Go back to the [collections page](https://dashboard.estuary.dev/collections) and click the **New Transformation** button.
+1. Open a terminal and pull the demo collection spec locally.
 
-2. Set the source collection to the raw Wikipedia data. Search for and select `demo/wikipedia/recentchange`.
+   ```bash
+   flowctl catalog pull-specs --name demo/wikipedia/recentchange
+   ```
 
-3. Set the transformation language to SQL.
+2. This command will write a new file structure in your current directory.
+Each slash-delimited prefix of your derivation name has become a folder.
+Open the nested folders to find the deepest-nested `flow.yaml` file, in the `demo/wikipedia/` directory.
 
-4. Give the derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example `yourprefix/wikipedia/user-fact-table`.
-
-5. Click **Proceed to GitPod** to create your development environment. Sign in with one of the available account types.
-
-6. On the **New Workspace** screen, keep the **Context URL** option selected and click **Continue.**
-
-   A GitPod development environment opens.
-   A stubbed-out derivation with a SQL transformation has already been created for you. Next, you'll locate and open the source files.
-
-7. Each slash-delimited prefix of your derivation name has become a folder. Open the nested folders to locate a `flow.yaml` file.
-
-   Following the example above, you'd open the folders called `yourprefix`, then `wikipedia`, to find the correct `flow.yaml` file. Its contents look like this:
+3. Open this `flow.yaml` file in a code editor. It should contain a collection spec similar to:
 
    ```yaml
+   ---
    collections:
-     yourprefix/wikipedia/user-fact-table:
-       schema:
-         properties:
-           your_key:
-             type: string
-             required:
-               - your_key
-             type: object
+     demo/wikipedia/recentchange:
+       writeSchema: recentchange.write.schema.yaml
+       readSchema: recentchange.read.schema.yaml
        key:
-         - /your_key
-       derive:
-         using:
-           sqlite:
-             migrations:
-               - user-fact-table.migration.0.sql
-         transforms:
-           - name: recentchange
+         - /_meta/file
+         - /_meta/offset
+       projections:
+         flow_document: ""
+       expectPubId: 1234ff4b568003a5
+   ```
+
+4. The derivation will be a new collection in this file. Add the derivation specification, using your own prefix for the collection name:
+
+   ```yaml
+   yourprefix/wikipedia/user-fact-table:
+     schema:
+       properties:
+         edits_this_day:
+           reduce:
+             strategy: sum
+           type: integer
+         date:
+           format: date
+           type: string
+         user:
+           type: string
+       reduce:
+         strategy: merge
+       required:
+         - user
+         - date
+         - edits_this_day
+       type: object
+     key:
+       - /user
+       - /date
+     derive:
+       using:
+         sqlite: {}
+       transforms:
+         - name: dailychangesbyuser
            source: demo/wikipedia/recentchange
-           shuffle: any
+           shuffle: { key: [ /user ] }
            lambda: user-fact-table.lambda.recentchange.sql
    ```
 
-   Your first order of business is to replace the placeholder schema and collection key.
-   As we saw earlier, the source collection's schema and key caused every Wikipedia event to generate a new document.
+   Let's walk through some key aspects of this specification.
 
-   You'll fix that here.
+   The new schema contains [reduction annotations](/concepts/schemas/#reduce-annotations).
+   These sum the changes made by a given user on a given date.
+   The collection is now keyed on each unique combination of user ID and date.
+   It has just three fields:
+   the user, date, and the number of changes made by that user on that date.
 
-6. Replace the existing `schema` and `key` stanzas with the following:
+   We also specify that we're _deriving_ the new collection using a SQL transformation.
+   You may notice that we reference files that don't exist yet. We'll fix this next.
 
-   ```yaml
-   schema:
-      properties:
-        edits_this_day:
-          reduce:
-            strategy: sum
-          type: integer
-        date:
-          format: date
-          type: string
-        user:
-          type: string
-      reduce:
-        strategy: merge
-      required:
-        - user
-        - date
-        - edits_this_day
-      type: object
-    key:
-      - /user
-      - /date
+   In the `transforms` stanza, we specify that we want to [shuffle](/concepts/derivations/#shuffles) on the `user` key.
+   Since we're working with a large dataset, this ensures that each user is processed by the same task **shard**.
+   This way, you'll prevent Flow from creating multiple counts for a given user and date combination.
+
+5. With the derivation specification in place, we need to generate the associated SQL transformation files.
+This will hold the function that will shape the source data to fit the new schema.
+
+   You can create a stub file to get started with `flowctl`.
+
+   ```bash
+   flowctl generate --source flow.yaml
    ```
 
-  The new schema contains [reduction annotations](../../concepts/schemas.md#reduce-annotations).
-  These sum the changes made by a given user on a given date.
-  The collection is now keyed on each unique combination of user ID and date.
-  It has just three fields:
-  the user, date, and the number of changes made by that user on that date.
+6. Open the new file called `user-fact-table.lambda.recentchange.sql`.
 
-  Next, you'll add the transformation.
-
-7. In the `transforms` stanza, give the transformation a new name to differentiate it from the name of the source collection. For example:
-
-   ```yaml
-   transforms:
-     - name: dailychangesbyuser
-   ```
-
-8. Update the shuffle key. Since we're working with a large dataset, this ensures that each user is processed by the same task **shard**.
-This way, you'll prevent Flow from creating multiple counts for a given user and date combination.
-
-   *Learn more about [shuffles](../../concepts/derivations.md#shuffles).*
-
-   ```yaml
-   shuffle: { key: [ /user ] }
-   ```
-
-   Now, the transform needs is the SQL lambda function — the function that will shape the source data to fit the new schema.
-   Flow has created another file to contain it.
-
-9. Open the file called `user-fact-table.lambda.recentchange.sql`.
-
-10. Replace its contents with
+7. Replace its contents with
 
     ```sql
     select $user, 1 as edits_this_day, date($meta$dt) as date where $user is not null;
@@ -187,7 +167,7 @@ This way, you'll prevent Flow from creating multiple counts for a given user and
     It converts the timestamp into a simplified date format.
     Finally, it filters out `null` users (which occasionally occur in the Wikipedia data stream and would violate your schema).
 
-11. All pieces of the derivation are in place. Double check your files against these samples:
+8. All pieces of the derivation are in place. Double check your files against these samples:
 
 <Tabs>
 <TabItem value="flow.yaml" default>
@@ -204,7 +184,7 @@ This way, you'll prevent Flow from creating multiple counts for a given user and
 </TabItem>
 </Tabs>
 
-12. Run the derivation locally and preview its output:
+9. Run the derivation locally and preview its output:
 
    ```console
    flowctl preview --source flow.yaml
@@ -219,9 +199,9 @@ This way, you'll prevent Flow from creating multiple counts for a given user and
    This looks right: it includes the correctly formatted date, the number of edits, and the username.
    You're ready to publish.
 
-13. Stop the local derivation with **Ctrl-C**.
+10. Stop the local derivation with **Ctrl-C**.
 
-14. Publish the derivation:
+11. Publish the derivation:
 
   ```console
   flowctl catalog publish --source flow.yaml
@@ -229,7 +209,6 @@ This way, you'll prevent Flow from creating multiple counts for a given user and
 
 The message `Publish successful` means you're all set.
 Your transformation will continue in real time based on the raw dataset, which is also updating in real time.
-You're free to close your GitPod.
 
 ## Create the continuous materialized view
 

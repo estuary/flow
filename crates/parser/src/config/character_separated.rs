@@ -143,6 +143,8 @@ pub enum Delimiter {
     Semicolon,
     #[serde(rename = "\t")]
     Tab,
+    #[serde(rename = "~")]
+    Tilde,
     #[serde(rename = "\x0B")]
     VerticalTab,
     #[serde(rename = "\x1F")]
@@ -165,6 +167,7 @@ impl Delimiter {
             Delimiter::Space => b' ',
             Delimiter::Semicolon => b';',
             Delimiter::Tab => b'\t',
+            Delimiter::Tilde => b'~',
             Delimiter::VerticalTab => 0x0B,
             Delimiter::UnitSeparator => 0x1F,
             Delimiter::SOH => 0x01,
@@ -180,6 +183,7 @@ impl EnumSelection for Delimiter {
             Delimiter::Space => "Space (0x20)",
             Delimiter::Semicolon => "Semicolon (;)",
             Delimiter::Tab => "Tab (0x09)",
+            Delimiter::Tilde => "Tilde (~)",
             Delimiter::VerticalTab => "Vertical Tab (0x0B)",
             Delimiter::UnitSeparator => "Unit Separator (0x1F)",
             Delimiter::SOH => "SOH (0x01)",
