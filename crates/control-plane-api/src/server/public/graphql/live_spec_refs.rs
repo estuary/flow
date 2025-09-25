@@ -32,8 +32,14 @@ pub enum LiveSpecsBy {
 pub struct LiveSpecRef {
     /// The catalog_name of the referent.
     pub catalog_name: models::Name,
-    /// The current user's capability to the referent. None indicates no access.
-    /// Note that
+    /// The current user's capability to the referent. Null indicates no access.
+    /// A query can obtain a reference to a catalog spec that the user has no
+    /// access to, which happens in scenarios where a LiveSpec that the user
+    /// does have access to references a spec in a different catalog namespace
+    /// that the user cannot access. It can also happen simply by listing by
+    /// name, and passing a name that the user cannot access. In either case,
+    /// the result would be `userCapability: null`, and all other fields on the
+    /// LiveSpecRef would also be null.
     pub user_capability: Option<models::Capability>,
 }
 
@@ -45,9 +51,6 @@ impl LiveSpecRef {
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<live_specs::LiveSpec>> {
         if self.user_capability.is_none() {
-            // return Err(async_graphql::Error::new(
-            //     "user is not authorized to read this live spec".to_string(),
-            // ));
             return Ok(None);
         }
 
@@ -65,16 +68,20 @@ impl LiveSpecRef {
     }
 
     /// Returns all alerts that are currently firing for this live spec.
-    async fn active_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<alerts::Alert>> {
+    async fn active_alerts(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<Vec<alerts::Alert>>> {
         if self.user_capability.is_none() {
             tracing::info!(catalog_name = %self.catalog_name, "not showing firing_alerts because user is not authorized");
-            return Ok(Vec::new());
+            return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
         let alerts = loader
             .load_one(alerts::ActiveAlerts(self.catalog_name.to_string()))
             .await?;
-        Ok(alerts.unwrap_or_default())
+        // The result should be `Some(vec![])` if the user has access, but there are no active alerts.
+        Ok(Some(alerts.unwrap_or_default()))
     }
 
     /// Returns the history of resolved alerts for this live spec. Alerts are
@@ -85,12 +92,14 @@ impl LiveSpecRef {
         ctx: &Context<'_>,
         before: Option<String>,
         last: i32,
-    ) -> async_graphql::Result<alerts::PaginatedAlerts> {
+    ) -> async_graphql::Result<Option<alerts::PaginatedAlerts>> {
         if self.user_capability.is_none() {
             tracing::info!(catalog_name = %self.catalog_name, "not showing alert_history because user is not authorized");
-            return Ok(alerts::PaginatedAlerts::new(false, false));
+            return Ok(None);
         }
-        alerts::live_spec_alert_history(ctx, &self.catalog_name, before, last).await
+        alerts::live_spec_alert_history(ctx, &self.catalog_name, before, last)
+            .await
+            .map(|c| Some(c))
     }
 
     /// Returns the status of the live spec.
