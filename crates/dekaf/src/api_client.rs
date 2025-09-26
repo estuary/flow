@@ -525,18 +525,16 @@ impl KafkaApiClient {
     }
 
     #[instrument(skip_all)]
-    async fn increase_partition_counts(
-        &mut self,
-        topics: Vec<(messages::TopicName, usize)>,
-    ) -> anyhow::Result<()> {
-        let coord = self.connect_to_controller().await?;
-
+    async fn try_increase_partition_counts_once(
+        coord: &mut KafkaApiClient,
+        topics: &[(messages::TopicName, usize)],
+    ) -> anyhow::Result<(Vec<(messages::TopicName, usize)>, Option<(i16, String)>)> {
         let mut topic_partitions = Vec::new();
         for (topic_name, partition_count) in topics {
             topic_partitions.push(
                 messages::create_partitions_request::CreatePartitionsTopic::default()
-                    .with_name(topic_name)
-                    .with_count(partition_count as i32)
+                    .with_name(topic_name.to_owned())
+                    .with_count(*partition_count as i32)
                     // Let Kafka auto-assign new partitions to brokers
                     .with_assignments(None),
             );
@@ -550,25 +548,117 @@ impl KafkaApiClient {
         let resp = coord.send_request(create_partitions_req, None).await?;
         tracing::debug!(response = ?resp, "Got create partitions response");
 
+        let mut topics_to_retry = Vec::new();
+        let mut retriable_error: Option<(i16, String)> = None;
+
         for result in resp.results {
             if result.error_code > 0 {
                 let err = kafka_protocol::ResponseError::try_from_code(result.error_code);
-                tracing::warn!(
-                    topic = result.name.to_string(),
-                    error = ?err,
-                    message = result.error_message.map(|m| m.to_string()),
-                    "Failed to increase partition count"
-                );
-                return Err(anyhow::anyhow!(
-                    "Failed to increase partition count for topic {}: {:?}",
-                    result.name.as_str(),
-                    err
-                ));
+                match err {
+                    Some(kafka_protocol::ResponseError::InvalidPartitions)
+                        if result
+                            .error_message
+                            .as_ref()
+                            .map(|msg| msg.starts_with("Topic already has"))
+                            .unwrap_or(false) =>
+                    {
+                        // This handles a possible race where the returned topic metadata says that
+                        // the topic has 0 partitions, but by the time we try to increase it,
+                        // it already has the desired number of partitions.
+                        tracing::info!(
+                            topic = result.name.to_string(),
+                            msg = ?result.error_message,
+                            "Partition count already at desired value",
+                        );
+                        continue;
+                    }
+                    Some(err @ kafka_protocol::ResponseError::TopicAuthorizationFailed) => {
+                        // This is likely a transient auth error due to ACL propagation delay. Try again
+                        if retriable_error.is_none() {
+                            retriable_error = Some((result.error_code, format!("{:?}", err)));
+                        }
+                        topics_to_retry.push((
+                            result.name.clone(),
+                            topics
+                                .iter()
+                                .find(|(n, _)| n == &result.name)
+                                .map(|(_, p)| *p)
+                                .unwrap_or(1),
+                        ));
+                    }
+                    Some(err) => {
+                        tracing::warn!(
+                            topic = result.name.to_string(),
+                            error = ?err,
+                            message = result.error_message.map(|m| m.to_string()),
+                            "Failed to increase partition count"
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Failed to increase partition count for topic {}: {:?}",
+                            result.name.as_str(),
+                            err
+                        ));
+                    }
+                    None => {
+                        anyhow::bail!(
+                            "Unknown error {} increasing partition count for topic {}: {:?}",
+                            result.error_code,
+                            result.name.as_str(),
+                            result.error_message
+                        );
+                    }
+                }
             } else {
                 tracing::info!(
                     topic = result.name.to_string(),
                     "Successfully increased partition count",
                 );
+            }
+        }
+
+        Ok((topics_to_retry, retriable_error))
+    }
+
+    #[instrument(skip_all)]
+    async fn increase_partition_counts(
+        &mut self,
+        mut topics: Vec<(messages::TopicName, usize)>,
+    ) -> anyhow::Result<()> {
+        let coord = self.connect_to_controller().await?;
+
+        let mut attempts: u64 = 0;
+        loop {
+            let (topics_to_retry, retriable_error) =
+                Self::try_increase_partition_counts_once(coord, &topics).await?;
+
+            if !topics_to_retry.is_empty() {
+                attempts += 1;
+                if attempts > 3 {
+                    let error_desc = retriable_error
+                        .map(|(code, name)| format!("error {} ({}) ", code, name))
+                        .unwrap_or_else(|| "transient errors ".to_string());
+                    return Err(anyhow::anyhow!(
+                        "Failed to increase partition count for topics {:?} due to {}after {} attempt(s)",
+                        topics_to_retry,
+                        error_desc,
+                        attempts
+                    ));
+                }
+                let sleep_secs = attempts.pow(2);
+                tracing::warn!(
+                    "Retrying topics {:?} after {}s (attempt {}/3)...",
+                    topics_to_retry
+                        .iter()
+                        .map(|(n, _)| n.as_str())
+                        .collect::<Vec<_>>(),
+                    sleep_secs,
+                    attempts
+                );
+                topics = topics_to_retry;
+                // Exponential backoff: will retry after 1, 4, then 9 seconds before giving up
+                tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
+            } else {
+                break;
             }
         }
 
