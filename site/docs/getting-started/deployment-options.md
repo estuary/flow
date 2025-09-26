@@ -1,7 +1,7 @@
 ---
 id: deployment-options
-title: Deployment options
-sidebar_position: 2
+title: Deployment Options
+sidebar_position: 3
 ---
 
 # Estuary Flow Deployment Options

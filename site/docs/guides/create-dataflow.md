@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# Create a basic Data Flow
+# Create a Basic Data Flow
 
 This guide walks you through the process of creating an end-to-end Data Flow.
 
@@ -43,7 +43,7 @@ credentials provided by your Estuary account manager.
 
 4. Type a name for your capture.
 
-   Your capture name must begin with a [prefix](../concepts/catalogs.md#namespace) to which you [have access](../reference/authentication.md).
+   Your capture name must begin with a [prefix](../concepts/catalogs.md#namespace) to which you [have access](/reference/authentication).
 
     In the **Name** field, click the drop-down arrow and select an available prefix.
     Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.
@@ -123,7 +123,7 @@ Now that you've captured data into one or more collections, you can materialize 
    3. Review the new schema and click **Apply Inferred Schema**.
 
    You can exert even more control over the output data structure using the **Field Selector** on the **Config tab**.
-   [Learn how.](../guides/customize-materialization-fields.md)
+   [Learn how.](/guides/customize-materialization-fields)
 
 7. If you've made any changes to source fields, click **Next** again.
 

@@ -86,15 +86,15 @@ Alternatively, you can allow secure connections via SSH tunneling. To do so:
 
 This connector supports both standard and delta updates. You must choose an option for each binding.
 
-[Learn more about delta updates](../../../concepts/materialization.md#delta-updates) and the implications of using each update type.
+[Learn more about delta updates](/concepts/materialization/#delta-updates) and the implications of using each update type.
 
 ## Field Configuration
 
 Materialized fields can be configured through their [field
-selection](../../../concepts/materialization.md#projected-fields). This can be
+selection](/concepts/materialization/#projected-fields). This can be
 changed by updating the JSON in the **Advanced Specification Editor** in the web
 app or by using `flowctl` to edit the specification directly, see [edit a
-materialization](../../../guides/edit-data-flows.md#edit-a-materialization) for
+materialization](/guides/edit-data-flows/#edit-a-materialization) for
 more details.
 
 The options supported currently are:

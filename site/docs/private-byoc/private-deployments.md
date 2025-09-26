@@ -41,7 +41,7 @@ Once your private deployment is set up, it's straightforward to use it for any o
 
 ![Data plane dropdown showcasing private and public data planes](https://estuary.dev/static/72ea8f5587a3ef1a80bc39cfa4eb1637/6768f/private_data_planes_page_capture_empty_field_3453f4f36e.webp)
 
-Some connectors, such as MongoDB, may additionally require [IP allowlisting](../reference/allow-ip-addresses.md). Private data planes have their own IP addresses that you will need to allow in the external service.
+Some connectors, such as MongoDB, may additionally require [IP allowlisting](/reference/allow-ip-addresses). Private data planes have their own IP addresses that you will need to allow in the external service.
 
 To find your private data plane's IP addresses and other information:
 
