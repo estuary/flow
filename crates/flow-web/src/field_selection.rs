@@ -75,11 +75,13 @@ pub struct FieldSelectionResult {
 /// # Input Structure
 ///
 /// The input should be a JSON object with these fields:
-/// - `collectionKey`: Array of JSON pointer strings for the collection's key
-/// - `collectionProjections`: Array of collection projection objects
-/// - `liveSpec`: Optional existing materialization binding spec
-/// - `model`: The materialization binding configuration from the user
-/// - `validated`: Validated constraints from the connector
+/// - `collection`: Object containing:
+///   - `name`: The collection name (e.g., "acmeCo/users")
+///   - `model`: The collection definition
+/// - `binding`: Object containing:
+///   - `live`: Optional existing materialization binding spec
+///   - `model`: The materialization binding configuration from the user
+///   - `validated`: Validated constraints from the connector
 ///
 /// # Returns
 ///
@@ -93,50 +95,94 @@ pub struct FieldSelectionResult {
 /// Returns JavaScript errors for invalid input or evaluation failures.
 #[wasm_bindgen]
 pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
+    crate::utils::set_panic_hook();
+
     // Must transcode through serde_json due to RawValue.
     let input: serde_json::Value = ::serde_wasm_bindgen::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("invalid JSON: {:?}", err)))?;
 
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct Input {
-        collection_key: Vec<String>,
-        collection_projections: Vec<flow::Projection>,
-        live_spec: Option<flow::materialization_spec::Binding>,
+    struct Binding {
+        live: Option<flow::materialization_spec::Binding>,
         model: models::MaterializationBinding,
         validated: materialize::response::validated::Binding,
     }
 
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Collection {
+        name: String,
+        model: models::CollectionDef,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input {
+        collection: Collection,
+        binding: Binding,
+    }
+
     let Input {
-        collection_key,
-        collection_projections,
-        live_spec,
-        model,
-        validated,
+        collection:
+            Collection {
+                name: collection_name,
+                model: collection_model,
+            },
+        binding:
+            Binding {
+                live: binding_live,
+                model: binding_model,
+                validated: binding_validated,
+            },
     } = serde_json::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("Invalid input: {:?}", err)))?;
+
+    // Build projections from the collection definition using skim_projections
+    let scope_url = url::Url::parse(&format!("flow://collection/{}", collection_name))
+        .map_err(|err| JsValue::from_str(&format!("Invalid collection name: {}", err)))?;
+    let mut errors = tables::Errors::new();
+
+    let collection_projections = validation::collection::skim_projections(
+        json::Scope::new(&scope_url),
+        &models::Collection::new(&collection_name),
+        &collection_model,
+        &mut errors,
+    );
+
+    // Return early if there were errors building projections
+    if !errors.is_empty() {
+        let errors: String = errors
+            .into_iter()
+            .map(|error| format!("{:#}", error.error))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(JsValue::from_str(&format!(
+            "Failed to build collection projections:\n{errors}",
+        )));
+    }
 
     let models::MaterializationBinding {
         fields: model_fields,
         backfill: model_backfill,
         ..
-    } = model;
+    } = binding_model;
 
     let materialize::response::validated::Binding {
         case_insensitive_fields,
         constraints: validated_constraints,
         resource_path: validated_resource_path,
         ..
-    } = validated;
+    } = binding_validated;
 
-    let live_field_selection = if let Some(live) = &live_spec {
+    let live_field_selection = if let Some(live_spec) = &binding_live {
         assert_eq!(
-            validated_resource_path, live.resource_path,
+            validated_resource_path, live_spec.resource_path,
             "sanity check: validated and live resource path must match"
         );
         // If we intend to back-fill, then live fields have no effect on selection.
-        if live.backfill == model_backfill {
-            live.field_selection.as_ref()
+        if live_spec.backfill == model_backfill {
+            live_spec.field_selection.as_ref()
         } else {
             None
         }
@@ -152,7 +198,11 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
             .collect()
     } else {
         // Fall back to canonical projections of the collection key.
-        collection_key.iter().map(|k| k[1..].to_string()).collect()
+        collection_model
+            .key
+            .iter()
+            .map(|k| k[1..].to_string())
+            .collect()
     };
 
     let (selects, rejects, field_config) = field_selection::extract_constraints(

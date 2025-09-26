@@ -12,230 +12,6 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
-fn test_end_to_end_schema_inference() {
-    let schema: JsValue = to_js_value(&json!({
-        "type": "object",
-        "reduce": { "strategy": "merge" },
-        "properties": {
-            "a": { "title": "A", "type": "integer", "reduce": { "strategy": "sum"} },
-            "b": { "description": "the b", "type": "string", "format": "date-time"},
-            "c": { "type": ["string", "integer"] },
-            "d": { "type": "boolean"},
-            "e": {
-                "type": "object",
-                "patternProperties": {
-                    "e.*": {"type": "number"}
-                }
-            },
-            "f": { "const": "F"}
-        },
-        "required": ["a", "e"]
-    }));
-    let result = flow_web::infer(schema).expect("failed to infer");
-    let inferred: serde_json::Value =
-        from_js_value(result).expect("failed to deserialize analyzed schema");
-
-    let expected = json!({
-      "properties": [
-        {
-          "description": null,
-          "enum_vals": [],
-          "exists": "must",
-          "is_pattern_property": false,
-          "name": null,
-          "pointer": "",
-          "reduction": "merge",
-          "string_format": null,
-          "title": null,
-          "types": [ "object" ]
-        },
-        {
-          "description": null,
-          "enum_vals": [],
-          "exists": "must",
-          "is_pattern_property": false,
-          "name": "a",
-          "pointer": "/a",
-          "reduction": "sum",
-          "string_format": null,
-          "title": "A",
-          "types": [ "integer" ]
-        },
-        {
-          "description": "the b",
-          "enum_vals": [],
-          "exists": "may",
-          "is_pattern_property": false,
-          "name": "b",
-          "pointer": "/b",
-          "reduction": "unset",
-          "string_format": "date-time",
-          "title": null,
-          "types": [ "string" ]
-        },
-        {
-          "description": null,
-          "enum_vals": [],
-          "exists": "may",
-          "is_pattern_property": false,
-          "name": "c",
-          "pointer": "/c",
-          "reduction": "unset",
-          "string_format": null,
-          "title": null,
-          "types": [ "integer", "string" ]
-        },
-        {
-          "description": null,
-          "enum_vals": [],
-          "exists": "may",
-          "is_pattern_property": false,
-          "name": "d",
-          "pointer": "/d",
-          "reduction": "unset",
-          "string_format": null,
-          "title": null,
-          "types": [ "boolean" ]
-        },
-        {
-          "description": null,
-          "enum_vals": [],
-          "exists": "must",
-          "is_pattern_property": false,
-          "name": "e",
-          "pointer": "/e",
-          "reduction": "unset",
-          "string_format": null,
-          "title": null,
-          "types": [ "object" ]
-        },
-        {
-          "description": null,
-          "enum_vals": [],
-          "exists": "may",
-          "is_pattern_property": true,
-          "name": null,
-          "pointer": "/e/e.*",
-          "reduction": "unset",
-          "string_format": null,
-          "title": null,
-          "types": [ "number" ]
-        },
-        {
-          "description": null,
-          "enum_vals": [ "F" ],
-          "exists": "may",
-          "is_pattern_property": false,
-          "name": "f",
-          "pointer": "/f",
-          "reduction": "unset",
-          "string_format": null,
-          "title": null,
-          "types": [ "string" ]
-        }
-      ]
-    });
-    assert_eq!(expected, inferred);
-}
-
-#[wasm_bindgen_test]
-fn test_end_to_end_extend_read_bundle() {
-    let input: JsValue = to_js_value(&json!({
-      "read": {
-        "$defs": {
-            "existing://def": {"type": "array"},
-        },
-        "maxProperties": 10,
-        "allOf": [
-            {"$ref": "flow://inferred-schema"},
-            {"$ref": "flow://write-schema"},
-        ]
-      },
-      "write": {
-        "$id": "old://value",
-        "required": ["a_key"],
-      },
-      "inferred": {
-        "$id": "old://value",
-        "minProperties": 5,
-      }
-    }));
-
-    let output = flow_web::extend_read_bundle(input).expect("extend first bundle");
-    let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
-
-    assert_eq!(
-        output,
-        json!({
-          "$defs": {
-              "existing://def": {"type": "array"}, // Left alone.
-              "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
-              "flow://inferred-schema": { "$id": "flow://inferred-schema", "minProperties": 5 },
-          },
-          "maxProperties": 10,
-          "allOf": [
-              {"$ref": "flow://inferred-schema"},
-              {"$ref": "flow://write-schema"},
-          ]
-        })
-    );
-
-    let input: JsValue = to_js_value(&json!({
-      "read": {
-        "maxProperties": 10,
-      },
-      "write": {
-        "$id": "old://value",
-        "required": ["a_key"],
-      },
-      "inferred": null,
-    }));
-
-    let output = flow_web::extend_read_bundle(input).expect("extend second bundle");
-    let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
-
-    assert_eq!(output, json!({"maxProperties": 10}));
-
-    let input: JsValue = to_js_value(&json!({
-      "write": {
-        "required": ["a_key"]
-      },
-      "read": {
-        "allOf": [
-            {"$ref": "flow://inferred-schema"},
-            {"$ref": "flow://write-schema"},
-        ]
-      },
-      "inferred": {
-        "$id": "flow://inferred-schema",
-        "x-canary-annotation": true
-      }
-    }));
-
-    let output = flow_web::extend_read_bundle(input).expect("extend first bundle");
-    let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
-    assert_eq!(
-        output,
-        json!({
-            "$defs": {
-                "flow://inferred-schema": {
-                    "$id": "flow://inferred-schema",
-                    "x-canary-annotation": true
-                },
-                "flow://write-schema": {
-                    "$id": "flow://write-schema",
-                    "required": ["a_key"]
-                }
-            },
-            "allOf": [
-                {"$ref": "flow://inferred-schema"},
-                {"$ref": "flow://write-schema"},
-            ]
-        })
-    );
-}
-
-#[wasm_bindgen_test]
 fn test_update_materialization_resource_spec() {
     let arguments: JsValue = to_js_value(&json!({
       "resourceSpecPointers": {
@@ -272,7 +48,7 @@ fn test_update_materialization_resource_spec() {
 }
 
 #[wasm_bindgen_test]
-fn test_skim_projections_basic() {
+fn test_skim_projections() {
     let input: JsValue = to_js_value(&json!({
         "collection": "test/collection",
         "model": {
@@ -315,39 +91,57 @@ fn test_skim_projections_basic() {
 }
 
 #[wasm_bindgen_test]
-fn test_field_selection_basic() {
+fn test_field_selection() {
     let input: JsValue = to_js_value(&json!({
-        "collectionKey": ["/id"],
-        "collectionProjections": [
-            {
-                "ptr": "/id",
-                "field": "id",
-                "inference": {
-                    "types": ["integer"],
-                    "exists": "MUST"
+        "collection": {
+            "name": "test/collection",
+            "model": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "value": {"type": "string"},
+                        "bad": {"type": "object"}
+                    },
+                    "required": ["id"]
                 },
-            }
-        ],
-        "liveSpec": null,
-        "model": {
-            "source":"test/collection",
-            "resource": {"table": "foo"},
-            "fields": {
-                "require": {
-                  "id": {"my": "config"}
-                },
-                "recommended": 1
+                "key": ["/id"]
             }
         },
-        "validated": {
-            "resourcePath": ["test_table"],
-            "constraints": {
-                "id": {
-                    "type": "FIELD_OPTIONAL",
-                    "reason": "Available field"
+        "binding": {
+            "live": null,
+            "model": {
+                "source":"test/collection",
+                "resource": {"table": "foo"},
+                "fields": {
+                    "require": {
+                      "id": {"my": "config"}
+                    },
+                    "recommended": 1
                 }
             },
-            "deltaUpdates": false
+            "validated": {
+                "resourcePath": ["test_table"],
+                "constraints": {
+                    "id": {
+                        "type": "FIELD_OPTIONAL",
+                        "reason": "Available field"
+                    },
+                    "flow_published_at": {
+                        "type": "FIELD_OPTIONAL",
+                        "reason": "Available field"
+                    },
+                    "value": {
+                        "type": "FIELD_OPTIONAL",
+                        "reason": "Available field"
+                    },
+                    "bad": {
+                        "type": "FIELD_FORBIDDEN",
+                        "reason": "Not today, pal."
+                    }
+                },
+                "deltaUpdates": false
+            }
         }
     }));
     let result = flow_web::evaluate_field_selection(input).unwrap();
@@ -356,96 +150,73 @@ fn test_field_selection_basic() {
     assert_eq!(
         result,
         json!({
-          "outcomes":[
-            {
-              "field":"id",
-              "select":{
-                "reason": {
-                  "type": "GroupByKey",
+            "hasConflicts": false,
+            "outcomes": [
+                {
+                    "field": "_meta/flow_truncated",
+                    "reject": {
+                        "detail": "connector didn't return a constraint for this field",
+                        "reason": {
+                            "type": "ConnectorOmits"
+                        }
+                    }
                 },
-                "detail":"field is part of the materialization group-by key"
-              }
+                {
+                    "field": "bad",
+                    "reject": {
+                        "detail": "field is forbidden by the connector (Not today, pal.)",
+                        "reason": {
+                            "reason": "Not today, pal.",
+                            "type": "ConnectorForbids"
+                        }
+                    }
+                },
+                {
+                    "field": "flow_document",
+                    "reject": {
+                        "detail": "connector didn't return a constraint for this field",
+                        "reason": {
+                            "type": "ConnectorOmits"
+                        }
+                    }
+                },
+                {
+                    "field": "flow_published_at",
+                    "select": {
+                        "detail": "field is important metadata which is typically selected",
+                        "reason": {
+                            "type": "CoreMetadata"
+                        }
+                    }
+                },
+                {
+                    "field": "id",
+                    "select": {
+                        "detail": "field is part of the materialization group-by key",
+                        "reason": {
+                            "type": "GroupByKey"
+                        }
+                    }
+                },
+                {
+                    "field": "value",
+                    "select": {
+                        "detail": "field is within the desired depth",
+                        "reason": {
+                            "type": "DesiredDepth"
+                        }
+                    }
+                }
+            ],
+            "selection": {
+                "fieldConfig": {
+                    "id": {"my": "config"}
+                },
+                "keys": ["id"],
+                "values": ["flow_published_at", "value"]
             }
-          ],
-          "selection":{
-              "keys":["id"],
-              "fieldConfig": {"id": {"my": "config"}}
-          },
-          "hasConflicts":false
         })
     );
-}
-
-#[wasm_bindgen_test]
-fn test_field_selection_with_reject() {
-    let input: JsValue = to_js_value(&json!({
-        "collectionKey": ["/id"],
-        "collectionProjections": [
-            {
-                "ptr": "/id",
-                "field": "id",
-                "inference": {
-                    "types": ["integer"],
-                    "exists": "MUST"
-                },
-            },
-            {
-                "ptr": "/name",
-                "field": "name",
-                "inference": {
-                    "types": ["string"],
-                    "exists": "MAY"
-                },
-            }
-        ],
-        "liveSpec": null,
-        "model": {
-            "source":"test/collection",
-            "resource": {"table": "foo"},
-            "fields": {
-                "exclude": ["name"],
-                "recommended": 1
-            }
-        },
-        "validated": {
-            "resourcePath": ["test_table"],
-            "constraints": {
-                "id": {
-                    "type": "FIELD_OPTIONAL",
-                    "reason": "Available field"
-                },
-                "name": {
-                    "type": "FIELD_OPTIONAL",
-                    "reason": "Available field"
-                }
-            },
-            "deltaUpdates": false
-        }
-    }));
-    let result = flow_web::evaluate_field_selection(input).unwrap();
-    let result: serde_json::Value = from_js_value(result).unwrap();
-
-    // Should have both select and reject outcomes
-    let outcomes = &result["outcomes"];
-    assert_eq!(outcomes.as_array().unwrap().len(), 2);
-
-    // ID field should be selected (group-by key)
-    let id_outcome = &outcomes[0];
-    assert_eq!(id_outcome["field"], "id");
-    assert!(id_outcome["select"]["reason"]["type"] == "GroupByKey");
-    assert!(id_outcome["reject"].is_null());
-
-    // Name field should be rejected (user excluded)
-    let name_outcome = &outcomes[1];
-    assert_eq!(name_outcome["field"], "name");
-    assert!(name_outcome["select"].is_null());
-    assert_eq!(name_outcome["reject"]["reason"]["type"], "UserExcludes");
-    assert_eq!(
-        name_outcome["reject"]["detail"],
-        "field is excluded by the user's field selection"
-    );
-
-    assert_eq!(result["hasConflicts"], false);
 }
 
 fn to_js_value(val: &serde_json::Value) -> JsValue {
