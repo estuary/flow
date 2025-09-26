@@ -583,14 +583,6 @@ This does not include any information on user-initiated publications.
 """
 type PublicationStatus {
 	"""
-	Hash of all of the dependencies of this spec at the time of the last
-	observation. This is compared against the `dependency_hash` of the live
-	spec in order to determine whether any of the spec's dependencies have
-	changed since it was last published. If they have, then the controller
-	will initiate a touch publication of the spec.
-	"""
-	dependencyHash: String
-	"""
 	The publication id at which the controller has last notified dependent
 	specs. A publication of the controlled spec will cause the controller to
 	notify the controllers of all dependent specs. When it does so, it sets
