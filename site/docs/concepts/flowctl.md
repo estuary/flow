@@ -59,11 +59,17 @@ and delete entities from the catalog.
 
 * `collections` allows you to work with your Flow collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
 
+* `discover` allows you to discover all currently available bindings for a specific capture.
+This resource discovery mimics discovery in the UI. [Learn more about capture discovery](/concepts/captures/#discovery).
+
 * `draft` provides an alternative method for many of the actions you'd normally perform with `catalog`, but common workflows have more steps.
 
 * `generate` creates stub files and folder structures based on a provided `flow.yaml` file. This is helpful when [creating a derivation locally](../guides/flowctl/create-derivation.md#create-a-derivation-locally).
 
 * `logs` allows you to review or follow logs for a particular task. This can be useful to help debug captures, derivations, and materializations.
+
+* `preview` allows you to preview task output by locally running a capture, derivation, or materialization.
+This lets you confirm expected output before publishing your changes to Estuary.
 
 You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
 

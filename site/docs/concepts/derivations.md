@@ -229,6 +229,26 @@ then that column will become the output document.
 For example `SELECT JSON_OBJECT('a', 1, 'b', JSON('true'));` maps into document `{"a": 1, "b": true}`.
 This can be used to build documents with dynamic top-level properties.
 
+Note that this also allows you to manage Flow's final document specification in ways that SQLite would not otherwise allow.
+SQLite does not support a [boolean data type](https://sqlite.org/datatype3.html#boolean_datatype), instead defaulting to the integers `0` and `1`.
+By selecting a `JSON_OBJECT` with a `JSON('true')` or `JSON('false')` value, the final JSON field will have a boolean type.
+
+You can set a boolean value dynamically with a case statement. For example:
+
+```sql
+select
+  json_object(
+    'id', id,
+    'decision', (
+      case json_extract(document, '$.decision')
+        when 'true' then json('true')
+        when 'false' then json('false')
+        else null
+      end
+    )
+  )
+```
+
 ### Parameters
 
 Your SQL lambda will execute with every source document of the collection it transforms.
