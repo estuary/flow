@@ -111,13 +111,6 @@ impl PublicationInfo {
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PublicationStatus {
-    /// Hash of all of the dependencies of this spec at the time of the last
-    /// observation. This is compared against the `dependency_hash` of the live
-    /// spec in order to determine whether any of the spec's dependencies have
-    /// changed since it was last published. If they have, then the controller
-    /// will initiate a touch publication of the spec.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dependency_hash: Option<String>,
     /// The publication id at which the controller has last notified dependent
     /// specs. A publication of the controlled spec will cause the controller to
     /// notify the controllers of all dependent specs. When it does so, it sets
@@ -134,7 +127,6 @@ impl Clone for PublicationStatus {
         PublicationStatus {
             max_observed_pub_id: self.max_observed_pub_id,
             history: self.history.clone(),
-            dependency_hash: self.dependency_hash.clone(),
         }
     }
 }
@@ -142,7 +134,6 @@ impl Clone for PublicationStatus {
 impl Default for PublicationStatus {
     fn default() -> Self {
         PublicationStatus {
-            dependency_hash: None,
             max_observed_pub_id: Id::zero(),
             history: VecDeque::new(),
         }
