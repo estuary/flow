@@ -1,6 +1,5 @@
 use crate::discovers::Changed;
 use crate::draft_error;
-use crate::evolutions::EvolvedCollection;
 use crate::publications;
 use crate::status::{
     activation::ActivationStatus, publications::PublicationStatus, PendingConfigUpdateStatus,
@@ -69,12 +68,6 @@ pub struct AutoDiscoverOutcome {
     /// Errors that occurred during the discovery or evolution process.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<draft_error::Error>,
-    /// Deprecated. Evolution is now handled as part of the build, and results
-    /// are reported as part of the `model_fixes`, which are added to the `detail`
-    /// in `publication_specs`.
-    #[cfg_attr(feature = "async-graphql", graphql(skip))]
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub re_created_collections: Vec<EvolvedCollection>,
     /// The result of publishing the discovered changes, if a publication was attempted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish_result: Option<publications::JobStatus>,
@@ -137,7 +130,6 @@ impl AutoDiscoverOutcome {
             added: Vec::new(),
             modified: Vec::new(),
             removed: Vec::new(),
-            re_created_collections: Vec::new(),
             publish_result: None,
         }
     }

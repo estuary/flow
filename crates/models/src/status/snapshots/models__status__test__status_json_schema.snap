@@ -139,13 +139,6 @@ expression: schema
           ],
           "description": "The result of publishing the discovered changes, if a publication was attempted."
         },
-        "re_created_collections": {
-          "description": "Deprecated. Evolution is now handled as part of the build, and results are reported as part of the `model_fixes`, which are added to the `detail` in `publication_specs`.",
-          "items": {
-            "$ref": "#/definitions/EvolvedCollection"
-          },
-          "type": "array"
-        },
         "removed": {
           "description": "Bindings that were removed because they no longer appear in the source system.",
           "items": {
@@ -340,39 +333,6 @@ expression: schema
       ],
       "type": "object"
     },
-    "EvolvedCollection": {
-      "properties": {
-        "new_name": {
-          "description": "The new name of the collection, which may be the same as the original name if only materialization bindings were updated",
-          "type": "string"
-        },
-        "old_name": {
-          "description": "Original name of the collection",
-          "type": "string"
-        },
-        "updated_captures": {
-          "description": "The names of any captures that were updated as a result of evolving this collection",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "updated_materializations": {
-          "description": "The names of any materializations that were updated as a result of evolving this collection",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "new_name",
-        "old_name",
-        "updated_captures",
-        "updated_materializations"
-      ],
-      "type": "object"
-    },
     "Id": {
       "type": "string"
     },
@@ -527,13 +487,6 @@ expression: schema
     "PublicationStatus": {
       "description": "Information on the publications performed by the controller. This does not include any information on user-initiated publications.",
       "properties": {
-        "dependency_hash": {
-          "description": "Hash of all of the dependencies of this spec at the time of the last observation. This is compared against the `dependency_hash` of the live spec in order to determine whether any of the spec's dependencies have changed since it was last published. If they have, then the controller will initiate a touch publication of the spec.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "history": {
           "description": "A limited history of publications performed by this controller",
           "items": {

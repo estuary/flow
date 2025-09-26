@@ -233,7 +233,6 @@ pub fn new_outcome(
             .map(|(rp, change)| DiscoverChange::new(rp, change))
             .collect(),
         errors,
-        re_created_collections: Default::default(),
         publish_result: None,
     };
     (outcome, draft)
