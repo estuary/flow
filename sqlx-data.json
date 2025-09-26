@@ -1129,6 +1129,178 @@
     },
     "query": "\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE id = $1\n        "
   },
+  "3b9e730c56083687f87833d7de187abbe2b7d1060fa8d2e5ea6f9f807763f98b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "catalog_name",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "with_model!: bool",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "with_built!: bool",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "live_spec_id: models::Id",
+          "ordinal": 3,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "spec_type!: models::CatalogType",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "capture",
+                  "collection",
+                  "materialization",
+                  "test"
+                ]
+              },
+              "name": "catalog_spec_type"
+            }
+          }
+        },
+        {
+          "name": "model: crate::TextJson<async_graphql::Value>",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_build_id: models::Id",
+          "ordinal": 6,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "last_pub_id: models::Id",
+          "ordinal": 7,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 8,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "built_spec: crate::TextJson<async_graphql::Value>",
+          "ordinal": 10,
+          "type_info": "Text"
+        },
+        {
+          "name": "is_disabled!: bool",
+          "ordinal": 11,
+          "type_info": "Bool"
+        },
+        {
+          "name": "reads_from?: Vec<String>",
+          "ordinal": 12,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "writes_to?: Vec<String>",
+          "ordinal": 13,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "source_capture?: String",
+          "ordinal": 14,
+          "type_info": "Text"
+        },
+        {
+          "name": "written_by?: Vec<String>",
+          "ordinal": 15,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Text"
+                    },
+                    "name": "catalog_name"
+                  }
+                }
+              },
+              "name": "_catalog_name"
+            }
+          }
+        },
+        {
+          "name": "read_by?: Vec<String>",
+          "ordinal": 16,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Text"
+                    },
+                    "name": "catalog_name"
+                  }
+                }
+              },
+              "name": "_catalog_name"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        null,
+        null,
+        false,
+        true,
+        null,
+        false,
+        false,
+        false,
+        false,
+        null,
+        null,
+        true,
+        true,
+        null,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Text"
+                    },
+                    "name": "catalog_name"
+                  }
+                }
+              },
+              "name": "_catalog_name"
+            }
+          },
+          "BoolArray",
+          "BoolArray"
+        ]
+      }
+    },
+    "query": "select\n                ls.catalog_name,\n                inputs.with_model as \"with_model!: bool\",\n                inputs.with_built as \"with_built!: bool\",\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when inputs.with_model then ls.spec::text else null end as \"model: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when inputs.with_built then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\",\n                coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false')::boolean as \"is_disabled!: bool\",\n                ls.reads_from as \"reads_from?: Vec<String>\",\n                ls.writes_to as \"writes_to?: Vec<String>\",\n                case json_typeof(ls.spec->'source')\n                when 'object' then ls.spec->'source'->>'capture'\n                when 'string' then ls.spec->>'source'\n                else null\n                end as \"source_capture?: String\",\n                array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as \"written_by?: Vec<String>\",\n                array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and out_flows.flow_type is not null) as \"read_by?: Vec<String>\"\n            from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)\n            join live_specs ls on inputs.name = ls.catalog_name\n            left outer join live_spec_flows in_flows on in_flows.target_id = ls.id\n            left outer join live_spec_flows out_flows on out_flows.source_id = ls.id\n            left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id\n            left outer join live_specs out_flows_specs on out_flows_specs.id = out_flows.target_id\n            group by ls.id, inputs.with_model, inputs.with_built\n            "
+  },
   "40735247033c2693395184471553db708524cfc3b6f4c1095c2ae63f377b8800": {
     "describe": {
       "columns": [
@@ -1446,6 +1618,90 @@
       }
     },
     "query": "select\n            collection_name,\n            schema as \"schema!: Json<Box<RawValue>>\",\n            md5 as \"md5!: String\"\n            from inferred_schemas\n            where collection_name = ANY($1::text[])\n            "
+  },
+  "547d1817a42a97af13bfcceeb75d8d87a07a3408589ed9c819c56d5eb7962eb0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name!: String",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "capture",
+                  "collection",
+                  "materialization",
+                  "test"
+                ]
+              },
+              "name": "catalog_spec_type"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Text"
+              },
+              "name": "catalog_name"
+            }
+          },
+          "Int8"
+        ]
+      }
+    },
+    "query": "select catalog_name as \"name!: String\"\n        from live_specs\n        where starts_with(catalog_name, $1)\n        and case when $3::catalog_name is null then true else catalog_name < $3::catalog_name end\n        and spec_type = $2::catalog_spec_type\n        order by catalog_name desc\n        limit $4"
+  },
+  "55990838134bdebfa31ba7c7ec089c9129f12d9f1d618f72c895dc6666832957": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name!: String",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "capture",
+                  "collection",
+                  "materialization",
+                  "test"
+                ]
+              },
+              "name": "catalog_spec_type"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Text"
+              },
+              "name": "catalog_name"
+            }
+          },
+          "Int8"
+        ]
+      }
+    },
+    "query": "select catalog_name as \"name!: String\"\n        from live_specs\n        where starts_with(catalog_name, $1)\n        and case when $3::catalog_name is null then true else catalog_name > $3::catalog_name end\n        and spec_type = $2::catalog_spec_type\n        order by catalog_name asc\n        limit $4"
   },
   "564d38c9d35ffc383d31d3baa087723f0e26ff3cb6e59cf3b2b559902d51e6c8": {
     "describe": {
@@ -2016,178 +2272,6 @@
       }
     },
     "query": "update drafts set updated_at = clock_timestamp() where id = $1\n            returning 1 as \"must_exist\";"
-  },
-  "878c5d6401c216f3209cbca0b584f3b16709f6f1f8bc401b25b35c4326195514": {
-    "describe": {
-      "columns": [
-        {
-          "name": "catalog_name",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "with_model!: bool",
-          "ordinal": 1,
-          "type_info": "Bool"
-        },
-        {
-          "name": "with_built!: bool",
-          "ordinal": 2,
-          "type_info": "Bool"
-        },
-        {
-          "name": "live_spec_id: models::Id",
-          "ordinal": 3,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "spec_type!: models::CatalogType",
-          "ordinal": 4,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          }
-        },
-        {
-          "name": "model: crate::TextJson<async_graphql::Value>",
-          "ordinal": 5,
-          "type_info": "Text"
-        },
-        {
-          "name": "last_build_id: models::Id",
-          "ordinal": 6,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "last_pub_id: models::Id",
-          "ordinal": 7,
-          "type_info": "Macaddr8"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 8,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "updated_at",
-          "ordinal": 9,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "built_spec: crate::TextJson<async_graphql::Value>",
-          "ordinal": 10,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_disabled!: bool",
-          "ordinal": 11,
-          "type_info": "Bool"
-        },
-        {
-          "name": "reads_from: Vec<String>",
-          "ordinal": 12,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "writes_to: Vec<String>",
-          "ordinal": 13,
-          "type_info": "TextArray"
-        },
-        {
-          "name": "source_capture: String",
-          "ordinal": 14,
-          "type_info": "Text"
-        },
-        {
-          "name": "written_by: Vec<String>",
-          "ordinal": 15,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Array": {
-                  "Custom": {
-                    "kind": {
-                      "Domain": "Text"
-                    },
-                    "name": "catalog_name"
-                  }
-                }
-              },
-              "name": "_catalog_name"
-            }
-          }
-        },
-        {
-          "name": "read_by: Vec<String>",
-          "ordinal": 16,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Array": {
-                  "Custom": {
-                    "kind": {
-                      "Domain": "Text"
-                    },
-                    "name": "catalog_name"
-                  }
-                }
-              },
-              "name": "_catalog_name"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false,
-        null,
-        null,
-        false,
-        true,
-        null,
-        false,
-        false,
-        false,
-        false,
-        null,
-        null,
-        true,
-        true,
-        null,
-        null,
-        null
-      ],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Array": {
-                  "Custom": {
-                    "kind": {
-                      "Domain": "Text"
-                    },
-                    "name": "catalog_name"
-                  }
-                }
-              },
-              "name": "_catalog_name"
-            }
-          },
-          "BoolArray",
-          "BoolArray"
-        ]
-      }
-    },
-    "query": "select\n                ls.catalog_name,\n                inputs.with_model as \"with_model!: bool\",\n                inputs.with_built as \"with_built!: bool\",\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when inputs.with_model then ls.spec::text else null end as \"model: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when inputs.with_built then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\",\n                coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false')::boolean as \"is_disabled!: bool\",\n                ls.reads_from as \"reads_from: Vec<String>\",\n                ls.writes_to as \"writes_to: Vec<String>\",\n                case json_typeof(ls.spec->'source')\n                when 'object' then ls.spec->'source'->>'capture'\n                when 'string' then ls.spec->>'source'\n                else null\n                end as \"source_capture: String\",\n                array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as \"written_by: Vec<String>\",\n                array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection') as \"read_by: Vec<String>\"\n            from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)\n            join live_specs ls on inputs.name = ls.catalog_name\n            left outer join live_spec_flows in_flows on in_flows.target_id = ls.id\n            left outer join live_spec_flows out_flows on out_flows.source_id = ls.id\n            left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id\n            left outer join live_specs out_flows_specs on out_flows_specs.id = out_flows.target_id\n            group by ls.id, inputs.with_model, inputs.with_built\n            "
   },
   "89e739d5b67c504bd6fcd6889d24f5e3c986d7a154b31e25b51468ea94646066": {
     "describe": {
