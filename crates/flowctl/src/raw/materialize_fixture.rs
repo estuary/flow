@@ -113,11 +113,16 @@ pub async fn do_materialize_fixture(
                     extractors::for_fields(values, projections, &doc::SerPolicy::noop())?;
 
                 for (exists, doc) in &docs {
+                    doc::Extractor::extract_all(doc, &key_ex, buf);
+                    let key_packed = buf.split().freeze();
+                    doc::Extractor::extract_all(doc, &values_ex, buf);
+                    let values_packed = buf.split().freeze();
+
                     if !delta_updates {
                         loads.push(Request {
                             load: Some(request::Load {
                                 binding: binding_index as u32,
-                                key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
+                                key_packed: key_packed.clone(),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -126,8 +131,8 @@ pub async fn do_materialize_fixture(
                     stores.push(Request {
                         store: Some(request::Store {
                             binding: binding_index as u32,
-                            key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
-                            values_packed: doc::Extractor::extract_all(doc, &values_ex, buf),
+                            key_packed,
+                            values_packed,
                             doc_json: doc.to_string().into(),
                             exists: *exists && !delta_updates,
                             ..Default::default()

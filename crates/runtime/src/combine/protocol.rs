@@ -114,7 +114,7 @@ pub fn recv_client_add(
         };
     }
 
-    memtable.add(binding_index, doc, front)?;
+    memtable.add(binding_index as u16, doc, front)?;
 
     Ok(())
 }
@@ -129,8 +129,10 @@ pub fn send_client_response(
     let binding_index = meta.binding();
     let binding = &bindings[binding_index];
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key, buf);
-    let values_packed = doc::Extractor::extract_all_owned(&root, &binding.values, buf);
+    doc::Extractor::extract_all_owned(&root, &binding.key, buf);
+    let key_packed = buf.split().freeze();
+    doc::Extractor::extract_all_owned(&root, &binding.values, buf);
+    let values_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");
