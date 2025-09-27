@@ -13,6 +13,6 @@ impl<T: Stream<Item = anyhow::Result<Response>> + Send + 'static> ResponseStream
 pub struct Binding {
     key: Vec<doc::Extractor>,
     ser_policy: doc::SerPolicy,
-    uuid_ptr: Option<doc::Pointer>,
+    uuid_ptr: Option<json::Pointer>,
     values: Vec<doc::Extractor>,
 }

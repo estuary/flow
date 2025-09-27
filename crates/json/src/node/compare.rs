@@ -1,18 +1,31 @@
 use super::{AsNode, Field, Fields, Node};
+use crate::number::Ops;
 use itertools::{EitherOrBoth, Itertools};
-use json::Number;
 use std::cmp::Ordering;
 
-/// compare evaluates the deep ordering of |lhs| and |rhs|.
-/// This function establishes an arbitrary ordering over
-/// Documents in order to provide a total ordering. Arrays and
-/// objects are compared lexicographically, and the natural
-/// Object order is used (by default, sorted on property name).
+/// compare evaluates the deep ordering of `lhs` and `rhs`.
+/// This function establishes an arbitrary, total ordering over
+/// which is stable across AsNode implementations. Arrays and
+/// objects are compared lexicographically by walking their ordered
+/// items or lexicographic properties.
 pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
-    match (lhs.as_node(), rhs.as_node()) {
+    compare_node(&lhs.as_node(), &rhs.as_node())
+}
+
+/// compare_node evaluates the deep ordering of `lhs` and `rhs`,
+/// which have already been unwrapped into Node instances.
+/// Generally you should use compare() instead, which allows the compiler
+/// to collapse an internal match statement of as_node() with the match
+/// statement within compare_node().
+#[inline]
+pub fn compare_node<'l, 'r, L: AsNode, R: AsNode>(
+    lhs: &Node<'l, L>,
+    rhs: &Node<'r, R>,
+) -> Ordering {
+    match (lhs, rhs) {
         (Node::Array(lhs), Node::Array(rhs)) => lhs
             .iter()
-            .zip_longest(rhs)
+            .zip_longest(rhs.iter())
             .map(|eob| match eob {
                 EitherOrBoth::Both(lhs, rhs) => compare(lhs, rhs),
                 EitherOrBoth::Right(_) => Ordering::Less,
@@ -41,18 +54,18 @@ pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
             .unwrap_or(Ordering::Equal),
         (Node::String(lhs), Node::String(rhs)) => lhs.cmp(rhs),
 
-        // Trivial numeric comparisons.
-        (Node::NegInt(lhs), Node::NegInt(rhs)) => lhs.cmp(&rhs),
-        (Node::PosInt(lhs), Node::PosInt(rhs)) => lhs.cmp(&rhs),
-        (Node::NegInt(_), Node::PosInt(_)) => Ordering::Less,
-        (Node::PosInt(_), Node::NegInt(_)) => Ordering::Greater,
+        // Numeric comparisons using number::Ops trait.
+        (Node::NegInt(lhs), Node::NegInt(rhs)) => lhs.json_cmp(*rhs),
+        (Node::PosInt(lhs), Node::PosInt(rhs)) => lhs.json_cmp(*rhs),
+        (Node::Float(lhs), Node::Float(rhs)) => lhs.json_cmp(*rhs),
+        (Node::NegInt(lhs), Node::PosInt(rhs)) => lhs.json_cmp(*rhs),
+        (Node::PosInt(lhs), Node::NegInt(rhs)) => lhs.json_cmp(*rhs),
 
-        // Cross-type numeric comparisons that fall back to json::Number.
-        (Node::Float(lhs), Node::Float(rhs)) => Number::Float(lhs).cmp(&Number::Float(rhs)),
-        (Node::PosInt(lhs), Node::Float(rhs)) => Number::Unsigned(lhs).cmp(&Number::Float(rhs)),
-        (Node::Float(lhs), Node::PosInt(rhs)) => Number::Float(lhs).cmp(&Number::Unsigned(rhs)),
-        (Node::NegInt(lhs), Node::Float(rhs)) => Number::Signed(lhs).cmp(&Number::Float(rhs)),
-        (Node::Float(lhs), Node::NegInt(rhs)) => Number::Float(lhs).cmp(&Number::Signed(rhs)),
+        // Cross-type numeric comparisons using number::Ops trait.
+        (Node::PosInt(lhs), Node::Float(rhs)) => lhs.json_cmp(*rhs),
+        (Node::Float(lhs), Node::PosInt(rhs)) => lhs.json_cmp(*rhs),
+        (Node::NegInt(lhs), Node::Float(rhs)) => lhs.json_cmp(*rhs),
+        (Node::Float(lhs), Node::NegInt(rhs)) => lhs.json_cmp(*rhs),
 
         // Types are not comparable. Define an (arbitrary) total ordering.
         (Node::Null, _) => Ordering::Less,
@@ -76,8 +89,7 @@ pub fn compare<L: AsNode, R: AsNode>(lhs: &L, rhs: &R) -> Ordering {
 
 #[cfg(test)]
 mod test {
-    use crate::{compare, ArchivedNode, HeapNode};
-
+    use super::{compare, Node};
     use serde_json::{json, Value};
     use std::cmp::Ordering;
 
@@ -107,6 +119,11 @@ mod test {
         is_lt(json!(10), json!(20.00)); // u64 & f64.
         is_lt(json!(-20), json!(-10.00)); // i64 & f64.
         is_lt(json!(-1), json!(1)); // i64 & u64.
+
+        // Pure float comparisons
+        is_eq(json!(10.5), json!(10.5));
+        is_lt(json!(10.5), json!(11.5));
+        is_lt(json!(-11.5), json!(-10.5));
 
         is_lt(Value::Null, json!(1)); // Number > Null.
         is_lt(json!(true), json!(1)); // Number > Bool.
@@ -153,6 +170,11 @@ mod test {
         is_lt(json!({"a": 1, "b": 2}), json!({"a": 1, "c": 1}));
         is_lt(json!({"a": 1, "b": 2}), json!({"a": 1, "b": 3}));
 
+        // Objects with same keys but different value types
+        is_lt(json!({"a": false}), json!({"a": true}));
+        is_lt(json!({"a": 1}), json!({"a": "1"})); // Number < String
+        is_lt(json!({"a": "1"}), json!({"a": [1]})); // String < Array
+
         is_lt(Value::Null, json!({"1": 1})); // Object > Null.
         is_lt(json!(true), json!({"1": 1})); // Object > Bool.
         is_lt(json!(1), json!({"1": 1})); // Object > Number.
@@ -160,39 +182,71 @@ mod test {
         is_lt(json!([1]), json!({"1": 1})); // Object > Array.
     }
 
-    fn multi_compare(lhs: &Value, rhs: &Value) -> Ordering {
-        // Determine the compared value.
-        let out = compare(lhs, rhs);
+    #[test]
+    fn test_nested_structures() {
+        // Arrays containing objects
+        is_eq(json!([{"a": 1}]), json!([{"a": 1}]));
+        is_lt(json!([{"a": 1}]), json!([{"a": 2}]));
+        is_lt(json!([{"a": 1}]), json!([{"a": 1}, {"b": 2}]));
 
-        // Now assert that all flavors of Value, HeapNode,
-        // and ArchiveNode give a consistent answer.
-        let alloc = HeapNode::new_allocator();
+        // Objects containing arrays
+        is_eq(json!({"x": [1, 2]}), json!({"x": [1, 2]}));
+        is_lt(json!({"x": [1, 2]}), json!({"x": [1, 3]}));
+        is_lt(json!({"x": [1]}), json!({"x": [1, 2]}));
 
-        let lhs_heap = HeapNode::from_serde(lhs, &alloc).unwrap();
-        let rhs_heap = HeapNode::from_serde(rhs, &alloc).unwrap();
+        // Deeply nested structures
+        is_eq(
+            json!({"a": {"b": {"c": [1, 2, 3]}}}),
+            json!({"a": {"b": {"c": [1, 2, 3]}}}),
+        );
+        is_lt(
+            json!({"a": {"b": {"c": [1, 2, 3]}}}),
+            json!({"a": {"b": {"c": [1, 2, 4]}}}),
+        );
+    }
 
-        let buf = lhs_heap.to_archive();
-        let lhs_arch = ArchivedNode::from_archive(&buf);
-        let buf = rhs_heap.to_archive();
-        let rhs_arch = ArchivedNode::from_archive(&buf);
+    #[test]
+    fn test_bytes_ordering() {
+        use super::compare_node;
 
-        assert_eq!(compare(lhs, &rhs_heap), out);
-        assert_eq!(compare(lhs, rhs_arch), out);
+        // Create byte arrays to reference
+        let data1 = [1u8, 2, 3];
+        let data2 = [1u8, 2, 3];
+        let data3 = [1u8, 2, 4];
+        let data4 = [1u8, 2];
 
-        assert_eq!(compare(&lhs_heap, rhs), out);
-        assert_eq!(compare(lhs_arch, rhs), out);
+        // Create Node::Bytes instances
+        let bytes1: Node<'_, Value> = Node::Bytes(&data1);
+        let bytes2: Node<'_, Value> = Node::Bytes(&data2);
+        let bytes3: Node<'_, Value> = Node::Bytes(&data3);
+        let bytes4: Node<'_, Value> = Node::Bytes(&data4);
 
-        assert_eq!(compare(&lhs_heap, rhs_arch), out);
-        assert_eq!(compare(lhs_arch, &rhs_heap), out);
-        out
+        // Bytes vs Bytes
+        assert_eq!(compare_node(&bytes1, &bytes2), Ordering::Equal);
+        assert_eq!(compare_node(&bytes1, &bytes3), Ordering::Less);
+        assert_eq!(compare_node(&bytes3, &bytes1), Ordering::Greater);
+        assert_eq!(compare_node(&bytes1, &bytes4), Ordering::Greater);
+
+        // Bytes vs other types (Bytes comes after Bool but before everything else except Null/Bool)
+        let null: Node<'_, Value> = Node::Null;
+        let bool_val: Node<'_, Value> = Node::Bool(true);
+        let num: Node<'_, Value> = Node::PosInt(42);
+        let float_val: Node<'_, Value> = Node::Float(42.0);
+        let string_val: Node<'_, Value> = Node::String("hello");
+
+        assert_eq!(compare_node(&bytes1, &null), Ordering::Greater); // Bytes > Null
+        assert_eq!(compare_node(&bytes1, &bool_val), Ordering::Greater); // Bytes > Bool
+        assert_eq!(compare_node(&bytes1, &num), Ordering::Less); // Bytes < PosInt
+        assert_eq!(compare_node(&bytes1, &float_val), Ordering::Less); // Bytes < Float
+        assert_eq!(compare_node(&bytes1, &string_val), Ordering::Less); // Bytes < String
     }
 
     fn is_lt(lhs: Value, rhs: Value) {
-        assert_eq!(multi_compare(&lhs, &rhs), Ordering::Less);
-        assert_eq!(multi_compare(&rhs, &lhs), Ordering::Greater);
+        assert_eq!(compare(&lhs, &rhs), Ordering::Less);
+        assert_eq!(compare(&rhs, &lhs), Ordering::Greater);
     }
     fn is_eq(lhs: Value, rhs: Value) {
-        assert_eq!(multi_compare(&lhs, &rhs), Ordering::Equal);
-        assert_eq!(multi_compare(&rhs, &lhs), Ordering::Equal);
+        assert_eq!(compare(&lhs, &rhs), Ordering::Equal);
+        assert_eq!(compare(&rhs, &lhs), Ordering::Equal);
     }
 }

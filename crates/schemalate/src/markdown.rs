@@ -1,13 +1,10 @@
-use anyhow::Context;
-use doc::{
-    shape::{location::Exists, Shape},
-    Schema, SchemaIndexBuilder,
-};
+use doc::shape::location;
 use itertools::Itertools;
-use json::schema::build::build_schema;
 use serde_json::Value;
-use std::fmt::{self, Display};
-use url::Url;
+use std::{
+    fmt::{self, Display},
+    io::Read,
+};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -20,16 +17,12 @@ pub struct Args {
 }
 
 pub fn run(args: Args) -> anyhow::Result<()> {
-    let dom: serde_json::Value = serde_json::from_reader(std::io::stdin())?;
-    let curi = Url::parse("https://example/schema").unwrap();
-    let root: Schema = build_schema(curi, &dom).context("failed to build JSON schema")?;
+    let mut schema = Vec::new();
+    let _ = std::io::stdin().read_to_end(&mut schema)?;
 
-    let mut index = SchemaIndexBuilder::new();
-    index.add(&root).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-
-    let shape = Shape::infer(&root, &index);
+    let schema = doc::validation::build_bundle(&schema)?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
     println!("| Property | Title | Description | Type | Required/Default |");
     println!("|---|---|---|---|---|");
@@ -67,12 +60,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-struct RequiredAndDefault<'a>(Exists, Option<&'a Value>);
+struct RequiredAndDefault<'a>(location::Exists, Option<&'a Value>);
 impl<'a> Display for RequiredAndDefault<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let req = match self.0 {
-            Exists::Must => "Required",
-            Exists::Cannot => "Cannot exist",
+            location::Exists::Must => "Required",
+            location::Exists::Cannot => "Cannot exist",
             _ => "",
         };
         let def = self.1.map(ToString::to_string).unwrap_or_default();

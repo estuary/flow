@@ -1,4 +1,4 @@
-use super::{AsNode, BumpStr, BumpVec, Field, Fields, HeapField, HeapNode, Node};
+use crate::{AsNode, Field, Fields, Location, Node};
 use std::str::FromStr;
 
 /// Token is a parsed token of a JSON pointer.
@@ -52,7 +52,7 @@ impl Pointer {
     /// Builds a Pointer from the given string, which is an encoded JSON pointer.
     ///
     /// ```
-    /// use doc::ptr::{Pointer, Token};
+    /// use json::ptr::{Pointer, Token};
     ///
     /// let pointer = Pointer::from_str("/foo/ba~1ar/3");
     /// let expected_tokens = vec![
@@ -84,7 +84,7 @@ impl Pointer {
     ///
     /// ```
     /// use json::Location;
-    /// use doc::ptr::Token;
+    /// use json::ptr::Token;
     ///
     /// let root = Location::Root;
     /// let foo = root.push_prop("foo");
@@ -92,8 +92,8 @@ impl Pointer {
     /// let bar = eoa.push_prop("bar");
     /// let index = bar.push_item(3);
     ///
-    /// let pointer = doc::Pointer::from_location(&index);
-    /// // equivalent to "/foo/-/bar/3"
+    /// let pointer = json::Pointer::from_location(&index);
+    /// // Build fixture of "/foo/-/bar/3":
     /// let expected_tokens = vec![
     ///     Token::Property("foo".to_string()),
     ///     Token::NextIndex,
@@ -103,20 +103,20 @@ impl Pointer {
     /// let actual_tokens = pointer.iter().cloned().collect::<Vec<_>>();
     /// assert_eq!(expected_tokens, actual_tokens);
     /// ```
-    pub fn from_location(location: &json::Location) -> Pointer {
+    pub fn from_location(location: &Location) -> Pointer {
         location.fold(Pointer::empty(), |location, mut ptr| {
             match location {
-                json::Location::Root => {}
-                json::Location::Property(prop) => {
+                Location::Root => {}
+                Location::Property(prop) => {
                     ptr.push(Token::Property(prop.name.to_string()));
                 }
-                json::Location::Item(item) => {
+                Location::Item(item) => {
                     ptr.push(Token::Index(item.index));
                 }
-                json::Location::EndOfArray(_) => {
+                Location::EndOfArray(_) => {
                     ptr.push(Token::NextIndex);
                 }
-                json::Location::NextProperty(_) => {
+                Location::NextProperty(_) => {
                     ptr.push(Token::NextProperty);
                 }
             }
@@ -161,170 +161,70 @@ impl Pointer {
         }
         Some(node)
     }
+}
 
-    /// Query a mutable existing value at the pointer location within the document,
-    /// recursively creating the location if it doesn't exist. Existing parent locations
-    /// which are Null are instantiated as an Object or Array, depending on the type of
-    /// Token at that location (Property or Index/NextIndex). An existing Array is
-    /// extended with Nulls as required to instantiate a specified Index.
-    /// Returns a mutable Value at the pointed location, or None only if the document
-    /// structure is incompatible with the pointer (eg, because a parent location is
-    /// a scalar type, or attempts to index an array by-property).
-    pub fn create_value<'v>(
-        &self,
-        value: &'v mut serde_json::Value,
-    ) -> Option<&'v mut serde_json::Value> {
-        use serde_json::Value;
+/// Query a mutable existing value at the pointer location within the document,
+/// recursively creating the location if it doesn't exist. Existing parent locations
+/// which are Null are instantiated as an Object or Array, depending on the type of
+/// Token at that location (Property or Index/NextIndex). An existing Array is
+/// extended with Nulls as required to instantiate a specified Index.
+/// Returns a mutable Value at the pointed location, or None only if the document
+/// structure is incompatible with the pointer (eg, because a parent location is
+/// a scalar type, or attempts to index an array by-property).
+pub fn create_value<'v>(
+    ptr: &Pointer,
+    value: &'v mut serde_json::Value,
+) -> Option<&'v mut serde_json::Value> {
+    use serde_json::Value;
 
-        let mut v = value;
+    let mut v = value;
 
-        for token in self.iter() {
-            // If the current value is null but more tokens remain in the pointer,
-            // instantiate it as an object or array (depending on token type) in
-            // which we'll create the next child location.
-            if let Value::Null = v {
-                match token {
-                    Token::Property(_) | Token::NextProperty => {
-                        *v = Value::Object(serde_json::map::Map::new());
+    for token in ptr.iter() {
+        // If the current value is null but more tokens remain in the pointer,
+        // instantiate it as an object or array (depending on token type) in
+        // which we'll create the next child location.
+        if let Value::Null = v {
+            match token {
+                Token::Property(_) | Token::NextProperty => {
+                    *v = Value::Object(serde_json::map::Map::new());
+                }
+                Token::Index(_) | Token::NextIndex => {
+                    *v = Value::Array(Vec::new());
+                }
+            };
+        }
+
+        v = match v {
+            Value::Object(map) => match token {
+                // Create or modify existing entry.
+                Token::Index(ind) => map.entry(ind.to_string()).or_insert(Value::Null),
+                Token::Property(prop) => map.entry(prop).or_insert(Value::Null),
+                Token::NextProperty | Token::NextIndex => return None,
+            },
+            Value::Array(arr) => match token {
+                Token::Index(ind) => {
+                    // Create any required indices [0..ind) as Null.
+                    if *ind >= arr.len() {
+                        arr.extend(std::iter::repeat(Value::Null).take(1 + ind - arr.len()));
                     }
-                    Token::Index(_) | Token::NextIndex => {
-                        *v = Value::Array(Vec::new());
-                    }
-                };
+                    // Create or modify |ind| entry.
+                    &mut arr[*ind]
+                }
+                Token::NextIndex => {
+                    // Append and return a Null.
+                    arr.push(Value::Null);
+                    arr.last_mut().unwrap()
+                }
+                // Cannot match (attempt to query property of an array).
+                Token::Property(_) | Token::NextProperty => return None,
+            },
+            Value::Number(_) | Value::Bool(_) | Value::String(_) => {
+                return None; // Cannot match (attempt to take child of scalar).
             }
-
-            v = match v {
-                Value::Object(map) => match token {
-                    // Create or modify existing entry.
-                    Token::Index(ind) => map.entry(ind.to_string()).or_insert(Value::Null),
-                    Token::Property(prop) => map.entry(prop).or_insert(Value::Null),
-                    Token::NextProperty | Token::NextIndex => return None,
-                },
-                Value::Array(arr) => match token {
-                    Token::Index(ind) => {
-                        // Create any required indices [0..ind) as Null.
-                        if *ind >= arr.len() {
-                            arr.extend(std::iter::repeat(Value::Null).take(1 + ind - arr.len()));
-                        }
-                        // Create or modify |ind| entry.
-                        &mut arr[*ind]
-                    }
-                    Token::NextIndex => {
-                        // Append and return a Null.
-                        arr.push(Value::Null);
-                        arr.last_mut().unwrap()
-                    }
-                    // Cannot match (attempt to query property of an array).
-                    Token::Property(_) | Token::NextProperty => return None,
-                },
-                Value::Number(_) | Value::Bool(_) | Value::String(_) => {
-                    return None; // Cannot match (attempt to take child of scalar).
-                }
-                Value::Null => unreachable!("null already handled"),
-            };
-        }
-        Some(v)
-    }
-
-    /// Attempts to set the value of this Pointer within `doc` to `value`.
-    /// Returns Ok on success with the tape-length delta, or Err if unable to
-    /// set `value`, also with the tape-length delta.
-    /// Note this routine may modify `doc` even if the operation fails
-    /// due to modifications of intermediate nodes.
-    pub fn create_heap_node<'alloc>(
-        &self,
-        doc: &mut HeapNode<'alloc>,
-        value: HeapNode<'alloc>,
-        alloc: &'alloc bumpalo::Bump,
-    ) -> Result<i32, i32> {
-        let mut tail = self.0.as_slice();
-        let mut stack = Vec::new();
-        let mut node = doc;
-
-        let (matched, mut built_delta) = loop {
-            let Some((token, new_tail)) = tail.split_first() else {
-                // Base case: replace `node` with `value`.
-                let built_delta = value.tape_length() - node.tape_length();
-                *node = value;
-                break (true, built_delta);
-            };
-            tail = new_tail;
-
-            // If the current value is null but more tokens remain in the pointer,
-            // instantiate it as an object or array (depending on token type) into
-            // which we'll create the next child location.
-            if let HeapNode::Null = node {
-                match token {
-                    Token::Property(_) => {
-                        *node = HeapNode::Object(1, BumpVec::new());
-                    }
-                    Token::Index(_) => {
-                        *node = HeapNode::Array(1, BumpVec::new());
-                    }
-                    Token::NextProperty | Token::NextIndex => break (false, 0),
-                };
-            };
-
-            match node {
-                HeapNode::Object(tape_length, fields) => {
-                    let property = match token {
-                        Token::Index(ind) => BumpStr::from_str(&ind.to_string(), alloc),
-                        Token::Property(property) => BumpStr::from_str(property, alloc),
-                        Token::NextProperty | Token::NextIndex => break (false, 0),
-                    };
-
-                    let (local_delta, index) =
-                        match fields.binary_search_by(|l| l.property.cmp(&property)) {
-                            Ok(index) => (0i32, index),
-                            Err(index) => {
-                                let value = HeapField {
-                                    property,
-                                    value: HeapNode::Null,
-                                };
-                                fields.insert(index, value, alloc);
-                                (1, index)
-                            }
-                        };
-
-                    stack.push((tape_length, local_delta));
-                    node = &mut fields[index].value
-                }
-                HeapNode::Array(tape_length, items) => {
-                    let index = match token {
-                        Token::Index(index) => *index,
-                        Token::NextIndex => items.len(),
-                        Token::NextProperty | Token::Property(_) => break (false, 0),
-                    };
-                    // Create any required indices [0..ind) as HeapNode::Null.
-                    let local_delta = (1 + index).saturating_sub(items.len());
-                    items.extend(
-                        std::iter::repeat_with(|| HeapNode::Null).take(local_delta),
-                        alloc,
-                    );
-
-                    stack.push((tape_length, local_delta as i32));
-                    node = &mut items[index]
-                }
-                HeapNode::Bool(_)
-                | HeapNode::Bytes(_)
-                | HeapNode::Float(_)
-                | HeapNode::NegInt(_)
-                | HeapNode::PosInt(_)
-                | HeapNode::String(_) => {
-                    break (false, 0);
-                }
-                HeapNode::Null => unreachable!("null already handled"),
-            };
+            Value::Null => unreachable!("null already handled"),
         };
-
-        // Walk back up the stack, adjusting tape lengths as we go.
-        for (tape_length, local_delta) in stack.into_iter().rev() {
-            built_delta += local_delta;
-            *tape_length += built_delta;
-        }
-
-        matched.then_some(built_delta).ok_or(built_delta)
     }
+    Some(v)
 }
 
 impl<S: AsRef<str>> From<S> for Pointer {
@@ -386,7 +286,7 @@ impl std::fmt::Display for Pointer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{compare, ArchivedNode};
+    use crate::node::compare;
     use serde_json::json;
     use std::cmp::Ordering;
 
@@ -453,12 +353,6 @@ mod test {
             "-": 11,
         });
 
-        let alloc = HeapNode::new_allocator();
-        let heap_doc = HeapNode::from_serde(&doc, &alloc).unwrap();
-
-        let archive = heap_doc.to_archive();
-        let arch_doc = ArchivedNode::from_archive(&archive);
-
         // Query document locations which exist (cases from RFC-6901).
         for case in [
             ("", json!(doc)),
@@ -482,14 +376,6 @@ mod test {
             let ptr = Pointer::from(case.0);
 
             assert_eq!(compare(ptr.query(&doc).unwrap(), &case.1), Ordering::Equal);
-            assert_eq!(
-                compare(ptr.query(&heap_doc).unwrap(), &case.1),
-                Ordering::Equal
-            );
-            assert_eq!(
-                compare(ptr.query(arch_doc).unwrap(), &case.1),
-                Ordering::Equal
-            );
         }
 
         // Locations which don't exist.
@@ -503,8 +389,6 @@ mod test {
         {
             let ptr = Pointer::from(*case);
             assert!(ptr.query(&doc).is_none());
-            assert!(ptr.query(&heap_doc).is_none());
-            assert!(ptr.query(arch_doc).is_none());
         }
     }
 
@@ -513,33 +397,23 @@ mod test {
         // Modify a Null root by applying a succession of upserts.
         let mut root_value = json!(null);
 
-        let alloc = HeapNode::new_allocator();
-        let mut root_heap_doc = HeapNode::Null;
-
-        for (ptr, value, expect_delta) in [
+        for (ptr, value) in [
             // Creates Object root, Array at /foo, and Object at /foo/2.
-            ("/foo/2/a", json!("hello"), 5), // Creates: root obj + foo array + 2 nulls + obj at [2] + "hello"
+            ("/foo/2/a", json!("hello")),
             // Add property to existing object.
-            ("/foo/2/b", json!(3), 1),   // Adds one property value
-            ("/foo/0", json!(false), 0), // Update existing Null (both have tape_length = 1).
-            ("/bar", json!(null), 1),    // Add property to doc root (adds null).
-            ("/foo/0", json!(true), 0),  // Update from 'false' (both have tape_length = 1).
+            ("/foo/2/b", json!(3)),
+            ("/foo/0", json!(false)),
+            ("/bar", json!(null)),
+            ("/foo/0", json!(true)),
             // Index token is interpreted as property because object exists.
-            ("/foo/2/4", json!(5), 1), // Adds one property value
+            ("/foo/2/4", json!(5)),
             // NextIndex token is also interpreted as property.
-            ("/foo/2/-", json!(false), 1), // Adds one property value
+            ("/foo/2/-", json!(false)),
         ]
         .iter_mut()
         {
             let ptr = Pointer::from(ptr);
-            let child = HeapNode::from_serde(&*value, &alloc).unwrap();
-
-            let built_delta = ptr
-                .create_heap_node(&mut root_heap_doc, child, &alloc)
-                .unwrap();
-            assert_eq!(built_delta, *expect_delta);
-
-            std::mem::swap(ptr.create_value(&mut root_value).unwrap(), value);
+            std::mem::swap(create_value(&ptr, &mut root_value).unwrap(), value);
         }
 
         let expect = json!({
@@ -548,13 +422,11 @@ mod test {
         });
 
         assert_eq!(compare(&root_value, &expect), Ordering::Equal);
-        assert_eq!(compare(&root_heap_doc, &expect), Ordering::Equal);
 
         // Verify correct tape lengths at interesting locations within the tree.
         for (ptr, length) in [("", 10), ("/foo", 8), ("/foo/2", 5)] {
             let ptr = Pointer::from(ptr);
             assert_eq!(ptr.query(&expect).unwrap().tape_length(), length);
-            assert_eq!(ptr.query(&root_heap_doc).unwrap().tape_length(), length);
         }
 
         // Cases which return None.
@@ -567,17 +439,14 @@ mod test {
         {
             let ptr = Pointer::from(*case);
 
-            assert!(ptr.create_value(&mut root_value).is_none());
-            assert!(ptr
-                .create_heap_node(&mut root_heap_doc, HeapNode::Null, &alloc)
-                .is_err());
+            assert!(create_value(&ptr, &mut root_value).is_none());
         }
 
         let next_index_ptr = Pointer::from_iter(
             vec![Token::Property("foo".to_string()), Token::NextProperty].into_iter(),
         );
 
-        let res = next_index_ptr.create_value(&mut root_value);
+        let res = create_value(&next_index_ptr, &mut root_value);
         assert_eq!(res, None);
     }
 

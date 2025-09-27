@@ -1,9 +1,5 @@
 use super::Error;
-use doc::{
-    reduce,
-    shape::{self, location::Exists},
-    validation, Shape,
-};
+use doc::shape::{self, location::Exists};
 use json::schema::types;
 use proto_flow::flow::collection_spec::derivation::ShuffleType as ProtoShuffleType;
 
@@ -12,19 +8,19 @@ pub struct Schema {
     // is inline to a Flow specification.
     pub curi: url::Url,
     // Validator of this schema.
-    pub validator: validation::Validator,
+    pub validator: doc::validation::Validator,
     // Inferred schema shape.
-    pub shape: Shape,
+    pub shape: doc::Shape,
 }
 
 impl Schema {
     pub fn new(bundle: &[u8]) -> Result<Self, Error> {
         let schema = doc::validation::build_bundle(bundle)?;
         let validator = doc::Validator::new(schema)?;
-        let shape = Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
         Ok(Self {
-            curi: validator.schemas()[0].curi.clone(),
+            curi: validator.schema().curi().clone(),
             validator,
             shape,
         })
@@ -47,7 +43,7 @@ impl Schema {
             .unwrap_or((0, 0));
         let unmatched = [&ptr[..start], &ptr[stop..]].concat();
 
-        let (read_shape, read_exists) = read.shape.locate(&doc::Pointer::from_str(ptr));
+        let (read_shape, read_exists) = read.shape.locate(&json::Pointer::from(ptr));
 
         // These checks return early if matched because
         // further errors are likely spurious.
@@ -87,7 +83,7 @@ impl Schema {
 
         if !matches!(
             read_shape.reduce,
-            shape::Reduce::Unset | shape::Reduce::Strategy(reduce::Strategy::LastWriteWins(_)),
+            shape::Reduce::Unset | shape::Reduce::Strategy(doc::reduce::Strategy::LastWriteWins(_)),
         ) {
             return Err(Error::KeyHasReduce {
                 ptr: ptr.to_string(),
@@ -104,7 +100,7 @@ impl Schema {
         }
 
         if let Some(write) = write {
-            let (write_shape, write_exists) = write.shape.locate(&doc::Pointer::from_str(ptr));
+            let (write_shape, write_exists) = write.shape.locate(&json::Pointer::from(ptr));
 
             if write_exists == Exists::Implicit {
                 return Err(Error::PtrIsImplicit {
@@ -145,7 +141,7 @@ impl Schema {
         I: Iterator<Item = S>,
     {
         key.map(|ptr| {
-            let (shape, _exists) = self.shape.locate(&doc::Pointer::from_str(ptr.as_ref()));
+            let (shape, _exists) = self.shape.locate(&json::Pointer::from(ptr.as_ref()));
 
             match shape.type_ - types::NULL {
                 types::BOOLEAN => ProtoShuffleType::Boolean,

@@ -28,11 +28,11 @@ impl super::Reader for Reader {
                 let collection = t.collection.as_ref().unwrap();
                 (
                     collection.name.clone(),
-                    (index, doc::Pointer::from_str(&collection.uuid_ptr)),
+                    (index, json::Pointer::from_str(&collection.uuid_ptr)),
                 )
             })
             .fold(
-                HashMap::<String, Vec<(usize, doc::Pointer)>>::new(),
+                HashMap::<String, Vec<(usize, json::Pointer)>>::new(),
                 |mut acc, item| {
                     if let Some(existing) = acc.get_mut(&item.0) {
                         existing.push(item.1);
@@ -60,11 +60,11 @@ impl super::Reader for Reader {
                 let collection = t.collection.as_ref().unwrap();
                 (
                     collection.name.clone(),
-                    (index, doc::Pointer::from_str(&collection.uuid_ptr)),
+                    (index, json::Pointer::from_str(&collection.uuid_ptr)),
                 )
             })
             .fold(
-                HashMap::<String, Vec<(usize, doc::Pointer)>>::new(),
+                HashMap::<String, Vec<(usize, json::Pointer)>>::new(),
                 |mut acc, item| {
                     if let Some(existing) = acc.get_mut(&item.0) {
                         existing.push(item.1);
@@ -83,7 +83,7 @@ impl super::Reader for Reader {
 impl Reader {
     fn start(
         self,
-        index: HashMap<String, Vec<(usize, doc::Pointer)>>,
+        index: HashMap<String, Vec<(usize, json::Pointer)>>,
         resume: consumer::Checkpoint,
     ) -> BoxStream<'static, anyhow::Result<Read>> {
         let skip = resume
@@ -111,7 +111,7 @@ impl Reader {
                             crate::uuid::Flags(0),
                         );
 
-                        *ptr.create_value(&mut doc)
+                        *json::ptr::create_value(ptr, &mut doc)
                             .expect("able to create fixture UUID") =
                             serde_json::json!(uuid.as_hyphenated());
 

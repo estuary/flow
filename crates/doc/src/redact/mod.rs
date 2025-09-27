@@ -1,7 +1,7 @@
-use super::{AsNode, HeapField, HeapNode};
-use crate::{BumpStr, BumpVec};
+use super::{HeapField, HeapNode};
+use crate::{validation, BumpStr, BumpVec};
 use itertools::Itertools;
-use json::validator::{self, Context};
+use json::AsNode;
 use sha2::Digest;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
@@ -128,22 +128,28 @@ impl std::convert::TryFrom<&serde_json::Value> for Strategy {
 /// Returns an Outcome indicating the modification state of the document.
 pub fn redact<'alloc>(
     doc: &mut HeapNode<'alloc>,
-    outcomes: &[crate::validation::Outcome<'_>],
+    valid: &[validation::ScopedOutcome<'_>],
     alloc: &'alloc bumpalo::Bump,
     salt: &[u8],
 ) -> Result<Outcome> {
-    // Extract sparse tape of redact annotations and their applicable [begin, end) spans.
-    let tape: Vec<(i32, i32, &Strategy)> = (outcomes.iter())
-        .filter_map(|(outcome, ctx)| {
-            if let validator::Outcome::Annotation(crate::Annotation::Redact(strategy)) = outcome {
-                let span = ctx.span();
-                Some((span.begin as i32, span.end as i32, strategy))
-            } else {
-                None
-            }
-        })
-        // Order by span `begin`.
-        .sorted_by_key(|(begin, _, _)| *begin)
+    // Extract sparse tape of redact annotations and their applicable tape index.
+    let tape: Vec<(i32, &Strategy)> = (valid.iter())
+        .filter_map(
+            |validation::ScopedOutcome {
+                 outcome,
+                 schema_curi: _,
+                 tape_index,
+             }| {
+                if let validation::Outcome::Annotation(crate::Annotation::Redact(strategy)) =
+                    outcome
+                {
+                    Some((*tape_index, strategy))
+                } else {
+                    None
+                }
+            },
+        )
+        .sorted_by_key(|(tape_index, _)| *tape_index)
         .collect();
 
     let mut tape_index = 0i32;
@@ -158,9 +164,9 @@ pub fn redact<'alloc>(
     )
 }
 
-// Slice of sparse (span-begin, span-end, redact Strategy) annotations.
+// Slice of sparse (tape-index, redact Strategy) annotations.
 // As redaction progresses, matched entries are discarded from the head.
-type Tape<'a> = &'a [(i32, i32, &'a Strategy)];
+type Tape<'a> = &'a [(i32, &'a Strategy)];
 
 fn redact_node<'alloc, 'schema>(
     tape: &mut Tape<'schema>,
@@ -174,19 +180,18 @@ fn redact_node<'alloc, 'schema>(
         match tape.get(0).copied() {
             None => return Ok(Outcome::Unchanged), // Tape is empty. No further annotations apply.
 
-            Some((span_begin, _, _)) if span_begin < *tape_index => {
+            Some((next_index, _)) if next_index < *tape_index => {
                 // This can happen if a parent and its child both have `redact` annotations:
                 // the parent's annotation is applied and `tape_index` is then advanced past
                 // the child. Discard this entry and continue.
                 *tape = &tape[1..];
             }
-            Some((span_begin, span_end, strategy)) if span_begin == *tape_index => {
+            Some((next_index, strategy)) if next_index == *tape_index => {
                 *tape = &tape[1..];
 
                 // Pop additional strategies at the same tape index and check for conflicts.
-                while !tape.is_empty() && tape[0].0 == span_begin {
-                    let (_, other_end, other_strategy) = tape[0];
-                    assert_eq!(span_end, other_end);
+                while !tape.is_empty() && tape[0].0 == next_index {
+                    let (_, other_strategy) = tape[0];
                     *tape = &tape[1..];
 
                     if strategy != other_strategy {
@@ -199,14 +204,13 @@ fn redact_node<'alloc, 'schema>(
                 }
 
                 *tape_index += node.tape_length();
-                assert_eq!(*tape_index, span_end);
 
                 return match strategy.apply(node, alloc, salt) {
                     Ok(outcome) => Ok(outcome),
                     Err(e) => Err(e.with_location(loc)),
                 };
             }
-            Some((begin, _, _)) => break begin, // Must be greater than tape_index.
+            Some((next_index, _)) => break next_index, // Must be greater than tape_index.
         }
     };
 
@@ -627,13 +631,13 @@ mod test {
         ];
 
         let curi = url::Url::parse("http://example/schema").unwrap();
-        let mut validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
+        let mut validator = Validator::new(build_schema(&curi, &schema).unwrap()).unwrap();
         let alloc = HeapNode::new_allocator();
 
         for (name, input, expected, expected_outcome) in cases {
             let mut heap_doc = HeapNode::from_node(&input, &alloc);
-            let valid = validator.validate(None, &input).unwrap().ok().unwrap();
-            let outcome = redact(&mut heap_doc, valid.outcomes(), &alloc, TEST_SALT).unwrap();
+            let valid = validator.validate(&input, |outcome| Some(outcome)).unwrap();
+            let outcome = redact(&mut heap_doc, &valid, &alloc, TEST_SALT).unwrap();
 
             assert_eq!(
                 outcome, expected_outcome,
@@ -656,12 +660,12 @@ mod test {
         });
 
         let curi = url::Url::parse("http://example").unwrap();
-        let mut validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
+        let mut validator = Validator::new(build_schema(&curi, &schema).unwrap()).unwrap();
         let alloc = HeapNode::new_allocator();
 
         let mut doc = HeapNode::from_node(&json!("conflict"), &alloc);
-        let valid = validator.validate(None, &doc).unwrap().ok().unwrap();
-        let result = redact(&mut doc, valid.outcomes(), &alloc, &[]);
+        let valid = validator.validate(&doc, |outcome| Some(outcome)).unwrap();
+        let result = redact(&mut doc, &valid, &alloc, &[]);
 
         insta::assert_debug_snapshot!(result, @r###"
         Err(

@@ -1,8 +1,8 @@
 // This module allows for inspecting and recursively enumerating
 // the known locations within a Shape.
 use super::*;
-use crate::{ptr::Token, Pointer};
 use json::Location;
+use json::{ptr::Token, Pointer};
 
 /// Exists captures an existence constraint of an Shape location.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -197,8 +197,9 @@ impl Shape {
 
         for ObjProperty {
             name,
-            shape: child,
+            is_property: _,
             is_required,
+            shape: child,
         } in &self.object.properties
         {
             let exists = if self.type_ == types::OBJECT && *is_required {

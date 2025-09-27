@@ -91,9 +91,10 @@ impl ObjShape {
         // properties on one side but not the other we impute a property for the missing
         // side by examining matching patterns or additional properties.
         let union_imputed = |side: ObjProperty, other: Option<Shape>| {
-            if let Some(other) = other {
+            if let (true, Some(other)) = (side.is_property, other) {
                 Some(ObjProperty {
                     name: side.name,
+                    is_property: true,
                     is_required: false,
                     shape: Shape::union(side.shape, other),
                 })
@@ -108,8 +109,9 @@ impl ObjShape {
             |l, r| Ord::cmp(&l.name, &r.name),
         )
         .filter_map(|eob| match eob {
-            EitherOrBoth::Both(l, r) => Some(ObjProperty {
+            EitherOrBoth::Both(l, r) => (l.is_property && r.is_property).then_some(ObjProperty {
                 name: l.name,
+                is_property: true,
                 is_required: l.is_required && r.is_required,
                 shape: Shape::union(l.shape, r.shape),
             }),
@@ -327,7 +329,11 @@ impl Shape {
 }
 
 fn union_option<T: Eq>(lhs: Option<T>, rhs: Option<T>) -> Option<T> {
-    if lhs == rhs { lhs } else { None }
+    if lhs == rhs {
+        lhs
+    } else {
+        None
+    }
 }
 
 fn union_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Option<Box<Shape>> {
@@ -347,7 +353,7 @@ fn union_enum(lhs: Option<Vec<Value>>, rhs: Option<Vec<Value>>) -> Option<Vec<Va
     let (lhs, rhs) = (lhs.unwrap(), rhs.unwrap());
 
     Some(
-        itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), crate::compare)
+        itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), json::node::compare)
             .map(|eob| match eob {
                 EitherOrBoth::Both(l, _) => l,
                 EitherOrBoth::Left(l) => l,
@@ -365,18 +371,18 @@ mod test {
     fn numeric_shape_union() {
         let actual = NumericShape::union(
             NumericShape {
-                minimum: Some(json::Number::Signed(-5)),
-                maximum: Some(json::Number::Unsigned(5)),
+                minimum: Some(json::Number::from(-5i64)),
+                maximum: Some(json::Number::from(5u64)),
             },
             NumericShape {
-                minimum: Some(json::Number::Signed(-4)),
-                maximum: Some(json::Number::Float(5.0)),
+                minimum: Some(json::Number::from(-4i64)),
+                maximum: Some(json::Number::from(5.0f64)),
             },
         );
         assert_eq!(
             NumericShape {
-                minimum: Some(json::Number::Signed(-5)),
-                maximum: Some(json::Number::Float(5.0)),
+                minimum: Some(json::Number::from(-5i64)),
+                maximum: Some(json::Number::from(5.0f64)),
             },
             actual
         );
@@ -385,10 +391,10 @@ mod test {
         let actual = NumericShape::union(
             NumericShape {
                 minimum: None,
-                maximum: Some(json::Number::Unsigned(500)),
+                maximum: Some(json::Number::from(500u64)),
             },
             NumericShape {
-                minimum: Some(json::Number::Signed(-4)),
+                minimum: Some(json::Number::from(-4i64)),
                 maximum: None,
             },
         );

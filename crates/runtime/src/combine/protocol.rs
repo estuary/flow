@@ -36,10 +36,10 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
         let uuid_ptr = if uuid_ptr.is_empty() {
             None
         } else {
-            Some(doc::ptr::Pointer::from_str(&uuid_ptr))
+            Some(json::Pointer::from_str(&uuid_ptr))
         };
 
-        specs.push((full, key.clone(), "source", None, validator));
+        specs.push((full, key.clone(), "source", validator));
         bindings.push(Binding {
             key,
             ser_policy: ser_policy.clone(),
@@ -49,7 +49,10 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
     }
 
     Ok((
-        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter(), Vec::new()))?,
+        Accumulator::new(doc::combine::Spec::with_bindings(
+            specs.into_iter(),
+            Vec::new(),
+        ))?,
         bindings,
     ))
 }
@@ -102,8 +105,8 @@ pub fn recv_client_add(
             }
         }
 
-        let Ok(_) = uuid_ptr.create_heap_node(
-            &mut doc,
+        let Ok(_) = doc.try_set(
+            uuid_ptr,
             doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
             alloc,
         ) else {

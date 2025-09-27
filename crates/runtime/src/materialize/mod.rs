@@ -35,7 +35,7 @@ struct Binding {
     store_document: bool,        // Are we storing the root document (often `flow_document`)?
     value_extractors: Vec<doc::Extractor>, // Field extractors for this collection.
     /// Pointer to extract the document UUID.
-    uuid_ptr: doc::Pointer,
+    uuid_ptr: json::Pointer,
 }
 
 #[derive(Debug)]

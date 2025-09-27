@@ -22,7 +22,7 @@ pub struct Task {
     /// The generation id of the derived collection, which gets output as part of inferred schema updates.
     collection_generation_id: models::Id,
     // JSON pointer at which document UUIDs are added.
-    document_uuid_ptr: doc::Pointer,
+    document_uuid_ptr: json::Pointer,
     // Key components which are extracted from written documents.
     key_extractors: Vec<doc::Extractor>,
     // Partition values which are extracted from written documents.

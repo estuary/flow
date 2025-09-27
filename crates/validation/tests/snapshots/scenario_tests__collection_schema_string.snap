@@ -5,6 +5,6 @@ expression: errors
 [
     Error {
         scope: test://example/string-schema#/collections/testing~1string-schema/schema,
-        error: collection schema test://example/string-schema#/collections/testing~1string-schema/schema must have type 'object',
+        error: collection schema test://example/string-schema?ptr=/collections/testing~1string-schema/schema must have type 'object',
     },
 ]

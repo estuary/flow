@@ -1,5 +1,5 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{redact, reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{redact, reduce, validation, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -77,24 +77,11 @@ impl Entries {
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
             let rhs = &mut next[index];
-            let &mut (ref mut validator, ref schema) = &mut validators[rhs.meta.binding()];
 
-            let rhs_valid = validator
-                .validate(schema.as_ref(), &rhs.root)?
-                .ok()
+            let rhs_valid = validators[rhs.meta.binding()]
+                .validate(&rhs.root, validation::reduce_filter)
                 .map_err(|invalid| {
-                    // Best-effort redaction using available outcomes, prior to generating an error.
-                    let _result = redact::redact(
-                        &mut rhs.root,
-                        invalid.outcomes(),
-                        &alloc,
-                        &self.spec.redact_salt,
-                    );
-
-                    Error::FailedValidation(
-                        self.spec.names[rhs.meta.binding()].clone(),
-                        invalid.revalidate_with_context(&rhs.root),
-                    )
+                    Error::FailedValidation(self.spec.names[rhs.meta.binding()].clone(), invalid)
                 })?;
 
             let (lhs, rhs) = (&next[index - 1], &next[index]);
@@ -102,7 +89,7 @@ impl Entries {
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&lhs.root),
                 LazyNode::Heap(&rhs.root),
-                rhs_valid,
+                &rhs_valid,
                 alloc,
                 false, // Compactions are always associative.
             ) {
@@ -299,20 +286,13 @@ impl MemTable {
     ) -> Result<Spec, Error> {
         let (mut sorted, mut spec, alloc) = self.try_into_parts()?;
 
-        // Validate all !front() documents of the spilled segment.
+        // Validate all !front() documents of the spilled segment, applying
+        // "redact" annotations as we go so that no redacted data is written
+        // to disk.
         //
-        // Technically, it's more efficient to defer all validation until we're
-        // draining the combiner, and validating now does very slightly slow the
-        // `combiner_perf` benchmark because we do extra validations that end up
-        // needing to be re-done. But. In the common case we do very little little
-        // reduction across spilled segments and when we're adding/spilling documents
-        // that happens in parallel to useful work an associated connector is doing.
-        // Whereas when we're draining the combiner the connector often can't do other
-        // useful work, and total throughput is thus more sensitive to drain performance.
-        // This is also a nice, tight loop that takes maximum advantage of processor
-        // cache hierarchy and branch prediction as well as memory layout (we read
-        // and write transactions in key order so `sorted` is often laid out in
-        // ascending order within `alloc`).
+        // This also accelerates a common case where no further reduction is
+        // required across spilled segments, and we're typically doing this
+        // validation in parallel to useful work of an associated connector.
         //
         // We do not validate front() documents now because in the common case
         // they'll be reduced with another document on drain, after which we'll
@@ -326,26 +306,16 @@ impl MemTable {
             if doc.meta.front() {
                 continue;
             }
-            let &mut (ref mut validator, ref schema) = &mut spec.validators[doc.meta.binding()];
-
-            let validation = validator.validate(schema.as_ref(), &doc.root)?;
+            let valid = spec.validators[doc.meta.binding()]
+                .validate(&doc.root, validation::redact_filter)
+                .map_err(|invalid| {
+                    Error::FailedValidation(spec.names[doc.meta.binding()].clone(), invalid)
+                })?;
 
             // Redact the document as needed. There's an argument that we should revalidate
             // if the outcome isn't Outcome::Unchanged but this carries a performance cost,
             // and doc::Shape inspections will catch most issues at publication time.
-            let _outcome = redact::redact(
-                &mut doc.root,
-                validation.outcomes(),
-                &alloc,
-                &spec.redact_salt,
-            )?;
-
-            let _valid = validation.ok().map_err(|invalid| {
-                Error::FailedValidation(
-                    spec.names[doc.meta.binding()].clone(),
-                    invalid.revalidate_with_context(&doc.root),
-                )
-            })?;
+            let _outcome = redact::redact(&mut doc.root, &valid, &alloc, &spec.redact_salt)?;
         }
 
         let bytes = writer.write_segment(&sorted, chunk_target_size)?;
@@ -381,7 +351,7 @@ impl MemDrainer {
         };
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let validator = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
@@ -398,30 +368,16 @@ impl MemDrainer {
                 break;
             }
 
-            let rhs_valid = match validator.validate(schema.as_ref(), &next.root)?.ok() {
-                Ok(valid) => valid,
-                Err(invalid) => {
-                    let mut next = self.it.next().unwrap();
-
-                    // Best-effort redaction using available outcomes, prior to generating an error.
-                    let _result = redact::redact(
-                        &mut next.root,
-                        invalid.outcomes(),
-                        &self.zz_alloc,
-                        &self.spec.redact_salt,
-                    );
-
-                    return Err(Error::FailedValidation(
-                        self.spec.names[meta.binding()].clone(),
-                        invalid.revalidate_with_context(&next.root),
-                    ));
-                }
-            };
+            let rhs_valid = validator
+                .validate(&next.root, validation::reduce_filter)
+                .map_err(|invalid| {
+                    Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+                })?;
 
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&root),
                 LazyNode::Heap(&next.root),
-                rhs_valid,
+                &rhs_valid,
                 &self.zz_alloc,
                 is_full,
             ) {
@@ -438,22 +394,14 @@ impl MemDrainer {
             }
         }
 
-        let validation = validator.validate(schema.as_ref(), &root)?;
+        let valid = validator
+            .validate(&root, validation::redact_filter)
+            .map_err(|invalid| {
+                Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+            })?;
 
         // Redact the document as needed. See comment in spill() regarding revalidation.
-        let _outcome = redact::redact(
-            &mut root,
-            validation.outcomes(),
-            &self.zz_alloc,
-            &self.spec.redact_salt,
-        )?;
-
-        let _valid = validation.ok().map_err(|invalid| {
-            Error::FailedValidation(
-                self.spec.names[meta.binding()].clone(),
-                invalid.revalidate_with_context(&root),
-            )
-        })?;
+        let _outcome = redact::redact(&mut root, &valid, &self.zz_alloc, &self.spec.redact_salt)?;
 
         // Safety: `root` was allocated from `self.zz_alloc`.
         let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
@@ -503,7 +451,7 @@ mod test {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
                 let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
+                    &url::Url::parse("http://example/schema").unwrap(),
                     &json!({
                         "properties": {
                             "key": { "type": "string", "default": "def" },
@@ -525,7 +473,6 @@ mod test {
                         json!("def"),
                     )],
                     "source-name",
-                    None,
                     Validator::new(schema).unwrap(),
                 )
             })
@@ -774,10 +721,9 @@ mod test {
                 is_full,
                 vec![Extractor::new("/k", &SerPolicy::noop())],
                 "source-name",
-                None,
                 Validator::new(
                     build_schema(
-                        url::Url::parse("http://example").unwrap(),
+                        &url::Url::parse("http://example").unwrap(),
                         &reduce::merge_patch_schema(),
                     )
                     .unwrap(),
@@ -1027,7 +973,7 @@ mod test {
     #[test]
     fn test_spill_and_validate() {
         let schema = build_schema(
-            url::Url::parse("http://example/schema").unwrap(),
+            &url::Url::parse("http://example/schema").unwrap(),
             &json!({
                 "properties": {
                     "key": { "type": "string" },
@@ -1042,7 +988,6 @@ mod test {
             vec![Extractor::new("/key", &SerPolicy::noop())],
             "source-name",
             Vec::new(),
-            None,
             Validator::new(schema).unwrap(),
         );
         let memtable = MemTable::new(spec);
@@ -1099,7 +1044,7 @@ mod test {
         let new_memtable = || {
             // Schema with both Block and Sha256 redaction strategies.
             let schema = build_schema(
-                url::Url::parse("http://example/schema").unwrap(),
+                &url::Url::parse("http://example/schema").unwrap(),
                 &schema_json,
             )
             .unwrap();
@@ -1109,7 +1054,6 @@ mod test {
                 vec![Extractor::new("/key", &SerPolicy::noop())],
                 "test-source",
                 b"test-salt".to_vec(),
-                None,
                 Validator::new(schema).unwrap(),
             );
             MemTable::new(spec)
@@ -1232,20 +1176,17 @@ mod test {
 
             insta::assert_json_snapshot!(failed, @r###"
             {
-              "basic_output": {
-                "errors": [
-                  {
-                    "absoluteKeywordLocation": "http://example/schema#/properties/public",
-                    "error": "Invalid: Must be of type \"string\".",
-                    "instanceLocation": "/public",
-                    "keywordLocation": "#/properties/public"
-                  }
-                ],
-                "valid": false
-              },
+              "basic_output": [
+                {
+                  "absoluteKeywordLocation": "http://example/schema#/properties/public",
+                  "detail": "Type mismatch: expected a string",
+                  "instanceLocation": "/public",
+                  "instanceValue": "<array>"
+                }
+              ],
               "document": {
                 "key": "key",
-                "pii": "sha256:09683d8ea037876760947d46c660f56e357d2974a245c073394c5772c7f59ee5",
+                "pii": "sha256:10c407a6244a707d65e7d748895fe108742c786093ac67a74c17044ba3815dec",
                 "public": [
                   "wrong",
                   "type"
@@ -1276,20 +1217,17 @@ mod test {
 
             insta::assert_json_snapshot!(failed, @r###"
             {
-              "basic_output": {
-                "errors": [
-                  {
-                    "absoluteKeywordLocation": "http://example/schema#/properties/public",
-                    "error": "Invalid: Must be of type \"string\".",
-                    "instanceLocation": "/public",
-                    "keywordLocation": "#/properties/public"
-                  }
-                ],
-                "valid": false
-              },
+              "basic_output": [
+                {
+                  "absoluteKeywordLocation": "http://example/schema#/properties/public",
+                  "detail": "Type mismatch: expected a string",
+                  "instanceLocation": "/public",
+                  "instanceValue": "<array>"
+                }
+              ],
               "document": {
                 "key": "key",
-                "pii": "sha256:09683d8ea037876760947d46c660f56e357d2974a245c073394c5772c7f59ee5",
+                "pii": "sha256:10c407a6244a707d65e7d748895fe108742c786093ac67a74c17044ba3815dec",
                 "public": [
                   "wrong",
                   "type"

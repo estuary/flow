@@ -1,4 +1,3 @@
-use anyhow::Context;
 use serde::Serialize;
 
 pub mod extract_api;
@@ -16,14 +15,9 @@ impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
 }
 
 pub fn new_validator(schema: &[u8]) -> Result<doc::Validator, anyhow::Error> {
-    let schema = json::schema::build::build_schema(
-        // Bundled schemas carry their own $id so this isn't used in practice.
-        url::Url::parse("https://example").unwrap(),
-        &serde_json::from_slice(schema).context("parsing bundled JSON schema")?,
-    )
-    .context("building bundled JSON schema")?;
-
-    Ok(doc::Validator::new(schema).context("preparing schema validator")?)
+    let schema = doc::validation::build_bundle(schema)?;
+    let validator = doc::Validator::new(schema)?;
+    Ok(validator)
 }
 
 /// Common test utilities used by sub-modules.

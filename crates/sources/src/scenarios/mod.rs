@@ -1,6 +1,7 @@
-use crate::{Fetcher, Loader, Scope};
+use crate::{Fetcher, Loader};
 use futures::channel::oneshot;
 use futures::future::{BoxFuture, FutureExt};
+use json::Scope;
 use proto_flow::flow;
 use std::collections::BTreeMap;
 use std::sync::Mutex;

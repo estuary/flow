@@ -153,22 +153,14 @@ pub async fn do_oauth(
         .unwrap()
         .remove(creds_key_position);
 
-    let schema = doc::validation::build_schema(curi, &parsed_schema).unwrap();
+    let schema = json::schema::build(&curi, &parsed_schema).unwrap();
     let mut validator = doc::Validator::new(schema).unwrap();
 
-    let pretty_endpoint_config = serde_json::to_string_pretty(&endpoint_config).unwrap();
-    let pretty_schema = serde_json::to_string_pretty(&parsed_schema).unwrap();
-
-    validator.validate(
-        None,
-        endpoint_config
-    ).context(
-        format!("Provided endpoint config did not match schema. \nEndpoint config: {pretty_endpoint_config}\nSchema: {pretty_schema}")
-    )?.ok()
-    .map_err(|invalid| {
-        anyhow::anyhow!("Provided endpoint config did not match schema: {}", 
-                        invalid.revalidate_with_context(endpoint_config))
-    })?;
+    validator
+        .validate(endpoint_config, |_| None)
+        .map_err(|invalid| {
+            anyhow::anyhow!("Provided endpoint config did not match schema: {invalid}")
+        })?;
 
     println!(
         "Got connector's OAuth spec: {}",

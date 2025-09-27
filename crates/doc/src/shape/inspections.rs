@@ -1,7 +1,7 @@
 /// This module implements various inspections which can be performed over Shapes.
 use super::*;
 use crate::{redact, reduce};
-use json::{schema::formats::Format, LocatedProperty, Location};
+use json::{location::LocatedProperty, schema::formats::Format, Location};
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum Error {

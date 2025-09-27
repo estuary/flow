@@ -201,10 +201,9 @@ pub fn walk_test_step<'a>(
             for schema in [&mut read_schema, &mut write_schema] {
                 if let Some(invalid) = schema
                     .as_mut()
-                    .and_then(|s| s.validator.validate(None, doc).unwrap().ok().err())
+                    .and_then(|s| s.validator.validate(doc, |_| None).err())
                 {
-                    let err = invalid.revalidate_with_context(doc);
-                    Error::IngestDocInvalid(err)
+                    Error::IngestDocInvalid(invalid)
                         .push(scope.push_prop("documents").push_item(doc_index), errors);
                 }
             }

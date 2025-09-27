@@ -1,9 +1,7 @@
 use super::errors::*;
 use super::firebolt_queries::{CreateTable, DropTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
-use doc::shape::Shape;
-use doc::{Annotation, Pointer};
-use json::schema::{self, types};
+use json::schema::types;
 use proto_flow::flow::materialization_spec::Binding;
 use proto_flow::flow::Inference;
 use proto_flow::flow::MaterializationSpec;
@@ -40,22 +38,14 @@ pub struct Resource {
     pub table_type: String,
 }
 
-fn build_shape_from_schema(schema: &[u8]) -> Result<Shape, Error> {
-    let schema_uri =
-        url::Url::parse("https://estuary.dev").expect("parse should not fail on hard-coded url");
-
-    let parsed_schema = serde_json::from_slice(schema)?;
-    let schema = schema::build::build_schema::<Annotation>(schema_uri, &parsed_schema)?;
-
-    let mut index = schema::index::IndexBuilder::new();
-    index.add(&schema)?;
-    index.verify_references()?;
-    let index = index.into_index();
-
-    Ok(Shape::infer(&schema, &index))
+fn build_shape_from_schema(schema: &[u8]) -> anyhow::Result<doc::Shape> {
+    let schema = doc::validation::build_bundle(schema)?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
+    Ok(shape)
 }
 
-pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
+pub fn build_firebolt_schema(binding: &Binding) -> anyhow::Result<TableSchema> {
     let collection = binding.collection.as_ref().unwrap();
 
     let fs = binding.field_selection.as_ref().unwrap();
@@ -79,7 +69,7 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
     fields.iter().try_for_each(|field| -> Result<(), Error> {
         let projection = projections.iter().find(|p| &p.field == field).unwrap();
         let is_key = fs.keys.contains(field);
-        let (shape, exists) = schema_shape.locate(&Pointer::from_str(&projection.ptr));
+        let (shape, exists) = schema_shape.locate(&json::Pointer::from_str(&projection.ptr));
 
         let mut nullable = !exists.must();
         let fb_type;
@@ -120,11 +110,11 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
 
 pub fn build_firebolt_queries_bundle(
     spec: MaterializationSpec,
-) -> Result<FireboltQueriesBundle, Error> {
-    let config: EndpointConfig = serde_json::from_slice(&spec.config_json)?;
+) -> anyhow::Result<FireboltQueriesBundle> {
+    let config: EndpointConfig = serde_json::from_slice(&spec.config_json).unwrap();
 
-    let bindings : Result<Vec<BindingBundle>, Error> = spec.bindings.iter().map(|binding| {
-        let resource: Resource = serde_json::from_slice(&binding.resource_config_json)?;
+    let bindings : anyhow::Result<Vec<BindingBundle>> = spec.bindings.iter().map(|binding| {
+        let resource: Resource = serde_json::from_slice(&binding.resource_config_json).unwrap();
         let mut schema = build_firebolt_schema(binding)?;
 
         let external_table_name = format!("{}_external", resource.table);
@@ -217,7 +207,7 @@ fn projection_implicit_type_to_firebolt_type(inference: &Inference) -> Option<Fi
     }
 }
 
-fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {
+fn projection_type_to_firebolt_type(shape: &doc::Shape) -> Option<FireboltType> {
     if shape.type_.overlaps(types::STRING) {
         Some(FireboltType::Text)
     } else if shape.type_.overlaps(types::ARRAY) && matches!(shape.array.additional_items, Some(_))

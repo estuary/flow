@@ -1,5 +1,5 @@
 use crate::ParseConfig;
-use doc::ptr::{Pointer, Token};
+use json::ptr::{Pointer, Token};
 use serde_json::Value;
 
 /// Decorator adds properties to parsed JSON documents.
@@ -37,7 +37,7 @@ impl Decorator {
 }
 
 fn add_field(target: &mut Value, location: &Pointer, value: &Value) -> Result<(), AddFieldError> {
-    if let Some(target_location) = location.create_value(target) {
+    if let Some(target_location) = json::ptr::create_value(location, target) {
         *target_location = value.clone();
         Ok(())
     } else {

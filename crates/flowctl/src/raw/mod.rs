@@ -363,7 +363,6 @@ async fn do_combine(
             extractors::for_key(&spec.key, &spec.projections, &doc::SerPolicy::noop())?,
             "source",
             Vec::new(), // Empty redact_salt
-            None,
             doc::Validator::new(schema).unwrap(),
         ),
         tempfile::tempfile().context("opening tempfile")?,

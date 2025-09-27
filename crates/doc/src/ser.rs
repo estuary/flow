@@ -1,4 +1,5 @@
-use super::{AsNode, Field, Fields, LazyNode, Node, OwnedNode};
+use super::{LazyNode, OwnedNode};
+use json::{Field, Fields};
 use std::{
     io,
     sync::atomic::{AtomicBool, Ordering},
@@ -44,7 +45,7 @@ impl SerPolicy {
     }
 
     /// Apply the policy to an AsNode instance, returning a serializable SerNode.
-    pub fn with_truncation_indicator<'p, 'n, 's, N: AsNode>(
+    pub fn with_truncation_indicator<'p, 'n, 's, N: json::AsNode>(
         &'p self,
         node: &'n N,
         truncation_indicator: &'s AtomicBool,
@@ -57,7 +58,7 @@ impl SerPolicy {
         }
     }
 
-    pub fn on<'p, 'n, N: AsNode>(&'p self, node: &'n N) -> SerNode<'p, 'n, 'static, N> {
+    pub fn on<'p, 'n, N: json::AsNode>(&'p self, node: &'n N) -> SerNode<'p, 'n, 'static, N> {
         SerNode {
             node,
             depth: 0,
@@ -67,7 +68,7 @@ impl SerPolicy {
     }
 
     /// Apply the policy to a LazyNode instance, returning a serializable SerLazy.
-    pub fn on_lazy<'p, 'alloc, 'n, N: AsNode>(
+    pub fn on_lazy<'p, 'alloc, 'n, N: json::AsNode>(
         &'p self,
         node: &'p LazyNode<'alloc, 'n, N>,
     ) -> SerLazy<'p, 'alloc, 'n, N> {
@@ -104,6 +105,13 @@ impl SerPolicy {
         }
     }
 
+    pub fn noop_value<N: json::AsNode>(node: &N) -> serde_json::Value {
+        serde_json::to_value(&Self::noop().on(node)).unwrap()
+    }
+    pub fn debug_value<N: json::AsNode>(node: &N) -> serde_json::Value {
+        serde_json::to_value(&Self::debug().on(node)).unwrap()
+    }
+
     fn apply_to_str<'a, 'b>(
         &self,
         raw: &'a str,
@@ -126,14 +134,14 @@ impl SerPolicy {
     }
 }
 
-pub struct SerNode<'p, 'n, 's, N: AsNode> {
+pub struct SerNode<'p, 'n, 's, N: json::AsNode> {
     node: &'n N,
     depth: usize,
     policy: &'p SerPolicy,
     truncation_indicator: Option<&'s AtomicBool>,
 }
 
-pub struct SerLazy<'p, 'alloc, 'n, N: AsNode> {
+pub struct SerLazy<'p, 'alloc, 'n, N: json::AsNode> {
     node: &'p LazyNode<'alloc, 'n, N>,
     policy: &'p SerPolicy,
 }
@@ -144,11 +152,12 @@ pub struct SerOwned<'p, 's> {
     truncation_indicator: Option<&'s AtomicBool>,
 }
 
-impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
+impl<'p, 'n, 's, N: json::AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
     {
+        use json::Node;
         match self.node.as_node() {
             Node::Array(arr) => {
                 let item_limit = if self.depth < SerPolicy::MAX_DEPTH {
@@ -217,12 +226,13 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
 }
 
 // SerNode may be packed as a FoundationDB tuple.
-impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
+impl<'p, 'n, 's, N: json::AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
     fn pack<W: io::Write>(
         &self,
         w: &mut W,
         tuple_depth: tuple::TupleDepth,
     ) -> io::Result<tuple::VersionstampOffset> {
+        use json::Node;
         match self.node.as_node() {
             Node::Array(_) | Node::Object(_) => {
                 serde_json::to_vec(self).unwrap().pack(w, tuple_depth)
@@ -241,7 +251,7 @@ impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
     }
 }
 
-impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
+impl<N: json::AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,

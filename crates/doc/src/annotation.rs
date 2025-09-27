@@ -33,62 +33,44 @@ pub enum Annotation {
 }
 
 impl schema::Annotation for Annotation {
-    fn as_core(&self) -> Option<&schema::CoreAnnotation> {
+    type KeywordError = serde_json::Error;
+
+    fn keyword(&self) -> &str {
         match self {
-            Annotation::Core(a) => Some(a),
-            _ => None,
+            Annotation::Core(core) => core.keyword(),
+            Annotation::Reduce(_) => "reduce",
+            Annotation::Redact(_) => "redact",
+            Annotation::Secret(_) => "secret",
+            Annotation::Multiline(_) => "multiline",
+            Annotation::Advanced(_) => "advanced",
+            Annotation::Order(_) => "order",
+            Annotation::X(key, _) => key.as_str(),
+            Annotation::Discriminator(_) => "discriminator",
         }
     }
-}
 
-impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
-            "reduce" | "redact" | "secret" | "airbyte_secret" | "multiline" | "advanced" | "order"
-            | "discriminator" => true,
+            "reduce" | "redact" | "secret" | "airbyte_secret" | "multiline" | "advanced"
+            | "order" | "discriminator" => true,
             key if key.starts_with("x-") || key.starts_with("X-") => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
     }
 
-    fn from_keyword(
-        keyword: &str,
-        value: &serde_json::Value,
-    ) -> Result<Self, schema::build::Error> {
-        use schema::BuildError::AnnotationErr;
+    fn from_keyword(keyword: &str, value: &serde_json::Value) -> Result<Self, Self::KeywordError> {
         use schema::CoreAnnotation as Core;
 
         match keyword {
-            "reduce" => match reduce::Strategy::try_from(value) {
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-                Ok(r) => Ok(Annotation::Reduce(r)),
-            },
-            "redact" => match redact::Strategy::try_from(value) {
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-                Ok(r) => Ok(Annotation::Redact(r)),
-            },
-            "order" => match i32::deserialize(value) {
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-                Ok(i) => Ok(Annotation::Order(i)),
-            },
-            "secret" | "airbyte_secret" => match bool::deserialize(value) {
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-                Ok(b) => Ok(Annotation::Secret(b)),
-            },
-            "multiline" => match bool::deserialize(value) {
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-                Ok(b) => Ok(Annotation::Multiline(b)),
-            },
-            "advanced" => match bool::deserialize(value) {
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-                Ok(b) => Ok(Annotation::Advanced(b)),
-            },
+            "reduce" => Ok(Annotation::Reduce(reduce::Strategy::try_from(value)?)),
+            "redact" => Ok(Annotation::Redact(redact::Strategy::try_from(value)?)),
+            "order" => Ok(Annotation::Order(i32::deserialize(value)?)),
+            "secret" | "airbyte_secret" => Ok(Annotation::Secret(bool::deserialize(value)?)),
+            "multiline" => Ok(Annotation::Multiline(bool::deserialize(value)?)),
+            "advanced" => Ok(Annotation::Advanced(bool::deserialize(value)?)),
             "discriminator" => Ok(Annotation::Discriminator(value.clone())),
             key if key.starts_with("x-") || key.starts_with("X-") => {
-                match serde_json::to_value(value) {
-                    Ok(v) => Ok(Annotation::X(key.to_owned(), v)),
-                    Err(e) => Err(AnnotationErr(Box::new(e))),
-                }
+                Ok(Annotation::X(key.to_string(), value.clone()))
             }
             _ => Ok(Annotation::Core(Core::from_keyword(keyword, value)?)),
         }
@@ -113,7 +95,7 @@ mod test {
         });
 
         let curi = Url::parse("https://example/schema").unwrap();
-        build_schema::<Annotation>(curi.clone(), &schema).unwrap();
+        build_schema::<Annotation>(&curi, &schema).unwrap();
     }
 
     #[test]
@@ -140,6 +122,6 @@ mod test {
         });
 
         let curi = Url::parse("https://example/schema").unwrap();
-        build_schema::<Annotation>(curi.clone(), &schema).unwrap();
+        build_schema::<Annotation>(&curi, &schema).unwrap();
     }
 }

@@ -91,7 +91,7 @@ impl<'db> Lambda<'db> {
         })
     }
 
-    pub fn invoke<'s, N: doc::AsNode>(
+    pub fn invoke<'s, N: json::AsNode>(
         &'s mut self,
         document: &N,
     ) -> Result<impl Iterator<Item = rusqlite::Result<serde_json::Value>> + 's, Error> {
@@ -117,7 +117,7 @@ impl<'db> Lambda<'db> {
         Ok(result)
     }
 
-    pub fn invoke_vec<'s, N: doc::AsNode>(
+    pub fn invoke_vec<'s, N: json::AsNode>(
         &'s mut self,
         document: &N,
     ) -> Result<Vec<serde_json::Value>, Error> {
@@ -133,7 +133,7 @@ impl<'db> Lambda<'db> {
     }
 }
 
-fn bind_parameter<N: doc::AsNode>(
+fn bind_parameter<N: json::AsNode>(
     stmt: &mut rusqlite::Statement<'_>,
     index: usize,
     param: &Param,
@@ -145,7 +145,7 @@ fn bind_parameter<N: doc::AsNode>(
     }
 }
 
-fn bind_parameter_node<N: doc::AsNode>(
+fn bind_parameter_node<N: json::AsNode>(
     stmt: &mut rusqlite::Statement<'_>,
     index: usize,
     Param {
@@ -156,7 +156,7 @@ fn bind_parameter_node<N: doc::AsNode>(
     }: &Param,
     node: &N,
 ) -> rusqlite::Result<()> {
-    use doc::Node;
+    use json::Node;
 
     match node.as_node() {
         Node::Null => return stmt.raw_bind_parameter(index + 1, None::<bool>),

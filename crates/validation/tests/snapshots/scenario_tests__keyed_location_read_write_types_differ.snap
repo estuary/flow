@@ -5,10 +5,10 @@ expression: errors
 [
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/key/0,
-        error: location /int is "integer" in readSchema test://example/int-string#/collections/testing~1int-string/readSchema, but "string" in writeSchema test://example/int-string#/collections/testing~1int-string/writeSchema. Types of keyed locations must be the same in read and write schemas.,
+        error: location /int is "integer" in readSchema test://example/int-string?ptr=/collections/testing~1int-string/readSchema, but "string" in writeSchema test://example/int-string?ptr=/collections/testing~1int-string/writeSchema. Types of keyed locations must be the same in read and write schemas.,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/bit,
-        error: location /bit is "boolean" in readSchema test://example/int-string#/collections/testing~1int-string/readSchema, but "string" in writeSchema test://example/int-string#/collections/testing~1int-string/writeSchema. Types of keyed locations must be the same in read and write schemas.,
+        error: location /bit is "boolean" in readSchema test://example/int-string?ptr=/collections/testing~1int-string/readSchema, but "string" in writeSchema test://example/int-string?ptr=/collections/testing~1int-string/writeSchema. Types of keyed locations must be the same in read and write schemas.,
     },
 ]

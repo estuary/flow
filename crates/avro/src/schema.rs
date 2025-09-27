@@ -61,7 +61,7 @@ pub fn shape_to_avro(loc: json::Location, shape: doc::Shape, required: bool) -> 
 }
 
 // Map a key extracted from a Shape into a flattened Avro Record.
-pub fn key_to_avro(key: &[doc::Pointer], shape: doc::Shape) -> avro::Schema {
+pub fn key_to_avro(key: &[json::Pointer], shape: doc::Shape) -> avro::Schema {
     let loc_root = json::Location::Root;
     let loc_key = loc_root.push_prop("Key");
     let loc_parts = loc_key.push_prop("Parts");
@@ -314,11 +314,11 @@ mod test {
         }).to_string();
 
         let key = &["/a_bool", "/obj/a_map/a_const"];
-        let key: Vec<_> = key.iter().map(|p| doc::Pointer::from_str(p)).collect();
+        let key: Vec<_> = key.iter().map(|p| json::Pointer::from(*p)).collect();
         insta::assert_json_snapshot!(schema_test(&fixture, &key));
     }
 
-    fn schema_test(json_schema: &str, key: &[doc::Pointer]) -> serde_json::Value {
+    fn schema_test(json_schema: &str, key: &[json::Pointer]) -> serde_json::Value {
         let (key, value) = crate::json_schema_to_avro(json_schema, key).unwrap();
 
         json!({

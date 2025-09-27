@@ -209,7 +209,7 @@ pub enum Error {
     #[error("connector returned an invalid empty resource path for this {entity} binding")]
     BindingMissingResourcePath { entity: &'static str },
     #[error(transparent)]
-    SchemaBuild(#[from] json::schema::build::Error),
+    SchemaBuild(#[from] json::schema::build::Errors<doc::Annotation>),
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]

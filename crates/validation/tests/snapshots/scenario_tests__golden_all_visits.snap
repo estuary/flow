@@ -8386,7 +8386,7 @@ Outcome {
             to_resource: test://example/int-string.schema,
         },
         Import {
-            scope: test://example/int-string-len.schema#/properties/arr/additionalItems/$ref,
+            scope: test://example/int-string-len.schema#/properties/arr/items/$ref,
             to_resource: test://example/int-string.schema,
         },
         Import {

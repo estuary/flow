@@ -1,4 +1,5 @@
 use super::{AsNode, Field, Fields, Node};
+use crate::Number;
 
 impl AsNode for serde_json::Value {
     type Fields = serde_json::Map<String, serde_json::Value>;
@@ -10,15 +11,11 @@ impl AsNode for serde_json::Value {
             Self::Array(a) => Node::Array(a),
             Self::Bool(b) => Node::Bool(*b),
             Self::Null => Node::Null,
-            Self::Number(n) => {
-                if let Some(n) = n.as_u64() {
-                    Node::PosInt(n)
-                } else if let Some(n) = n.as_i64() {
-                    Node::NegInt(n)
-                } else {
-                    Node::Float(n.as_f64().unwrap())
-                }
-            }
+            Self::Number(n) => match Number::from(n) {
+                Number::PosInt(n) => Node::PosInt(n),
+                Number::NegInt(n) => Node::NegInt(n),
+                Number::Float(n) => Node::Float(n),
+            },
             Self::Object(o) => Node::Object(o),
             Self::String(s) => Node::String(s),
         }

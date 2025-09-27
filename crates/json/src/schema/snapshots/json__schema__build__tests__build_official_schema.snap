@@ -1,0 +1,523 @@
+---
+source: crates/json/src/schema/build.rs
+expression: schema
+---
+Schema {
+    keywords: [
+        Id {
+            curi: "https://json-schema.org/tests/test-schema",
+            explicit: true,
+        },
+        Id {
+            curi: "https://example.com/schema.json",
+            explicit: false,
+        },
+        Items {
+            items: Schema {
+                keywords: [
+                    Id {
+                        curi: "https://json-schema.org/tests/test-schema#/items",
+                        explicit: false,
+                    },
+                    Properties {
+                        properties: [
+                            (
+                                "?comment",
+                                Schema {
+                                    keywords: [
+                                        Id {
+                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/comment",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "Any additional comments about the test case",
+                                            ),
+                                        },
+                                        Type {
+                                            type: "string",
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "!description",
+                                Schema {
+                                    keywords: [
+                                        Id {
+                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/description",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "The test case description",
+                                            ),
+                                        },
+                                        Type {
+                                            type: "string",
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "!schema",
+                                Schema {
+                                    keywords: [
+                                        Id {
+                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/schema",
+                                            explicit: false,
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "A valid JSON Schema (one written for the corresponding version directory that the file sits within).",
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            (
+                                "?specification",
+                                Schema {
+                                    keywords: [
+                                        Id {
+                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification",
+                                            explicit: false,
+                                        },
+                                        Items {
+                                            items: Schema {
+                                                keywords: [
+                                                    Id {
+                                                        curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items",
+                                                        explicit: false,
+                                                    },
+                                                    Properties {
+                                                        properties: [
+                                                            (
+                                                                "?core",
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/properties/core",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "A section in official JSON Schema core drafts",
+                                                                            ),
+                                                                        },
+                                                                        Pattern {
+                                                                            pattern: Regex(
+                                                                                "^[0-9a-zA-Z]+(\\.[0-9a-zA-Z]+)*$",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            (
+                                                                "?ecma262",
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/properties/ecma262",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "A section in official ECMA 262 specification for defining regular expressions",
+                                                                            ),
+                                                                        },
+                                                                        Pattern {
+                                                                            pattern: Regex(
+                                                                                "^[0-9a-zA-Z]+(\\.[0-9a-zA-Z]+)*$",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            (
+                                                                "?perl5",
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/properties/perl5",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "A section name in Perl documentation for defining regular expressions",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            (
+                                                                "?quote",
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/properties/quote",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "Quote describing the test case",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            (
+                                                                "?validation",
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/properties/validation",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "A section in official JSON Schema validation drafts",
+                                                                            ),
+                                                                        },
+                                                                        Pattern {
+                                                                            pattern: Regex(
+                                                                                "^[0-9a-zA-Z]+(\\.[0-9a-zA-Z]+)*$",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                        ],
+                                                    },
+                                                    PatternProperties {
+                                                        pattern_properties: [
+                                                            (
+                                                                Regex(
+                                                                    "^iso\\d+$",
+                                                                ),
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/patternProperties/^iso\\d+$",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "A section in official ISO for the given iso number",
+                                                                            ),
+                                                                        },
+                                                                        Pattern {
+                                                                            pattern: Regex(
+                                                                                "^[0-9a-zA-Z]+(\\.[0-9a-zA-Z]+)*$",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            (
+                                                                Regex(
+                                                                    "^rfc\\d+$",
+                                                                ),
+                                                                Schema {
+                                                                    keywords: [
+                                                                        Id {
+                                                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/patternProperties/^rfc\\d+$",
+                                                                            explicit: false,
+                                                                        },
+                                                                        Annotation {
+                                                                            annotation: Description(
+                                                                                "A section in official RFC for the given rfc number",
+                                                                            ),
+                                                                        },
+                                                                        Pattern {
+                                                                            pattern: Regex(
+                                                                                "^[0-9a-zA-Z]+(\\.[0-9a-zA-Z]+)*$",
+                                                                            ),
+                                                                        },
+                                                                        Type {
+                                                                            type: "string",
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                        ],
+                                                    },
+                                                    AdditionalProperties {
+                                                        additional_properties: Schema {
+                                                            keywords: [
+                                                                Id {
+                                                                    curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/additionalProperties",
+                                                                    explicit: false,
+                                                                },
+                                                                Type {
+                                                                    type: "string",
+                                                                },
+                                                            ],
+                                                        },
+                                                    },
+                                                    MinProperties {
+                                                        min_properties: 1,
+                                                    },
+                                                    PropertyNames {
+                                                        property_names: Schema {
+                                                            keywords: [
+                                                                Id {
+                                                                    curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/propertyNames",
+                                                                    explicit: false,
+                                                                },
+                                                                OneOf {
+                                                                    one_of: [
+                                                                        Schema {
+                                                                            keywords: [
+                                                                                Id {
+                                                                                    curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/propertyNames/oneOf/0",
+                                                                                    explicit: false,
+                                                                                },
+                                                                                Pattern {
+                                                                                    pattern: Regex(
+                                                                                        "^((iso)|(rfc))[0-9]+$",
+                                                                                    ),
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                        Schema {
+                                                                            keywords: [
+                                                                                Id {
+                                                                                    curi: "https://json-schema.org/tests/test-schema#/items/properties/specification/items/propertyNames/oneOf/1",
+                                                                                    explicit: false,
+                                                                                },
+                                                                                Enum {
+                                                                                    enum: [
+                                                                                        String("core"),
+                                                                                        String("ecma262"),
+                                                                                        String("perl5"),
+                                                                                        String("quote"),
+                                                                                        String("validation"),
+                                                                                    ],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "A reference to a specification document which defines the behavior tested by this test case. Typically this should be a JSON Schema specification document, though in cases where the JSON Schema specification points to another RFC it should contain *both* the portion of the JSON Schema specification which indicates what RFC (and section) to follow as *well* as information on where in that specification the behavior is specified.",
+                                            ),
+                                        },
+                                        MinItems {
+                                            min_items: 1,
+                                        },
+                                        Type {
+                                            type: "array",
+                                        },
+                                        UniqueItems,
+                                    ],
+                                },
+                            ),
+                            (
+                                "!tests",
+                                Schema {
+                                    keywords: [
+                                        Id {
+                                            curi: "https://json-schema.org/tests/test-schema#/items/properties/tests",
+                                            explicit: false,
+                                        },
+                                        Items {
+                                            items: Schema {
+                                                keywords: [
+                                                    Id {
+                                                        curi: "https://json-schema.org/tests/test-schema#/items/properties/tests/items",
+                                                        explicit: false,
+                                                    },
+                                                    Ref {
+                                                        ref: "https://json-schema.org/tests/test-schema#/$defs/test",
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                        Annotation {
+                                            annotation: Description(
+                                                "A set of related tests all using the same schema",
+                                            ),
+                                        },
+                                        MinItems {
+                                            min_items: 1,
+                                        },
+                                        Type {
+                                            type: "array",
+                                        },
+                                    ],
+                                },
+                            ),
+                        ],
+                    },
+                    AdditionalProperties {
+                        additional_properties: Schema {
+                            keywords: [
+                                Id {
+                                    curi: "https://json-schema.org/tests/test-schema#/items/additionalProperties",
+                                    explicit: false,
+                                },
+                                False,
+                            ],
+                        },
+                    },
+                    Annotation {
+                        annotation: Description(
+                            "An individual test case, containing multiple tests of a single schema's behavior",
+                        ),
+                    },
+                    Type {
+                        type: "object",
+                    },
+                ],
+            },
+        },
+        Defs {
+            defs: [
+                (
+                    "test",
+                    Schema {
+                        keywords: [
+                            Id {
+                                curi: "https://json-schema.org/tests/test-schema#/$defs/test",
+                                explicit: false,
+                            },
+                            Properties {
+                                properties: [
+                                    (
+                                        "?comment",
+                                        Schema {
+                                            keywords: [
+                                                Id {
+                                                    curi: "https://json-schema.org/tests/test-schema#/$defs/test/properties/comment",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "Any additional comments about the test",
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "!data",
+                                        Schema {
+                                            keywords: [
+                                                Id {
+                                                    curi: "https://json-schema.org/tests/test-schema#/$defs/test/properties/data",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "The instance which should be validated against the schema in \"schema\".",
+                                                    ),
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "!description",
+                                        Schema {
+                                            keywords: [
+                                                Id {
+                                                    curi: "https://json-schema.org/tests/test-schema#/$defs/test/properties/description",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "The test description, briefly explaining which behavior it exercises",
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "string",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    (
+                                        "!valid",
+                                        Schema {
+                                            keywords: [
+                                                Id {
+                                                    curi: "https://json-schema.org/tests/test-schema#/$defs/test/properties/valid",
+                                                    explicit: false,
+                                                },
+                                                Annotation {
+                                                    annotation: Description(
+                                                        "Whether the validation process of this instance should consider the instance valid or not",
+                                                    ),
+                                                },
+                                                Type {
+                                                    type: "boolean",
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                ],
+                            },
+                            AdditionalProperties {
+                                additional_properties: Schema {
+                                    keywords: [
+                                        Id {
+                                            curi: "https://json-schema.org/tests/test-schema#/$defs/test/additionalProperties",
+                                            explicit: false,
+                                        },
+                                        False,
+                                    ],
+                                },
+                            },
+                            Annotation {
+                                annotation: Description(
+                                    "A single test",
+                                ),
+                            },
+                            Type {
+                                type: "object",
+                            },
+                        ],
+                    },
+                ),
+            ],
+        },
+        Annotation {
+            annotation: Description(
+                "A schema for files contained within this suite",
+            ),
+        },
+        MinItems {
+            min_items: 1,
+        },
+        Type {
+            type: "array",
+        },
+    ],
+}

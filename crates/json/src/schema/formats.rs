@@ -1,15 +1,6 @@
-use addr::{parse_domain_name, parse_email_address};
-use bigdecimal::BigDecimal;
-use iri_string::spec::{IriSpec, UriSpec};
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::{net::IpAddr, str::FromStr};
-use time::macros::format_description;
-use uuid::Uuid;
+use std::str::FromStr;
 
-use crate::validator::ValidationResult;
-
-#[derive(Debug, Deserialize, Serialize, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Copy, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Format {
     Date,
@@ -54,18 +45,18 @@ pub enum Format {
 // Some are from https://github.com/JamesNK/Newtonsoft.Json.Schema/blob/master/Src/Newtonsoft.Json.Schema/Infrastructure/FormatHelpers.cs
 // Some are artisinally crafted
 lazy_static::lazy_static! {
-    static ref DATE_RE: Regex =
-        Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\z").expect("Is a valid regex");
-    static ref RELATIVE_JSON_POINTER_RE: Regex =
-        Regex::new(r"^(?:0|[1-9][0-9]*)(?:#|(?:/(?:[^~/]|~0|~1)*)*)\z").expect("Is a valid regex");
-    static ref URI_TEMPLATE_RE: Regex = Regex::new(
+    static ref DATE_RE: regex::Regex =
+        regex::Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\z").expect("Is a valid regex");
+    static ref RELATIVE_JSON_POINTER_RE: regex::Regex =
+        regex::Regex::new(r"^(?:0|[1-9][0-9]*)(?:#|(?:/(?:[^~/]|~0|~1)*)*)\z").expect("Is a valid regex");
+    static ref URI_TEMPLATE_RE: regex::Regex = regex::Regex::new(
         r#"^(?:(?:[^\x00-\x20""'<>%\\^`{|}]|%[0-9a-f]{2})|\{[+#.\/;?&=,!@|]?(?:[a-z0-9_]|%[0-9a-f]{2})+(?:\:[1-9][0-9]{0,3}|\*)?(?:,(?:[a-z0-9_]|%[0-9a-f]{2})+(?:\:[1-9][0-9]{0,3}|\*)?)*\})*$"#
     )
     .expect("Is a valid regex");
-    static ref ISO_8601_DURATION_RE: Regex = Regex::new(r"^P(?:\d+W|(?:(?:\d+Y(?:\d+M)?(?:\d+D)?|\d+M(?:\d+D)?|\d+D)(?:T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S))?)|T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S))$").expect("Is a valid regex");
-    static ref JSON_POINTER_RE: Regex = Regex::new(r"^(\/([^~]|(~[01]))*)*$").expect("Is a valid regex");
-    static ref MACADDR: Regex = Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){5}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
-    static ref MACADDR8: Regex = Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){7}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
+    static ref ISO_8601_DURATION_RE: regex::Regex = regex::Regex::new(r"(?-u)^P(?:\d+W|(?:(?:\d+Y(?:\d+M)?(?:\d+D)?|\d+M(?:\d+D)?|\d+D)(?:T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S))?)|T(?:\d+H(?:\d+M)?(?:\d+S)?|\d+M(?:\d+S)?|\d+S))$").expect("Is a valid regex");
+    static ref JSON_POINTER_RE: regex::Regex = regex::Regex::new(r"^(\/([^~]|(~[01]))*)*$").expect("Is a valid regex");
+    static ref MACADDR: regex::Regex = regex::Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){5}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
+    static ref MACADDR8: regex::Regex = regex::Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){7}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
 }
 
 impl ToString for Format {
@@ -79,28 +70,29 @@ impl ToString for Format {
 }
 
 impl Format {
-    pub fn validate(&self, val: &str) -> ValidationResult {
+    pub fn validate(&self, val: &str) -> bool {
         match self {
             Self::Date => {
                 // Padding with zeroes is ignored by the underlying parser. The most efficient
                 // way to check it will be to use a custom parser that won't ignore zeroes,
                 // but this regex will do the trick and costs ~20% extra time in this validator.
                 if !DATE_RE.is_match(val) {
-                    return ValidationResult::Invalid(None);
+                    return false;
                 }
-                ValidationResult::from(time::Date::parse(
+                time::Date::parse(
                     val,
-                    &format_description!("[year]-[month]-[day]"),
-                ))
+                    &time::macros::format_description!("[year]-[month]-[day]"),
+                )
+                .is_ok()
             }
-            Self::DateTime => ValidationResult::from(time::OffsetDateTime::parse(
-                val,
-                &time::format_description::well_known::Rfc3339,
-            )),
+            Self::DateTime => {
+                time::OffsetDateTime::parse(val, &time::format_description::well_known::Rfc3339)
+                    .is_ok()
+            }
             Self::Time => {
                 // [first] will choose the first matching format to parse the value
                 // see https://time-rs.github.io/book/api/format-description.html for more info
-                let full_format = format_description!(
+                let full_format = time::macros::format_description!(
                     version = 2,
                     "[first
                     [[hour]:[minute]:[second][optional [.[subsecond]]]Z]
@@ -109,82 +101,75 @@ impl Format {
                     ]"
                 );
 
-                ValidationResult::from(time::Time::parse(
+                time::Time::parse(
                     val,
                     &time::format_description::FormatItem::First(full_format),
-                ))
+                )
+                .is_ok()
             }
-            Self::Email => ValidationResult::from(parse_email_address(val)),
-            Self::Hostname => ValidationResult::from(parse_domain_name(val)),
+            Self::Email => addr::parse_email_address(val).is_ok(),
+            Self::Hostname => addr::parse_domain_name(val).is_ok(),
             // The rules/test cases for these are absolutely bonkers
             // If we end up needing this let's revisit (jshearer)
-            Self::IdnHostname | Self::IdnEmail => {
-                ValidationResult::Invalid(Some(format!("{self:?} is not supported")))
-            }
+            Self::IdnHostname | Self::IdnEmail => false,
             Self::Ipv4 => {
                 if val.starts_with('0') {
-                    return ValidationResult::Invalid(None);
+                    return false;
                 }
-                match IpAddr::from_str(val) {
-                    Ok(i) => ValidationResult::from(i.is_ipv4()),
-                    Err(e) => ValidationResult::Invalid(Some(e.to_string())),
+                match std::net::IpAddr::from_str(val) {
+                    Ok(i) => i.is_ipv4(),
+                    Err(_) => false,
                 }
             }
-            Self::Ipv6 => ValidationResult::from(match IpAddr::from_str(val) {
-                Ok(i) => ValidationResult::from(i.is_ipv6()),
-                Err(e) => ValidationResult::Invalid(Some(e.to_string())),
-            }),
-            Self::Macaddr => ValidationResult::from(MACADDR.is_match(val)),
-            Self::Macaddr8 => ValidationResult::from(MACADDR8.is_match(val)),
+            Self::Ipv6 => match std::net::IpAddr::from_str(val) {
+                Ok(i) => i.is_ipv6(),
+                Err(_) => false,
+            },
+            Self::Macaddr => MACADDR.is_match(val),
+            Self::Macaddr8 => MACADDR8.is_match(val),
             // uuid crate supports non-hyphenated inputs, jsonschema does not
-            Self::Uuid if val.len() == 36 => ValidationResult::from(Uuid::parse_str(val)),
-            Self::Uuid => ValidationResult::Invalid(Some(format!(
-                "{val} is the wrong length (missing hyphens?)"
-            ))),
+            Self::Uuid if val.len() == 36 => uuid::Uuid::parse_str(val).is_ok(),
+            Self::Uuid => false,
 
-            Self::Duration => ValidationResult::from(ISO_8601_DURATION_RE.is_match(val)),
-            Self::Iri => ValidationResult::from(iri_string::validate::iri::<IriSpec>(val)),
-            Self::Uri => ValidationResult::from(iri_string::validate::iri::<UriSpec>(val)),
-            Self::UriReference => {
-                ValidationResult::from(iri_string::validate::iri_reference::<UriSpec>(val))
+            Self::Duration => ISO_8601_DURATION_RE.is_match(val),
+            Self::Iri => iri_string::validate::iri::<iri_string::spec::IriSpec>(val).is_ok(),
+            Self::Uri => iri_string::validate::iri::<iri_string::spec::UriSpec>(val).is_ok(),
+            Self::UriReference | Self::IriReference => {
+                iri_string::validate::iri_reference::<iri_string::spec::IriSpec>(val).is_ok()
             }
-            Self::IriReference => {
-                ValidationResult::from(iri_string::validate::iri_reference::<IriSpec>(val))
-            }
-            Self::UriTemplate => ValidationResult::from(URI_TEMPLATE_RE.is_match(val)),
-            Self::JsonPointer => ValidationResult::from(JSON_POINTER_RE.is_match(val)),
-            Self::Regex => ValidationResult::from(Regex::new(val)),
-            Self::RelativeJsonPointer => {
-                ValidationResult::from(RELATIVE_JSON_POINTER_RE.is_match(val))
-            }
-            Self::Integer => ValidationResult::from(
-                BigDecimal::from_str(val)
+            Self::UriTemplate => URI_TEMPLATE_RE.is_match(val),
+            Self::JsonPointer => JSON_POINTER_RE.is_match(val),
+            Self::Regex => regex::Regex::new(val).is_ok(),
+            Self::RelativeJsonPointer => RELATIVE_JSON_POINTER_RE.is_match(val),
+            Self::Integer => {
+                bigdecimal::BigDecimal::from_str(val)
                     .map(|d| d.is_integer())
                     .unwrap_or(false)
-                    && !val.contains("_"),
-            ),
-            Self::Number => ValidationResult::from(
-                BigDecimal::from_str(val).is_ok() && !val.contains("_")
-                    || ["NaN", "Infinity", "-Infinity"].contains(&val),
-            ),
-            Self::Sha256 => ValidationResult::from(
-                // See also doc::redact::Strategy::apply() for Sha256.
+                    && !val.contains("_")
+            }
+            Self::Number => {
+                bigdecimal::BigDecimal::from_str(val).is_ok() && !val.contains("_")
+                    || ["NaN", "Infinity", "-Infinity"].contains(&val)
+            }
+            Self::Sha256 =>
+            // See also doc::redact::Strategy::apply() for Sha256.
+            {
                 val.len() == 71
                     && &val.as_bytes()[0..7] == b"sha256:"
-                    && val[7..].bytes().all(|b| b.is_ascii_hexdigit()),
-            ),
+                    && val[7..].bytes().all(|b| b.is_ascii_hexdigit())
+            }
         }
     }
 
     // Detect the Format matched by a given, arbitrary string (if any).
     pub fn detect(val: &str) -> Option<Self> {
         match val {
-            _ if Format::Integer.validate(val).is_ok() => Some(Format::Integer),
-            _ if Format::Number.validate(val).is_ok() => Some(Format::Number),
-            _ if Format::DateTime.validate(val).is_ok() => Some(Format::DateTime),
-            _ if Format::Date.validate(val).is_ok() => Some(Format::Date),
-            _ if Format::Uuid.validate(val).is_ok() => Some(Format::Uuid),
-            _ if Format::Sha256.validate(val).is_ok() => Some(Format::Sha256),
+            _ if Format::Integer.validate(val) => Some(Format::Integer),
+            _ if Format::Number.validate(val) => Some(Format::Number),
+            _ if Format::DateTime.validate(val) => Some(Format::DateTime),
+            _ if Format::Date.validate(val) => Some(Format::Date),
+            _ if Format::Uuid.validate(val) => Some(Format::Uuid),
+            _ if Format::Sha256.validate(val) => Some(Format::Sha256),
             _ => None,
         }
     }
@@ -193,7 +178,6 @@ impl Format {
 #[cfg(test)]
 mod test {
     use super::Format;
-    use crate::validator::ValidationResult;
 
     #[test]
     fn test_format_cases() {
@@ -274,6 +258,7 @@ mod test {
             ("duration", "P1W", true),
             ("duration", "P1W3D", false), // Mixes weeks and days (disallowed).
             ("duration", "roundtuit", false),
+            ("duration", "P২Y", false), // Non-ASCII digit.
             ("uri", "http://www.example.org/foo/bar", true),
             ("uri", "../path/to/bar", false),
             ("uri-reference", "../path/to/bar", true),
@@ -357,15 +342,13 @@ mod test {
                 serde_json::from_value(serde_json::Value::String(format.to_string())).unwrap();
 
             match format.validate(value) {
-                ValidationResult::Valid if expect => {}
-                ValidationResult::Invalid(_) if !expect => {}
-                ValidationResult::Valid => {
+                true if expect => {}
+                false if !expect => {}
+                true => {
                     panic!("expected {format:?} with {value} to be invalid, but it's valid")
                 }
-                ValidationResult::Invalid(reason) => {
-                    panic!(
-                        "expected {format:?} with {value} to be valid, but it's invalid with {reason:?}"
-                    )
+                false => {
+                    panic!("expected {format:?} with {value} to be valid, but it's invalid")
                 }
             }
         }

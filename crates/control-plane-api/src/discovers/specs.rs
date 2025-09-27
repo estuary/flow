@@ -53,7 +53,7 @@ pub fn parse_response(
 /// included in the resulting path, and are thus treated as equivalent. Resource
 /// path values other than strings will result in an error.
 fn resource_path(
-    resource_path_pointers: &[doc::Pointer],
+    resource_path_pointers: &[json::Pointer],
     resource_config_json: &[u8],
 ) -> anyhow::Result<(ResourcePath, bool)> {
     let mut path = validation::load_resource_meta_path(resource_config_json);
@@ -75,7 +75,7 @@ fn resource_path(
 }
 
 fn index_fetched_bindings<'a>(
-    resource_path_pointers: &'_ [doc::Pointer],
+    resource_path_pointers: &'_ [json::Pointer],
     bindings: &'a [models::CaptureBinding],
 ) -> anyhow::Result<HashMap<ResourcePath, &'a models::CaptureBinding>> {
     let mut map = HashMap::new();
@@ -124,7 +124,7 @@ pub fn update_capture_bindings(
     model: &mut models::CaptureDef,
     discovered_bindings: Vec<discovered::Binding>,
     update_only: bool,
-    resource_path_pointers: &[doc::Pointer],
+    resource_path_pointers: &[json::Pointer],
 ) -> anyhow::Result<(Vec<Binding>, Changes, Changes)> {
     assert!(
         !resource_path_pointers.is_empty(),
@@ -422,10 +422,8 @@ fn update_connector_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use doc::AsNode;
     use proto_flow::capture::{self, response::discovered};
     use serde_json::json;
-    use tables::DraftRow;
 
     #[test]
     fn test_response_parsing() {
@@ -476,9 +474,9 @@ mod tests {
         strs.into_iter().map(|s| s.to_string()).collect()
     }
 
-    fn ptr_vec(ptrs: &[&str]) -> Vec<doc::Pointer> {
+    fn ptr_vec(ptrs: &[&str]) -> Vec<json::Pointer> {
         ptrs.into_iter()
-            .map(|s| doc::Pointer::from_str(s))
+            .map(|s| json::Pointer::from_str(s))
             .collect()
     }
 

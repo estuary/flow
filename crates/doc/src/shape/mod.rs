@@ -76,6 +76,7 @@ pub struct ObjShape {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObjProperty {
     pub name: Box<str>,
+    pub is_property: bool,
     pub is_required: bool,
     pub shape: Shape,
 }
@@ -219,7 +220,7 @@ impl Shape {
 // Map values into their combined type set.
 fn value_types<'v, I: Iterator<Item = &'v Value>>(it: I) -> types::Set {
     it.fold(types::INVALID, |_type, val| {
-        types::Set::for_value(val) | _type
+        types::Set::for_node(val) | _type
     })
 }
 
@@ -267,17 +268,15 @@ pub const X_COMPLEXITY_LIMIT: &str = "x-complexity-limit";
 #[cfg(test)]
 // Map a JSON schema, in YAML form, into a Shape.
 fn shape_from(schema_yaml: &str) -> Shape {
-    let url = url::Url::parse("http://example/schema").unwrap();
     let schema: Value = serde_yaml::from_str(schema_yaml).unwrap();
-    let schema =
-        json::schema::build::build_schema::<crate::Annotation>(url.clone(), &schema).unwrap();
+    let schema = json::schema::build::build_schema::<crate::Annotation>(
+        &url::Url::parse("http://example/schema").unwrap(),
+        &schema,
+    )
+    .unwrap();
 
-    let mut index = json::schema::index::IndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-
-    Shape::infer(index.must_fetch(&url).unwrap(), &index)
+    let validator = crate::Validator::new(schema).unwrap();
+    Shape::infer(validator.schema(), validator.schema_index())
 }
 
 #[cfg(test)]

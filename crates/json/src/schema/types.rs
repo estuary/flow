@@ -1,7 +1,6 @@
-use super::Number;
-use serde_json::Value;
-use std::fmt;
+use crate::{AsNode, Node};
 
+// Set of JSON node types, represented as a bitfield.
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Set(u32);
 
@@ -184,26 +183,29 @@ impl Set {
         }
     }
 
-    pub fn for_value(val: &Value) -> Set {
-        match val {
-            Value::Array(_) => ARRAY,
-            Value::Bool(_) => BOOLEAN,
-            Value::Null => NULL,
-            Value::Number(n) => Self::for_number(&Number::from(n)),
-            Value::Object(_) => OBJECT,
-            Value::String(_) => STRING,
-        }
-    }
-
-    pub fn for_number(num: &Number) -> Set {
-        match num {
-            // The json schema spec says that the "integer" type must match
-            // "any number with a zero fractional part":
-            // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
-            // So if there's an actual fractional part, then only "number" is valid,
-            // but for any other numeric value, then "integer" is also valid.
-            Number::Float(value) if value.fract() != 0.0 => FRACTIONAL,
-            _ => INTEGER,
+    #[inline]
+    pub fn for_node<N: AsNode>(node: &N) -> Set {
+        match node.as_node() {
+            Node::Array(_) => ARRAY,
+            Node::Bool(_) => BOOLEAN,
+            Node::Bytes(_) => STRING,
+            Node::NegInt(_) => INTEGER,
+            Node::Null => NULL,
+            Node::Object(_) => OBJECT,
+            Node::PosInt(_) => INTEGER,
+            Node::String(_) => STRING,
+            Node::Float(f) => {
+                // The json schema spec says that the "integer" type must match
+                // "any number with a zero fractional part":
+                // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
+                // So if there's an actual fractional part, then only "number" is valid,
+                // but for any other numeric value, then "integer" is also valid.
+                if f.fract() != 0.0 {
+                    FRACTIONAL
+                } else {
+                    INTEGER
+                }
+            }
         }
     }
 
@@ -295,15 +297,15 @@ impl Set {
     }
 }
 
-impl fmt::Debug for Set {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for Set {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use itertools::Itertools;
         write!(f, "{:?}", self.iter().format(", "))
     }
 }
 
-impl fmt::Display for Set {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Display for Set {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         use itertools::Itertools;
         write!(f, "{:?}", self.iter().format(", "))
     }
@@ -324,7 +326,7 @@ struct SetVisitor;
 impl<'de> serde::de::Visitor<'de> for SetVisitor {
     type Value = Set;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(formatter, "a string or an array of strings")
     }
 
@@ -386,7 +388,7 @@ struct TypeStrVisitor;
 impl<'de> serde::de::Visitor<'de> for TypeStrVisitor {
     type Value = TypeStr;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(formatter, "a string")
     }
 

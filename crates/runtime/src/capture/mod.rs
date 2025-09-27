@@ -35,7 +35,7 @@ struct Binding {
     // Generation id of the collection, which must be output as part of updating inferred schemas.
     collection_generation_id: models::Id,
     // JSON pointer at which document UUIDs are added.
-    document_uuid_ptr: doc::Pointer,
+    document_uuid_ptr: json::Pointer,
     // Key components which are extracted from written documents.
     key_extractors: Vec<doc::Extractor>,
     // Partition values which are extracted from written documents.

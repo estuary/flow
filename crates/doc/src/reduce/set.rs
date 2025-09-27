@@ -1,16 +1,17 @@
 use super::{compare_key, compare_key_lazy, reduce_item, reduce_prop, Error, Result, Tape};
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
-    AsNode, BumpStr, BumpVec, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
+    BumpStr, BumpVec, HeapField, HeapNode, LazyNode,
 };
 use itertools::EitherOrBoth;
+use json::{AsNode, Field, Fields};
 use std::iter::Iterator;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Set {
     #[serde(default)]
-    pub key: Vec<Pointer>,
+    pub key: Vec<json::Pointer>,
 }
 
 /// Permitted, destructured forms that set instances may take.
@@ -134,7 +135,7 @@ struct Builder<'alloc, 'schema, 'tmp> {
     tape_index: &'tmp mut i32,
     loc: json::Location<'tmp>,
     full: bool,
-    key: &'schema [Pointer],
+    key: &'schema [json::Pointer],
     alloc: &'alloc bumpalo::Bump,
 }
 
@@ -182,7 +183,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         let mut arr = BumpVec::with_capacity_in(size_hint, alloc);
 
         fn subtract<'i, 'alloc, 'l, 'r, L: AsNode, R: AsNode + 'r>(
-            key: &'i [Pointer],
+            key: &'i [json::Pointer],
             left: impl Iterator<Item = LazyNode<'alloc, 'l, L>> + 'i,
             right: impl Iterator<Item = &'r R> + 'i,
             naught: bool,

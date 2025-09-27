@@ -31,6 +31,7 @@ Shape {
         properties: [
             ObjProperty {
                 name: "bar",
+                is_property: true,
                 is_required: false,
                 shape: Shape {
                     type_: "string",
@@ -72,6 +73,7 @@ Shape {
             },
             ObjProperty {
                 name: "conflicting",
+                is_property: true,
                 is_required: false,
                 shape: Shape {
                     type_: "array", "boolean", "null", "number", "object", "string",
@@ -114,6 +116,7 @@ Shape {
             },
             ObjProperty {
                 name: "foo",
+                is_property: true,
                 is_required: false,
                 shape: Shape {
                     type_: "string",

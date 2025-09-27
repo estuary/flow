@@ -28,7 +28,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     let spec = combine::Spec::with_bindings(
         std::iter::repeat_with(|| {
             let schema = build_schema(
-                url::Url::parse("http://example/schema").unwrap(),
+                &url::Url::parse("http://example/schema").unwrap(),
                 &json!({
                     "type": "object",
                     "properties": {
@@ -50,7 +50,6 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
                 true, // Full reductions.
                 vec![Extractor::new("/key", &ser_policy)],
                 "source-name",
-                None,
                 Validator::new(schema).unwrap(),
             )
         })

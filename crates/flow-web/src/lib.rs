@@ -67,13 +67,12 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
             let err_string = format!("invalid JSON schema: {:?}", err);
             JsValue::from_str(&err_string)
         })?;
-    let schema =
-        schema::build::build_schema::<Annotation>(schema_uri, &parsed_schema).map_err(|err| {
-            let err_string = format!("invalid JSON schema: {}", err);
-            JsValue::from_str(&err_string)
-        })?;
+    let schema = schema::build::<Annotation>(&schema_uri, &parsed_schema).map_err(|err| {
+        let err_string = format!("invalid JSON schema: {}", err);
+        JsValue::from_str(&err_string)
+    })?;
 
-    let mut index = schema::index::IndexBuilder::new();
+    let mut index = schema::index::Builder::new();
     index.add(&schema).map_err(|err| {
         let err_string = format!("invalid JSON schema reference: {}", err);
         JsValue::from_str(&err_string)

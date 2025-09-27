@@ -529,7 +529,7 @@ fn walk_collection_projections(
             }
         }
 
-        let doc_ptr = doc::Pointer::from_str(raw_ptr);
+        let doc_ptr = json::Pointer::from(raw_ptr.as_str());
         let (r_shape, r_exists) = effective_read_spec.shape.locate(&doc_ptr);
 
         specs.push(flow::Projection {
@@ -546,9 +546,7 @@ fn walk_collection_projections(
     // If we didn't see an explicit projection of the root document,
     // then add an implicit projection with field "flow_document".
     if !saw_root_projection {
-        let (r_shape, r_exists) = effective_read_spec
-            .shape
-            .locate(&doc::Pointer::from_str(""));
+        let (r_shape, r_exists) = effective_read_spec.shape.locate(&json::Pointer::from(""));
 
         specs.push(flow::Projection {
             ptr: "".to_string(),
@@ -579,7 +577,7 @@ fn walk_collection_projections(
     // Now add implicit projections for the collection key.
     // These may duplicate explicit projections -- that's okay, we'll dedup them later.
     for raw_ptr in key.iter() {
-        let doc_ptr = doc::Pointer::from_str(raw_ptr);
+        let doc_ptr = json::Pointer::from(raw_ptr.as_str());
         let (r_shape, r_exists) = effective_read_spec.shape.locate(&doc_ptr);
 
         specs.push(flow::Projection {
@@ -691,7 +689,7 @@ pub(crate) fn walk_selector(
             for (index, value) in values.iter().enumerate() {
                 let scope = scope.push_item(index);
 
-                if !type_.overlaps(types::Set::for_value(value)) {
+                if !type_.overlaps(types::Set::for_node(value)) {
                     Error::SelectorTypeMismatch {
                         category: category.to_string(),
                         field: field.clone(),
@@ -788,4 +786,4 @@ const UUID_PTR: &str = "/_meta/uuid";
 const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";
 
 /// Used to check if a pointer ends with an empty key, so we can skip projecting those fields.
-const EMPTY_KEY: &'static [doc::ptr::Token] = &[doc::ptr::Token::Property(String::new())];
+const EMPTY_KEY: &'static [json::ptr::Token] = &[json::ptr::Token::Property(String::new())];

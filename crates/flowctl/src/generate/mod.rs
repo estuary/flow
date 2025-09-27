@@ -448,21 +448,15 @@ fn stub_config(shape: &doc::Shape, collection: Option<&models::Collection>) -> s
 #[cfg(test)]
 mod test {
     use super::*;
-    use doc::Shape;
 
     // Map a JSON schema, in YAML form, into a Shape.
-    fn shape_from(schema_yaml: &str) -> Shape {
+    fn shape_from(schema_yaml: &str) -> doc::Shape {
         let url = url::Url::parse("http://example/schema").unwrap();
         let schema: serde_json::Value = serde_yaml::from_str(schema_yaml).unwrap();
-        let schema =
-            json::schema::build::build_schema::<doc::Annotation>(url.clone(), &schema).unwrap();
+        let schema = json::schema::build(&url, &schema).unwrap();
 
-        let mut index = json::schema::index::IndexBuilder::new();
-        index.add(&schema).unwrap();
-        index.verify_references().unwrap();
-        let index = index.into_index();
-
-        Shape::infer(index.must_fetch(&url).unwrap(), &index)
+        let validator = doc::Validator::new(schema).unwrap();
+        doc::Shape::infer(validator.schema(), validator.schema_index())
     }
 
     #[test]

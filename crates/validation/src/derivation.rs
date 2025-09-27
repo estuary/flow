@@ -794,12 +794,14 @@ fn walk_derive_transform<'a>(
         }
     }
 
-    let source_schema = schema::Schema::new(if source_spec.read_schema_json.is_empty() {
+    let source_schema = if source_spec.read_schema_json.is_empty() {
         &source_spec.write_schema_json
     } else {
         &source_spec.read_schema_json
-    })
-    .unwrap();
+    };
+    let Ok(source_schema) = schema::Schema::new(source_schema) else {
+        return (model, None);
+    };
 
     if let Some(selector) = source_partitions {
         collection::walk_selector(scope, &source_spec, &selector, errors);
