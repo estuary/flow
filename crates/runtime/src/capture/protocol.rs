@@ -241,9 +241,10 @@ pub fn send_client_captured_or_checkpoint(
     }
 
     let binding = &task.bindings[index];
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf);
-    let partitions_packed =
-        doc::Extractor::extract_all_owned(&root, &binding.partition_extractors, buf);
+    doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf);
+    let key_packed = buf.split().freeze();
+    doc::Extractor::extract_all_owned(&root, &binding.partition_extractors, buf);
+    let partitions_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");
@@ -426,7 +427,7 @@ pub fn recv_connector_captured(
             anyhow::bail!("unable to create document UUID placeholder");
         };
     }
-    memtable.add(binding_index, doc, false)?;
+    memtable.add(binding_index as u16, doc, false)?;
 
     let stats = txn.stats.entry(binding_index).or_default();
     stats.0.docs_total += 1;
@@ -544,9 +545,9 @@ pub fn recv_connector_checkpoint(
 
     // Combine over the checkpoint state.
     if !merge_patch {
-        memtable.add(task.bindings.len() as u32, doc::HeapNode::Null, false)?;
+        memtable.add(task.bindings.len() as u16, doc::HeapNode::Null, false)?;
     }
-    memtable.add(task.bindings.len() as u32, doc, false)?;
+    memtable.add(task.bindings.len() as u16, doc, false)?;
 
     txn.checkpoints += 1;
     Ok(())

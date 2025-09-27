@@ -222,9 +222,10 @@ pub fn send_client_published(
 ) -> Response {
     let doc::combine::DrainedDoc { meta: _, root } = drained;
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
-    let partitions_packed =
-        doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
+    doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
+    let key_packed = buf.split().freeze();
+    doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
+    let partitions_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &task.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");

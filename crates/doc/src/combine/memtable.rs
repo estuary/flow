@@ -35,6 +35,8 @@ struct Entries {
     sorted: Vec<HeapEntry<'static>>,
     // Specification of the combine operation.
     spec: Spec,
+    // Scratch space for extracting key tuples.
+    scratch: bytes::BytesMut,
 }
 
 impl Entries {
@@ -61,11 +63,16 @@ impl Entries {
     }
 
     fn compact(&mut self, alloc: &'static Bump) -> Result<(), Error> {
-        // `sort_ord` orders over (binding, key, !front).
+        // `sort_ord` orders over (binding, key, !front):
+        // For each (binding, key), we take front() entries first, and further
+        // rely on sort preserving the order in which entries were added.
+        // This maintains the left-to-right associative ordering of reductions.
+        //
+        // `meta` contains a packed structure that's order-preserving over
+        // (binding, key), so we first test it for inequality.
         let sort_ord = |l: &HeapEntry, r: &HeapEntry| -> Ordering {
-            l.meta
-                .binding()
-                .cmp(&r.meta.binding())
+            (l.meta.0)
+                .cmp(&r.meta.0)
                 .then_with(|| {
                     Extractor::compare_key(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
                 })
@@ -206,6 +213,7 @@ impl MemTable {
                 queued: Vec::new(),
                 sorted: Vec::new(),
                 spec,
+                scratch: bytes::BytesMut::new(),
             }),
             zz_alloc: HeapNode::new_allocator(),
         }
@@ -225,15 +233,21 @@ impl MemTable {
     }
 
     /// Add the document to the MemTable.
-    pub fn add<'s>(&'s self, binding: u32, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
+    pub fn add<'s>(&'s self, binding: u16, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
 
+        Extractor::extract_all(
+            &root,
+            &entries.spec.keys[binding as usize],
+            &mut entries.scratch,
+        );
         entries.queued.push(HeapEntry {
-            meta: Meta::new(binding, front),
+            meta: Meta::new(binding, &entries.scratch, front),
             root,
         });
+        entries.scratch.clear();
 
         if entries.should_compact() {
             self.compact()
@@ -1007,16 +1021,18 @@ mod test {
         let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
         let (spill, ranges) = spill.into_parts();
-        assert_eq!(ranges, vec![0..110]);
+        assert_eq!(ranges, vec![0..137]);
         insta::assert_snapshot!(to_hex(spill.get_ref()), @r"
-        |66000000 d8000000 c0000000 00400000| f............@.. 00000000
-        |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
-        |0010ff1c 0011760a 00021800 40676f6f| ......v.....@goo 00000020
-        |640c0000 1800d006 00000003 000000c8| d............... 00000030
-        |ffffff02 11003c00 00804800 30626262| ......<...H.0bbb 00000040
-        |2f000f48 002e3f63 63634800 02216261| /..H..?cccH..!ba 00000050
-        |8f000160 00079000 50ff0200 0000|     ...`....P.....   00000060
-                                                               0000006e
+        |81000000 08010000 79000002 61616100| ........y...aaa. 00000000
+        |01008040 0000006b 6579ff01 00700800| ...@...key...p.. 00000010
+        |00006161 610b0010 ff250011 760a0002| ..aaa....%..v... 00000020
+        |18004067 6f6f640c 00001800 d0060000| ..@good......... 00000030
+        |00030000 00c8ffff ff021100 51000262| ............Q..b 00000040
+        |62620900 0402001c 01580030 6262623f| bb.......X.0bbb? 00000050
+        |000f5800 1d346363 63530001 02000d58| ..X..4cccS.....X 00000060
+        |003f6363 63580002 216261af 00017000| .?cccX..!ba...p. 00000070
+        |07b00050 ff020000 00|                ...P.....        00000080
+                                                               00000089
         ");
 
         // New MemTable. This time we attempt to spill an invalid, non-reduced document.
@@ -1026,6 +1042,80 @@ mod test {
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let out = memtable.spill(&mut spill, CHUNK_TARGET_SIZE);
         assert!(matches!(out, Err(Error::FailedValidation(n, _)) if n == "source-name"));
+    }
+
+    #[test]
+    fn test_key_ordering_with_varied_lengths() {
+        // Test that the Meta structure with embedded 13-byte key prefix
+        // correctly orders keys of various lengths.
+        let spec = Spec::with_one_binding(
+            true, // Full reduction.
+            vec![Extractor::new("/key", &SerPolicy::noop())],
+            "test-source",
+            Vec::new(),
+            Validator::new(
+                build_schema(
+                    &url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string" },
+                            "value": { "type": "integer" }
+                        },
+                        "required": ["key"],
+                        "reduce": { "strategy": "lastWriteWins" }
+                    }),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let memtable = MemTable::new(spec);
+
+        // Test keys with various lengths and patterns
+        let test_keys = [
+            ("a", 1),
+            ("abc", 2),
+            ("zebra", 3), // Short (< 13 bytes)
+            ("exactly13char", 4),
+            ("exactly13diff", 5), // Exactly 13 bytes
+            ("same_prefix_1234567890_A", 6),
+            ("same_prefix_1234567890_B", 7),
+            ("same_prefix_1234567890_C", 8), // Same 13-byte prefix
+            ("different_prefix_start_A", 9),
+            ("another_long_key_prefix_B", 10), // Different long keys
+            ("", 11),
+            ("zzzzzzzzzzzzz", 12),
+            ("zzzzzzzzzzzzzz", 13), // Edge cases
+            ("identical_13c_but_different_after", 14),
+            ("identical_13c_and_different_after", 15), // Differ after 13 bytes
+        ];
+
+        for (key, value) in test_keys.iter() {
+            let doc = HeapNode::from_node(&json!({"key": key, "value": value}), memtable.alloc());
+            memtable.add(0, doc, false).unwrap();
+        }
+        memtable.compact().unwrap();
+
+        let actual: Vec<(String, i32)> = memtable
+            .try_into_drainer()
+            .unwrap()
+            .map_ok(|doc| {
+                let json_val = serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap();
+                let obj = json_val.as_object().unwrap();
+                (
+                    obj.get("key").unwrap().as_str().unwrap().to_string(),
+                    obj.get("value").unwrap().as_u64().unwrap() as i32,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // Verify keys are sorted lexicographically
+        let mut sorted_keys: Vec<(String, i32)> =
+            test_keys.iter().map(|&(k, v)| (k.to_string(), v)).collect();
+        sorted_keys.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(actual, sorted_keys);
     }
 
     #[test]
