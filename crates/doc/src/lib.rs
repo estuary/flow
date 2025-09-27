@@ -146,6 +146,7 @@ mod test {
         // HeapNode is about as efficient as it can be, considering it's an enum
         // with many variants, most of which are 8-byte aligned.
         assert_eq!(std::mem::size_of::<HeapNode<'static>>(), 16);
+        assert_eq!(std::mem::align_of::<HeapNode<'static>>(), 8);
 
         // String references are "fat" pointers which is why we don't use them.
         // If we did, it would increase wasted space by 33%.
@@ -161,6 +162,7 @@ mod test {
 
         // Instead, BumpStr is 8 bytes.
         assert_eq!(std::mem::size_of::<BumpStr>(), 8);
+        assert_eq!(std::mem::align_of::<BumpStr>(), 8);
 
         // bumpalo's Vec type, the obvious alternative to BumpVec, is worse:
         assert_eq!(std::mem::size_of::<bumpalo::collections::Vec<bool>>(), 32);
@@ -175,6 +177,7 @@ mod test {
 
         // Instead, BumpVec is 8 bytes.
         assert_eq!(std::mem::size_of::<BumpVec<bool>>(), 8);
+        assert_eq!(std::mem::align_of::<BumpVec<bool>>(), 8);
 
         // Node is 24 bytes.
         assert_eq!(
@@ -185,5 +188,16 @@ mod test {
             std::mem::align_of::<json::Node<'static, HeapNode<'static>>>(),
             8
         );
+
+        #[cfg(feature = "combine")]
+        {
+            use crate::combine;
+
+            // Meta holds binding, flags, and partial order-preserving key encoding.
+            assert_eq!(std::mem::size_of::<combine::Meta>(), 16);
+            // HeapEntry is a Node + Meta. Two entries exactly fit within a cache line.
+            assert_eq!(std::mem::size_of::<combine::HeapEntry<'static>>(), 32);
+            assert_eq!(std::mem::align_of::<combine::HeapEntry<'static>>(), 8);
+        }
     }
 }
