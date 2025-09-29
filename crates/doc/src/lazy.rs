@@ -1,6 +1,5 @@
-use super::{
-    AsNode, BumpStr, FailedValidation, Field, Fields, HeapField, HeapNode, Node, Valid, Validator,
-};
+use super::{BumpStr, HeapField, HeapNode};
+use json::{AsNode, Field, Fields, Node};
 
 /// LazyNode is either a HeapNode, or is an AsNode which may be promoted to a HeapNode.
 pub enum LazyNode<'alloc, 'n, N: AsNode> {
@@ -75,27 +74,6 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
                 LazyDestructured::Object(LazyObject::Heap(fields.as_slice()))
             }
             Self::Heap(doc) => LazyDestructured::ScalarHeap(doc),
-        }
-    }
-
-    /// validate_ok is a convenience which validates a wrapped HeapNode or
-    /// AsNode and then attempts to extract a Valid outcome. This is helpful
-    /// because a Validation is generic over the AsNode type but Valid erases
-    /// it, allowing for single-path handle for the Self::Heap and Self::Node cases.
-    pub fn validate_ok<'v>(
-        &self,
-        validator: &'v mut Validator,
-        schema: Option<&'v url::Url>,
-    ) -> Result<Result<Valid<'static, 'v>, FailedValidation>, json::schema::index::Error> {
-        match self {
-            Self::Heap(n) => Ok(validator
-                .validate(schema, *n)?
-                .ok()
-                .map_err(|invalid| invalid.revalidate_with_context(*n))),
-            Self::Node(n) => Ok(validator
-                .validate(schema, *n)?
-                .ok()
-                .map_err(|invalid| invalid.revalidate_with_context(*n))),
         }
     }
 

@@ -1,6 +1,6 @@
 use super::{bump_mem_used, reduce, DrainedDoc, Error, HeapEntry, Meta, Spec, BUMP_THRESHOLD};
 use crate::owned::OwnedArchivedNode;
-use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{validation, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use bytes::Buf;
 use std::collections::BinaryHeap;
@@ -333,7 +333,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let Entry { mut meta, root } = entry;
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let validator = &mut self.spec.validators[meta.binding()];
 
         // `reduced` root which is updated as reductions occur.
         let mut reduced: Option<HeapNode<'_>> = None;
@@ -354,13 +354,11 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             }
 
             let rhs_valid = validator
-                .validate(schema.as_ref(), next.head.root.get())
-                .map_err(Error::SchemaError)?
-                .ok()
+                .validate(next.head.root.get(), validation::reduce_filter)
                 .map_err(|invalid| {
                     Error::FailedValidation(
                         self.spec.names[next.head.meta.binding()].clone(),
-                        invalid.revalidate_with_context(next.head.root.get()),
+                        invalid,
                     )
                 })?;
 
@@ -370,7 +368,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                     None => LazyNode::Node(root.get()),
                 },
                 LazyNode::Node(next.head.root.get()),
-                rhs_valid,
+                &rhs_valid,
                 &self.alloc,
                 is_full,
             ) {
@@ -400,14 +398,12 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 // We validate !front() documents when spilling to disk and
                 // can skip doing so now (this is the common case).
                 if meta.front() {
-                    validator
-                        .validate(schema.as_ref(), root.get())
-                        .map_err(Error::SchemaError)?
-                        .ok()
+                    let _valid = validator
+                        .validate(root.get(), |_| None)
                         .map_err(|invalid| {
                             Error::FailedValidation(
                                 self.spec.names[meta.binding()].clone(),
-                                invalid.revalidate_with_context(root.get()),
+                                invalid,
                             )
                         })?;
                 }
@@ -416,16 +412,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             }
             Some(reduced) => {
                 // We built `reduced` via reduction and must re-validate it.
-                validator
-                    .validate(schema.as_ref(), &reduced)
-                    .map_err(Error::SchemaError)?
-                    .ok()
-                    .map_err(|invalid| {
-                        Error::FailedValidation(
-                            self.spec.names[meta.binding()].clone(),
-                            invalid.revalidate_with_context(&reduced),
-                        )
-                    })?;
+                validator.validate(&reduced, |_| None).map_err(|invalid| {
+                    Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+                })?;
 
                 // Safety: we allocated `reduced` out of `self.alloc`.
                 let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };
@@ -486,10 +475,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, SerPolicy, Validator,
-    };
+    use crate::{combine::CHUNK_TARGET_SIZE, HeapNode, SerPolicy, Validator};
     use itertools::Itertools;
+    use json::node::compare;
     use serde_json::{json, Value};
 
     #[test]
@@ -535,7 +523,7 @@ mod test {
         // First chunk has two documents.
         assert_eq!(segment.head.meta.binding(), 0);
         assert_eq!(segment.head.meta.front(), false);
-        assert!(crate::compare(segment.head.root.get(), &fixture[0].1).is_eq());
+        assert!(compare(segment.head.root.get(), &fixture[0].1).is_eq());
         assert!(!segment.tail.is_empty());
         assert_eq!(segment.next, 102..173);
 
@@ -544,7 +532,7 @@ mod test {
 
         assert_eq!(segment.head.meta.binding(), 1);
         assert_eq!(segment.head.meta.front(), true);
-        assert!(crate::compare(segment.head.root.get(), &fixture[1].1).is_eq());
+        assert!(compare(segment.head.root.get(), &fixture[1].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
         assert_eq!(segment.next, 102..173);
 
@@ -554,7 +542,7 @@ mod test {
 
         assert_eq!(segment.head.meta.binding(), 2);
         assert_eq!(segment.head.meta.front(), true);
-        assert!(crate::compare(segment.head.root.get(), &fixture[2].1).is_eq());
+        assert!(compare(segment.head.root.get(), &fixture[2].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
         assert_eq!(segment.next, 173..173);
 
@@ -567,8 +555,8 @@ mod test {
     fn test_heap_merge() {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
-                let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
+                let schema = json::schema::build(
+                    &url::Url::parse("http://example/schema").unwrap(),
                     &json!({
                         "properties": {
                             "key": { "type": "string", "default": "def" },
@@ -590,7 +578,6 @@ mod test {
                         json!("def"),
                     )],
                     "source-name",
-                    None,
                     Validator::new(schema).unwrap(),
                 )
             })
@@ -721,8 +708,8 @@ mod test {
     fn test_drain_validation() {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
-                let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
+                let schema = json::schema::build(
+                    &url::Url::parse("http://example/schema").unwrap(),
                     &json!({
                         "properties": {
                             "key": { "type": "string" },
@@ -736,7 +723,6 @@ mod test {
                     true, // Full reduction.
                     vec![Extractor::new("/key", &SerPolicy::noop())],
                     "source-name",
-                    None,
                     Validator::new(schema).unwrap(),
                 )
             })

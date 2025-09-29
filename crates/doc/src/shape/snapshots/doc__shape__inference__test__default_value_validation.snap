@@ -6,17 +6,14 @@ expression: obj.inspect()
     InvalidDefaultValue(
         "/array-wrong-items",
         FailedValidation {
-            basic_output: Object {
-                "errors": Array [
-                    Object {
-                        "absoluteKeywordLocation": String("http://example/schema#/properties/array-wrong-items/items"),
-                        "error": String("Invalid: Must be of type \"integer\"."),
-                        "instanceLocation": String("/0"),
-                        "keywordLocation": String("#/items"),
-                    },
-                ],
-                "valid": Bool(false),
-            },
+            basic_output: Array [
+                Object {
+                    "absoluteKeywordLocation": String("http://example/schema#/properties/array-wrong-items/items"),
+                    "detail": String("Type mismatch: expected a integer"),
+                    "instanceLocation": String("/0"),
+                    "instanceValue": String("aString"),
+                },
+            ],
             document: Array [
                 String("aString"),
             ],
@@ -25,34 +22,28 @@ expression: obj.inspect()
     InvalidDefaultValue(
         "/multi-type",
         FailedValidation {
-            basic_output: Object {
-                "errors": Array [
-                    Object {
-                        "absoluteKeywordLocation": String("http://example/schema#/properties/multi-type"),
-                        "error": String("Invalid: Must be of type \"array\", \"string\"."),
-                        "instanceLocation": String(""),
-                        "keywordLocation": String("#"),
-                    },
-                ],
-                "valid": Bool(false),
-            },
+            basic_output: Array [
+                Object {
+                    "absoluteKeywordLocation": String("http://example/schema#/properties/multi-type"),
+                    "detail": String("Type mismatch: expected a array or string"),
+                    "instanceLocation": String(""),
+                    "instanceValue": Number(1234),
+                },
+            ],
             document: Number(1234),
         },
     ),
     InvalidDefaultValue(
         "/object-type-missing-prop",
         FailedValidation {
-            basic_output: Object {
-                "errors": Array [
-                    Object {
-                        "absoluteKeywordLocation": String("http://example/schema#/properties/object-type-missing-prop"),
-                        "error": String("Invalid: Properties \"requiredProp\" are required."),
-                        "instanceLocation": String(""),
-                        "keywordLocation": String("#"),
-                    },
-                ],
-                "valid": Bool(false),
-            },
+            basic_output: Array [
+                Object {
+                    "absoluteKeywordLocation": String("http://example/schema#/properties/object-type-missing-prop"),
+                    "detail": String("Missing required property: requiredProp"),
+                    "instanceLocation": String(""),
+                    "instanceValue": String("<object>"),
+                },
+            ],
             document: Object {
                 "otherProp": String("stringValue"),
             },
@@ -61,17 +52,14 @@ expression: obj.inspect()
     InvalidDefaultValue(
         "/object-type-prop-wrong-type",
         FailedValidation {
-            basic_output: Object {
-                "errors": Array [
-                    Object {
-                        "absoluteKeywordLocation": String("http://example/schema#/properties/object-type-prop-wrong-type/properties/requiredProp"),
-                        "error": String("Invalid: Must be of type \"string\"."),
-                        "instanceLocation": String("/requiredProp"),
-                        "keywordLocation": String("#/properties/requiredProp"),
-                    },
-                ],
-                "valid": Bool(false),
-            },
+            basic_output: Array [
+                Object {
+                    "absoluteKeywordLocation": String("http://example/schema#/properties/object-type-prop-wrong-type/properties/requiredProp"),
+                    "detail": String("Type mismatch: expected a string"),
+                    "instanceLocation": String("/requiredProp"),
+                    "instanceValue": Number(1234),
+                },
+            ],
             document: Object {
                 "requiredProp": Number(1234),
             },
@@ -80,17 +68,14 @@ expression: obj.inspect()
     InvalidDefaultValue(
         "/scalar-type",
         FailedValidation {
-            basic_output: Object {
-                "errors": Array [
-                    Object {
-                        "absoluteKeywordLocation": String("http://example/schema#/properties/scalar-type"),
-                        "error": String("Invalid: Must be of type \"string\"."),
-                        "instanceLocation": String(""),
-                        "keywordLocation": String("#"),
-                    },
-                ],
-                "valid": Bool(false),
-            },
+            basic_output: Array [
+                Object {
+                    "absoluteKeywordLocation": String("http://example/schema#/properties/scalar-type"),
+                    "detail": String("Type mismatch: expected a string"),
+                    "instanceLocation": String(""),
+                    "instanceValue": Number(1234),
+                },
+            ],
             document: Number(1234),
         },
     ),

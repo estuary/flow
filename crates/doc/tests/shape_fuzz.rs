@@ -11,7 +11,7 @@ use arbitrary_value::ArbitraryValue;
 
 fn assert_docs_fit_schema(docs: Vec<Value>, shape: Shape) -> bool {
     let schema = json::schema::build::build_schema(
-        url::Url::parse("https://example").unwrap(),
+        &url::Url::parse("https://example").unwrap(),
         &serde_json::to_value(to_schema(shape.clone())).unwrap(),
     )
     .unwrap();
@@ -21,15 +21,12 @@ fn assert_docs_fit_schema(docs: Vec<Value>, shape: Shape) -> bool {
     let mut validator = Validator::new(schema).unwrap();
 
     for val in docs {
-        let res = validator.validate(None, &val);
-        if let Ok(validation) = res {
-            if let Err(invalid) = validation.ok() {
-                println!(
-                    r#"Schema {schema_yaml} failed validation for document {val}: {invalid:?}"#,
-                );
-                return false;
-            }
-        } else {
+        if let Err(invalid) = validator.validate(&val, |outcome| Some(outcome)) {
+            println!(
+                r#"Schema {schema_yaml} failed validation for document {}: {}"#,
+                serde_json::to_string(&val).unwrap(),
+                serde_json::to_string_pretty(&invalid).unwrap()
+            );
             return false;
         }
     }

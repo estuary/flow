@@ -7,13 +7,21 @@ use itertools::{EitherOrBoth, Itertools};
 
 impl Reduce {
     fn intersect(self, rhs: Self) -> Self {
-        if let Self::Unset = self { rhs } else { self }
+        if let Self::Unset = self {
+            rhs
+        } else {
+            self
+        }
     }
 }
 
 impl Redact {
     fn intersect(self, rhs: Self) -> Self {
-        if let Self::Unset = self { rhs } else { self }
+        if let Self::Unset = self {
+            rhs
+        } else {
+            self
+        }
     }
 }
 
@@ -64,35 +72,50 @@ impl ObjShape {
             },
         ) = (lhs, rhs);
 
-        // Derive the super-set of properties of both sides.
-        // For properties on one side but not the other, impute a property for the missing
-        // side by examining matching patterns or additional properties.
-        let intersect_imputed = |mut side: ObjProperty, other: Option<Shape>| {
-            if let Some(other) = other {
-                side.shape = Shape::intersect(side.shape, other);
-            } else {
-                // Interset of |side| && any => |side|.
-            }
-            side
-        };
         let properties = itertools::merge_join_by(
             lhs_properties.into_iter(),
             rhs_properties.into_iter(),
             |l, r| Ord::cmp(&l.name, &r.name),
         )
-        .map(|eob| match eob {
-            EitherOrBoth::Both(l, r) => ObjProperty {
-                name: l.name,
-                is_required: l.is_required || r.is_required,
-                shape: Shape::intersect(l.shape, r.shape),
-            },
-            EitherOrBoth::Left(l) => {
-                let r = impute_property_shape(&l.name, &rhs_patterns, rhs_addl.as_deref());
-                intersect_imputed(l, r)
-            }
-            EitherOrBoth::Right(r) => {
-                let l = impute_property_shape(&r.name, &lhs_patterns, lhs_addl.as_deref());
-                intersect_imputed(r, l)
+        .map(|eob| {
+            let (name, is_required, l_shape, r_shape) = match eob {
+                EitherOrBoth::Both(l, r) => (
+                    l.name,
+                    l.is_required || r.is_required,
+                    l.is_property.then_some(l.shape),
+                    r.is_property.then_some(r.shape),
+                ),
+                EitherOrBoth::Left(l) => (
+                    l.name,
+                    l.is_required,
+                    l.is_property.then_some(l.shape),
+                    None,
+                ),
+                EitherOrBoth::Right(r) => (
+                    r.name,
+                    r.is_required,
+                    None,
+                    r.is_property.then_some(r.shape),
+                ),
+            };
+
+            // For properties on one side but not the other, impute a property for the missing
+            // side by examining matching patterns or additional properties.
+            let l_shape = l_shape
+                .or_else(|| impute_property_shape(&name, &lhs_patterns, lhs_addl.as_deref()));
+            let r_shape = r_shape
+                .or_else(|| impute_property_shape(&name, &rhs_patterns, rhs_addl.as_deref()));
+            let shape = match (l_shape, r_shape) {
+                (Some(l), Some(r)) => Some(Shape::intersect(l, r)),
+                (Some(s), None) | (None, Some(s)) => Some(s), // Intersection of `s` && any => `s`.
+                (None, None) => None,
+            };
+
+            ObjProperty {
+                name: name.into(),
+                is_required,
+                is_property: shape.is_some(),
+                shape: shape.unwrap_or(Shape::anything()),
             }
         })
         .collect::<Vec<_>>();
@@ -304,7 +327,7 @@ pub fn intersect_enum(
             Some(filter_enums_to_types(type_, l.into_iter()).collect())
         }
         (Some(l), Some(r)) => {
-            let it = itertools::merge_join_by(l.into_iter(), r.into_iter(), crate::compare)
+            let it = itertools::merge_join_by(l.into_iter(), r.into_iter(), json::node::compare)
                 .filter_map(|eob| match eob {
                     EitherOrBoth::Both(l, _) => Some(l),
                     _ => None,
@@ -323,16 +346,16 @@ pub fn intersect_default(
     match (lhs, rhs) {
         (None, None) => None,
         (Some(l), None) | (None, Some(l)) => {
-            if type_.overlaps(types::Set::for_value(&l.as_ref().0)) {
+            if type_.overlaps(types::Set::for_node(&l.as_ref().0)) {
                 Some(l)
             } else {
                 None
             }
         }
         (Some(l), Some(r)) => {
-            if type_.overlaps(types::Set::for_value(&l.as_ref().0)) {
+            if type_.overlaps(types::Set::for_node(&l.as_ref().0)) {
                 Some(l)
-            } else if type_.overlaps(types::Set::for_value(&r.as_ref().0)) {
+            } else if type_.overlaps(types::Set::for_node(&r.as_ref().0)) {
                 Some(r)
             } else {
                 None
@@ -356,7 +379,7 @@ fn filter_enums_to_types<I: Iterator<Item = Value>>(
     type_: types::Set,
     it: I,
 ) -> impl Iterator<Item = Value> {
-    it.filter(move |val| type_.overlaps(types::Set::for_value(val)))
+    it.filter(move |val| type_.overlaps(types::Set::for_node(val)))
 }
 
 #[cfg(test)]
@@ -367,18 +390,18 @@ mod test {
     fn numeric_shape_intersection() {
         let actual = NumericShape::intersect(
             NumericShape {
-                minimum: Some(json::Number::Signed(-5)),
-                maximum: Some(json::Number::Float(5.0)),
+                minimum: Some(json::Number::from(-5i64)),
+                maximum: Some(json::Number::from(5.0)),
             },
             NumericShape {
-                minimum: Some(json::Number::Float(-5.0)),
-                maximum: Some(json::Number::Unsigned(5)),
+                minimum: Some(json::Number::from(-5.0f64)),
+                maximum: Some(json::Number::from(5u64)),
             },
         );
         assert_eq!(
             NumericShape {
-                minimum: Some(json::Number::Signed(-5)),
-                maximum: Some(json::Number::Unsigned(5)),
+                minimum: Some(json::Number::from(-5i64)),
+                maximum: Some(json::Number::from(5u64)),
             },
             actual
         );
@@ -387,18 +410,18 @@ mod test {
 
         let actual = NumericShape::intersect(
             NumericShape {
-                minimum: Some(json::Number::Float(-5.0)),
-                maximum: Some(json::Number::Unsigned(5)),
+                minimum: Some(json::Number::from(-5.0f64)),
+                maximum: Some(json::Number::from(5u64)),
             },
             NumericShape {
-                minimum: Some(json::Number::Signed(-5)),
-                maximum: Some(json::Number::Float(5.0)),
+                minimum: Some(json::Number::from(-5i64)),
+                maximum: Some(json::Number::from(5.0f64)),
             },
         );
         assert_eq!(
             NumericShape {
-                minimum: Some(json::Number::Signed(-5)),
-                maximum: Some(json::Number::Unsigned(5)),
+                minimum: Some(json::Number::from(-5i64)),
+                maximum: Some(json::Number::from(5u64)),
             },
             actual
         );
@@ -408,17 +431,17 @@ mod test {
         let actual = NumericShape::intersect(
             NumericShape {
                 minimum: None,
-                maximum: Some(json::Number::Unsigned(500)),
+                maximum: Some(json::Number::from(500u64)),
             },
             NumericShape {
-                minimum: Some(json::Number::Signed(-4)),
+                minimum: Some(json::Number::from(-4i64)),
                 maximum: None,
             },
         );
         assert_eq!(
             NumericShape {
-                minimum: Some(json::Number::Signed(-4)),
-                maximum: Some(json::Number::Unsigned(500)),
+                minimum: Some(json::Number::from(-4i64)),
+                maximum: Some(json::Number::from(500u64)),
             },
             actual
         );
