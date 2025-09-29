@@ -1,7 +1,7 @@
 // This module defines limits which are used to simplify complex,
 // typically inferred schema Shapes.
 use super::*;
-use crate::ptr::Token;
+use json::ptr::Token;
 use std::cmp::Ordering;
 
 // Potential future improvement: currently this squashes any non-INVALID `additional*`

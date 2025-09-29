@@ -2,8 +2,7 @@
 /// It builds on the union and intersection operations defined over Shape.
 use super::*;
 use crate::{redact, reduce, Annotation, Schema, SchemaIndex};
-use itertools::Itertools;
-use json::schema::{Application, CoreAnnotation, Keyword, Validation};
+use json::schema::{CoreAnnotation, Keyword};
 
 impl From<&reduce::Strategy> for Reduce {
     fn from(s: &reduce::Strategy) -> Self {
@@ -32,7 +31,15 @@ impl ObjShape {
                     if !pattern.re.is_match(&prop.name) {
                         continue;
                     }
-                    prop.shape = Shape::intersect(prop.shape, pattern.shape.clone());
+                    // If `prop` isn't a property (it's required-only) but is
+                    // matched by a pattern, then it takes the pattern's shape
+                    // and becomes is_property. Otherwise it's the intersection.
+                    if let Some(shape) = prop.is_property.then_some(prop.shape) {
+                        prop.shape = Shape::intersect(shape, pattern.shape.clone());
+                    } else {
+                        prop.shape = pattern.shape.clone();
+                        prop.is_property = true;
+                    }
                 }
                 prop
             })
@@ -42,6 +49,41 @@ impl ObjShape {
             pattern_properties: patterns,
             properties,
             additional_properties,
+        }
+    }
+
+    fn apply_additional_properties(self) -> Self {
+        let ObjShape {
+            additional_properties,
+            pattern_properties,
+            mut properties,
+        } = self;
+
+        let Some(additional_properties) = additional_properties else {
+            return ObjShape {
+                additional_properties,
+                pattern_properties,
+                properties,
+            };
+        };
+
+        // If !is_property (it's required-only) then the property
+        // takes the `additional_properties` schema and becomes is_property.
+        properties = properties
+            .into_iter()
+            .map(|mut prop| {
+                if !prop.is_property {
+                    prop.shape = *additional_properties.clone();
+                    prop.is_property = true;
+                }
+                prop
+            })
+            .collect();
+
+        ObjShape {
+            additional_properties: Some(additional_properties),
+            pattern_properties,
+            properties,
         }
     }
 }
@@ -55,7 +97,7 @@ impl Shape {
     fn infer_inner<'s>(
         schema: &'s Schema,
         index: &SchemaIndex<'s>,
-        visited: &mut Vec<&'s Url>,
+        visited: &mut Vec<&'s str>,
     ) -> Shape {
         // Walk validation and annotation keywords which affect the inference result
         // at the current location.
@@ -64,82 +106,83 @@ impl Shape {
         let mut unevaluated_properties: Option<Shape> = None;
         let mut unevaluated_items: Option<Shape> = None;
 
-        // Does this schema have any keywords which directly affect its validation
-        // or annotation result? `$defs` and `definition` are non-operative keywords
-        // and have no effect. We would also give a pass to `$id`for the same reason,
-        // but it isn't modeled as a schema keyword.
-        //
-        // We also give a special pass to `title`, `default`, `description`,
-        // and `examples`. Technically these are annotation keywords, and
-        // change the post-validation annotation result. As a practical matter,
-        // though, Provenance is used to guide generation into static types
-        // (whether to nest/inline a definition, or reference an external definition),
-        // and excluding these keywords works better for this intended use.
-        if !schema.kw.iter().all(|kw| {
-            matches!(
+        // Provenance is used to guide generation into static types
+        // (whether to nest/inline a definition, or reference an external definition).
+        let should_inline = !schema.keywords.iter().all(|kw| {
+            // We ignore core annotations like `title`, `default`, `description`,
+            // and `examples`. Technically these are annotation keywords, and
+            // change the post-validation annotation result.
+            let is_core_annotation = matches!( kw, Keyword::Annotation { annotation } if matches!(&**annotation, crate::Annotation::Core(_)));
+
+            // An in-place application doesn't *by itself* make this an inline
+            // schema. However, if the application's target is Provenance::Inline,
+            // note that it's applied intersection will promote this Shape to
+            // Provenance::Inline as well.
+            let is_in_place  = matches!(
                 kw,
-                Keyword::Application(Application::Ref(_), _)
-                | Keyword::Application(Application::Def{ .. }, _)
-                | Keyword::Application(Application::Definition{ .. }, _)
-                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Default(_)))
-                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Description(_)))
-                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Examples(_)))
-                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
-                // An in-place application doesn't *by itself* make this an inline
-                // schema. However, if the application's target is Provenance::Inline,
-                // note that it's applied intersection will promote this Shape to
-                // Provenance::Inline as well.
-                | Keyword::Application(Application::AllOf { .. }, _)
-                | Keyword::Application(Application::AnyOf { .. }, _)
-                | Keyword::Application(Application::OneOf { .. }, _)
-                | Keyword::Application(Application::If { .. }, _)
-                | Keyword::Application(Application::Then { .. }, _)
-                | Keyword::Application(Application::Else { .. }, _)
-                | Keyword::Application(Application::Not { .. }, _)
-            )
-        }) {
+                Keyword::AllOf { .. }
+                    | Keyword::AnyOf { .. }
+                    | Keyword::Definitions { .. }
+                    | Keyword::Defs { .. }
+                    | Keyword::DynamicRef { .. }
+                    | Keyword::Else { .. }
+                    | Keyword::Id { .. }
+                    | Keyword::If { .. }
+                    | Keyword::Not { .. }
+                    | Keyword::OneOf { .. }
+                    | Keyword::Ref { .. }
+                    | Keyword::Then { .. }
+            );
+            is_core_annotation || is_in_place
+        });
+
+        if should_inline {
             shape.provenance = Provenance::Inline;
         }
 
         // Walk validation keywords and subordinate applications which influence
         // the present Location.
-        for kw in &schema.kw {
+        for kw in schema.keywords.iter() {
             match kw {
                 // Type constraints.
-                Keyword::Validation(Validation::False) => shape.type_ = types::INVALID,
-                Keyword::Validation(Validation::Type(type_set)) => shape.type_ = *type_set,
+                Keyword::False => shape.type_ = types::INVALID,
+                Keyword::Type { r#type } => shape.type_ = *r#type,
 
                 // Enum constraints.
-                Keyword::Validation(Validation::Const(literal)) => {
-                    shape.enum_ = Some(vec![literal.value.clone()])
-                }
-                Keyword::Validation(Validation::Enum { variants }) => {
-                    shape.enum_ = Some(
-                        variants
-                            .iter()
-                            .map(|hl| hl.value.clone())
-                            .sorted_by(crate::compare)
-                            .collect::<Vec<_>>(),
-                    );
+                Keyword::Const { r#const } => shape.enum_ = Some(vec![(**r#const).clone()]),
+                Keyword::Enum { r#enum } => {
+                    shape.enum_ = Some(r#enum.iter().cloned().collect::<Vec<_>>());
                 }
 
                 // String constraints.
-                Keyword::Validation(Validation::MaxLength(max)) => {
-                    shape.string.max_length = Some(*max as u32);
+                Keyword::MaxLength { max_length } => {
+                    shape.string.max_length = Some(*max_length as u32);
                 }
-                Keyword::Validation(Validation::MinLength(min)) => {
-                    shape.string.min_length = *min as u32;
+                Keyword::MinLength { min_length } => {
+                    shape.string.min_length = *min_length as u32;
                 }
 
                 // Numeric constraints.
-                Keyword::Validation(Validation::Minimum(min)) => {
-                    shape.numeric.minimum = Some(*min);
+                Keyword::MinimumPosInt { minimum } => {
+                    shape.numeric.minimum = Some(minimum.into());
                 }
-                Keyword::Validation(Validation::Maximum(max)) => {
-                    shape.numeric.maximum = Some(*max);
+                Keyword::MinimumNegInt { minimum } => {
+                    shape.numeric.minimum = Some(minimum.into());
+                }
+                Keyword::MinimumFloat { minimum } => {
+                    shape.numeric.minimum = Some(minimum.into());
+                }
+                Keyword::MaximumPosInt { maximum } => {
+                    shape.numeric.maximum = Some(maximum.into());
+                }
+                Keyword::MaximumNegInt { maximum } => {
+                    shape.numeric.maximum = Some(maximum.into());
+                }
+                Keyword::MaximumFloat { maximum } => {
+                    shape.numeric.maximum = Some(maximum.into());
                 }
 
-                Keyword::Annotation(annot) => match annot {
+                Keyword::Annotation { annotation } => match &**annotation {
                     Annotation::Reduce(s) => {
                         shape.reduce = s.into();
                     }
@@ -147,33 +190,36 @@ impl Shape {
                         shape.redact = s.into();
                     }
                     Annotation::Core(CoreAnnotation::Title(t)) => {
-                        shape.title = Some(t.as_str().into());
+                        shape.title = Some((&**t).into());
                     }
                     Annotation::Core(CoreAnnotation::Description(d)) => {
-                        shape.description = Some(d.as_str().into());
+                        shape.description = Some((&**d).into());
                     }
                     Annotation::Core(CoreAnnotation::Default(value)) => {
-                        let default_value = value.clone();
+                        let mut validator = crate::RawValidator::new(index);
+                        let (valid, outcomes) =
+                            validator.validate(schema, &**value, crate::validation::error_filter);
 
-                        let validation_err = crate::Validation::validate(
-                            &mut crate::RawValidator::new(index),
-                            &schema.curi,
-                            &default_value,
-                        )
-                        .unwrap()
-                        .ok()
-                        .err()
-                        .map(|invalid| invalid.revalidate_with_context(&default_value));
+                        let validation_err = if !valid {
+                            Some(crate::FailedValidation {
+                                document: *value.clone(),
+                                basic_output: json::validator::build_basic_output(
+                                    &**value, &outcomes,
+                                ),
+                            })
+                        } else {
+                            None
+                        };
 
-                        shape.default = Some(Box::new((default_value, validation_err)));
+                        shape.default = Some(Box::new((*value.clone(), validation_err)));
                     }
 
                     // More string constraints (annotations).
                     Annotation::Core(CoreAnnotation::ContentEncoding(enc)) => {
-                        shape.string.content_encoding = Some(enc.as_str().into());
+                        shape.string.content_encoding = Some((&**enc).into());
                     }
                     Annotation::Core(CoreAnnotation::ContentMediaType(mt)) => {
-                        shape.string.content_type = Some(mt.as_str().into());
+                        shape.string.content_type = Some((&**mt).into());
                     }
                     Annotation::Core(CoreAnnotation::Format(format)) => {
                         shape.string.format = Some(*format);
@@ -196,74 +242,79 @@ impl Shape {
                 },
 
                 // Array constraints.
-                Keyword::Validation(Validation::MinItems(m)) => shape.array.min_items = *m as u32,
-                Keyword::Validation(Validation::MaxItems(m)) => {
-                    shape.array.max_items = Some(*m as u32)
-                }
-                Keyword::Application(Application::Items { index: None }, schema) => {
+                Keyword::MinItems { min_items } => shape.array.min_items = *min_items as u32,
+                Keyword::MaxItems { max_items } => shape.array.max_items = Some(*max_items as u32),
+                Keyword::Items { items } => {
                     shape.array.additional_items =
-                        Some(Box::new(Shape::infer_inner(schema, index, visited)));
+                        Some(Box::new(Shape::infer_inner(items, index, visited)));
                 }
-                Keyword::Application(Application::Items { index: Some(i) }, schema) => {
-                    shape.array.tuple.extend(
-                        std::iter::repeat(Shape::anything()).take(1 + i - shape.array.tuple.len()),
-                    );
-                    shape.array.tuple[*i] = Shape::infer_inner(schema, index, visited);
+                Keyword::PrefixItems { prefix_items } => {
+                    shape.array.tuple = prefix_items
+                        .iter()
+                        .map(|schema| Shape::infer_inner(schema, index, visited))
+                        .collect();
                 }
-                Keyword::Application(Application::AdditionalItems, schema) => {
-                    shape.array.additional_items =
-                        Some(Box::new(Shape::infer_inner(schema, index, visited)));
-                }
-                Keyword::Application(Application::UnevaluatedItems, schema) => {
+                Keyword::UnevaluatedItems {
+                    unevaluated_items: schema,
+                } => {
                     unevaluated_items = Some(Shape::infer_inner(schema, index, visited));
                 }
 
                 // Object constraints.
-                Keyword::Application(Application::Properties { name, .. }, schema) => {
-                    let obj = ObjShape {
-                        properties: vec![ObjProperty {
-                            name: name.as_str().into(),
-                            is_required: false,
-                            shape: Shape::infer_inner(schema, index, visited),
-                        }],
-                        pattern_properties: Vec::new(),
-                        additional_properties: None,
-                    };
-                    shape.object = ObjShape::intersect(shape.object, obj);
-                }
-                Keyword::Validation(Validation::Required { props, .. }) => {
-                    let obj = ObjShape {
-                        properties: props
-                            .iter()
-                            .sorted()
-                            .map(|p| ObjProperty {
-                                name: p.as_str().into(),
-                                is_required: true,
-                                shape: Shape::anything(),
+                Keyword::Properties { properties } => {
+                    shape.object.properties = properties
+                        .iter()
+                        .filter_map(|(name, schema)| {
+                            // The property name is prefixed with a status byte:
+                            // '?' for optional, '!' for required, '+' for required-only
+                            let (name, is_property, is_required, shape) = match name.as_bytes()[0] {
+                                b'?' => (
+                                    &name[1..],
+                                    true,
+                                    false,
+                                    Shape::infer_inner(schema, index, visited),
+                                ),
+                                b'!' => (
+                                    &name[1..],
+                                    true,
+                                    true,
+                                    Shape::infer_inner(schema, index, visited),
+                                ),
+                                b'+' => (&name[1..], false, true, Shape::anything()),
+
+                                _ => panic!("property doesn't have expected status byte"),
+                            };
+                            Some(ObjProperty {
+                                name: name.into(),
+                                is_property,
+                                is_required,
+                                shape,
                             })
-                            .collect::<Vec<_>>(),
-                        pattern_properties: Vec::new(),
-                        additional_properties: None,
-                    };
-                    shape.object = ObjShape::intersect(shape.object, obj);
+                        })
+                        .collect();
                 }
 
-                Keyword::Application(Application::PatternProperties { re }, schema) => {
-                    let obj = ObjShape {
-                        properties: Vec::new(),
-                        pattern_properties: vec![ObjPattern {
+                Keyword::PatternProperties { pattern_properties } => {
+                    shape.object.pattern_properties = pattern_properties
+                        .iter()
+                        .map(|(re, schema)| ObjPattern {
                             re: re.clone(),
                             shape: Shape::infer_inner(schema, index, visited),
-                        }],
-                        additional_properties: None,
-                    };
-                    shape.object = ObjShape::intersect(shape.object, obj);
+                        })
+                        .collect();
                 }
-                Keyword::Application(Application::AdditionalProperties, schema) => {
-                    shape.object.additional_properties =
-                        Some(Box::new(Shape::infer_inner(schema, index, visited)));
+                Keyword::AdditionalProperties {
+                    additional_properties,
+                } => {
+                    shape.object.additional_properties = Some(Box::new(Shape::infer_inner(
+                        additional_properties,
+                        index,
+                        visited,
+                    )));
                 }
-                Keyword::Application(Application::UnevaluatedProperties, schema) => {
+                Keyword::UnevaluatedProperties {
+                    unevaluated_properties: schema,
+                } => {
                     unevaluated_properties = Some(Shape::infer_inner(schema, index, visited));
                 }
 
@@ -271,8 +322,10 @@ impl Shape {
             }
         }
 
-        // Apply pattern properties to applicable named properties.
+        // A patternProperties applies to any matched property.
         shape.object = shape.object.apply_patterns_to_properties();
+        // An additionalProperties applies to remaining required-only properties.
+        shape.object = shape.object.apply_additional_properties();
 
         // Restrict enum variants to permitted types of the present schema.
         // We'll keep enforcing this invariant as Locations are intersected,
@@ -293,13 +346,13 @@ impl Shape {
         let mut then_: Option<Shape> = None;
         let mut else_: Option<Shape> = None;
 
-        for kw in &schema.kw {
+        for kw in schema.keywords.iter() {
             match kw {
-                Keyword::Application(Application::Ref(uri), _) => {
-                    let mut referent = if visited.iter().any(|u| u.as_str() == uri.as_str()) {
+                Keyword::Ref { r#ref } => {
+                    let mut referent = if visited.iter().any(|u| *u == &**r#ref) {
                         Shape::anything() // Don't re-visit this location.
-                    } else if let Some(schema) = index.fetch(uri) {
-                        visited.push(uri);
+                    } else if let Some((schema, _dynamic)) = index.fetch(r#ref) {
+                        visited.push(&**r#ref);
                         let referent = Shape::infer_inner(schema, index, visited);
                         visited.pop();
                         referent
@@ -307,40 +360,47 @@ impl Shape {
                         Shape::anything()
                     };
 
-                    // Track this |uri| as a reference, unless its resolved shape is itself
+                    // Track this r#ref as a reference, unless its resolved shape is itself
                     // a reference to another schema. In other words, promote the bottom-most
                     // $ref within a hierarchy of $ref's.
                     if !matches!(referent.provenance, Provenance::Reference(_)) {
-                        referent.provenance = Provenance::Reference(Box::new(uri.clone()));
+                        let url = Url::parse(&**r#ref).unwrap();
+                        referent.provenance = Provenance::Reference(Box::new(url));
                     }
 
                     shape = Shape::intersect(shape, referent);
                 }
-                Keyword::Application(Application::AllOf { .. } | Application::Inline, schema) => {
-                    shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
+                Keyword::AllOf { all_of } => {
+                    for schema in all_of.iter() {
+                        shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
+                    }
                 }
-                Keyword::Application(Application::OneOf { .. }, schema) => {
-                    let l = Shape::infer_inner(schema, index, visited);
-                    one_of = Some(match one_of {
-                        Some(one_of) => Shape::union(one_of, l),
-                        None => l,
-                    })
+                Keyword::OneOf { one_of: schemas } => {
+                    for schema in schemas.iter() {
+                        let l = Shape::infer_inner(schema, index, visited);
+                        one_of = Some(match one_of {
+                            Some(one_of) => Shape::union(one_of, l),
+                            None => l,
+                        })
+                    }
                 }
-                Keyword::Application(Application::AnyOf { .. }, schema) => {
-                    let l = Shape::infer_inner(schema, index, visited);
-                    any_of = Some(match any_of {
-                        Some(any_of) => Shape::union(any_of, l),
-                        None => l,
-                    })
+                Keyword::AnyOf { any_of: schemas } => {
+                    for schema in schemas.iter() {
+                        let l = Shape::infer_inner(schema, index, visited);
+                        any_of = Some(match any_of {
+                            Some(any_of) => Shape::union(any_of, l),
+                            None => l,
+                        })
+                    }
                 }
-                Keyword::Application(Application::If, _) => if_ = true,
-                Keyword::Application(Application::Then, schema) => {
-                    then_ = Some(Shape::infer_inner(schema, index, visited));
+                Keyword::If { r#if: _ } => if_ = true,
+                Keyword::Then { then } => {
+                    then_ = Some(Shape::infer_inner(then, index, visited));
                 }
-                Keyword::Application(Application::Else, schema) => {
-                    else_ = Some(Shape::infer_inner(schema, index, visited));
+                Keyword::Else { r#else } => {
+                    else_ = Some(Shape::infer_inner(r#else, index, visited));
                 }
-                Keyword::Application(Application::Not, _schema) => {
+                Keyword::Not { not: _ } => {
                     // TODO(johnny): requires implementing difference.
                 }
 
@@ -366,6 +426,12 @@ impl Shape {
             (&shape.object.additional_properties, unevaluated_properties)
         {
             shape.object.additional_properties = Some(Box::new(unevaluated_properties));
+
+            // unevaluatedProperties applies to any remaining required-only properties.
+            // Note that we've already intersected with child schemas, which would have
+            // intersected a required-only property with an applicable child schema
+            // if there were one.
+            shape.object = shape.object.apply_additional_properties();
         }
         if let (None, Some(unevaluated_items)) = (&shape.array.additional_items, unevaluated_items)
         {
@@ -663,6 +729,7 @@ mod test {
         insta::assert_debug_snapshot!(foo_shape, @r###"
         ObjProperty {
             name: "foo",
+            is_property: true,
             is_required: false,
             shape: Shape {
                 type_: ,
@@ -806,11 +873,13 @@ mod test {
                     properties: vec![
                         ObjProperty {
                             name: "bar".into(),
+                            is_property: true,
                             is_required: true,
                             shape: enum_fixture(json!(["c"])),
                         },
                         ObjProperty {
                             name: "foo".into(),
+                            is_property: true,
                             is_required: false,
                             shape: enum_fixture(json!(["b"])),
                         },
@@ -859,6 +928,7 @@ mod test {
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".into(),
+                        is_property: true,
                         is_required: false,
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
@@ -1062,8 +1132,8 @@ mod test {
             Shape {
                 provenance: Provenance::Inline,
                 numeric: NumericShape {
-                    minimum: Some(json::Number::Unsigned(5)),
-                    maximum: Some(json::Number::Unsigned(10)),
+                    minimum: Some(5u64.into()),
+                    maximum: Some(10u64.into()),
                 },
                 ..Shape::anything()
             },
@@ -1166,6 +1236,7 @@ mod test {
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".into(),
+                        is_property: true,
                         is_required: false,
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
@@ -1197,6 +1268,7 @@ mod test {
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".into(),
+                        is_property: true,
                         is_required: false,
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
@@ -1240,6 +1312,7 @@ mod test {
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".into(),
+                        is_property: true,
                         is_required: true,
                         shape: Shape {
                             type_: types::STRING,
@@ -1251,7 +1324,122 @@ mod test {
                 },
                 ..Shape::anything()
             },
-        )
+        );
+        infer_test(
+            &[
+                r#"
+                properties: {foo: {type: string}}
+                required: [foo]
+                additionalProperties: {type: string}
+                "#,
+                r#"
+                allOf:
+                - additionalProperties: {type: string}
+                required: [foo]
+                "#,
+                r#"
+                additionalProperties: {type: string}
+                allOf:
+                - required: [foo]
+                "#,
+                r#"
+                allOf:
+                - required: [foo]
+                unevaluatedProperties: {type: string}
+                "#,
+                r#"
+                allOf:
+                - required: [foo]
+                - additionalProperties: {type: string}
+                unevaluatedProperties: {type: integer} # Ignored.
+                "#,
+                r#"
+                required: [foo]
+                allOf:
+                - additionalProperties: {type: string}
+                unevaluatedProperties: {type: integer} # Also ignored.
+                "#,
+            ],
+            Shape {
+                provenance: Provenance::Inline,
+                object: ObjShape {
+                    properties: vec![ObjProperty {
+                        name: "foo".into(),
+                        is_property: true,
+                        is_required: true,
+                        shape: Shape {
+                            type_: types::STRING,
+                            provenance: Provenance::Inline,
+                            ..Shape::anything()
+                        },
+                    }],
+                    additional_properties: Some(Box::new(Shape {
+                        type_: types::STRING,
+                        provenance: Provenance::Inline,
+                        ..Shape::anything()
+                    })),
+                    ..ObjShape::new()
+                },
+                ..Shape::anything()
+            },
+        );
+        infer_test(
+            &[
+                r#"
+                patternProperties: {"fo.": {type: string}}
+                required: [foo]
+                unevaluatedProperties: {type: integer} # Not applied.
+                "#,
+                r#"
+                allOf:
+                - patternProperties: {"fo.": {type: string}}
+                required: [foo]
+                unevaluatedProperties: {type: integer}
+                "#,
+                r#"
+                patternProperties: {"fo.": {type: string}}
+                allOf:
+                - required: [foo]
+                unevaluatedProperties: {type: integer}
+                "#,
+                r#"
+                allOf:
+                - required: [foo]
+                - patternProperties: {"fo.": {type: string}}
+                unevaluatedProperties: {type: integer}
+                "#,
+            ],
+            Shape {
+                provenance: Provenance::Inline,
+                object: ObjShape {
+                    properties: vec![ObjProperty {
+                        name: "foo".into(),
+                        is_property: true,
+                        is_required: true,
+                        shape: Shape {
+                            type_: types::STRING,
+                            provenance: Provenance::Inline,
+                            ..Shape::anything()
+                        },
+                    }],
+                    pattern_properties: vec![ObjPattern {
+                        re: regex::Regex::new("fo.").unwrap(),
+                        shape: Shape {
+                            type_: types::STRING,
+                            provenance: Provenance::Inline,
+                            ..Shape::anything()
+                        },
+                    }],
+                    additional_properties: Some(Box::new(Shape {
+                        type_: types::INTEGER,
+                        provenance: Provenance::Inline,
+                        ..Shape::anything()
+                    })),
+                    ..ObjShape::new()
+                },
+                ..Shape::anything()
+            },
+        );
     }
 
     #[test]
@@ -1399,6 +1587,7 @@ mod test {
                     properties: vec![
                         ObjProperty {
                             name: "a-thing".into(),
+                            is_property: true,
                             is_required: false,
                             shape: Shape {
                                 type_: types::STRING,
@@ -1412,6 +1601,7 @@ mod test {
                         },
                         ObjProperty {
                             name: "a-thing-plus".into(),
+                            is_property: true,
                             is_required: false,
                             shape: Shape {
                                 type_: types::STRING,
@@ -1425,6 +1615,7 @@ mod test {
                         },
                         ObjProperty {
                             name: "multi".into(),
+                            is_property: true,
                             is_required: false,
                             shape: Shape {
                                 type_: types::ARRAY,
@@ -1546,24 +1737,6 @@ mod test {
                 ..Shape::anything()
             }
         );
-    }
-
-    #[test]
-    fn test_inline_required_is_transparent() {
-        let fill_to = json::schema::intern::MAX_TABLE_SIZE + 7;
-        let required: Vec<_> = (0..fill_to).map(|i| i.to_string()).collect();
-
-        let shape = shape_from(
-            &json!({
-                "required": required,
-                "properties": {
-                    "9": {"const": "value"} // Overlaps with `required`.
-                }
-            })
-            .to_string(),
-        );
-        assert_eq!(shape.object.properties.len(), fill_to);
-        assert!(shape.object.properties.iter().all(|p| p.is_required));
     }
 
     #[test]

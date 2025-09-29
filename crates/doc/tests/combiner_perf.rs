@@ -64,7 +64,7 @@ pub fn combiner_perf() {
     });
 
     let schema = build_schema(
-        url::Url::parse("http://schema").unwrap(),
+        &url::Url::parse("http://schema").unwrap(),
         &json!({
             "type": "object",
             "properties": {
@@ -105,7 +105,6 @@ pub fn combiner_perf() {
         vec![Extractor::new("/key", &doc::SerPolicy::noop())],
         "source-name",
         Vec::new(),
-        None,
         Validator::new(schema).unwrap(),
     );
     let mut accum = doc::combine::Accumulator::new(spec, tempfile::tempfile().unwrap()).unwrap();

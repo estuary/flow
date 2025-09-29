@@ -1,12 +1,13 @@
 use super::{
-    compare_key_lazy, compare_lazy, reduce_item, reduce_prop,
-    schema::json_schema_merge, Error, Tape, ParsedNumber, Result,
+    compare_key_lazy, compare_lazy, reduce_item, reduce_prop, schema::json_schema_merge, Error,
+    ParsedNumber, Result, Tape,
 };
 use crate::{
     lazy::{LazyDestructured, LazyNode},
-    AsNode, BumpVec, HeapNode, Node, Pointer,
+    BumpVec, HeapNode,
 };
 use itertools::EitherOrBoth;
+use json::{AsNode, Node};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
@@ -117,7 +118,7 @@ pub struct Maximize {
     /// Optional, relative JSON Pointer(s) which form the key over which values
     /// are maximized. When omitted, the entire value at this location is used.
     #[serde(default)]
-    pub key: Vec<Pointer>,
+    pub key: Vec<json::Pointer>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
@@ -127,7 +128,7 @@ pub struct Merge {
     /// Arrays are ordered. `key` is ignored in Object merge contexts, where the
     /// object property is used instead.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub key: Vec<Pointer>,
+    pub key: Vec<json::Pointer>,
     /// Delete marks that this location should be removed from the document.
     /// Deletion is effected only when a document is fully reduced, so partial
     /// reductions of the document will continue to have deleted locations
@@ -142,7 +143,7 @@ pub struct Minimize {
     /// Optional, relative JSON Pointer(s) which form the key over which values
     /// are minimized. When omitted, the entire value at this location is used.
     #[serde(default)]
-    pub key: Vec<Pointer>,
+    pub key: Vec<json::Pointer>,
 }
 
 impl Strategy {
@@ -158,29 +159,39 @@ impl Strategy {
     ) -> Result<(HeapNode<'alloc>, i32, bool)> {
         match self {
             Strategy::Append => {
-                let (node, built_length) = Self::append(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                let (node, built_length) =
+                    Self::append(tape, tape_index, loc, full, lhs, rhs, alloc)?;
                 Ok((node, built_length, false))
             }
             Strategy::FirstWriteWins(fww) => {
-                let (node, built_length) = Self::first_write_wins(tape, tape_index, loc, full, lhs, rhs, alloc, fww);
+                let (node, built_length) =
+                    Self::first_write_wins(tape, tape_index, loc, full, lhs, rhs, alloc, fww);
                 Ok((node, built_length, false))
             }
             Strategy::JsonSchemaMerge => {
-                let (node, built_length) = json_schema_merge(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                let (node, built_length) =
+                    json_schema_merge(tape, tape_index, loc, full, lhs, rhs, alloc)?;
                 Ok((node, built_length, false))
             }
-            Strategy::LastWriteWins(lww) => Self::last_write_wins(tape, tape_index, loc, full, lhs, rhs, alloc, lww),
+            Strategy::LastWriteWins(lww) => {
+                Self::last_write_wins(tape, tape_index, loc, full, lhs, rhs, alloc, lww)
+            }
             Strategy::Maximize(max) => {
-                let (node, built_length) = Self::maximize(tape, tape_index, loc, full, lhs, rhs, alloc, max)?;
+                let (node, built_length) =
+                    Self::maximize(tape, tape_index, loc, full, lhs, rhs, alloc, max)?;
                 Ok((node, built_length, false))
             }
-            Strategy::Merge(merge) => Self::merge(tape, tape_index, loc, full, lhs, rhs, alloc, merge),
+            Strategy::Merge(merge) => {
+                Self::merge(tape, tape_index, loc, full, lhs, rhs, alloc, merge)
+            }
             Strategy::Minimize(min) => {
-                let (node, built_length) = Self::minimize(tape, tape_index, loc, full, lhs, rhs, alloc, min)?;
+                let (node, built_length) =
+                    Self::minimize(tape, tape_index, loc, full, lhs, rhs, alloc, min)?;
                 Ok((node, built_length, false))
             }
             Strategy::Set(set) => {
-                let (node, built_length) = set.apply(tape, tape_index, loc, full, lhs, rhs, alloc)?;
+                let (node, built_length) =
+                    set.apply(tape, tape_index, loc, full, lhs, rhs, alloc)?;
                 Ok((node, built_length, false))
             }
             Strategy::Sum => {
@@ -199,7 +210,6 @@ impl Strategy {
         rhs: LazyNode<'alloc, '_, R>,
         alloc: &'alloc bumpalo::Bump,
     ) -> Result<(HeapNode<'alloc>, i32)> {
-
         use LazyDestructured as LD;
 
         match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
@@ -265,9 +275,7 @@ impl Strategy {
         alloc: &'alloc bumpalo::Bump,
         lww: &LastWriteWins,
     ) -> Result<(HeapNode<'alloc>, i32, bool)> {
-        if !lww.associative
-            && !full
-            && matches!(&lhs, Some(lhs) if compare_lazy(lhs, &rhs).is_ne())
+        if !lww.associative && !full && matches!(&lhs, Some(lhs) if compare_lazy(lhs, &rhs).is_ne())
         {
             // When marked !associative, partial reductions may only reduce equal values.
             return Err(Error::NotAssociative);
@@ -285,10 +293,9 @@ impl Strategy {
         lhs: Option<LazyNode<'alloc, '_, L>>,
         rhs: LazyNode<'alloc, '_, R>,
         alloc: &'alloc bumpalo::Bump,
-        key: &[Pointer],
+        key: &[json::Pointer],
         reverse: bool,
     ) -> Result<(HeapNode<'alloc>, i32)> {
-
         let Some(lhs) = lhs else {
             let (rhs, built_length) = rhs.into_heap_node(alloc);
             *tape_index += built_length;
@@ -336,7 +343,9 @@ impl Strategy {
         alloc: &'alloc bumpalo::Bump,
         min: &Minimize,
     ) -> Result<(HeapNode<'alloc>, i32)> {
-        Self::min_max_helper(tape, tape_index, loc, full, lhs, rhs, alloc, &min.key, false)
+        Self::min_max_helper(
+            tape, tape_index, loc, full, lhs, rhs, alloc, &min.key, false,
+        )
     }
 
     fn maximize<'alloc, L: AsNode, R: AsNode>(
@@ -361,7 +370,6 @@ impl Strategy {
         rhs: LazyNode<'alloc, '_, R>,
         alloc: &'alloc bumpalo::Bump,
     ) -> Result<(HeapNode<'alloc>, i32)> {
-
         use LazyDestructured as LD;
         use ParsedNumber as PN;
 
@@ -417,7 +425,8 @@ impl Strategy {
         merge: &Merge,
     ) -> Result<(HeapNode<'alloc>, i32, bool)> {
         let delete = full && merge.delete;
-        let (node, built_length) = Self::merge_with_key(tape, tape_index, loc, full, lhs, rhs, alloc, &merge.key)?;
+        let (node, built_length) =
+            Self::merge_with_key(tape, tape_index, loc, full, lhs, rhs, alloc, &merge.key)?;
         Ok((node, built_length, delete))
     }
 
@@ -429,9 +438,8 @@ impl Strategy {
         lhs: Option<LazyNode<'alloc, '_, L>>,
         rhs: LazyNode<'alloc, '_, R>,
         alloc: &'alloc bumpalo::Bump,
-        key: &[Pointer],
+        key: &[json::Pointer],
     ) -> Result<(HeapNode<'alloc>, i32)> {
-
         use LazyDestructured as LD;
 
         match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
@@ -463,8 +471,14 @@ impl Strategy {
                 let mut built_length = 1;
 
                 for rhs in rhs.into_iter() {
-                    let (field, child_delta, delete) =
-                        reduce_prop::<L, R>(tape, tape_index, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    let (field, child_delta, delete) = reduce_prop::<L, R>(
+                        tape,
+                        tape_index,
+                        loc,
+                        full,
+                        EitherOrBoth::Right(rhs),
+                        alloc,
+                    )?;
                     if !delete {
                         fields.push(field, alloc);
                         built_length += child_delta;
@@ -509,8 +523,14 @@ impl Strategy {
                 let mut built_length = 1;
 
                 for rhs in rhs.into_iter().enumerate() {
-                    let (item, child_delta, delete) =
-                        reduce_item::<L, R>(tape, tape_index, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    let (item, child_delta, delete) = reduce_item::<L, R>(
+                        tape,
+                        tape_index,
+                        loc,
+                        full,
+                        EitherOrBoth::Right(rhs),
+                        alloc,
+                    )?;
                     if !delete {
                         items.push(item, alloc);
                         built_length += child_delta;
@@ -545,7 +565,6 @@ fn true_value() -> bool {
 #[cfg(test)]
 mod test {
     use super::super::test::*;
-    use super::*;
     use crate::shape::X_COMPLEXITY_LIMIT;
 
     #[test]
@@ -564,7 +583,7 @@ mod test {
                 // Non-array RHS returns an error.
                 Partial {
                     rhs: json!("whoops"),
-                    expect: Err(Error::AppendWrongType),
+                    expect: Err("reduction failed at location '': append strategy expects arrays"),
                 },
                 Partial {
                     rhs: json!([0, 1]),
@@ -580,7 +599,7 @@ mod test {
                 },
                 Partial {
                     rhs: json!({}),
-                    expect: Err(Error::AppendWrongType),
+                    expect: Err("reduction failed at location '': append strategy expects arrays"),
                 },
                 Partial {
                     rhs: json!(null),
@@ -617,7 +636,7 @@ mod test {
                 },
                 Partial {
                     rhs: json!(42),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 // Full reduction may take the value.
                 Full {
@@ -631,7 +650,7 @@ mod test {
                 },
                 Partial {
                     rhs: json!(52),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 // RHS is allowed to reduce associatively.
                 Partial {
@@ -763,7 +782,9 @@ mod test {
                 // Keys are technically equal (both are undefined), and it attempts to deep-merge.
                 Partial {
                     rhs: json!(42),
-                    expect: Err(Error::MergeWrongType),
+                    expect: Err(
+                        "reduction failed at location '': merge strategy expects objects or arrays",
+                    ),
                 },
             ],
         )
@@ -802,7 +823,7 @@ mod test {
                 // It returns a delegated merge error on equal keys.
                 Partial {
                     rhs: json!({"1": 4}),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 Partial {
                     rhs: json!([1, 2, "!"]),
@@ -837,7 +858,7 @@ mod test {
                 // Non-numeric RHS returns an error.
                 Partial {
                     rhs: json!("whoops"),
-                    expect: Err(Error::SumWrongType),
+                    expect: Err("reduction failed at location '': sum strategy expects numbers"),
                 },
                 // Takes initial value.
                 Partial {
@@ -852,7 +873,7 @@ mod test {
                 // Sum results in overflow.
                 Partial {
                     rhs: json!(u64::MAX - 32),
-                    expect: Err(Error::SumNumericOverflow),
+                    expect: Err("reduction failed at location '': sum strategy encountered a numeric overflow"),
                 },
                 // Add signed.
                 Partial {
@@ -877,7 +898,7 @@ mod test {
                 // Number which overflows returns an error.
                 Partial {
                     rhs: json!(std::f64::MAX / 10.0),
-                    expect: Err(Error::SumNumericOverflow),
+                    expect: Err("reduction failed at location '': sum strategy encountered a numeric overflow"),
                 },
                 // Sometimes changes are too small to represent.
                 Partial {
@@ -896,7 +917,7 @@ mod test {
                 // Non-numeric type (now with LHS) returns an error.
                 Partial {
                     rhs: json!("whoops"),
-                    expect: Err(Error::SumWrongType),
+                    expect: Err("reduction failed at location '': sum strategy expects numbers"),
                 },
             ],
         );
@@ -958,7 +979,9 @@ mod test {
                 // Non-array RHS returns an error.
                 Partial {
                     rhs: json!("whoops"),
-                    expect: Err(Error::MergeWrongType),
+                    expect: Err(
+                        "reduction failed at location '': merge strategy expects objects or arrays",
+                    ),
                 },
                 Partial {
                     rhs: json!([0, 1, 0]),
@@ -979,7 +1002,7 @@ mod test {
                 // Cannot switch merge type during a non-associative reduction.
                 Partial {
                     rhs: json!({}),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 // But it can switch types during a full reduction.
                 Full {
@@ -1027,7 +1050,7 @@ mod test {
                 },
                 Partial {
                     rhs: json!([1, 2]),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 Full {
                     rhs: json!([1, 2]),
@@ -1105,7 +1128,9 @@ mod test {
                 },
                 Partial {
                     rhs: json!("whoops"),
-                    expect: Err(Error::MergeWrongType),
+                    expect: Err(
+                        "reduction failed at location '': merge strategy expects objects or arrays",
+                    ),
                 },
                 // If LHS is a different type, merges are not associative.
                 Partial {
@@ -1114,7 +1139,7 @@ mod test {
                 },
                 Partial {
                     rhs: json!({"9": 9}),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 Full {
                     rhs: json!({"9": 9}),
@@ -1392,7 +1417,7 @@ mod test {
                 // Cannot switch from a scalar to a merged type associatively.
                 Partial {
                     rhs: json!({ "a": { "1": 1 } }),
-                    expect: Err(Error::NotAssociative),
+                    expect: Err("encountered non-associative reduction in an unexpected context"),
                 },
                 // But can do it in a full reduction.
                 Full {

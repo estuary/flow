@@ -1,9 +1,9 @@
-use super::{AsNode, Field, Fields, Node, SerPolicy};
+use super::SerPolicy;
 use itertools::{
     EitherOrBoth::{Both, Left, Right},
     Itertools,
 };
-use json::Location;
+use json::{AsNode, Field, Fields, Location, Node};
 
 /// Diff an actual (observed) document against an expected document,
 /// pushing all detected differences into a Vec. Object properties
@@ -112,7 +112,8 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
                 }
             }
             // For remaining scalar cases, or differing types, fall back to basic equality.
-            (Some(_), Some(_)) if super::compare(actual.unwrap(), expect.unwrap()).is_eq() => {}
+            (Some(_), Some(_)) if json::node::compare(actual.unwrap(), expect.unwrap()).is_eq() => {
+            }
             // Technically allowed for someone to pass in None, None.
             (None, None) => {}
 

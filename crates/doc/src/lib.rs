@@ -1,71 +1,14 @@
-/// Node is the generic form of a document node as understood by Flow.
-/// It's implemented by HeapNode, ArchivedNode, and serde_json::Value.
-#[derive(Debug)]
-pub enum Node<'a, N: AsNode> {
-    Array(&'a [N]),
-    Bool(bool),
-    Bytes(&'a [u8]),
-    Float(f64),
-    NegInt(i64),
-    Null,
-    Object(&'a N::Fields),
-    PosInt(u64),
-    String(&'a str),
-}
-
-/// AsNode is the trait by which a specific document representation is accessed through a generic Node.
-pub trait AsNode: Sized {
-    type Fields: Fields<Self> + ?Sized;
-
-    /// Convert an AsNode into a Node.
-    fn as_node<'a>(&'a self) -> Node<'a, Self>;
-
-    /// Return the total number of nodes contained within this node, inclusive.
-    /// Under a "tape" interpretation of a document, this is the total number
-    /// of entries utilized by this node and all its children.
-    /// This number is always positive, but is a signed type to facilitate easy
-    /// calculation of tape-length deltas.
-    fn tape_length(&self) -> i32;
-
-    /// Convert an AsNode into a serde_json::Value using the debug SerPolicy.
-    fn to_debug_json_value(&self) -> serde_json::Value {
-        serde_json::to_value(&SerPolicy::debug().on(self)).unwrap()
-    }
-}
-
-/// Fields is the generic form of a Document object representation.
-pub trait Fields<N: AsNode> {
-    type Field<'a>: Field<'a, N>
-    where
-        Self: 'a;
-
-    type Iter<'a>: ExactSizeIterator<Item = Self::Field<'a>>
-    where
-        Self: 'a;
-
-    fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>>;
-    fn len(&self) -> usize;
-    fn iter<'a>(&'a self) -> Self::Iter<'a>;
-}
-
-/// Field is the generic form of a Document object Field as understood by Flow.
-pub trait Field<'a, N: AsNode> {
-    fn property(&self) -> &'a str;
-    fn value(&self) -> &'a N;
-}
-
 // Documents are built on the heap using a bump allocator.
 // Re-export the concrete allocator type, as most clients don't care.
 pub use bumpalo::Bump as Allocator;
 
-// This crate has three implementations of AsNode: a mutable HeapNode,
-// an ArchivedNode serialized by the `rkyv` crate,
-// and an implementation upon serde_json::Value.
+// This crate has two implementations of json::AsNode: a mutable HeapNode,
+// and an ArchivedNode serialized by the `rkyv` crate.
+// The serde_json::Value implementation lives in the json crate.
 mod archived;
 pub use archived::{ArchivedField, ArchivedNode};
 pub mod heap;
 pub use heap::{HeapField, HeapNode};
-mod value;
 
 // BumpStr is a low-level String type built upon a Bump allocator.
 mod bump_str;
@@ -82,23 +25,9 @@ mod heap_de;
 mod ser;
 pub use ser::SerPolicy;
 
-// All implementations of AsNode may be compared with one another.
-mod compare;
-pub use compare::compare;
-
-// A JSON Pointer implementation that works with all AsNode implementations,
-// and allows creation of documents using serde_json::Value and HeapNode.
-pub mod ptr;
-pub use ptr::Pointer;
-
 // Extractor extracts locations from documents.
 mod extractor;
 pub use extractor::{Extractor, TRUNCATION_INDICATOR_PTR};
-
-// Walker is a medium-term integration joint between AsNode implementations
-// and our JSON-schema validator. We may seek to get rid of this and have
-// JSON-schema validation evaluate directly over AsNode.
-pub mod walker;
 
 // Optimized conversions from AsNode implementations into HeapNode.
 pub mod lazy;
@@ -116,8 +45,7 @@ pub use annotation::Annotation;
 // over AsNode implementations.
 pub mod validation;
 pub use validation::{
-    FailedValidation, RawValidator, Schema, SchemaIndex, SchemaIndexBuilder, Valid, Validation,
-    Validator,
+    FailedValidation, RawValidator, Schema, SchemaIndex, SchemaIndexBuilder, Validator,
 };
 
 // AsNode implementations may be reduced.
@@ -145,7 +73,7 @@ pub use diff::diff;
 #[cfg(test)]
 mod test {
 
-    use super::{ArchivedNode, BumpStr, BumpVec, HeapNode, Node, SerPolicy};
+    use super::{ArchivedNode, BumpStr, BumpVec, HeapNode, SerPolicy};
     use serde_json::json;
 
     #[test]
@@ -249,7 +177,13 @@ mod test {
         assert_eq!(std::mem::size_of::<BumpVec<bool>>(), 8);
 
         // Node is 24 bytes.
-        assert_eq!(std::mem::size_of::<Node<'static, HeapNode<'static>>>(), 24);
-        assert_eq!(std::mem::align_of::<Node<'static, HeapNode<'static>>>(), 8);
+        assert_eq!(
+            std::mem::size_of::<json::Node<'static, HeapNode<'static>>>(),
+            24
+        );
+        assert_eq!(
+            std::mem::align_of::<json::Node<'static, HeapNode<'static>>>(),
+            8
+        );
     }
 }

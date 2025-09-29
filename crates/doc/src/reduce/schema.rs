@@ -5,9 +5,9 @@ use crate::{
         limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
         schema::to_schema, X_COMPLEXITY_LIMIT,
     },
-    AsNode, HeapNode, SerPolicy, Shape,
+    HeapNode, SerPolicy, Shape,
 };
-use json::schema::index::IndexBuilder;
+use json::AsNode;
 use serde_json::Value as JsonValue;
 
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
@@ -82,30 +82,15 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
 }
 
 fn shape_from_node(node: serde_json::Value) -> Result<Shape> {
-    let url = url::Url::parse("json-schema-reduction:///").unwrap();
-
-    let schema = json::schema::build::build_schema::<crate::Annotation>(url.clone(), &node)
-        .map_err(|e| Error::JsonSchemaMerge {
-            detail: format!("{e:#}"),
-        })?;
-
-    let mut index = IndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-
-    Ok(Shape::infer(
-        index.must_fetch(&url).map_err(|e| Error::JsonSchemaMerge {
-            detail: format!("{e:#}"),
-        })?,
-        &index,
-    ))
+    let schema =
+        json::schema::build::<crate::Annotation>(&url::Url::parse("schema:///").unwrap(), &node)?;
+    let validator = crate::validation::Validator::new(schema)?;
+    Ok(Shape::infer(validator.schema(), validator.schema_index()))
 }
 
 #[cfg(test)]
 mod test {
     use super::super::test::*;
-    use super::*;
 
     #[test]
     fn test_merge_json_schemas() {
@@ -126,15 +111,13 @@ mod test {
                 },
                 Partial {
                     rhs: json!("oops!"),
-                    expect: Err(Error::JsonSchemaMerge { detail: "at schema 'json-schema-reduction:///': expected a schema".to_string() }),
+                    expect: Err("reduction failed at location '': json-schema-merge strategy schema error: at schema:///: expected a schema object or boolean"),
                 },
                 Partial {
                     rhs: json!({
                         "type": "foo"
                     }),
-                    expect: Err(Error::JsonSchemaMerge {
-                        detail: r#"at keyword 'type' of schema 'json-schema-reduction:///': expected a type or array of types: invalid type name: 'foo'"#.to_owned(),
-                    }),
+                    expect: Err("reduction failed at location '': json-schema-merge strategy schema error: at schema:///#/type: invalid type name: 'foo'"),
                 },
                 Partial {
                     rhs: json!({
