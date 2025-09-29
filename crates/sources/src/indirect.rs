@@ -1,5 +1,5 @@
 use super::Format;
-use crate::Scope;
+use json::Scope;
 use proto_flow::flow::ContentType;
 use std::collections::BTreeMap;
 

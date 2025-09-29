@@ -8,7 +8,6 @@ pub mod scenarios;
 pub use bundle_schema::bundle_schema;
 pub use indirect::{indirect_large_files, rebuild_catalog_resources};
 pub use inline::{inline_capture, inline_draft_catalog};
-pub use json::Scope; // Re-export.
 pub use loader::{Fetcher, LoadError, Loader};
 
 #[derive(Copy, Clone, Debug)]

@@ -1,5 +1,5 @@
 use super::Format;
-use crate::Scope;
+use json::Scope;
 use tables::EitherOrBoth;
 
 /// Policy is a layout policy which maps a catalog name, source root,
