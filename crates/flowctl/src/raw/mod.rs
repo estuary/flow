@@ -6,7 +6,7 @@ use crate::{
 use anyhow::Context;
 use doc::combine;
 use std::{
-    io::{self, Write},
+    io::{self, Read, Write},
     path::PathBuf,
 };
 use tables::CatalogResolver;
@@ -375,18 +375,35 @@ async fn do_combine(
     // We don't track out_bytes because it's awkward to do so
     // and the user can trivially measure for themselves.
 
-    for line in io::stdin().lines() {
-        let line = line?;
+    let mut parser = simd_doc::Parser::new();
+    let mut stdin = io::stdin().lock();
 
+    const CHUNK_SIZE: usize = 1 << 17; // 128KB
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut chunk_offset = 0i64;
+
+    loop {
+        let bytes_read = stdin.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break; // End of input
+        }
+
+        in_bytes += bytes_read;
+
+        // Feed the chunk to the parser.
+        parser.chunk(&buffer[..bytes_read], chunk_offset)?;
+        chunk_offset += bytes_read as i64;
+
+        // Parse and drain all available documents.
         let memtable = accumulator.memtable()?;
-        let rhs = doc::HeapNode::from_serde(
-            &mut serde_json::Deserializer::from_str(&line),
-            memtable.alloc(),
-        )?;
+        let (_begin_offset, docs) = parser
+            .parse_many(memtable.alloc())
+            .map_err(|(err, _location)| err)?;
 
-        in_docs += 1;
-        in_bytes += line.len() + 1;
-        memtable.add(0, rhs, false)?;
+        for (node, _next_offset) in docs {
+            in_docs += 1;
+            memtable.add(0, node, false)?;
+        }
     }
 
     let mut out = io::BufWriter::new(io::stdout().lock());
