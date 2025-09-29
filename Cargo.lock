@@ -3108,6 +3108,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "simd-doc",
  "size",
  "sources",
  "tables",
