@@ -81,7 +81,7 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
 
     loader
         .load_resource(
-            sources::Scope::new(&source),
+            json::Scope::new(&source),
             &source,
             flow::ContentType::Catalog,
         )

@@ -125,10 +125,7 @@ pub fn recv_client_read_or_flush(
         () = || -> anyhow::Result<()> {
             // TODO: use OwnedArchived or parse into HeapNode.
             let doc: serde_json::Value = serde_json::from_slice(&read.doc_json)?;
-            let _valid = validators[read.transform as usize]
-                .validate(None, &doc)?
-                .ok()
-                .map_err(|invalid| anyhow::anyhow!(invalid.revalidate_with_context(&doc)))?;
+            let _valid = validators[read.transform as usize].validate(&doc, |_| None)?;
             Ok(())
         }()
         .with_context(|| {
@@ -200,8 +197,8 @@ pub fn recv_connector_published_or_flushed(
     let uuid_ptr = &task.document_uuid_ptr;
 
     if !uuid_ptr.0.is_empty() {
-        let Ok(_) = uuid_ptr.create_heap_node(
-            &mut doc,
+        let Ok(_) = doc.try_set(
+            uuid_ptr,
             doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
             alloc,
         ) else {

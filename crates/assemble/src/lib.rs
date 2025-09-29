@@ -56,9 +56,17 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         numeric: if shape.type_.overlaps(types::INT_OR_FRAC) {
             Some(flow::inference::Numeric {
                 has_minimum: shape.numeric.minimum.is_some(),
-                minimum: shape.numeric.minimum.map(Into::into).unwrap_or_default(),
+                minimum: shape.numeric.minimum.map(|n| match n {
+                    json::Number::Float(f) => f,
+                    json::Number::NegInt(i) => i as f64,
+                    json::Number::PosInt(u) => u as f64,
+                }).unwrap_or_default(),
                 has_maximum: shape.numeric.maximum.is_some(),
-                maximum: shape.numeric.maximum.map(Into::into).unwrap_or_default(),
+                maximum: shape.numeric.maximum.map(|n| match n {
+                    json::Number::Float(f) => f,
+                    json::Number::NegInt(i) => i as f64,
+                    json::Number::PosInt(u) => u as f64,
+                }).unwrap_or_default(),
             })
         } else {
             None
@@ -553,7 +561,7 @@ mod test {
             },
             numeric: NumericShape {
                 minimum: None,
-                maximum: Some(json::Number::Unsigned(1000)),
+                maximum: Some(json::Number::PosInt(1000)),
             },
             array: ArrayShape {
                 additional_items: Some(Box::new(Shape {

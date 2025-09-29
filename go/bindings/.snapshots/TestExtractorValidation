@@ -2,26 +2,23 @@
 
 Caused by:
     {
-      "basic_output": {
-        "errors": [
-          {
-            "absoluteKeywordLocation": "file:///int-string.flow.yaml?ptr=/collections/int-string/schema#/properties/i",
-            "error": "Invalid: Must be of type \"integer\".",
-            "instanceLocation": "/i",
-            "keywordLocation": "#/properties/i"
-          },
-          {
-            "absoluteKeywordLocation": "file:///int-string.flow.yaml?ptr=/collections/int-string/schema",
-            "error": "Invalid: Properties \"i\", \"s\" are required.",
-            "instanceLocation": "",
-            "keywordLocation": "#"
-          }
-        ],
-        "valid": false
-      },
+      "basic_output": [
+        {
+          "absoluteKeywordLocation": "file:///int-string.flow.yaml?ptr=/collections/int-string/schema#/properties/i",
+          "detail": "Type mismatch: expected a integer",
+          "instanceLocation": "/i",
+          "instanceValue": "not a string and fails"
+        },
+        {
+          "absoluteKeywordLocation": "file:///int-string.flow.yaml?ptr=/collections/int-string/schema",
+          "detail": "Missing required property: s",
+          "instanceLocation": "/uuid",
+          "instanceValue": "9f2952f3-c6a3-12fb-8801-080607050309"
+        }
+      ],
       "document": {
         "i": "not a string and fails",
         "uuid": "9f2952f3-c6a3-12fb-8801-080607050309"
       }
     })
-{"level":"error","message":"source document failed validation against its collection JSON","fields":{"error":["source document failed validation against its collection JSON",{"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-string.flow.yaml?ptr=/collections/int-string/schema#/properties/i","error":"Invalid: Must be of type \"integer\".","instanceLocation":"/i","keywordLocation":"#/properties/i"},{"absoluteKeywordLocation":"file:///int-string.flow.yaml?ptr=/collections/int-string/schema","error":"Invalid: Properties \"i\", \"s\" are required.","instanceLocation":"","keywordLocation":"#"}],"valid":false},"document":{"i":"not a string and fails","uuid":"9f2952f3-c6a3-12fb-8801-080607050309"}}],"module":"bindings::service"}}
+{"level":"error","message":"source document failed validation against its collection JSON","fields":{"error":["source document failed validation against its collection JSON",{"basic_output":[{"absoluteKeywordLocation":"file:///int-string.flow.yaml?ptr=/collections/int-string/schema#/properties/i","detail":"Type mismatch: expected a integer","instanceLocation":"/i","instanceValue":"not a string and fails"},{"absoluteKeywordLocation":"file:///int-string.flow.yaml?ptr=/collections/int-string/schema","detail":"Missing required property: s","instanceLocation":"/uuid","instanceValue":"9f2952f3-c6a3-12fb-8801-080607050309"}],"document":{"i":"not a string and fails","uuid":"9f2952f3-c6a3-12fb-8801-080607050309"}}],"module":"bindings::service"}}

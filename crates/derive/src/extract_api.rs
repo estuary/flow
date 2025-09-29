@@ -1,5 +1,4 @@
 use crate::new_validator;
-use doc::AsNode;
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -30,11 +29,11 @@ pub enum Error {
 
 /// Extract a UUID at the given location within the document, returning its UuidParts,
 /// or None if the Pointer does not resolve to a valid v1 UUID.
-pub fn extract_uuid_parts<N: AsNode>(v: &N, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
+pub fn extract_uuid_parts<N: json::AsNode>(v: &N, ptr: &json::Pointer) -> Option<flow::UuidParts> {
     let Some(v_uuid) = ptr.query(v) else {
         return None;
     };
-    let doc::Node::String(v_uuid) = v_uuid.as_node() else {
+    let json::Node::String(v_uuid) = v_uuid.as_node() else {
         return None;
     };
 
@@ -70,7 +69,7 @@ pub struct API {
 struct State {
     alloc: doc::Allocator,
     parser: simd_doc::Parser,
-    uuid_ptr: doc::Pointer,
+    uuid_ptr: json::Pointer,
     extractors: Vec<doc::Extractor>,
     validator: Option<doc::Validator>,
 }
@@ -113,7 +112,7 @@ impl cgo::Service for API {
                 self.state = Some(State {
                     alloc: doc::Allocator::new(),
                     parser: simd_doc::Parser::new(),
-                    uuid_ptr: doc::Pointer::from(&uuid_ptr),
+                    uuid_ptr: json::Pointer::from(&uuid_ptr),
                     extractors: extractors::for_key(
                         &field_ptrs,
                         &projections,
@@ -132,7 +131,7 @@ impl cgo::Service for API {
 
                 let uuid = extract_uuid_parts(&doc, &state.uuid_ptr).ok_or_else(|| {
                     Error::InvalidUuid {
-                        value: state.uuid_ptr.query(&doc).map(AsNode::to_debug_json_value),
+                        value: state.uuid_ptr.query(&doc).map(doc::SerPolicy::debug_value),
                     }
                 })?;
 
@@ -140,9 +139,8 @@ impl cgo::Service for API {
                     // Transaction acknowledgements aren't expected to validate.
                 } else if let Some(validator) = &mut state.validator {
                     validator
-                        .validate(None, &doc)?
-                        .ok()
-                        .map_err(|invalid| Error::FailedValidation(invalid.revalidate_with_context(&doc)))?;
+                        .validate(&doc, |_| None)
+                        .map_err(|invalid| Error::FailedValidation(invalid))?;
                 }
 
                 // Send extracted UUID.
@@ -185,24 +183,24 @@ mod test {
         // "/_meta/uuid" maps to an encoded UUID. This fixture and the values
         // below are also used in Go-side tests.
         assert_eq!(
-            extract_uuid_parts(&v, &doc::Pointer::from("/_meta/uuid")).unwrap(),
+            extract_uuid_parts(&v, &json::Pointer::from("/_meta/uuid")).unwrap(),
             flow::UuidParts {
                 node: 0x0806070503090000 + 0x02,
                 clock: 0x1eac6a39f2952f32,
             },
         );
         // "/missing" maps to Null, which is the wrong type.
-        match extract_uuid_parts(&v, &doc::Pointer::from("/missing")) {
+        match extract_uuid_parts(&v, &json::Pointer::from("/missing")) {
             None => {}
             p @ _ => panic!("{:?}", p),
         }
         // "/foo" maps to "bar", also not a UUID.
-        match extract_uuid_parts(&v, &doc::Pointer::from("/foo")) {
+        match extract_uuid_parts(&v, &json::Pointer::from("/foo")) {
             None => {}
             p @ _ => panic!("{:?}", p),
         }
         // "/tru" maps to true, of the wrong type.
-        match extract_uuid_parts(&v, &doc::Pointer::from("/tru")) {
+        match extract_uuid_parts(&v, &json::Pointer::from("/tru")) {
             None => {}
             p @ _ => panic!("{:?}", p),
         }
@@ -232,7 +230,7 @@ mod test {
             ("/arr", json!(["foo"])),
         ];
         for (ptr, expect_value) in cases {
-            let ptr = doc::Pointer::from(ptr);
+            let ptr = json::Pointer::from(ptr);
             let field = ptr.query(&v1).unwrap_or(&Value::Null);
             assert_eq!(field, &expect_value);
         }

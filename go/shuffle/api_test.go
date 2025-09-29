@@ -203,7 +203,9 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Expect we read an error, and that TerminalError is set.
 	_, err = badRead.next()
 	require.Equal(t, io.EOF, err, err.Error())
-	require.Regexp(t, "building document extractor: building bundled JSON schema.*", badRead.resp.TerminalError)
+	require.Equal(t,
+		"building document extractor: at schema://bundle#/invalid: unexpected JSON Schema keyword",
+		badRead.resp.TerminalError)
 
 	// Write and commit a single ACK document.
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})

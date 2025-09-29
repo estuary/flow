@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 doc = { path = "../doc" }
+json = { path = "../json" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 

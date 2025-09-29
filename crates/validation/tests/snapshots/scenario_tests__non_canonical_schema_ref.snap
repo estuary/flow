@@ -5,7 +5,7 @@ expression: errors
 [
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/schema,
-        error: schema $ref 'test://example/int-string-len.schema', referenced by 'test://example/int-halve#/collections/testing~1int-halve/schema', was not found,
+        error: schema $ref 'test://example/int-string-len.schema', referenced by 'test://example/int-halve?ptr=/collections/testing~1int-halve/schema', was not found,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,

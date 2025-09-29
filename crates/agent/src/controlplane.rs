@@ -46,7 +46,7 @@ pub struct ConnectorSpec {
     pub documentation_url: String,
     pub endpoint_config_schema: models::Schema,
     pub resource_config_schema: models::Schema,
-    pub resource_path_pointers: Vec<doc::Pointer>,
+    pub resource_path_pointers: Vec<json::Pointer>,
     pub oauth2: Option<Box<RawValue>>,
     pub auto_discover_interval: chrono::Duration,
 }
@@ -447,7 +447,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
         let resource_path_pointers = resource_path_pointers
             .into_iter()
-            .map(|p| doc::Pointer::from_str(&p))
+            .map(|p| json::Pointer::from_str(&p))
             .collect::<Vec<_>>();
         Ok(ConnectorSpec {
             protocol: runtime_protocol,

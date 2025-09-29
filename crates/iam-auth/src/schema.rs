@@ -1,5 +1,3 @@
-use anyhow::Context;
-
 use crate::config::{ConnectorConfigWithCredentials, IAMAuthConfig};
 
 /// Extract IAM authentication configuration from connector config JSON if x-iam-auth is set under credentials
@@ -19,16 +17,12 @@ pub fn extract_iam_auth_from_connector_config(
 }
 
 /// Check if schema has x-iam-auth: true under the credentials object
-pub fn has_credentials_iam_auth_annotation(schema_json: &[u8]) -> anyhow::Result<bool> {
-    let built_schema =
-        doc::validation::build_bundle(schema_json).context("failed to build schema bundle")?;
-    let mut index = doc::SchemaIndexBuilder::new();
-    index.add(&built_schema)?;
-    let index = index.into_index();
+pub fn has_credentials_iam_auth_annotation(schema: &[u8]) -> anyhow::Result<bool> {
+    let schema = doc::validation::build_bundle(schema)?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
-    let shape = doc::Shape::infer(&built_schema, &index);
-
-    let credentials_ptr = doc::Pointer::from("/credentials");
+    let credentials_ptr = json::Pointer::from("/credentials");
     let (credentials_shape, exists) = shape.locate(&credentials_ptr);
 
     if exists.cannot() {
