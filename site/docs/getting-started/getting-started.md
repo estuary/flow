@@ -1,6 +1,7 @@
 ---
 sidebar_position: 1
 description: Get to know Estuary Flow and learn how to get started.
+pagination_next: getting-started/who-should-use-flow
 slug: /
 ---
 

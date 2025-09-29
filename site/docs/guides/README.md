@@ -1,5 +1,6 @@
 ---
 sidebar_position: 0
+pagination_next: guides/create-dataflow
 ---
 
 # Using Estuary Flow
