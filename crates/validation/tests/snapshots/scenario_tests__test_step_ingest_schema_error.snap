@@ -6,17 +6,14 @@ expression: errors
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/documents/0,
         error: test ingest document is invalid against the collection schema: {
-          "basic_output": {
-            "errors": [
-              {
-                "absoluteKeywordLocation": "test://example/int-string.schema",
-                "error": "Invalid: Properties \"int\", \"str\", \"bit\" are required.",
-                "instanceLocation": "",
-                "keywordLocation": "#"
-              }
-            ],
-            "valid": false
-          },
+          "basic_output": [
+            {
+              "absoluteKeywordLocation": "test://example/int-string.schema",
+              "detail": "Missing required property: str",
+              "instanceLocation": "/str_whoops",
+              "instanceValue": "string A"
+            }
+          ],
           "document": {
             "bit": true,
             "int": 42,
@@ -27,17 +24,14 @@ expression: errors
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/documents/1,
         error: test ingest document is invalid against the collection schema: {
-          "basic_output": {
-            "errors": [
-              {
-                "absoluteKeywordLocation": "test://example/int-string.schema",
-                "error": "Invalid: Properties \"int\", \"str\", \"bit\" are required.",
-                "instanceLocation": "",
-                "keywordLocation": "#"
-              }
-            ],
-            "valid": false
-          },
+          "basic_output": [
+            {
+              "absoluteKeywordLocation": "test://example/int-string.schema",
+              "detail": "Missing required property: str",
+              "instanceLocation": "/str_whoops",
+              "instanceValue": "string B"
+            }
+          ],
           "document": {
             "bit": true,
             "int": 52,

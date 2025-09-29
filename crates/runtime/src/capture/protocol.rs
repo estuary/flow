@@ -418,8 +418,8 @@ pub fn recv_connector_captured(
         .document_uuid_ptr;
 
     if !uuid_ptr.0.is_empty() {
-        let Ok(_) = uuid_ptr.create_heap_node(
-            &mut doc,
+        let Ok(_) = doc.try_set(
+            uuid_ptr,
             doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
             alloc,
         ) else {
@@ -460,7 +460,7 @@ pub fn recv_connector_sourced_schema(
             task.bindings[binding as usize].collection_name
         )
     })?;
-    let sourced_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+    let sourced_shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
     let errors = sourced_shape.inspect_closed();
     if !errors.is_empty() {

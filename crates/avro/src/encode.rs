@@ -1,5 +1,5 @@
 use super::{Error, RecordName, RecordSchema, Schema, FLOW_EXTRA_NAME};
-use doc::{AsNode, Field, Fields, Node};
+use json::{AsNode, Field, Fields, Node};
 
 /// Encode `node` at `loc` with the given `schema` into buffer `b`.
 pub fn encode<'s, 'n, N: AsNode>(
@@ -23,7 +23,7 @@ pub fn encode_key<'s, 'n, N: AsNode>(
     b: &mut Vec<u8>,
     schema: &'s Schema,
     root: &'n N,
-    key: &[doc::Pointer],
+    key: &[json::Pointer],
 ) -> Result<(), Error> {
     let Schema::Record(key_record) = schema else {
         return Err(Error::KeySchemaMalformed);
@@ -382,7 +382,7 @@ mod test {
           "required": ["b", "c2_pos", "e1_str", "j", "m1_with_addl"],
         });
         let key_ptrs = &["/c2_pos", "/c3_def", "/f", "/i"];
-        let key_ptrs: Vec<_> = key_ptrs.iter().map(|p| doc::Pointer::from_str(p)).collect();
+        let key_ptrs: Vec<_> = key_ptrs.iter().map(|p| json::Pointer::from(*p)).collect();
 
         let (key, value) = crate::json_schema_to_avro(&fixture.to_string(), &key_ptrs).unwrap();
 

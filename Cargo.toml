@@ -37,8 +37,7 @@ apache-avro = { version = "0.17.0", features = ["snappy"] }
 
 base64 = "0.13"
 bigdecimal = "0.3.0"
-# TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
-bitvec = "0.19"
+bitvec = "1"
 bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
 bytes = "1.6"
 bytesize = "1.1.0"
@@ -66,7 +65,7 @@ flate2 = "1.0"
 futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
-fxhash = "0.2" # Used in `json` crate. Replace with xxhash.
+fxhash = "0.2"
 graphql_client = "*"
 hex = "0.4.3"
 hexdump = "0.1"
