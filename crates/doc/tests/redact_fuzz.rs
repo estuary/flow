@@ -1,4 +1,4 @@
-use doc::AsNode;
+use json::AsNode;
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;
@@ -62,17 +62,17 @@ fn fuzz_redaction() {
           ]
         });
 
-        let curi = url::Url::parse("http://example/schema").unwrap();
-        let mut validator =
-            doc::Validator::new(doc::validation::build_schema(curi, &schema).unwrap()).unwrap();
+        let curi = url::Url::parse("schema://").unwrap();
+        let schema = json::schema::build(&curi, &schema).unwrap();
+        let mut validator = doc::Validator::new(schema).unwrap();
 
         let alloc = doc::Allocator::new();
         let doc = doc::HeapNode::from_node(&input.0, &alloc);
         let mut doc = doc::HeapNode::new_array(&alloc, [doc].into_iter()); // Wrap to never remove root.
 
         let pre_tape_length = doc.tape_length();
-        let valid = validator.validate(None, &doc).unwrap().ok().unwrap();
-        let outcome = doc::redact::redact(&mut doc, valid.outcomes(), &alloc, &[]).unwrap();
+        let valid = validator.validate(&doc, |outcome| Some(outcome)).unwrap();
+        let outcome = doc::redact::redact(&mut doc, &valid, &alloc, &[]).unwrap();
 
         let expected_tape_length = match outcome {
             doc::redact::Outcome::Unchanged => pre_tape_length,

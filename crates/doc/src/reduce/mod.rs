@@ -1,9 +1,9 @@
 use super::{
     lazy::{LazyField, LazyNode},
-    AsNode, BumpStr, Field, HeapField, HeapNode, Pointer, SerPolicy, Valid,
+    validation, BumpStr, HeapField, HeapNode,
 };
 use itertools::{EitherOrBoth, Itertools};
-use json::validator::{self, Context};
+use json::{AsNode, Field};
 use std::cmp::Ordering;
 
 pub mod strategy;
@@ -20,39 +20,38 @@ pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins(strategy::Last
     associative: true,
 });
 
-#[derive(thiserror::Error, Debug, serde::Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("encountered non-associative reduction in an unexpected context")]
     NotAssociative,
-    #[error("'append' strategy expects arrays")]
+    #[error("append strategy expects arrays")]
     AppendWrongType,
-    #[error("`sum` resulted in numeric overflow")]
+    #[error("sum strategy encountered a numeric overflow")]
     SumNumericOverflow,
-    #[error("'sum' strategy expects numbers")]
+    #[error("sum strategy expects numbers")]
     SumWrongType,
-    #[error(
-        "'json-schema-merge' strategy expects objects containing valid JSON schemas: {detail}"
-    )]
-    JsonSchemaMerge { detail: String },
-    #[error("'merge' strategy expects objects or arrays")]
+    #[error("json-schema-merge strategy schema error")]
+    JsonSchemaMerge {
+        #[from]
+        detail: json::schema::build::Errors<crate::Annotation>,
+    },
+    #[error("json-schema-merge strategy schema index error")]
+    JsonSchemaIndex {
+        #[from]
+        detail: json::schema::index::Error,
+    },
+    #[error("merge strategy expects objects or arrays")]
     MergeWrongType,
     #[error(
-        "'set' strategy expects objects having only 'add', 'remove', and 'intersect' properties with consistent object or array types"
+        "set strategy expects objects having only 'add', 'remove', and 'intersect' properties with consistent object or array types"
     )]
     SetWrongType,
     #[error("conflicting strategies at this location: {first:?} vs {second:?}")]
     ConflictingStrategies { first: Strategy, second: Strategy },
 
-    #[error("while reducing {:?}", .ptr)]
+    #[error("reduction failed at location '{ptr}'")]
     WithLocation {
         ptr: String,
-        #[source]
-        detail: Box<Error>,
-    },
-    #[error("having values LHS: {lhs}, RHS: {rhs}")]
-    WithValues {
-        lhs: serde_json::Value,
-        rhs: serde_json::Value,
         #[source]
         detail: Box<Error>,
     },
@@ -66,26 +65,13 @@ impl Error {
         }
     }
 
-    fn with_values<L: AsNode, R: AsNode>(
-        self,
-        lhs: Option<LazyNode<'_, '_, L>>,
-        rhs: LazyNode<'_, '_, R>,
-    ) -> Self {
-        let policy = SerPolicy::debug();
-        Error::WithValues {
-            lhs: serde_json::to_value(lhs.as_ref().map(|n| policy.on_lazy(n))).unwrap(),
-            rhs: serde_json::to_value(policy.on_lazy(&rhs)).unwrap(),
-            detail: Box::new(self),
-        }
-    }
-
     fn with_details<L: AsNode, R: AsNode>(
         self,
         loc: json::Location,
-        lhs: Option<LazyNode<'_, '_, L>>,
-        rhs: LazyNode<'_, '_, R>,
+        _lhs: Option<LazyNode<'_, '_, L>>,
+        _rhs: LazyNode<'_, '_, R>,
     ) -> Self {
-        self.with_location(loc).with_values(lhs, rhs)
+        self.with_location(loc)
     }
 }
 
@@ -103,22 +89,28 @@ type Result<T> = std::result::Result<T, Error>;
 pub fn reduce<'alloc, N: AsNode>(
     lhs: LazyNode<'alloc, '_, N>,
     rhs: LazyNode<'alloc, '_, N>,
-    rhs_valid: Valid,
+    rhs_valid: &[validation::ScopedOutcome<'_>],
     alloc: &'alloc bumpalo::Bump,
     full: bool,
 ) -> Result<(HeapNode<'alloc>, bool)> {
-    // Extract sparse tape of reduce annotations and their applicable [begin, end) spans.
-    let tape: Vec<(i32, i32, &Strategy)> = (rhs_valid.outcomes().iter())
-        .filter_map(|(outcome, ctx)| {
-            if let validator::Outcome::Annotation(crate::Annotation::Reduce(strategy)) = outcome {
-                let span = ctx.span();
-                Some((span.begin as i32, span.end as i32, strategy))
-            } else {
-                None
-            }
-        })
-        // Order by span `begin`.
-        .sorted_by_key(|(begin, _, _)| *begin)
+    // Extract sparse tape of reduce annotations and their applicable tape index.
+    let tape: Vec<(i32, &Strategy)> = (rhs_valid.iter())
+        .filter_map(
+            |validation::ScopedOutcome {
+                 outcome,
+                 schema_curi: _,
+                 tape_index,
+             }| {
+                if let validation::Outcome::Annotation(crate::Annotation::Reduce(strategy)) =
+                    outcome
+                {
+                    Some((*tape_index, strategy))
+                } else {
+                    None
+                }
+            },
+        )
+        .sorted_by_key(|(tape_index, _)| *tape_index)
         .collect();
 
     let mut tape_index = 0i32;
@@ -136,9 +128,9 @@ pub fn reduce<'alloc, N: AsNode>(
     Ok((node, delete))
 }
 
-// Slice of sparse (span-begin, span-end, reduce Strategy) annotations.
+// Slice of sparse (tape-index, reduce Strategy) annotations.
 // As reduction progresses, matched entries are discarded from the head.
-type Tape<'a> = &'a [(i32, i32, &'a Strategy)];
+type Tape<'a> = &'a [(i32, &'a Strategy)];
 
 fn reduce_node<'alloc, 'schema, L: AsNode, R: AsNode>(
     tape: &mut Tape<'schema>,
@@ -156,18 +148,16 @@ fn reduce_node<'alloc, 'schema, L: AsNode, R: AsNode>(
         *tape = &tape[1..];
     }
 
-    let mut span_end = -1;
     let mut strategy = DEFAULT_STRATEGY;
 
     // Check if a sparse strategy applies at this tape index.
     if !tape.is_empty() && tape[0].0 == *tape_index {
-        (span_end, strategy) = (tape[0].1, tape[0].2);
+        strategy = tape[0].1;
         *tape = &tape[1..];
 
         // Pop additional strategies at the same tape index.
         while !tape.is_empty() && tape[0].0 == *tape_index {
-            let (other_end, other_strategy) = (tape[0].1, tape[0].2);
-            assert_eq!(span_end, other_end);
+            let other_strategy = tape[0].1;
             *tape = &tape[1..];
 
             if strategy != other_strategy {
@@ -182,7 +172,6 @@ fn reduce_node<'alloc, 'schema, L: AsNode, R: AsNode>(
 
     let (node, built_length, delete) =
         strategy.apply(tape, tape_index, loc, full, lhs, rhs, alloc)?;
-    assert!(span_end == -1 || span_end == *tape_index);
 
     Ok((node, built_length, delete))
 }
@@ -301,10 +290,10 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
 // WARNING: This routine should *only* be used in the context of schema reductions.
 // When comparing document keys, use an Extractor which also considers default value annotations.
 //
-fn compare_key<L: AsNode, R: AsNode>(key: &[Pointer], lhs: &L, rhs: &R) -> Ordering {
+fn compare_key<L: AsNode, R: AsNode>(key: &[json::Pointer], lhs: &L, rhs: &R) -> Ordering {
     key.iter()
         .map(|ptr| match (ptr.query(lhs), ptr.query(rhs)) {
-            (Some(lhs), Some(rhs)) => crate::compare(lhs, rhs),
+            (Some(lhs), Some(rhs)) => json::node::compare(lhs, rhs),
             (None, Some(_)) => Ordering::Less,
             (Some(_), None) => Ordering::Greater,
             (_, _) => Ordering::Equal,
@@ -314,7 +303,7 @@ fn compare_key<L: AsNode, R: AsNode>(key: &[Pointer], lhs: &L, rhs: &R) -> Order
 }
 
 fn compare_key_lazy<L: AsNode, R: AsNode>(
-    key: &[Pointer],
+    key: &[json::Pointer],
     lhs: &LazyNode<'_, '_, L>,
     rhs: &LazyNode<'_, '_, R>,
 ) -> Ordering {
@@ -331,10 +320,10 @@ fn compare_lazy<L: AsNode, R: AsNode>(
     rhs: &LazyNode<'_, '_, R>,
 ) -> Ordering {
     match (lhs, rhs) {
-        (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => crate::compare(*lhs, *rhs),
-        (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => crate::compare(*lhs, *rhs),
-        (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => crate::compare(*lhs, *rhs),
-        (LazyNode::Node(lhs), LazyNode::Node(rhs)) => crate::compare(*lhs, *rhs),
+        (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => json::node::compare(*lhs, *rhs),
+        (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => json::node::compare(*lhs, *rhs),
+        (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => json::node::compare(*lhs, *rhs),
+        (LazyNode::Node(lhs), LazyNode::Node(rhs)) => json::node::compare(*lhs, *rhs),
     }
 }
 
@@ -369,7 +358,6 @@ pub mod test {
     use crate::Validator;
     use json::schema::build::build_schema;
     pub use serde_json::{json, Value};
-    use std::error::Error as StdError;
 
     #[test]
     fn test_node_counting() {
@@ -408,14 +396,20 @@ pub mod test {
     }
 
     pub enum Case {
-        Partial { rhs: Value, expect: Result<Value> },
-        Full { rhs: Value, expect: Result<Value> },
+        Partial {
+            rhs: Value,
+            expect: std::result::Result<Value, &'static str>,
+        },
+        Full {
+            rhs: Value,
+            expect: std::result::Result<Value, &'static str>,
+        },
     }
     pub use Case::{Full, Partial};
 
     pub fn run_reduce_cases(schema: Value, cases: Vec<Case>) {
         let curi = url::Url::parse("http://example/schema").unwrap();
-        let mut validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
+        let mut validator = Validator::new(build_schema(&curi, &schema).unwrap()).unwrap();
         let alloc = HeapNode::new_allocator();
         let mut lhs: Option<HeapNode<'_>> = None;
 
@@ -424,13 +418,13 @@ pub mod test {
                 Partial { rhs, expect } => (rhs, expect, false),
                 Full { rhs, expect } => (rhs, expect, true),
             };
-            let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
+            let rhs_valid = validator.validate(&rhs, |outcome| Some(outcome)).unwrap();
 
             let reduced = match &lhs {
                 Some(lhs) => reduce(
                     LazyNode::Heap(lhs),
                     LazyNode::Node(&rhs),
-                    rhs_valid,
+                    &rhs_valid,
                     &alloc,
                     full,
                 ),
@@ -446,7 +440,7 @@ pub mod test {
                     // ignore.
                     let expect_str = serde_json::to_string(&expect).unwrap();
                     let actual_str =
-                        serde_json::to_string(&SerPolicy::noop().on(&reduced)).unwrap();
+                        serde_json::to_string(&crate::SerPolicy::noop().on(&reduced)).unwrap();
                     assert_eq!(
                         expect_str, actual_str,
                         "comparison failed:\nreduced:\n{actual_str}\nexpected:\n{expect_str}\n"
@@ -455,13 +449,10 @@ pub mod test {
                     lhs = Some(reduced)
                 }
                 Err(expect) => {
-                    let reduced = reduced.unwrap_err();
-                    let mut reduced: &dyn StdError = &reduced;
-
-                    while let Some(r) = reduced.source() {
-                        reduced = r;
-                    }
-                    assert_eq!(format!("{}", reduced), format!("{}", expect));
+                    assert_eq!(
+                        expect,
+                        format!("{:#}", anyhow::anyhow!(reduced.unwrap_err()))
+                    );
                 }
             }
         }
@@ -475,7 +466,7 @@ pub mod test {
         let (empty, a, b, c) = (|| "".into(), || "/a".into(), || "/b".into(), || "/c".into());
 
         // No pointers => always equal.
-        assert_eq!(compare_key(&[] as &[Pointer], d1, d2), Ordering::Equal);
+        assert!(compare_key(&[] as &[json::Pointer], d1, d2).is_eq());
         // Deep compare of document roots.
         assert_eq!(compare_key(&[empty()], d1, d2), Ordering::Less);
         // Simple key ordering.
@@ -498,7 +489,7 @@ pub mod test {
             (|| "".into(), || "/0".into(), || "/1".into(), || "/2".into());
 
         // No pointers => always equal.
-        assert_eq!(compare_key(&[] as &[Pointer], d1, d2), Ordering::Equal);
+        assert!(compare_key(&[] as &[json::Pointer], d1, d2).is_eq());
         // Deep compare of document roots.
         assert_eq!(compare_key(&[empty()], d1, d2), Ordering::Less);
         // Simple key ordering.
@@ -563,10 +554,7 @@ pub mod test {
                 },
                 Partial {
                     rhs: json!(1),
-                    expect: Err(Error::ConflictingStrategies {
-                        first: Strategy::JsonSchemaMerge,
-                        second: Strategy::Sum,
-                    }),
+                    expect: Err("reduction failed at location '': conflicting strategies at this location: JsonSchemaMerge vs Sum"),
                 },
             ],
         );

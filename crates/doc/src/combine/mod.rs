@@ -27,7 +27,7 @@ pub struct Spec {
     keys: Arc<[Box<[Extractor]>]>,
     names: Vec<String>,
     redact_salt: Vec<u8>,
-    validators: Vec<(Validator, Option<url::Url>)>,
+    validators: Vec<Validator>,
 }
 
 impl Spec {
@@ -44,7 +44,6 @@ impl Spec {
         key: impl Into<Box<[Extractor]>>,
         name: impl Into<String>,
         redact_salt: Vec<u8>,
-        schema: Option<url::Url>,
         validator: Validator,
     ) -> Self {
         Self {
@@ -52,14 +51,14 @@ impl Spec {
             keys: vec![key.into()].into(),
             names: vec![name.into()],
             redact_salt,
-            validators: vec![(validator, schema)],
+            validators: vec![validator],
         }
     }
 
     /// Build a Spec from an Iterator of (is-full-reduction, key, schema, validator).
     pub fn with_bindings<I, K, N>(bindings: I, redact_salt: Vec<u8>) -> Self
     where
-        I: IntoIterator<Item = (bool, K, N, Option<url::Url>, Validator)>,
+        I: IntoIterator<Item = (bool, K, N, Validator)>,
         K: Into<Box<[Extractor]>>,
         N: Into<String>,
     {
@@ -68,11 +67,11 @@ impl Spec {
         let mut names = Vec::new();
         let mut validators = Vec::new();
 
-        for (index, (is_full, key, name, schema, validator)) in bindings.into_iter().enumerate() {
+        for (index, (is_full, key, name, validator)) in bindings.into_iter().enumerate() {
             full.push(is_full);
             keys.push(key.into());
             names.push(format!("{} (binding {index})", name.into()));
-            validators.push((validator, schema));
+            validators.push(validator);
         }
 
         Self {
