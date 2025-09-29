@@ -218,6 +218,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Salesforce - Real-time data (deprecated)
   - [Configuration](./Salesforce/)
   - Package - ghcr.io/estuary/source-salesforce-next:dev
+- Sentry
+  - [Configuration](./sentry.md)
+  - Package - ghcr.io/estuary/source-sentry:dev
 - SFTP
   - [Configuration](./sftp.md)
   - Package - ghcr.io/estuary/source-sftp:dev
@@ -350,9 +353,6 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - SendGrid
   - [Configuration](./sendgrid.md)
   - Package - ghcr.io/estuary/source-sendgrid:dev
-- Sentry
-  - [Configuration](./sentry.md)
-  - Package - ghcr.io/estuary/source-sentry:dev
 - Slack
   - [Configuration](./slack.md)
   - Package - ghcr.io/estuary/source-slack:dev
