@@ -1,4 +1,4 @@
-use crate::Scope;
+use json::Scope;
 use superslice::Ext;
 
 pub fn inline_draft_catalog(catalog: &mut tables::DraftCatalog) {

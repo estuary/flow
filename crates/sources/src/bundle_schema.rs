@@ -129,7 +129,7 @@ mod test {
             // This URL should be overridden by a contained $id, and thus not matter.
             let bundle_curi = url::Url::parse("test://bundle").unwrap();
             let bundle_schema: doc::Schema =
-                json::schema::build::build_schema(bundle_curi, &bundle_dom).unwrap();
+                json::schema::build::build_schema(&bundle_curi, &bundle_dom).unwrap();
 
             let mut bundle_index = doc::SchemaIndexBuilder::new();
             bundle_index.add(&bundle_schema).unwrap();
