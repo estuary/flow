@@ -1,0 +1,192 @@
+---
+source: crates/json/src/validator/output.rs
+expression: output
+---
+[
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/age",
+    "detail": "Number is not a multiple of the required factor",
+    "instanceLocation": "/age",
+    "instanceValue": 3
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/age",
+    "detail": "Annotation: Deprecated(true)",
+    "instanceLocation": "/age",
+    "instanceValue": 3
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/code",
+    "detail": "Location does not match any of the expected schemas",
+    "instanceLocation": "/code",
+    "instanceValue": "AB"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/config",
+    "detail": "Location must match exactly one of the required schemas, but matched none",
+    "instanceLocation": "/config",
+    "instanceValue": true
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/email",
+    "detail": "Format mismatch: expected a Email",
+    "instanceLocation": "/email",
+    "instanceValue": "not-an-email"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/email",
+    "detail": "Annotation: Default(String(\"user@example.com\"))",
+    "instanceLocation": "/email",
+    "instanceValue": "not-an-email"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/email",
+    "detail": "Annotation: Format(Email)",
+    "instanceLocation": "/email",
+    "instanceValue": "not-an-email"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/additionalProperties",
+    "detail": "This location is not allowed to exist",
+    "instanceLocation": "/extraField",
+    "instanceValue": "not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not allowed not  ... (trimmed)"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/items",
+    "detail": "Array contains too many matching items: expected at most 2, found 6",
+    "instanceLocation": "/items",
+    "instanceValue": "<array>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/items",
+    "detail": "Array has too many items: expected at most 5, found 6",
+    "instanceLocation": "/items",
+    "instanceValue": "<array>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/items",
+    "detail": "Array contains duplicate items when uniqueItems is required",
+    "instanceLocation": "/items",
+    "instanceValue": "<array>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/legacy/not",
+    "detail": "Location matches a schema that should not be matched",
+    "instanceLocation": "/legacy",
+    "instanceValue": null
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/metadata/properties/created",
+    "detail": "Format mismatch: expected a DateTime",
+    "instanceLocation": "/metadata/created",
+    "instanceValue": "not-a-date"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/metadata/properties/created",
+    "detail": "Annotation: Format(DateTime)",
+    "instanceLocation": "/metadata/created",
+    "instanceValue": "not-a-date"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/metadata/additionalProperties",
+    "detail": "This location is not allowed to exist",
+    "instanceLocation": "/metadata/deleted",
+    "instanceValue": "2024-01-02"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/metadata/additionalProperties",
+    "detail": "This location is not allowed to exist",
+    "instanceLocation": "/metadata/extra",
+    "instanceValue": "field"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/metadata/additionalProperties",
+    "detail": "This location is not allowed to exist",
+    "instanceLocation": "/metadata/updated",
+    "instanceValue": "2024-01-01"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/metadata",
+    "detail": "Object has too many properties: expected at most 3, found 4",
+    "instanceLocation": "/metadata",
+    "instanceValue": "<object>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema",
+    "detail": "Missing required property: missing",
+    "instanceLocation": "/name",
+    "instanceValue": "ab1"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/name",
+    "detail": "String does not match the required pattern",
+    "instanceLocation": "/name",
+    "instanceValue": "ab1"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/name",
+    "detail": "Annotation: Description(\"Must be alphabetic only\")",
+    "instanceLocation": "/name",
+    "instanceValue": "ab1"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/name",
+    "detail": "Annotation: Title(\"Person Name\")",
+    "instanceLocation": "/name",
+    "instanceValue": "ab1"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/score",
+    "detail": "Number exceeds the exclusive maximum",
+    "instanceLocation": "/score",
+    "instanceValue": 100.0
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/status",
+    "detail": "Location is not one of the enumerated constants",
+    "instanceLocation": "/status",
+    "instanceValue": "unknown"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/status",
+    "detail": "Annotation: ReadOnly(true)",
+    "instanceLocation": "/status",
+    "instanceValue": "unknown"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/tags/items",
+    "detail": "Type mismatch: expected a string",
+    "instanceLocation": "/tags/0",
+    "instanceValue": 123
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/properties/tags/items",
+    "detail": "Type mismatch: expected a string",
+    "instanceLocation": "/tags/1",
+    "instanceValue": 456
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema",
+    "detail": "Annotation: Description(\"A schema to test multiple validation failures\")",
+    "instanceLocation": "",
+    "instanceValue": "<object>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema",
+    "detail": "Annotation: Examples([Object {\"age\": Number(25), \"email\": String(\"john@example.com\"), \"items\": Array [String(\"special\")], \"name\": String(\"John\"), \"score\": Number(85.5), \"status\": String(\"active\")}])",
+    "instanceLocation": "",
+    "instanceValue": "<object>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema",
+    "detail": "Annotation: Title(\"Test Schema\")",
+    "instanceLocation": "",
+    "instanceValue": "<object>"
+  },
+  {
+    "absoluteKeywordLocation": "http://example.com/test-schema#/dependentRequired/score",
+    "detail": "Missing required property: dependent-missing",
+    "instanceLocation": "/email",
+    "instanceValue": "not-an-email"
+  }
+]

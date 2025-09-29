@@ -1,7 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use json::de;
-use json::schema::{build::build_schema, index::IndexBuilder, CoreAnnotation};
-use json::validator::{SpanContext, Validator};
+use json::{
+    schema::{self, index},
+    Validator,
+};
 use serde_json::Value;
 
 // Obtained as:
@@ -19,9 +20,9 @@ const GITHUB_SCRAPES: &[&[u8]] = &[
 pub fn github_events(c: &mut Criterion) {
     let schema: Value = serde_json::from_slice(GITHUB_SCHEMA).unwrap();
     let url = url::Url::parse("http://bench/schema").unwrap();
-    let schema = build_schema::<CoreAnnotation>(url, &schema).unwrap();
+    let schema = schema::build::<schema::CoreAnnotation>(&url, &schema).unwrap();
 
-    let mut index = IndexBuilder::new();
+    let mut index = index::Builder::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
     let index = index.into_index();
@@ -35,13 +36,12 @@ pub fn github_events(c: &mut Criterion) {
 
     for (s, scrape) in scrapes.iter().enumerate() {
         c.bench_function(&format!("scrape{}", s), |b| {
-            let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
+            let mut val = Validator::new(&index);
             b.iter(|| {
                 for (_n, doc) in scrape.iter().enumerate() {
-                    val.prepare(&schema.curi).unwrap();
-                    let _ = de::walk(doc, &mut val).expect("validation error");
+                    let (valid, _outcomes) = val.validate(&schema, doc, |_o| None);
                     //println!("scrape {} errors {}: {:?}", s, _n, errors);
-                    assert!(!val.invalid());
+                    assert!(valid);
                 }
             })
         });

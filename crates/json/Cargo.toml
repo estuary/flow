@@ -12,23 +12,22 @@ license.workspace = true
 addr = { workspace = true }
 bigdecimal = { workspace = true }
 bitvec = { workspace = true }
-regex = { workspace = true }
-fxhash = { workspace = true }
 iri-string = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 percent-encoding = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
-tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 glob = { workspace = true }
+insta = { workspace = true }
 
 [[bench]]
 name = "github_events"

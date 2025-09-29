@@ -1,5 +1,4 @@
 use crate::Location;
-use url::Url;
 
 /// Scope is a stack-based mechanism for tracking fine-grained location
 /// context of a resource currently being processed.
@@ -9,14 +8,14 @@ pub struct Scope<'a> {
     pub parent: Option<&'a Scope<'a>>,
     /// Resource of this Context, which is !None if and only if this Scope roots
     /// processing of a new resource (as opposed to being scoped to a path therein).
-    pub resource: Option<&'a Url>,
+    pub resource: Option<&'a url::Url>,
     /// Location within the current resource.
     pub location: Location<'a>,
 }
 
 impl<'a> Scope<'a> {
     /// Create a new scope rooted at the given resource.
-    pub fn new(resource: &'a Url) -> Scope<'a> {
+    pub fn new(resource: &'a url::Url) -> Scope<'a> {
         Scope {
             parent: None,
             resource: Some(resource),
@@ -24,7 +23,7 @@ impl<'a> Scope<'a> {
         }
     }
     /// Push a resource onto the current Scope, returning a new Scope.
-    pub fn push_resource(&'a self, resource: &'a Url) -> Scope<'a> {
+    pub fn push_resource(&'a self, resource: &'a url::Url) -> Scope<'a> {
         if resource.fragment().is_some() {
             panic!("resource cannot have fragment");
         }
@@ -66,41 +65,50 @@ impl<'a> Scope<'a> {
 
     /// Flatten the scope into its current resource URI, extended with a
     /// URL fragment-encoded JSON pointer of the current location.
-    pub fn flatten(self) -> Url {
-        let mut f = self.resource().clone();
+    pub fn flatten(self) -> url::Url {
+        let base = self.resource();
 
-        if !matches!(self.location, Location::Root) {
-            f.set_fragment(Some(&format!(
-                "{}{}",
-                f.fragment().unwrap_or(""),
-                self.location.pointer_str().to_string()
-            )));
+        if matches!(self.location, Location::Root) {
+            return base.clone();
         }
-        f
+
+        // We don't use set_fragment() because it drops certain escape characters,
+        // where we instead want to percent-encode them. This comes up in JSON
+        // schema tests covering properties with edge-case values.
+
+        if base.as_str().contains('#') {
+            format!("{base}{}", self.location.url_escaped())
+                .parse()
+                .unwrap()
+        } else {
+            format!("{base}#{}", self.location.url_escaped())
+                .parse()
+                .unwrap()
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{Scope, Url};
+    use super::Scope;
 
     #[test]
     fn test_scope_errors() {
-        let ra = Url::parse("http://example/A#/path/prefix").unwrap();
-        let rb = Url::parse("http://example/B").unwrap();
+        let ra = url::Url::parse("http://example/A#/path/prefix").unwrap();
+        let rb = url::Url::parse("http://example/B").unwrap();
 
         let s1 = Scope::new(&ra);
         let s2 = s1.push_prop("foo");
         let s3 = s2.push_item(32);
         let s4 = s3.push_resource(&rb);
-        let s5 = s4.push_prop("something");
+        let s5 = s4.push_prop("some\nthing");
 
         assert_eq!(s1.flatten().as_str(), "http://example/A#/path/prefix");
         assert_eq!(
             s3.flatten().as_str(),
             "http://example/A#/path/prefix/foo/32"
         );
-        assert_eq!(s5.flatten().as_str(), "http://example/B#/something");
+        assert_eq!(s5.flatten().as_str(), "http://example/B#/some%0Athing");
 
         assert_eq!(s1.resource_depth(), 1);
         assert_eq!(s3.resource_depth(), 1);

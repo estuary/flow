@@ -1,86 +1,137 @@
-use crate::schema::{Annotation, Application, Keyword, Schema};
+use super::{Annotation, Keyword, PackedStr, Schema};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("duplicate canonical URI: '{0}'")]
-    DuplicateCanonicalURI(url::Url),
+    DuplicateCanonicalURI(String),
     #[error("duplicate anchor URI: '{0}'")]
-    DuplicateAnchorURI(url::Url),
-    #[error("duplicate alias URI: '{0}'")]
-    DuplicateAliasURI(url::Url),
+    DuplicateAnchorURI(String),
     #[error("schema $ref '{ruri}', referenced by '{curi}', was not found")]
-    InvalidReference { ruri: url::Url, curi: url::Url },
-    #[error("schema '{uri}' was not found")]
-    NotFound { uri: url::Url },
+    InvalidReference { ruri: String, curi: String },
 }
 
-/// IndexBuilder builds an index of Schemas indexed on their
-/// canconical and alternative anchor-form URIs.
-/// Once built, an IndexBuilder is converted into a packed Index
+/// Builder builds an index of Schemas indexed on their
+/// canonical and alternative anchor-form URIs.
+/// Once populated, it's converted into a packed Index
 /// for fast query lookups.
-pub struct IndexBuilder<'s, A>(BTreeMap<&'s url::Url, &'s Schema<A>>)
+pub struct Builder<'s, A>
 where
-    A: Annotation;
+    A: Annotation,
+{
+    // Index of (URI) => (Schema, $dynamicAnchor?)
+    idx: BTreeMap<&'s str, (&'s Schema<A>, bool)>,
+}
 
-impl<'s, A> IndexBuilder<'s, A>
+impl<'s, A> Builder<'s, A>
 where
     A: Annotation,
 {
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self {
+            idx: BTreeMap::new(),
+        }
     }
 
     // Index a schema and all sub-schemas by their canonical URIs.
     pub fn add(&mut self, schema: &'s Schema<A>) -> Result<(), Error> {
-        // Index this schema's canonical URI.
-        if let Some(_) = self.0.insert(&schema.curi, schema) {
-            return Err(Error::DuplicateCanonicalURI(schema.curi.clone()));
-        }
-
-        for kw in &schema.kw {
+        // Process all keywords for sub-schemas and anchors.
+        for kw in schema.keywords.iter() {
             match kw {
-                // We skip Inline applications for indexing.
-                // They share the canonical URI of their parent, and we use them only
-                // for the `required` keywords which has no sub-schemas.
-                Keyword::Application(Application::Inline, _) => {}
-                // Recurse to index a subordinate schema application.
-                Keyword::Application(_, child) => self.add(child)?,
-                // Index an alternative, anchor-form canonical URI.
-                Keyword::Anchor(auri) => {
-                    if let Some(_) = self.0.insert(auri, schema) {
-                        return Err(Error::DuplicateAnchorURI(schema.curi.clone()));
+                Keyword::Id { curi, explicit: _ } => {
+                    if let Some(_) = self.idx.insert(curi, (schema, false)) {
+                        return Err(Error::DuplicateCanonicalURI(curi.to_string()));
                     }
                 }
-                // No-ops.
-                Keyword::RecursiveAnchor | Keyword::Validation(_) | Keyword::Annotation(_) => (),
+                Keyword::Anchor { anchor } => {
+                    if let Some(_) = self.idx.insert(anchor, (schema, false)) {
+                        return Err(Error::DuplicateAnchorURI(anchor.to_string()));
+                    }
+                }
+                Keyword::DynamicAnchor { dynamic_anchor } => {
+                    if let Some(_) = self.idx.insert(dynamic_anchor, (schema, true)) {
+                        return Err(Error::DuplicateAnchorURI(dynamic_anchor.to_string()));
+                    }
+                }
+
+                // Referenced schemas are just links, not new schemas to index.
+                Keyword::Ref { .. } | Keyword::DynamicRef { .. } => {}
+
+                // Recurse to index subordinate schemas.
+                Keyword::AdditionalProperties {
+                    additional_properties,
+                } => self.add(additional_properties)?,
+                Keyword::AllOf { all_of } => {
+                    for child in all_of.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::AnyOf { any_of } => {
+                    for child in any_of.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::Contains { contains } => self.add(contains)?,
+                Keyword::Defs { defs } => {
+                    for (_, child) in defs.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::Definitions { definitions } => {
+                    for (_, child) in definitions.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::DependentSchemas { dependent_schemas } => {
+                    for (_, child) in dependent_schemas.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::Else { r#else } => self.add(r#else)?,
+                Keyword::If { r#if } => self.add(r#if)?,
+                Keyword::Items { items } => self.add(items)?,
+                Keyword::Not { not } => self.add(not)?,
+                Keyword::OneOf { one_of } => {
+                    for child in one_of.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::PatternProperties { pattern_properties } => {
+                    for (_, child) in pattern_properties.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::PrefixItems { prefix_items } => {
+                    for child in prefix_items.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::Properties { properties } => {
+                    for (_, child) in properties.iter() {
+                        self.add(child)?;
+                    }
+                }
+                Keyword::PropertyNames { property_names } => self.add(property_names)?,
+                Keyword::Then { then } => self.add(then)?,
+                Keyword::UnevaluatedItems { unevaluated_items } => self.add(unevaluated_items)?,
+                Keyword::UnevaluatedProperties {
+                    unevaluated_properties,
+                } => self.add(unevaluated_properties)?,
+
+                // All other keywords don't contain sub-schemas.
+                _ => {}
             }
         }
         Ok(())
     }
 
-    // Add an alias URI for this single Schema.
-    // Both the alias URI and the Schema must be top-level (have no fragment).
-    // If the alias equals the Schema's canonical URI, this has no effect.
-    pub fn add_alias(&mut self, schema: &'s Schema<A>, alias: &'s url::Url) -> Result<(), Error> {
-        assert!(schema.curi.fragment().is_none());
-        assert!(alias.fragment().is_none());
-
-        if alias == &schema.curi {
-            // No-op.
-        } else if let Some(_) = self.0.insert(alias, schema) {
-            return Err(Error::DuplicateAliasURI(alias.clone()));
-        }
-        Ok(())
-    }
-
     pub fn verify_references(&self) -> Result<(), Error> {
-        for (referrer, referrent) in self.references() {
-            if !self.0.contains_key(referrent) {
+        for (referrer, referent) in self.references() {
+            if !self.idx.contains_key(referent) {
                 return Err(Error::InvalidReference {
-                    ruri: referrent.clone(),
-                    curi: referrer.clone(),
+                    ruri: referent.to_string(),
+                    curi: referrer.to_string(),
                 });
             }
         }
@@ -88,18 +139,31 @@ where
     }
 
     pub fn into_index(self) -> Index<'s, A> {
-        let referrents: BTreeSet<_> = self.references().map(|(_, r)| r).collect();
+        let referents: BTreeSet<_> = self.references().map(|(_, r)| r).collect();
 
-        let (fast, slow) = self.0.into_iter().partition(|e| referrents.contains(&e.0));
-        Index { fast, slow }
+        // Walk the builder index, pruning entries which are unreferenced and
+        // aren't dynamic. Re-allocate URIs into PackedStr, making them likely
+        // to be co-located in index order within the heap.
+        let pruned: Vec<(PackedStr, bool, &'s Schema<A>)> = self
+            .idx
+            .into_iter()
+            .filter_map(|(uri, (schema, dynamic))| {
+                if dynamic || referents.contains(uri) {
+                    Some((uri.to_string().into(), dynamic, schema))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Index { idx: pruned.into() }
     }
 
-    fn references<'a>(&'a self) -> impl Iterator<Item = (&'s url::Url, &'s url::Url)> + 'a {
-        self.0.iter().flat_map(|(referrer, schema)| {
-            schema.kw.iter().filter_map(move |kw| match kw {
-                Keyword::Application(Application::Ref(referrent), _) => {
-                    Some((*referrer, referrent))
-                }
+    fn references(&self) -> impl Iterator<Item = (&'s str, &'s str)> + '_ {
+        self.idx.iter().flat_map(|(referrer, (schema, _dynamic))| {
+            schema.keywords.iter().filter_map(move |kw| match kw {
+                Keyword::Ref { r#ref } => Some((*referrer, r#ref.as_ref())),
+                Keyword::DynamicRef { dynamic_ref } => Some((*referrer, dynamic_ref.as_ref())),
                 _ => None,
             })
         })
@@ -112,135 +176,256 @@ pub struct Index<'s, A>
 where
     A: Annotation,
 {
-    // Store is subdivided between a |fast| and |slow| index.
-    // |fast| items are statically known to be referenced, and there are fewer of them.
-    // |slow| items may still be referenced, and there are more of them.
-    fast: Vec<(&'s url::Url, &'s Schema<A>)>,
-    slow: Vec<(&'s url::Url, &'s Schema<A>)>,
+    idx: Box<
+        [(
+            super::PackedStr, // URI.
+            bool,             // Is $dynamicAnchor?
+            &'s Schema<A>,    // Schema.
+        )],
+    >,
 }
 
 impl<'s, A> Index<'s, A>
 where
     A: Annotation,
 {
-    pub fn fetch(&self, uri: &url::Url) -> Option<&'s Schema<A>> {
-        if let Ok(ind) = self.fast.binary_search_by_key(&uri, |(s, _)| s) {
-            Some(self.fast[ind].1)
-        } else if let Ok(ind) = self.slow.binary_search_by_key(&uri, |(s, _)| s) {
-            Some(self.slow[ind].1)
+    // Attempt to resolve the given URI to an indexed Schema.
+    pub fn fetch(&self, uri: &str) -> Option<(&'s Schema<A>, bool)> {
+        if let Ok(ind) = self.idx.binary_search_by_key(&uri, |(key, _, _)| key) {
+            Some((self.idx[ind].2, self.idx[ind].1))
         } else {
             None
         }
     }
-
-    pub fn must_fetch(&self, uri: &url::Url) -> Result<&'s Schema<A>, Error> {
-        match self.fetch(uri) {
-            None => Err(Error::NotFound { uri: uri.clone() }),
-            Some(scm) => Ok(scm),
-        }
-    }
-}
-
-// We implement, rather than derive, Clone in order to avoid requiring
-// that Annotation also be Clone, which is not actually needed but is
-// a constraint produced by #[derive(Clone)].
-impl<'s, A> Clone for Index<'s, A>
-where
-    A: Annotation,
-{
-    fn clone(&self) -> Self {
-        Self {
-            fast: self.fast.clone(),
-            slow: self.slow.clone(),
-        }
+    // Access the contents of the index as ordered (URI, is_dynamic, Schema) tuples.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, bool, &'s Schema<A>)> {
+        self.idx.iter().map(|(u, d, s)| (u.as_ref(), *d, *s))
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{super::build::build_schema, super::CoreAnnotation, IndexBuilder};
+    use super::{super::build::build_schema, super::CoreAnnotation, Builder, Error};
     use serde_json::json;
 
     #[test]
     fn test_indexing() {
         let schema = json!({
+            "$id": "http://example/root",
+            "$dynamicAnchor": "meta",
+            "title": "root schema",
+
             "$defs": {
-                "one": {
-                    "const": 1,
+                // Test basic $anchor
+                "simple": {
+                    "$anchor": "SimpleAnchor",
+                    "type": "string"
                 },
-                "two": {
-                    "$anchor": "Two",
-                    "const": 2,
-                },
-                "three": {
-                    "$id": "http://other",
-                    "$anchor": "Three",
-                    "properties": {
-                        "hello": {
-                            "$id": "http://yet-another",
-                            "const": 3,
+
+                // Test nested $id with new base URI
+                "nested": {
+                    "$id": "http://example/nested",
+                    "title": "nested schema with new id",
+                    "$defs": {
+                        "inner": {
+                            "$anchor": "InnerAnchor",
+                            "type": "number"
                         },
+                        "relative": {
+                            "$id": "relative/path",
+                            "type": "boolean"
+                        }
                     },
+                    "$ref": "#InnerAnchor"
                 },
-                "other": { "$ref": "http://other" },
+
+                // Test $dynamicAnchor for recursive structures
+                "recursive": {
+                    "$id": "http://example/recursive",
+                    "$dynamicAnchor": "meta",
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "children": {
+                            "type": "array",
+                            "items": {
+                                "$dynamicRef": "#meta"
+                            }
+                        }
+                    }
+                },
+
+                // Test reference combinations
+                "refs": {
+                    "$id": "refs",
+                    "$anchor": "RefsAnchor",
+                    "allOf": [
+                        { "$ref": "http://example/root#SimpleAnchor" },
+                        { "$ref": "http://example/nested#InnerAnchor" },
+                        { "$ref": "http://example/relative/path" },
+                        { "$ref": "#RefsAnchor" },  // Self-reference via anchor
+                        { "$ref": "http://example/root#/$defs/simple" }
+                    ]
+                }
             },
-            "$ref": "#Two",
+
+            // Test absolute and relative refs at root
+            "properties": {
+                "absolute": { "$ref": "http://example/nested" },
+                "anchor": { "$ref": "#SimpleAnchor" },
+                "pointer": { "$ref": "#/$defs/simple" },
+                "dynamic": { "$dynamicRef": "#meta" }
+            }
         });
 
-        let curi = url::Url::parse("http://example/schema").unwrap();
-        let alias = url::Url::parse("http://alias/schema").unwrap();
-        let schema = build_schema::<CoreAnnotation>(curi.clone(), &schema).unwrap();
+        let curi = url::Url::parse("http://example/root").unwrap();
+        let schema = build_schema::<CoreAnnotation>(&curi, &schema).unwrap();
 
-        let mut builder = IndexBuilder::new();
+        let mut builder = Builder::new();
         builder.add(&schema).unwrap();
-        builder.add_alias(&schema, &alias).unwrap();
-        builder.add_alias(&schema, &schema.curi).unwrap(); // No-op.
         builder.verify_references().unwrap();
         let index = builder.into_index();
 
-        assert_eq!(
-            index
-                .fast
-                .iter()
-                .map(|(u, _)| u.as_str())
-                .collect::<Vec<_>>(),
-            vec!["http://example/schema#Two", "http://other/"]
-        );
-        assert_eq!(
-            index
-                .slow
-                .iter()
-                .map(|(u, _)| u.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "http://alias/schema",
-                "http://example/schema",
-                "http://example/schema#/$defs/one",
-                "http://example/schema#/$defs/other",
-                "http://example/schema#/$defs/other/$ref",
-                "http://example/schema#/$defs/two",
-                "http://example/schema#/$ref",
-                "http://other/#Three",
-                "http://yet-another/"
-            ]
-        );
+        // Verify all expected URIs are indexed
+        let indexed_uris: Vec<(&str, bool)> =
+            index.idx.iter().map(|(u, d, _)| (&(**u), *d)).collect();
 
-        for (uri, is_some) in &[
-            // Fast path.
-            ("http://other/", true),
-            ("http://example/schema#Two", true),
-            // Slow path.
-            ("http://example/schema", true),
-            ("http://example/schema#/$defs/other", true),
-            ("http://other/#Three", true),
-            // Misses.
-            ("http://missing/#Four", false),
-            ("http://other/#Five", false),
-        ] {
-            assert_eq!(
-                index.fetch(&url::Url::parse(uri).unwrap()).is_some(),
-                *is_some,
+        // Check that all expected URIs are present
+        let expected_uris = vec![
+            ("http://example/root#SimpleAnchor", false),
+            ("http://example/root#/$defs/simple", false),
+            ("http://example/root#meta", true), // $dynamicAnchor
+            ("http://example/nested", false),
+            ("http://example/nested#InnerAnchor", false),
+            ("http://example/relative/path", false), // relative to root, not nested
+            ("http://example/recursive#meta", true), // $dynamicAnchor
+            ("http://example/refs#RefsAnchor", false), // anchor in refs
+        ];
+
+        for (uri, is_dynamic) in &expected_uris {
+            assert!(
+                indexed_uris
+                    .iter()
+                    .any(|(u, d)| u == uri && *d == *is_dynamic),
+                "Expected URI '{uri}' with dynamic={is_dynamic} not found in index. Indexed URIs: {:?}",
+                indexed_uris
             );
         }
+
+        // Test fetch operations
+        for (uri, expect_found, expect_dynamic) in &[
+            // Successful lookups
+            ("http://example/root#SimpleAnchor", true, false),
+            ("http://example/root#/$defs/simple", true, false),
+            ("http://example/root#meta", true, true),
+            ("http://example/nested", true, false),
+            ("http://example/nested#InnerAnchor", true, false),
+            ("http://example/relative/path", true, false),
+            ("http://example/recursive#meta", true, true),
+            ("http://example/refs#RefsAnchor", true, false),
+            // Failed lookups
+            ("http://example/missing", false, false),
+            ("http://example/root#MissingAnchor", false, false),
+            ("http://other/schema", false, false),
+        ] {
+            let result = index.fetch(uri);
+            if *expect_found {
+                let (_schema, dynamic) = result.unwrap();
+                assert_eq!(dynamic, *expect_dynamic);
+            } else {
+                assert!(result.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn test_indexing_errors() {
+        // Helper to build and test a schema for errors
+        fn test_schema_error(
+            schema_json: serde_json::Value,
+            base_uri: &str,
+            test_references: bool,
+            expected_error: impl FnOnce(Result<(), Error>) -> bool,
+        ) {
+            let curi = url::Url::parse(base_uri).unwrap();
+            let schema = build_schema::<CoreAnnotation>(&curi, &schema_json).unwrap();
+
+            let mut builder = Builder::new();
+            let add_result = builder.add(&schema);
+
+            if test_references && add_result.is_ok() {
+                let verify_result = builder.verify_references();
+                assert!(expected_error(verify_result));
+            } else {
+                assert!(expected_error(add_result));
+            }
+        }
+
+        // Test duplicate canonical URI error
+        test_schema_error(
+            json!({
+                "$id": "http://example/dup",
+                "$defs": {
+                    "bad": {
+                        "$id": "http://example/dup",  // Duplicate!
+                        "type": "string"
+                    }
+                }
+            }),
+            "http://example/dup",
+            false,
+            |result| matches!(result, Err(Error::DuplicateCanonicalURI(uri)) if uri == "http://example/dup"),
+        );
+
+        // Test duplicate anchor URI error
+        test_schema_error(
+            json!({
+                "$id": "http://example/anchor",
+                "$anchor": "duplicate",
+                "$defs": {
+                    "bad": {
+                        "$anchor": "duplicate",  // Duplicate!
+                        "type": "string"
+                    }
+                }
+            }),
+            "http://example/anchor",
+            false,
+            |result| matches!(result, Err(Error::DuplicateAnchorURI(uri)) if uri == "http://example/anchor#duplicate"),
+        );
+
+        // Test duplicate $dynamicAnchor error
+        test_schema_error(
+            json!({
+                "$id": "http://example/dynamic",
+                "$dynamicAnchor": "meta",
+                "$defs": {
+                    "bad": {
+                        "$dynamicAnchor": "meta",  // Duplicate!
+                        "type": "string"
+                    }
+                }
+            }),
+            "http://example/dynamic",
+            false,
+            |result| matches!(result, Err(Error::DuplicateAnchorURI(uri)) if uri == "http://example/dynamic#meta"),
+        );
+
+        // Test invalid reference error
+        test_schema_error(
+            json!({
+                "$id": "http://example/refs",
+                "$ref": "#/does/not/exist"
+            }),
+            "http://example/refs",
+            true,
+            |result| {
+                matches!(
+                    result,
+                    Err(Error::InvalidReference { ruri, curi })
+                        if ruri == "http://example/refs#/does/not/exist" && curi == "http://example/refs"
+                )
+            },
+        );
     }
 }
