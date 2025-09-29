@@ -4,9 +4,9 @@ use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct ResourceSpecPointers {
-    pub x_collection_name: doc::Pointer,
-    pub x_schema_name: Option<doc::Pointer>,
-    pub x_delta_updates: Option<doc::Pointer>,
+    pub x_collection_name: json::Pointer,
+    pub x_schema_name: Option<json::Pointer>,
+    pub x_delta_updates: Option<json::Pointer>,
 }
 
 ///
@@ -47,7 +47,9 @@ pub fn update_materialization_resource_spec(
     };
 
     let x_collection_name_ptr = &resource_spec_pointers.x_collection_name;
-    let Some(x_collection_name_prev) = x_collection_name_ptr.create_value(resource_spec) else {
+    let Some(x_collection_name_prev) =
+        json::ptr::create_value(x_collection_name_ptr, resource_spec)
+    else {
         anyhow::bail!(
             "cannot create location '{x_collection_name_ptr}' in resource spec '{resource_spec}'"
         );
@@ -60,7 +62,8 @@ pub fn update_materialization_resource_spec(
                 "sources.targetNaming requires a schema but the materialization connector does not support schemas"
             );
         };
-        let Some(x_schema_name_prev) = x_schema_name_ptr.create_value(resource_spec) else {
+        let Some(x_schema_name_prev) = json::ptr::create_value(x_schema_name_ptr, resource_spec)
+        else {
             anyhow::bail!(
                 "cannot create location '{x_schema_name_ptr}' in resource spec '{resource_spec}'"
             );
@@ -74,7 +77,9 @@ pub fn update_materialization_resource_spec(
                 "sources.deltaUpdates is true, but the materialization connector does not support it"
             );
         };
-        let Some(x_delta_updates_prev) = x_delta_updates_ptr.create_value(resource_spec) else {
+        let Some(x_delta_updates_prev) =
+            json::ptr::create_value(x_delta_updates_ptr, resource_spec)
+        else {
             anyhow::bail!(
                 "cannot create location '{x_delta_updates_ptr}' in resource spec '{resource_spec}'"
             );
@@ -90,18 +95,16 @@ pub fn update_materialization_resource_spec(
 /// Returns the pointer to those location, or an error if no `x-collection-name` exists.
 /// Errors from parsing the schema are returned directly. The schema must be fully self-contained (a.k.a. bundled),
 /// or an error will be returned.
-pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPointers> {
+pub fn pointer_for_schema(schema: &str) -> anyhow::Result<ResourceSpecPointers> {
     // While all known connector resource spec schemas are self-contained, we don't
     // actually do anything to guarantee that they are. This function may fail in that case.
-    let schema = doc::validation::build_bundle(schema_json.as_bytes())?;
-    let mut builder = doc::SchemaIndexBuilder::new();
-    builder.add(&schema)?;
-    let index = builder.into_index();
-    let shape = doc::Shape::infer(&schema, &index);
+    let schema = doc::validation::build_bundle(schema.as_bytes())?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
-    let mut x_collection_name: Option<doc::Pointer> = None;
-    let mut x_schema_name: Option<doc::Pointer> = None;
-    let mut x_delta_updates: Option<doc::Pointer> = None;
+    let mut x_collection_name: Option<json::Pointer> = None;
+    let mut x_schema_name: Option<json::Pointer> = None;
+    let mut x_delta_updates: Option<json::Pointer> = None;
 
     for (ptr, _, prop_shape, _) in shape.locations() {
         if prop_shape.annotations.contains_key("x-collection-name") {
@@ -138,17 +141,17 @@ mod test {
     #[test]
     fn test_updating_materialization_resource_spec() {
         let pointers_full = ResourceSpecPointers {
-            x_collection_name: doc::Pointer::from_str("/collectionName"),
-            x_schema_name: Some(doc::Pointer::from_str("/schemaName")),
-            x_delta_updates: Some(doc::Pointer::from_str("/deltaUpdates")),
+            x_collection_name: json::Pointer::from("/collectionName"),
+            x_schema_name: Some(json::Pointer::from("/schemaName")),
+            x_delta_updates: Some(json::Pointer::from("/deltaUpdates")),
         };
         let pointers_no_schema = ResourceSpecPointers {
-            x_collection_name: doc::Pointer::from_str("/collectionName"),
+            x_collection_name: json::Pointer::from("/collectionName"),
             x_schema_name: None,
-            x_delta_updates: Some(doc::Pointer::from_str("/deltaUpdates")),
+            x_delta_updates: Some(json::Pointer::from("/deltaUpdates")),
         };
         let pointers_sparse = ResourceSpecPointers {
-            x_collection_name: doc::Pointer::from_str("/collectionName"),
+            x_collection_name: json::Pointer::from("/collectionName"),
             x_schema_name: None,
             x_delta_updates: None,
         };

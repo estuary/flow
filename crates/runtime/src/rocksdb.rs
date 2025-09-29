@@ -325,7 +325,8 @@ fn do_merge(
 ) -> anyhow::Result<Vec<u8>> {
     let bundle = doc::validation::build_bundle(schema.as_bytes()).unwrap();
     let validator = doc::Validator::new(bundle).unwrap();
-    let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", Vec::new(), None, validator);
+    let spec =
+        doc::combine::Spec::with_one_binding(full, [], "connector state", Vec::new(), validator);
     let memtable = doc::combine::MemTable::new(spec);
 
     let key = String::from_utf8_lossy(key);
@@ -359,7 +360,7 @@ fn do_merge(
     }
 
     // `ptr` plucks out the second element of the reduced array.
-    let ptr = doc::Pointer(vec![doc::ptr::Token::Index(1)]);
+    let ptr = json::Pointer(vec![json::ptr::Token::Index(1)]);
 
     let mut out = Vec::new();
     for (index, drained) in memtable.try_into_drainer()?.enumerate() {

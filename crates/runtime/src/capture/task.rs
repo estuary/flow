@@ -1,6 +1,6 @@
 use super::{Binding, Task};
 use anyhow::Context;
-use proto_flow::capture::{Request, Response, request, response};
+use proto_flow::capture::{request, response, Request, Response};
 use proto_flow::flow;
 use std::collections::BTreeMap;
 
@@ -114,12 +114,11 @@ impl Task {
         let combiner_spec = doc::combine::Spec::with_bindings(
             combiner_spec
                 .into_iter()
-                .map(|(is_full, key, name, validator)| (is_full, key, name, None, validator))
+                .map(|(is_full, key, name, validator)| (is_full, key, name, validator))
                 .chain(std::iter::once((
                     false,
                     Vec::new(),
                     "connector state".to_string(),
-                    None,
                     state_validator,
                 ))),
             self.redact_salt.to_vec(),
@@ -162,7 +161,7 @@ impl Binding {
         let collection_generation_id =
             assemble::extract_generation_id_suffix(&partition_template.name);
 
-        let document_uuid_ptr = doc::Pointer::from(uuid_ptr);
+        let document_uuid_ptr = json::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(&key, &projections, &ser_policy)?;
         let partition_extractors =
             extractors::for_fields(&partition_fields, &projections, &ser_policy)?;
@@ -171,7 +170,7 @@ impl Binding {
             .context("collection write_schema_json is not a JSON schema")?;
         let validator =
             doc::Validator::new(built_schema).context("could not build a schema validator")?;
-        let write_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let write_shape = doc::Shape::infer(&validator.schema(), validator.schema_index());
 
         Ok(Self {
             collection_name: name.clone(),

@@ -7,7 +7,6 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::uuid::Clock;
@@ -22,17 +21,17 @@ pub struct Read {
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
-    key_ptr: Vec<doc::Pointer>,        // Pointers to the document key.
+    key_ptr: Vec<json::Pointer>,       // Pointers to the document key.
     key_schema: avro::Schema,          // Avro schema when encoding keys.
     key_schema_id: u32,                // Registry ID of the key's schema.
-    meta_op_ptr: doc::Pointer,         // Location of document op (currently always `/_meta/op`).
+    meta_op_ptr: json::Pointer,        // Location of document op (currently always `/_meta/op`).
     not_before: Option<uuid::Clock>,   // Not before this clock.
     not_after: Option<uuid::Clock>,    // Not after this clock.
     stream: ReadJsonLines,             // Underlying document stream.
     stream_exp: std::time::SystemTime, // When the stream's authorization expires.
     listener: task_manager::TaskStateListener, // Provides up-to-date journal clients
     buffer_size: usize,                // How many read chunks to buffer
-    uuid_ptr: doc::Pointer,            // Location of document UUID.
+    uuid_ptr: json::Pointer,           // Location of document UUID.
     value_schema_id: u32,              // Registry ID of the value's schema.
     extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>, // Projections to apply
 
@@ -107,7 +106,7 @@ impl Read {
             key_ptr: collection.key_ptr.clone(),
             key_schema: collection.key_schema.clone(),
             key_schema_id,
-            meta_op_ptr: doc::Pointer::from_str("/_meta/op"),
+            meta_op_ptr: json::Pointer::from_str("/_meta/op"),
             not_before: collection.not_before,
             not_after: collection.not_after,
             listener: task_state_listener,
@@ -269,7 +268,7 @@ impl Read {
                             tracing::warn!(
                                 "skipping past non-object node at offset {}: {:?}",
                                 self.offset,
-                                non_object.to_debug_json_value()
+                                doc::SerPolicy::debug_value(non_object)
                             );
                             continue;
                         }
@@ -318,7 +317,7 @@ impl Read {
             let mut record_bytes: usize = 0;
 
             let Some(doc::ArchivedNode::String(uuid)) = self.uuid_ptr.query(root.get()) else {
-                let serialized_doc = root.get().to_debug_json_value();
+                let serialized_doc = doc::SerPolicy::debug_value(root.get());
                 anyhow::bail!(
                     "document at offset {} does not have a valid UUID: {:?}",
                     self.offset,
@@ -550,7 +549,7 @@ fn compressor<Output: BufMut>(
 /// Note that since avro encoding can happen piecewise, there's never a need to
 /// put together the whole extracted document, and instead we can build up the
 /// encoded output iteratively
-pub fn extract_and_encode<N: doc::AsNode>(
+pub fn extract_and_encode<N: json::AsNode>(
     extractors: &[(avro::Schema, utils::CustomizableExtractor)],
     original: &N,
     buf: &mut Vec<u8>,
@@ -566,7 +565,7 @@ pub fn extract_and_encode<N: doc::AsNode>(
             .context(format!(
                 "Extracting field {extractor:#?}, schema: {schema:?}"
             )) {
-                let debug_serialized = serde_json::to_string(&original.to_debug_json_value())?;
+                let debug_serialized = doc::SerPolicy::debug_value(original).to_string();
                 tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
                 return Err(e);
             }

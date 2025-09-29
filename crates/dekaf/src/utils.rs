@@ -7,8 +7,8 @@ use proto_flow::flow::{self, MaterializationSpec};
 use std::{borrow::Cow, iter};
 
 lazy_static! {
-    static ref META_OP_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/op");
-    static ref META_IS_DELETED_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/is_deleted");
+    static ref META_OP_PTR: json::Pointer = json::Pointer::from("/_meta/op");
+    static ref META_IS_DELETED_PTR: json::Pointer = json::Pointer::from("/_meta/is_deleted");
 }
 
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ pub enum CustomizableExtractor {
 // This lets us add our own "virtual" fields to Dekaf without having to add them to
 // doc::Extractor and all of the other platform machinery.
 impl CustomizableExtractor {
-    pub fn extract<'s, 'n, N: doc::AsNode>(
+    pub fn extract<'s, 'n, N: json::AsNode>(
         &'s self,
         doc: &'n N,
     ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
@@ -30,7 +30,7 @@ impl CustomizableExtractor {
             CustomizableExtractor::IsDeleted => {
                 let deletion = match META_OP_PTR.query(doc) {
                     Some(n) => match n.as_node() {
-                        doc::Node::String(s) if s == "d" => 1,
+                        json::Node::String(s) if s == "d" => 1,
                         _ => 0,
                     },
                     None => 0,
@@ -41,7 +41,7 @@ impl CustomizableExtractor {
             CustomizableExtractor::RootExtractorWithIsDeleted => {
                 let deletion = match META_OP_PTR.query(doc) {
                     Some(n) => match n.as_node() {
-                        doc::Node::String(s) if s == "d" => 1,
+                        json::Node::String(s) if s == "d" => 1,
                         _ => 0,
                     },
                     None => 0,
@@ -49,7 +49,9 @@ impl CustomizableExtractor {
 
                 let mut full_doc = serde_json::to_value(&doc::SerPolicy::noop().on(doc)).unwrap();
 
-                if let Some(meta_is_deleted) = META_IS_DELETED_PTR.create_value(&mut full_doc) {
+                if let Some(meta_is_deleted) =
+                    json::ptr::create_value(&META_IS_DELETED_PTR, &mut full_doc)
+                {
                     *meta_is_deleted = serde_json::json!(deletion);
 
                     Err(Cow::Owned(full_doc))
@@ -86,7 +88,7 @@ pub fn build_field_extractors(
             let projection = projections.iter().find(|proj| proj.field == *field);
             if let Some(proj) = projection {
                 // Turn the projection into a (avro::Schema, doc::Extractor) pair
-                let source_ptr = doc::Pointer::from_str(&proj.ptr);
+                let source_ptr = json::Pointer::from_str(&proj.ptr);
                 let (source_shape, exists) = source_shape.locate(&source_ptr);
 
                 let required = match exists {
