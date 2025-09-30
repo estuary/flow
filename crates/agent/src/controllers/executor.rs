@@ -98,7 +98,7 @@ impl automations::Outcome for Outcome {
             status,
             next_run,
             failures,
-            error,
+            mut error,
             live_spec_deleted,
         } = self;
 
@@ -114,7 +114,13 @@ impl automations::Outcome for Outcome {
             return Ok(Action::Done);
         }
 
-        control_plane_api::controllers::update_status(
+        // Guard against any null bytes in an error message, which would be disallowed by postgres.
+        if error.as_ref().is_some_and(|e| e.contains('\0')) {
+            error = error.map(|e| e.replace('\0', "\u{FFFD}")); // unicode replacement char
+            tracing::warn!(%live_spec_id, ?error, "controller error contained null chars");
+        }
+
+        if let Err(error) = control_plane_api::controllers::update_status(
             txn,
             live_spec_id,
             CONTROLLER_VERSION,
@@ -123,7 +129,10 @@ impl automations::Outcome for Outcome {
             error.as_deref(),
         )
         .await
-        .context("updating controller status")?;
+        {
+            tracing::error!(%live_spec_id, ?error, new_controller_status = ?status, controller_error = ?error, "failed to update controller status");
+            return Err(anyhow::Error::from(error)).context("failed to update controller status");
+        }
 
         let action = next_run
             .map(|n| Action::Sleep(n.compute_duration()))
