@@ -212,6 +212,16 @@ async fn walk_derivation<C: Connectors>(
         shards,
     } = model;
 
+    if transforms_model.len() > crate::MAX_BINDINGS {
+        Error::TooManyBindings {
+            entity: "derivation",
+            name: collection.to_string(),
+            count: transforms_model.len(),
+        }
+        .push(scope, errors);
+        return None;
+    }
+
     // Unwrap `using` into a connector type and configuration.
     let (connector_type, config_json): (i32, bytes::Bytes) = match &using {
         models::DeriveUsing::Connector(config) => (

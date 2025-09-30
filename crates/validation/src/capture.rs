@@ -123,6 +123,16 @@ async fn walk_capture<C: Connectors>(
 
     indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
 
+    if bindings_model.len() > crate::MAX_BINDINGS {
+        Error::TooManyBindings {
+            entity: "capture",
+            name: capture.to_string(),
+            count: bindings_model.len(),
+        }
+        .push(scope, errors);
+        return None;
+    }
+
     // Unwrap `endpoint` into a connector type and configuration.
     let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
         models::CaptureEndpoint::Connector(config) => (

@@ -129,6 +129,16 @@ async fn walk_materialization<C: Connectors>(
         errors,
     );
 
+    if bindings_model.len() > crate::MAX_BINDINGS {
+        Error::TooManyBindings {
+            entity: "materialization",
+            name: materialization.to_string(),
+            count: bindings_model.len(),
+        }
+        .push(scope, errors);
+        return None;
+    }
+
     // Unwrap `endpoint` into a connector type and configuration.
     let (connector_type, config_json): (i32, bytes::Bytes) = match &endpoint {
         models::MaterializationEndpoint::Connector(config) => (
