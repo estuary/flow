@@ -70,3 +70,12 @@ body.running-in-iframe .theme-doc-breadcrumbs {
     text-decoration: underline;
     background-color: rgb(233, 238, 237);
 }
+
+.navbar__link--active {
+    color: var(--ifm-color-primary-darker);
+    background-color: rgb(233, 238, 237);
+}
+
+.navbar__link--active:hover {
+    background-color: rgb(211, 214, 213);
+}

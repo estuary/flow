@@ -164,12 +164,6 @@ const config = {
             position: 'left',
             value: '<a href="https://estuary.dev/blog" target="_blank">Blog</a>',
           },
-          {
-            type: 'html',
-            position: 'left',
-            className: 'button-link',
-            value: '<a href="https://dashboard.estuary.dev/register">Try Estuary</a>',
-          },
           /*
           {to: '/blog', label: 'Blog', position: 'left'},
           */
@@ -183,6 +177,12 @@ const config = {
             label: 'GitHub',
             position: 'right',
           },
+          {
+            type: 'html',
+            position: 'right',
+            className: 'button-link',
+            value: '<a href="https://dashboard.estuary.dev/register">Try Estuary</a>',
+          },
         ],
       },
       footer: {
@@ -192,8 +192,12 @@ const config = {
             title: 'Resources',
             items: [
               {
-                label: 'Flow Documentation',
+                label: 'Platform Docs',
                 to: '/',
+              },
+              {
+                label: 'Connector Docs',
+                to: '/reference/Connectors/',
               },
               {
                 label: 'Success Stories',
