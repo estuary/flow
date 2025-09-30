@@ -163,6 +163,7 @@ pub struct AWSPrivateLink {
 pub struct AzurePrivateLink {
     pub service_name: String,
     pub location: String,
+    pub dns_name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub resource_type: String,
 }
@@ -537,6 +538,7 @@ mod test {
                 location: "eastus".to_string(),
                 service_name: "service".to_string(),
                 resource_type: "managedInstance".to_string(),
+                dns_name: "privatelink.database.windows.net".to_string(),
             }),
         );
         assert_eq!(
