@@ -259,6 +259,12 @@ pub enum Error {
     TouchModelIsDelete,
     #[error("this binding must backfill because its source collection {collection} was reset")]
     SourceCollectionWasReset { collection: String },
+    #[error("{entity} {name} has {count} bindings, which exceeds the maximum of {} bindings", crate::MAX_BINDINGS)]
+    TooManyBindings {
+        entity: &'static str,
+        name: String,
+        count: usize,
+    },
 
     #[error("{entity} {name} maps to storage mapping {partition_mapping}, implying it must have an aligned recovery mapping recovery/{partition_mapping}, but it actually maps to {recovery_mapping}")]
     StorageMappingPrefixMismatch {

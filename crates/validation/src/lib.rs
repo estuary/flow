@@ -19,6 +19,10 @@ mod test_step;
 pub use errors::Error;
 pub use noop::NoOpConnectors;
 
+/// Maximum number of bindings allowed in a capture, derivation, or materialization.
+/// We have a hard upper limit of 65,535 because doc::combine uses u16 indices.
+pub const MAX_BINDINGS: usize = 10_000;
+
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
 /// be Validate / Validated variants, but may include `internal` fields.
