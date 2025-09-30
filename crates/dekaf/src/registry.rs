@@ -11,6 +11,11 @@ use itertools::Itertools;
 use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 use std::sync::Arc;
 
+use tokio::sync::OnceCell;
+
+// Singleton HTTP client for proxying requests
+static PROXY_CLIENT: OnceCell<reqwest::Client> = OnceCell::const_new();
+
 // Build an axum::Router which implements a subset of the Confluent Schema Registry API,
 // sufficient for decoding Avro-encoded topic data.
 pub fn build_router(app: Arc<App>) -> axum::Router<()> {
@@ -182,13 +187,15 @@ async fn proxy_request_to_target(
     uri: axum::http::Uri,
     auth: headers::Authorization<headers::authorization::Basic>,
 ) -> Response {
-    let client = reqwest::Client::new();
-
     let target_url = format!(
         "https://dekaf.{}{}",
         target_dataplane_fqdn,
         uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
     );
+
+    tracing::debug!("Proxying request to: {}", target_url);
+
+    let client = get_proxy_client().await;
 
     match client
         .get(&target_url)
@@ -198,39 +205,69 @@ async fn proxy_request_to_target(
     {
         Ok(response) => {
             let status = response.status();
-            let headers = response.headers().clone();
+
+            let response_headers = response.headers().clone();
 
             match response.bytes().await {
                 Ok(body) => {
-                    let mut response = axum::response::Response::new(axum::body::Body::from(body));
-                    *response.status_mut() = axum::http::StatusCode::from_u16(status.as_u16())
+                    tracing::debug!(
+                        "Successfully fetched proxy response. Status: {}, Body size: {} bytes",
+                        status,
+                        body.len()
+                    );
+
+                    let mut axum_response =
+                        axum::response::Response::new(axum::body::Body::from(body));
+
+                    *axum_response.status_mut() = axum::http::StatusCode::from_u16(status.as_u16())
                         .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
 
-                    // Copy relevant headers from the proxied response
-                    for (name, value) in headers.iter() {
+                    // Forward all headers from the backend response, except hop-by-hop headers
+                    for (name, value) in response_headers.iter() {
+                        // Skip hop-by-hop headers that shouldn't be forwarded
+                        let name_lower = name.as_str().to_lowercase();
+                        if matches!(
+                            name_lower.as_str(),
+                            "connection"
+                                | "keep-alive"
+                                | "proxy-authenticate"
+                                | "proxy-authorization"
+                                | "te"
+                                | "trailers"
+                                | "transfer-encoding"
+                                | "upgrade"
+                        ) {
+                            continue;
+                        }
+
                         if let Ok(header_name) =
                             axum::http::HeaderName::from_bytes(name.as_str().as_bytes())
                         {
                             if let Ok(header_value) =
                                 axum::http::HeaderValue::from_bytes(value.as_bytes())
                             {
-                                response.headers_mut().insert(header_name, header_value);
+                                axum_response
+                                    .headers_mut()
+                                    .insert(header_name, header_value);
                             }
                         }
                     }
 
-                    response
+                    axum_response
                 }
                 Err(err) => {
-                    let err = format!("Failed to read response body: {err:#?}");
-                    tracing::error!(err, "proxy request failed");
+                    let err = format!(
+                        "Failed to read response body from {}: {:#?}",
+                        target_url, err
+                    );
+                    tracing::error!(err);
                     (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
                 }
             }
         }
         Err(err) => {
-            let err = format!("Failed to proxy request to {}: {err:#?}", target_url);
-            tracing::error!(err, "proxy request failed");
+            let err = format!("Failed to proxy request to {}: {:#?}", target_url, err);
+            tracing::error!(err);
             (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
         }
     }
@@ -249,9 +286,14 @@ async fn authenticate_and_proxy(
         Ok(SessionAuthentication::Redirect {
             target_dataplane_fqdn,
             ..
-        }) => proxy_request_to_target(target_dataplane_fqdn, uri, auth).await,
+        }) => {
+            tracing::debug!(
+                "Redirecting schema registry request to dataplane: {}",
+                target_dataplane_fqdn
+            );
+            proxy_request_to_target(target_dataplane_fqdn, uri, auth).await
+        }
         Ok(auth) => {
-            // Insert the authentication into request extensions so handlers can access it
             req.extensions_mut().insert(auth);
             next.run(req).await
         }
@@ -266,4 +308,17 @@ async fn authenticate_and_proxy(
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response()
         }
     }
+}
+
+async fn get_proxy_client() -> &'static reqwest::Client {
+    PROXY_CLIENT
+        .get_or_init(|| async {
+            reqwest::Client::builder()
+                .http1_only()
+                .pool_idle_timeout(std::time::Duration::from_secs(90))
+                .pool_max_idle_per_host(10)
+                .build()
+                .expect("Failed to create proxy HTTP client")
+        })
+        .await
 }
