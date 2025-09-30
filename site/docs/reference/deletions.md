@@ -82,6 +82,8 @@ Essentially, if there isn't already a document for that ID, there is nothing for
 
 To handle this edge case, you should ensure there is more than one document for the ID so the deletion reduction can take place.
 A simple solution is to emit a delete event twice in your transformation.
+These delete event emissions should all be contained in the same lambda statement to avoid further orphaned deletions.
+
 For example, consider this SQL lambda statement:
 
 ```sql
