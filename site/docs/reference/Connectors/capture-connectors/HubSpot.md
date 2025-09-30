@@ -41,7 +41,6 @@ The following data resources are supported for all subscription levels:
 The following data resources are supported for pro accounts (set **Subscription type** to `pro` in the [configuration](#endpoint)):
 
 * [Feedback Submissions](https://developers.hubspot.com/docs/api/crm/feedback-submissions)
-* [Marketing Emails](https://legacydocs.hubspot.com/docs/methods/cms_email/get-all-marketing-email-statistics)
 * [Workflows](https://legacydocs.hubspot.com/docs/methods/workflows/v3/get_workflows)
 
 ## Prerequisites
