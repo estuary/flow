@@ -1577,3 +1577,88 @@ driver:
     );
     insta::assert_debug_snapshot!(outcome);
 }
+
+#[test]
+fn test_capture_too_many_bindings() {
+    let bindings_count = validation::MAX_BINDINGS + 1;
+
+    // Generate patch with too many bindings
+    let mut patch = r##"
+test://example/int-string-captures:
+  captures:
+    testing/s3-source:
+      bindings:
+"##
+    .to_string();
+
+    // Add many bindings
+    for i in 0..bindings_count {
+        patch.push_str(&format!(
+            r##"        - target: testing/int-string
+          resource:
+            stream: "binding{}"
+"##,
+            i
+        ));
+    }
+
+    let errors = common::run_errors(MODEL_YAML, &patch);
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_derivation_too_many_transforms() {
+    let transforms_count = validation::MAX_BINDINGS + 1;
+
+    // Generate patch with too many transforms
+    let mut patch = r##"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        transforms:
+"##
+    .to_string();
+
+    // Add many transforms
+    for i in 0..transforms_count {
+        patch.push_str(&format!(
+            r##"          - name: transform{}
+            source: testing/int-string
+            shuffle: any
+"##,
+            i
+        ));
+    }
+
+    let errors = common::run_errors(MODEL_YAML, &patch);
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_materialization_too_many_bindings() {
+    let bindings_count = validation::MAX_BINDINGS + 1;
+
+    // Generate patch with too many bindings
+    let mut patch = r##"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      bindings:
+"##
+    .to_string();
+
+    // Add many bindings
+    for i in 0..bindings_count {
+        patch.push_str(&format!(
+            r##"        - source: testing/int-string
+          resource:
+            table: "table{}"
+"##,
+            i
+        ));
+    }
+
+    let errors = common::run_errors(MODEL_YAML, &patch);
+    insta::assert_debug_snapshot!(errors);
+}

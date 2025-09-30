@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        error: capture testing/s3-source has 10001 bindings, which exceeds the maximum of 10000 bindings,
+    },
+]

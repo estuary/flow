@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive,
+        error: derivation testing/int-reverse has 10001 bindings, which exceeds the maximum of 10000 bindings,
+    },
+]

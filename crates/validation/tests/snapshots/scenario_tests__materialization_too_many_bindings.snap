@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views,
+        error: materialization testing/db-views has 10001 bindings, which exceeds the maximum of 10000 bindings,
+    },
+]
