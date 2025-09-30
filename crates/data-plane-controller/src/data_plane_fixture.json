@@ -41,7 +41,8 @@
       {
         "service_name": "service",
         "location": "eastus",
-        "resource_type": "managedInstance"
+        "resource_type": "managedInstance",
+        "dns_name": "privatelink.database.windows.net"
       }
     ],
     "azure_byoc": {
