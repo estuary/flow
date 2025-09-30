@@ -64,6 +64,7 @@ fn to_sub_schema(shape: Shape) -> Schema {
 
         for ObjProperty {
             name,
+            is_property: _,
             is_required,
             shape,
         } in properties
@@ -222,8 +223,8 @@ fn num_to_value(num: json::Number) -> serde_json::Value {
     use json::Number;
     match num {
         Number::Float(f) => serde_json::json!(f),
-        Number::Unsigned(u) => serde_json::json!(u),
-        Number::Signed(s) => serde_json::json!(s),
+        Number::PosInt(u) => serde_json::json!(u),
+        Number::NegInt(s) => serde_json::json!(s),
     }
 }
 
@@ -330,9 +331,9 @@ mod tests {
         });
 
         let curi = url::Url::parse("flow://fixture").unwrap();
-        let schema = crate::validation::build_schema(curi, &fixture).unwrap();
+        let schema = json::schema::build(&curi, &fixture).unwrap();
         let validator = crate::Validator::new(schema).unwrap();
-        let shape = crate::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let shape = crate::Shape::infer(validator.schema(), validator.schema_index());
         let output = serde_json::to_value(to_schema(shape)).unwrap();
 
         assert_eq!(fixture, output);

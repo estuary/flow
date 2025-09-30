@@ -1,8 +1,7 @@
 use doc::{
     combine::{MemTable, Spec, SpillDrainer, SpillWriter},
     reduce::Error,
-    validation::build_schema,
-    HeapNode, LazyNode, SerPolicy, Validator,
+    HeapNode, LazyNode, SerPolicy,
 };
 use quickcheck::quickcheck;
 use serde_json::{json, Value};
@@ -23,9 +22,9 @@ quickcheck! {
 
 fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
     let alloc = HeapNode::new_allocator();
-    let curi = url::Url::parse("http://example").unwrap();
-    let mut validator =
-        Validator::new(build_schema(curi, &doc::reduce::merge_patch_schema()).unwrap()).unwrap();
+    let curi = url::Url::parse("schema://").unwrap();
+    let schema = json::schema::build(&curi, &doc::reduce::merge_patch_schema()).unwrap();
+    let mut validator = doc::Validator::new(schema).unwrap();
 
     let mut it = input.into_iter().map(|a| a.0);
 
@@ -42,7 +41,7 @@ fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
     // Perform a pass of associative reductions.
     for rhs in it {
         json_patch::merge(&mut expect, &rhs);
-        let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
+        let rhs_valid = validator.validate(&rhs, |outcome| Some(outcome)).unwrap();
 
         // Attempt to associatively-reduce `doc` into the top of the stack.
         let top = stack.last_mut().unwrap();
@@ -50,7 +49,7 @@ fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
         match doc::reduce::reduce(
             LazyNode::Heap(top),
             LazyNode::Node(&rhs),
-            rhs_valid,
+            &rhs_valid,
             &alloc,
             false,
         ) {
@@ -69,12 +68,12 @@ fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
     // Now perform full reductions.
     let mut reduced = HeapNode::from_node(&seed, &alloc);
     for rhs in stack {
-        let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
+        let rhs_valid = validator.validate(&rhs, |outcome| Some(outcome)).unwrap();
 
         (reduced, _) = doc::reduce::reduce(
             LazyNode::Heap::<Value>(&reduced),
             LazyNode::Heap(&rhs),
-            rhs_valid,
+            &rhs_valid,
             &alloc,
             true,
         )
@@ -88,18 +87,23 @@ fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
 
 fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
     let spec = |is_full| {
-        let curi = url::Url::parse("http://example").unwrap();
-        let schema = build_schema(curi, &doc::reduce::merge_patch_schema()).unwrap();
+        let curi = url::Url::parse("schema://").unwrap();
+        let schema = json::schema::build(&curi, &doc::reduce::merge_patch_schema()).unwrap();
         (
             is_full,
             [], // Empty key (all docs are equal)
             "source-name",
-            None,
-            Validator::new(schema).unwrap(),
+            doc::Validator::new(schema).unwrap(),
         )
     };
-    let memtable_1 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter(), Vec::new()));
-    let memtable_2 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter(), Vec::new()));
+    let memtable_1 = MemTable::new(Spec::with_bindings(
+        [spec(false), spec(true)].into_iter(),
+        Vec::new(),
+    ));
+    let memtable_2 = MemTable::new(Spec::with_bindings(
+        [spec(false), spec(true)].into_iter(),
+        Vec::new(),
+    ));
 
     let seed = json!({"hello": "world", "null": null});
     let mut expect = seed.clone();

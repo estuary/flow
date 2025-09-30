@@ -1,12 +1,12 @@
 use crate::discovers::Changed;
 use crate::draft_error;
-use crate::evolutions::EvolvedCollection;
 use crate::publications;
 use crate::status::{
     activation::ActivationStatus, publications::PublicationStatus, PendingConfigUpdateStatus,
 };
 use crate::ResourcePath;
 use chrono::{DateTime, Utc};
+use itertools::Itertools;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +29,7 @@ pub struct CaptureStatus {
 
 /// A capture binding that has changed as a result of a discover
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct DiscoverChange {
     /// Identifies the resource in the source system that this change pertains to.
     pub resource_path: ResourcePath,
@@ -50,6 +51,7 @@ impl DiscoverChange {
 
 /// The results of an auto-discover attempt
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverOutcome {
     /// Time at which the disocver was attempted
     #[schemars(schema_with = "crate::datetime_schema")]
@@ -66,9 +68,6 @@ pub struct AutoDiscoverOutcome {
     /// Errors that occurred during the discovery or evolution process.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<draft_error::Error>,
-    /// Collections that were re-created due to the collection key having changed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub re_created_collections: Vec<EvolvedCollection>,
     /// The result of publishing the discovered changes, if a publication was attempted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish_result: Option<publications::JobStatus>,
@@ -85,14 +84,26 @@ impl AutoDiscoverOutcome {
     /// Returns an `Err` if any part of the auto-discover failed. Returns `Ok`
     /// only if the auto-discover was successful.
     pub fn get_result(&self) -> anyhow::Result<()> {
-        if let Some(first_err) = self.errors.get(0) {
-            anyhow::bail!("auto-discover failed: {}", &first_err.detail);
-        }
-        if let Some(pub_result) = self
+        let publish_err = self
             .publish_result
             .as_ref()
-            .filter(|r| !(r.is_success() || r.is_empty_draft()))
-        {
+            .filter(|r| !(r.is_success() || r.is_empty_draft()));
+
+        let pub_err_detail = publish_err.map(|_| " publication").unwrap_or_default();
+        if self.errors.len() == 1 {
+            let first_err = self.errors.get(0).unwrap();
+            anyhow::bail!("auto-discover{pub_err_detail} failed: {}", first_err);
+        } else if self.errors.len() > 1 {
+            let errors = self.errors.iter().format("\n\n");
+            anyhow::bail!(
+                "auto-discover{pub_err_detail} failed with {} errors:\n{}",
+                self.errors.len(),
+                errors
+            );
+        }
+
+        // fallback error if errors is empty. This case should happen only rarely, or maybe never
+        if let Some(pub_result) = publish_err {
             anyhow::bail!("auto-discover publication failed with: {:?}", pub_result)
         };
         Ok(())
@@ -119,13 +130,13 @@ impl AutoDiscoverOutcome {
             added: Vec::new(),
             modified: Vec::new(),
             removed: Vec::new(),
-            re_created_collections: Vec::new(),
             publish_result: None,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema, Clone)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverFailure {
     /// The number of consecutive failures that have been observed.
     pub count: u32,
@@ -139,7 +150,11 @@ pub struct AutoDiscoverFailure {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct AutoDiscoverStatus {
+    // Note that interval is skipped in graphql because `std::time::Duration`
+    // doesn't implement `async_graphql::Scalar` and it's not really something
+    // we use at the moment anyway.
     /// The interval at which auto-discovery is run. This is normally unset, which uses
     /// the default interval.
     #[serde(
@@ -148,6 +163,7 @@ pub struct AutoDiscoverStatus {
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "interval_schema")]
+    #[cfg_attr(feature = "async-graphql", graphql(skip))]
     pub interval: Option<std::time::Duration>,
 
     /// Time at which the next auto-discover should be run.

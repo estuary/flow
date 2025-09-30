@@ -1,0 +1,78 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "liveSpecs": {
+    "edges": [
+      {
+        "node": {
+          "activeAlerts": [],
+          "alertHistory": {
+            "edges": []
+          },
+          "catalogName": "bobCo/private/materialization",
+          "liveSpec": {
+            "isDisabled": false,
+            "model": {
+              "bindings": [
+                {
+                  "fields": {
+                    "recommended": true
+                  },
+                  "resource": {
+                    "_meta": {
+                      "path": [
+                        "a"
+                      ]
+                    },
+                    "id": "a"
+                  },
+                  "source": "aliceCo/shared/a"
+                },
+                {
+                  "fields": {
+                    "recommended": true
+                  },
+                  "resource": {
+                    "_meta": {
+                      "path": [
+                        "b"
+                      ]
+                    },
+                    "id": "b"
+                  },
+                  "source": "aliceCo/shared/b"
+                },
+                {
+                  "fields": {
+                    "recommended": true
+                  },
+                  "resource": {
+                    "_meta": {
+                      "path": [
+                        "c"
+                      ]
+                    },
+                    "id": "c"
+                  },
+                  "source": "aliceCo/shared/c"
+                }
+              ],
+              "endpoint": {
+                "connector": {
+                  "config": {},
+                  "image": "materialize/test:test"
+                }
+              }
+            }
+          },
+          "status": {
+            "summary": "waiting for task shards to be ready"
+          },
+          "userCapability": "admin"
+        }
+      }
+    ]
+  }
+}

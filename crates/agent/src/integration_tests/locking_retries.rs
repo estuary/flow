@@ -6,7 +6,7 @@ use crate::{
     ControlPlane,
 };
 use control_plane_api::publications::{
-    DefaultRetryPolicy, JobStatus, LockFailure, NoopWithCommit, RetryPolicy,
+    DefaultRetryPolicy, JobStatus, LockFailure, NoopWithCommit, RetryPolicy, StatusType,
 };
 
 #[tokio::test]
@@ -385,10 +385,8 @@ async fn assert_last_pub_build(
 }
 
 fn assert_lock_failures(expected: &[(&'static str, Id, Option<Id>)], actual: &JobStatus) {
-    let JobStatus::BuildIdLockFailure { failures } = actual else {
-        panic!("unexpected publication status: {:?}", actual);
-    };
-    let mut act: Vec<LockFailure> = failures.iter().cloned().collect();
+    assert_eq!(StatusType::BuildIdLockFailure, actual.r#type);
+    let mut act: Vec<LockFailure> = actual.lock_failures.iter().cloned().collect();
     act.sort_by(|l, r| l.catalog_name.cmp(&r.catalog_name));
 
     let mut exp: Vec<LockFailure> = expected

@@ -476,6 +476,13 @@ async fn test_auto_discovers_no_evolution() {
                 "disable": false
               }
             ],
+            "errors": [
+              {
+                "catalog_name": "mules/hey",
+                "scope": "flow://collection/mules/hey#/key/1",
+                "detail": "location /invalid-key is unknown in schema schema://bundle"
+              }
+            ],
             "publish_result": {
               "type": "buildFailed"
             }
@@ -488,9 +495,9 @@ async fn test_auto_discovers_no_evolution() {
     let status = harness.status_summary("mules/capture").await;
     assert_eq!(StatusSummaryType::Error, status.status);
     assert!(
-        status
-            .message
-            .contains("auto-discover publication failed with: BuildFailed"),
+        status.message.contains(
+            "auto-discover publication failed: mules/hey: location /invalid-key is unknown in schema"
+        ),
         "unexpected status summary: {}",
         status.message
     );
@@ -517,17 +524,18 @@ async fn test_auto_discovers_no_evolution() {
         let status = harness.status_summary("mules/capture").await;
         assert_eq!(StatusSummaryType::Error, status.status);
         assert!(
-            status
-                .message
-                .contains("auto-discover publication failed with: BuildFailed"),
+            status.message.contains(
+                "auto-discover publication failed: mules/hey: location /invalid-key is unknown in schema"
+            ),
             "unexpected status summary: {}",
             status.message
         );
     }
 
-    harness
+    let firing_alert = harness
         .assert_alert_firing("mules/capture", AlertType::AutoDiscoverFailed)
         .await;
+    insta::assert_snapshot!("firing-alert-error", firing_alert.error);
 
     // Now simulate the discovered key going back to normal and assert that it succeeds
     harness.set_auto_discover_due("mules/capture").await;
@@ -951,7 +959,7 @@ async fn test_auto_discovers_update_only() {
     let failure = auto_discover.failure.as_ref().unwrap();
     assert_eq!(3, failure.count, "expect auto-discover was attempted again");
     assert_eq!(
-        Some(publications::JobStatus::build_failed()),
+        Some(publications::StatusType::BuildFailed.into()),
         failure.last_outcome.publish_result
     );
     // Ensure that the failed publication is shown in the history.

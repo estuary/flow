@@ -30,6 +30,7 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
 runtime = { path = "../runtime" }
+simd-doc = { path = "../simd-doc" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
@@ -38,11 +39,13 @@ anyhow = { workspace = true }
 base64 = { workspace = true }
 bytelines = { workspace = true }
 bytes = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 comfy-table = { workspace = true }
 crossterm = { workspace = true }
 dirs = { workspace = true }
 futures = { workspace = true }
+graphql_client = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }

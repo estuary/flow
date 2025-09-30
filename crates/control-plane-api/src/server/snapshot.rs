@@ -193,8 +193,10 @@ impl Snapshot {
     where
         P: FnOnce(
             &Self,
-        )
-            -> Result<(Option<chrono::DateTime<chrono::Utc>>, Ok), crate::server::error::ApiError>,
+        ) -> Result<
+            (Option<chrono::DateTime<chrono::Utc>>, Ok),
+            crate::server::error::ApiError,
+        >,
     {
         let snapshot = mu.read().unwrap();
 
@@ -427,7 +429,7 @@ pub async fn fetch_loop(app: Arc<App>) {
     }
 }
 
-async fn try_fetch(
+pub async fn try_fetch(
     pg_pool: &sqlx::PgPool,
     decrypted_hmac_keys: &mut HashMap<String, Vec<String>>,
 ) -> anyhow::Result<Snapshot> {

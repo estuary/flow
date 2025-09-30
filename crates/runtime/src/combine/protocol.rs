@@ -36,10 +36,10 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
         let uuid_ptr = if uuid_ptr.is_empty() {
             None
         } else {
-            Some(doc::ptr::Pointer::from_str(&uuid_ptr))
+            Some(json::Pointer::from_str(&uuid_ptr))
         };
 
-        specs.push((full, key.clone(), "source", None, validator));
+        specs.push((full, key.clone(), "source", validator));
         bindings.push(Binding {
             key,
             ser_policy: ser_policy.clone(),
@@ -49,7 +49,10 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
     }
 
     Ok((
-        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter(), Vec::new()))?,
+        Accumulator::new(doc::combine::Spec::with_bindings(
+            specs.into_iter(),
+            Vec::new(),
+        ))?,
         bindings,
     ))
 }
@@ -102,8 +105,8 @@ pub fn recv_client_add(
             }
         }
 
-        let Ok(_) = uuid_ptr.create_heap_node(
-            &mut doc,
+        let Ok(_) = doc.try_set(
+            uuid_ptr,
             doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
             alloc,
         ) else {
@@ -111,7 +114,7 @@ pub fn recv_client_add(
         };
     }
 
-    memtable.add(binding_index, doc, front)?;
+    memtable.add(binding_index as u16, doc, front)?;
 
     Ok(())
 }
@@ -126,8 +129,10 @@ pub fn send_client_response(
     let binding_index = meta.binding();
     let binding = &bindings[binding_index];
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key, buf);
-    let values_packed = doc::Extractor::extract_all_owned(&root, &binding.values, buf);
+    doc::Extractor::extract_all_owned(&root, &binding.key, buf);
+    let key_packed = buf.split().freeze();
+    doc::Extractor::extract_all_owned(&root, &binding.values, buf);
+    let values_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");

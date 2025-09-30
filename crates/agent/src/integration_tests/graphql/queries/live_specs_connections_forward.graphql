@@ -1,0 +1,35 @@
+fragment Select on LiveSpecRefConnection {
+    pageInfo {
+        hasNextPage
+        hasPreviousPage
+    }
+    edges {
+        cursor
+        node {
+            catalogName
+            userCapability
+        }
+    }
+}
+
+query LiveSpecsConnectionsForward {
+    liveSpecs(
+        by: { names: ["aliceCo/shared/capture", "aliceCo/shared/materialize"] }
+    ) {
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    readsFrom(after: "aliceCo/shared/a", first: 2) {
+                        ...Select
+                    }
+                    writesTo(after: "aliceCo/shared/b", first: 20) {
+                        ...Select
+                    }
+                }
+            }
+        }
+    }
+}

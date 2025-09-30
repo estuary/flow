@@ -1,4 +1,44 @@
 """
+Status of the task shards running in the data-plane. This records information about
+the activations of builds in the data-plane, including any subsequent re-activations
+due to shard failures.
+"""
+type ActivationStatus {
+	"""
+	The build id that was last activated in the data plane.
+	If this is less than the `last_build_id` of the controlled spec,
+	then an activation is still pending.
+	"""
+	lastActivated: Id!
+	"""
+	If this is a task with shards, this will track their last observed status.
+	"""
+	shardStatus: ShardStatusCheck
+	"""
+	The time at which the last data plane activation was performed.
+	This could have been in order to activate a recent publication,
+	or in response to a shard failure.
+	"""
+	lastActivatedAt: DateTime
+	"""
+	The most recent shard failure to have been observed. The presence of a failure here
+	does not necessarily mean that the shard is currently in a failed state, as it may
+	have been re-activated since the failure occurred.
+	"""
+	lastFailure: ShardFailure
+	"""
+	Count of shard failures that have been observed over the last 24 hours for the currently activated
+	build. This resets to 0 when a newly published build is activated.
+	"""
+	recentFailureCount: Int!
+	"""
+	The next time at which failed task shards will be re-activated. If this is present, then
+	there has been at least one observed shard failure, which the controller has not yet handled.
+	"""
+	nextRetry: DateTime
+}
+
+"""
 An alert from the alert_history table
 """
 type Alert {
@@ -11,11 +51,11 @@ type Alert {
 	"""
 	catalogName: String!
 	"""
-	Time at which the alert started firing.
+	Time at which the alert became active.
 	"""
 	firedAt: DateTime!
 	"""
-	The time at which the alert was resolved, or null if it is still firing.
+	The time at which the alert was resolved, or null if it is still active.
 	"""
 	resolvedAt: DateTime
 	"""
@@ -34,10 +74,6 @@ type AlertConnection {
 	A list of edges.
 	"""
 	edges: [AlertEdge!]!
-	"""
-	A list of nodes.
-	"""
-	nodes: [Alert!]!
 }
 
 """
@@ -56,26 +92,102 @@ type AlertEdge {
 
 enum AlertType {
 	auto_discover_failed
-	shard_failed
 	data_movement_stalled
 	free_trial
 	free_trial_ending
 	free_trial_stalled
 	missing_payment_method
+	shard_failed
 }
 
-"""
-A prefix to which the user is authorized.
-"""
-type AuthorizedPrefix {
+input AlertsBy {
 	"""
-	The prefix to which the user is authorized.
+	Show alerts for the given catalog namespace prefix.
 	"""
 	prefix: String!
 	"""
-	The capability granted to the user for this prefix.
+	Optionally filter alerts by active status. If unspecified, both active
+	and resolved alerts will be returned.
 	"""
-	capability: Capability!
+	active: Boolean
+}
+
+type AutoDiscoverFailure {
+	"""
+	The number of consecutive failures that have been observed.
+	"""
+	count: Int!
+	"""
+	The timestamp of the first failure in the current sequence.
+	"""
+	firstTs: DateTime!
+	"""
+	The discover outcome corresponding to the most recent failure. This will
+	be updated with the results of each retry until an auto-discover
+	succeeds.
+	"""
+	lastOutcome: AutoDiscoverOutcome!
+}
+
+"""
+The results of an auto-discover attempt
+"""
+type AutoDiscoverOutcome {
+	"""
+	Time at which the disocver was attempted
+	"""
+	ts: DateTime!
+	"""
+	Bindings that were added to the capture.
+	"""
+	added: [DiscoverChange!]!
+	"""
+	Bindings that were modified, either to change the schema or the collection key.
+	"""
+	modified: [DiscoverChange!]!
+	"""
+	Bindings that were removed because they no longer appear in the source system.
+	"""
+	removed: [DiscoverChange!]!
+	"""
+	Errors that occurred during the discovery or evolution process.
+	"""
+	errors: [Error!]!
+	"""
+	The result of publishing the discovered changes, if a publication was attempted.
+	"""
+	publishResult: JobStatus
+}
+
+type AutoDiscoverStatus {
+	"""
+	Time at which the next auto-discover should be run.
+	"""
+	nextAt: DateTime
+	"""
+	The outcome of the a recent discover, which is about to be published.
+	This will typically only be observed if the publication failed for some
+	reason.
+	"""
+	pendingPublish: AutoDiscoverOutcome
+	"""
+	The outcome of the last _successful_ auto-discover. If `failure` is set,
+	then that will typically be more recent than `last_success`.
+	"""
+	lastSuccess: AutoDiscoverOutcome
+	"""
+	If auto-discovery has failed, this will include information about that failure.
+	This field is cleared as soon as a successful auto-discover is run.
+	"""
+	failure: AutoDiscoverFailure
+}
+
+"""
+Input type for returning live specs references by prefix and catalog type.
+"""
+input ByPrefixAndType {
+	prefix: Prefix!
+	catalogType: CatalogType!
 }
 
 """
@@ -97,6 +209,67 @@ enum CatalogType {
 	test
 }
 
+scalar Collection
+
+"""
+The shape of a connector status, which matches that of an ops::Log.
+"""
+type ConnectorStatus {
+	"""
+	The shard that last updated the status
+	"""
+	shard: ShardRef!
+	"""
+	The time at which the status was last updated
+	"""
+	ts: DateTime!
+	"""
+	The message is meant to be presented to users, and may use Markdown formatting.
+	"""
+	message: String!
+	"""
+	Arbitrary JSON that can be used to communicate additional details. The
+	specific fields and their meanings are entirely up to the connector.
+	"""
+	fields: JSONObject!
+}
+
+"""
+Status info related to the controller
+"""
+type Controller {
+	nextRun: DateTime
+	error: String
+	failures: Int!
+	"""
+	Present for captures, collections, and materializations.
+	"""
+	activation: ActivationStatus
+	"""
+	Present for all catalog types
+	"""
+	publications: PublicationStatus
+	"""
+	Only present for captures that use `autoDiscover`.
+	"""
+	autoDiscover: AutoDiscoverStatus
+	"""
+	Only present for materializations that use `sources`.
+	"""
+	sourceCapture: SourceCaptureStatus
+	"""
+	Only present for collections that use the inferred schema.
+	"""
+	inferredSchema: InferredSchemaStatus
+	"""
+	Only present for captures or materializations that update their own endpoint configurations
+	(typically just captures that need to refres OAuth tokens).
+	"""
+	configUpdate: PendingConfigUpdateStatus
+	alerts: JSONObject
+	updatedAt: DateTime!
+}
+
 """
 Implement the DateTime<Utc> scalar
 
@@ -104,34 +277,190 @@ The input/output is a string in RFC3339 format.
 """
 scalar DateTime
 
+"""
+A capture binding that has changed as a result of a discover
+"""
+type DiscoverChange {
+	"""
+	Identifies the resource in the source system that this change pertains to.
+	"""
+	resourcePath: [String!]!
+	"""
+	The target collection of the capture binding that was changed.
+	"""
+	target: Collection!
+	"""
+	Whether the capture binding is disabled.
+	"""
+	disable: Boolean!
+}
+
+"""
+A generic error that can be associated with a particular draft spec for a given operation.
+"""
+type Error {
+	catalogName: String!
+	scope: String
+	detail: String!
+}
+
 scalar Id
+
+"""
+Status of the inferred schema
+"""
+type InferredSchemaStatus {
+	"""
+	The time at which the inferred schema was last published. This will only
+	be present if the inferred schema was published at least once.
+	"""
+	schemaLastUpdated: DateTime
+	"""
+	The md5 sum of the inferred schema that was last published.
+	Because the publications handler updates the model instead of the controller, it's
+	technically possible for the published inferred schema to be more recent than the one
+	corresponding to this hash. If that happens, we would expect a subsequent publication
+	on the next controller run, which would update the hash but not actually modify the schema.
+	"""
+	schemaMd5: String
+}
 
 """
 A scalar that can represent any JSON value.
 """
 scalar JSON
 
+"""
+A scalar that can represent any JSON Object value.
+"""
+scalar JSONObject
+
+"""
+The status of a publication.
+"""
+type JobStatus {
+	type: StatusType!
+	lockFailures: [LockFailure!]!
+}
+
 type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
-	specType: CatalogType!
-	spec: JSON!
+	catalogType: CatalogType!
+	model: JSON!
 	lastBuildId: Id!
 	lastPubId: Id!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	builtSpec: JSON!
+	isDisabled: Boolean!
+	readsFrom(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	writesTo(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	sourceCapture: LiveSpecRef
+	"""
+	Returns a list of live specs that write to this spec. This will always
+	be empty if this spec is a not a collection.
+	"""
+	writtenBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	"""
+	Returns a list of live specs that read from this spec. This will always
+	be empty if this spec is a not a collection.
+	"""
+	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+}
+
+"""
+Represents a reference from one live spec to another.
+"""
+type LiveSpecRef {
+	"""
+	The catalog_name of the referent.
+	"""
+	catalogName: Name!
+	"""
+	The current user's capability to the referent. Null indicates no access.
+	A query can obtain a reference to a catalog spec that the user has no
+	access to, which happens in scenarios where a LiveSpec that the user
+	does have access to references a spec in a different catalog namespace
+	that the user cannot access. It can also happen simply by listing by
+	name, and passing a name that the user cannot access. In either case,
+	the result would be `userCapability: null`, and all other fields on the
+	LiveSpecRef would also be null.
+	"""
+	userCapability: Capability
+	"""
+	Returns the live spec that the reference points to, if the user has access to it.
+	"""
+	liveSpec: LiveSpec
 	"""
 	Returns all alerts that are currently firing for this live spec.
 	"""
-	firingAlerts: [Alert!]!
+	activeAlerts: [Alert!]
 	"""
 	Returns the history of resolved alerts for this live spec. Alerts are
 	returned in reverse chronological order based on the `firedAt`
 	timestamp, and are paginated.
 	"""
-	alertHistory(before: String, last: Int!): AlertConnection!
+	alertHistory(before: String, last: Int!): AlertConnection
+	"""
+	Returns the status of the live spec.
+	"""
+	status: Status
 }
+
+type LiveSpecRefConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [LiveSpecRefEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type LiveSpecRefEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: LiveSpecRef!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input LiveSpecsBy @oneOf {
+	prefixAndType: ByPrefixAndType
+	names: [Name!]
+}
+
+"""
+Represents an optimistic lock failure when trying to update a specification.
+This typically means that an expectPubId was not matched, implying that
+another publication has applied a conflicting update to this specification
+since it was last fetched.
+"""
+type LockFailure {
+	"""
+	The name of the spec that failed the optimistic concurrency check.
+	"""
+	catalogName: String!
+	"""
+	The expected id (either `last_pub_id` or `last_build_id`) that was not
+	matched.
+	"""
+	expected: Id!
+	"""
+	The actual id that was found.
+	"""
+	actual: Id
+}
+
+scalar Name
 
 """
 Information about pagination in a connection
@@ -155,48 +484,355 @@ type PageInfo {
 	endCursor: String
 }
 
-type QueryRoot {
-	captures(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
-	collections(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
-	materializations(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
-	tests(
-		"""
-		Filter by catalog prefix
-		"""
-		prefixes: [String!]!
-	): [LiveSpec!]!
+"""
+Information on the config updates performed by the controller.
+This does not include any information on user-initiated config updates.
+"""
+type PendingConfigUpdateStatus {
+	nextAttempt: DateTime!
 	"""
-	Returns a list of alerts that are currently firing for the given catalog
+	The id of the build when the associated config update event was generated.
+	"""
+	build: Id!
+}
+
+scalar Prefix
+
+type PrefixConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [PrefixEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type PrefixEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Prefix!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input PrefixesBy {
+	"""
+	Filter returned prefixes by user capability.
+	"""
+	minCapability: Capability!
+}
+
+"""
+Summary of a publication that was attempted by a controller.
+"""
+type PublicationInfo {
+	"""
+	The id of the publication, which will match the `last_pub_id` of the
+	spec after a successful publication, at least until the next publication.
+	"""
+	id: Id!
+	"""
+	Time at which the publication was initiated
+	"""
+	created: DateTime
+	"""
+	Time at which the publication was completed
+	"""
+	completed: DateTime
+	"""
+	A brief description of the reason for the publication
+	"""
+	detail: String
+	"""
+	The final result of the publication
+	"""
+	result: JobStatus
+	"""
+	Errors will be non-empty for publications that were not successful
+	"""
+	errors: [Error!]!
+	"""
+	A touch publication is a publication that does not modify the spec, but
+	only updates the `built_spec` and `last_build_id` fields. They are most
+	commonly performed in response to changes in the spec's dependencies.
+	Touch publications will never be combined with non-touch publications in
+	the history.
+	"""
+	isTouch: Boolean!
+	"""
+	A publication info may represent multiple publications of the same spec.
+	If the publications have similar outcomes, then multiple publications
+	can be condensed into a single entry in the history. If this is done,
+	then the `count` field will be greater than 1. This field is omitted if
+	the count is 1.
+	"""
+	count: Int!
+}
+
+"""
+Information on the publications performed by the controller.
+This does not include any information on user-initiated publications.
+"""
+type PublicationStatus {
+	"""
+	The publication id at which the controller has last notified dependent
+	specs. A publication of the controlled spec will cause the controller to
+	notify the controllers of all dependent specs. When it does so, it sets
+	`max_observed_pub_id` to the current `last_pub_id`, so that it can avoid
+	notifying dependent controllers unnecessarily.
+	"""
+	maxObservedPubId: Id!
+	"""
+	A limited history of publications performed by this controller
+	"""
+	history: [PublicationInfo!]!
+}
+
+type QueryRoot {
+	"""
+	Returns a paginated list of live specs under the given prefix and
+	matching the given type.
+	
+	Note that the `user_capability` that's returned as part of the reference
+	represents the user's capability to the whole prefix, and it is possible
+	that there are more specific grants for a broader capability. In other
+	words, this capability represents the _minimum_ capability that the user
+	has for the given spec.
+	"""
+	liveSpecs(by: LiveSpecsBy!, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	"""
+	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
 	"""
-	alerts(
-		"""
-		Show alerts for the given catalog prefixes
-		"""
-		prefixes: [String!]!
-	): [Alert!]!
-	authorizedPrefixes(minCapability: Capability!): [AuthorizedPrefix!]!
+	alerts(by: AlertsBy!, before: String, last: Int): AlertConnection!
+	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixConnection!
+}
+
+"""
+The shape of a connector status, which matches that of an ops::Log.
+"""
+type ShardFailure {
+	"""
+	The specific shard that failed
+	"""
+	shard: ShardRef!
+	"""
+	The time at which the failure occurred
+	"""
+	ts: DateTime!
+	"""
+	The message is meant to be presented to users, and may use Markdown formatting.
+	"""
+	message: String!
+	"""
+	Arbitrary JSON that can be used to communicate additional details. The
+	specific fields and their meanings are up to the connector, except for
+	the flow `/events` fields: `eventType`, `eventTarget`, and `error`, which
+	are restricted to string values.
+	"""
+	fields: JSONObject!
+}
+
+"""
+Identifies the specific task shard that is the source of an event. This
+matches the shape of the `shard` field in an `ops.Log` message.
+"""
+type ShardRef {
+	"""
+	The name of the task
+	"""
+	name: String!
+	"""
+	The key range of the task as a hex string. Together with rClockBegin, this
+	uniquely identifies a specific task shard.
+	"""
+	keyBegin: String!
+	"""
+	The rClock range of the task as a hex string. Together with keyBegin, this
+	uniquely identifies a specific task shard.
+	"""
+	rClockBegin: String!
+	"""
+	The id of the build that the shard was running when the event was
+	generated. This can be compared against the `last_build_id` of the live
+	spec to determine whether the event happened with the most rececnt
+	version of the published spec (it did if the `last_build_id` is the
+	same).
+	"""
+	build: Id!
+}
+
+type ShardStatusCheck {
+	"""
+	The number of checks that have returned ths status
+	"""
+	count: Int!
+	"""
+	The time of the most recent status check
+	"""
+	lastTs: DateTime!
+	"""
+	The time of the first status check that returned this status
+	"""
+	firstTs: DateTime!
+	"""
+	The observed status
+	"""
+	status: ShardsStatus!
+}
+
+"""
+Represents a high level status aggregate of all the shards for a given task.
+"""
+enum ShardsStatus {
+	"""
+	All task shards have a `Primary` member.
+	"""
+	OK
+	"""
+	Any task shards are in `Pending` or `Backfill`, and none are `Failed`.
+	Or no task shards yet exist.
+	"""
+	PENDING
+	"""
+	Any task shard is `Failed`
+	"""
+	FAILED
+}
+
+"""
+Status information about the `sourceCapture`
+"""
+type SourceCaptureStatus {
+	"""
+	Whether the materialization bindings are up-to-date with respect to
+	the `sourceCapture` bindings. In normal operation, this should always
+	be `true`. Otherwise, there will be a controller `error` and the
+	publication status will contain details of why the update failed.
+	"""
+	upToDate: Boolean!
+	"""
+	If `up_to_date` is `false`, then this will contain the set of
+	`sourceCapture` collections that need to be added. This is provided
+	simply to aid in debugging in case the publication to add the bindings
+	fails.
+	"""
+	addBindings: [Collection!]!
+}
+
+"""
+The status of a LiveSpec
+"""
+type Status {
+	type: StatusSummaryType!
+	summary: String!
+	controller: Controller!
+	connector: ConnectorStatus
+}
+
+"""
+A machine-readable summary of the status
+
+This summary is derived from multiple different sources of information about
+a catalog item, and it attempts to coalesce all that information into a
+single, simple characterization. The term "status" can mean different
+things, but here we're primarily concerned with answering the question: "do
+we see any problems that might be affecting the correct operation of the
+task".
+"""
+enum StatusSummaryType {
+	"""
+	Things seem ...not bad
+	"""
+	OK
+	"""
+	The task is currently disabled. Only pertains to captures, derivations,
+	and materializations.
+	"""
+	TASK_DISABLED
+	"""
+	Something isn't fully working, but the condition is expected to clear
+	automatically soon. Nothing to worry about as long as the condition
+	doesn't persist for too long.
+	"""
+	WARNING
+	"""
+	There's some sort of error with this catalog spec.
+	"""
+	ERROR
+}
+
+"""
+The highest-level status of a publication.
+"""
+enum StatusType {
+	"""
+	The publication has not yet been completed.
+	"""
+	queued
+	"""
+	There was a failure to build or validate the drafted specs. This could
+	be due to a mistake in the drafted specs, or due to a failure to
+	validate the proposed changes with an external system connected to one
+	of the connected captures or materializations.
+	"""
+	buildFailed
+	"""
+	Publication failed due to the failure of one or more tests.
+	"""
+	testFailed
+	"""
+	Something went wrong with the publication process. These errors can
+	typically be retried by the client.
+	"""
+	publishFailed
+	"""
+	The publication was successful. All drafted specs are now committed as
+	the live specs. Note that activation of the published specs in the data
+	plane happens asynchronously, after the publication is committed.
+	Therefore, it may take some time for the published changes to be
+	reflected in running tasks.
+	"""
+	success
+	"""
+	Returned when there are no draft specs (after pruning unbound
+	collections). There will not be any `draft_errors` in this case, because
+	there's no `catalog_name` to associate with an error. And it may not be
+	desirable to treat this as an error, depending on the scenario.
+	"""
+	emptyDraft
+	"""
+	One or more expected `last_pub_id`s did not match the actual `last_pub_id`, indicating that specs
+	have been changed since the draft was created.
+	"""
+	expectPubIdMismatch
+	"""
+	Optimistic locking failure for one or more specs in the publication. This case should
+	typically be retried by the publisher.
+	"""
+	buildIdLockFailure
+	"""
+	The publication used the deprecated background flag, which is no longer supported.
+	"""
+	deprecatedBackground
 }
 
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

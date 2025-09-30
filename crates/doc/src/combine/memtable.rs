@@ -1,5 +1,5 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{redact, reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{redact, reduce, validation, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -35,6 +35,8 @@ struct Entries {
     sorted: Vec<HeapEntry<'static>>,
     // Specification of the combine operation.
     spec: Spec,
+    // Scratch space for extracting key tuples.
+    scratch: bytes::BytesMut,
 }
 
 impl Entries {
@@ -61,11 +63,16 @@ impl Entries {
     }
 
     fn compact(&mut self, alloc: &'static Bump) -> Result<(), Error> {
-        // `sort_ord` orders over (binding, key, !front).
+        // `sort_ord` orders over (binding, key, !front):
+        // For each (binding, key), we take front() entries first, and further
+        // rely on sort preserving the order in which entries were added.
+        // This maintains the left-to-right associative ordering of reductions.
+        //
+        // `meta` contains a packed structure that's order-preserving over
+        // (binding, key), so we first test it for inequality.
         let sort_ord = |l: &HeapEntry, r: &HeapEntry| -> Ordering {
-            l.meta
-                .binding()
-                .cmp(&r.meta.binding())
+            (l.meta.0)
+                .cmp(&r.meta.0)
                 .then_with(|| {
                     Extractor::compare_key(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
                 })
@@ -77,24 +84,11 @@ impl Entries {
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
             let rhs = &mut next[index];
-            let &mut (ref mut validator, ref schema) = &mut validators[rhs.meta.binding()];
 
-            let rhs_valid = validator
-                .validate(schema.as_ref(), &rhs.root)?
-                .ok()
+            let rhs_valid = validators[rhs.meta.binding()]
+                .validate(&rhs.root, validation::reduce_filter)
                 .map_err(|invalid| {
-                    // Best-effort redaction using available outcomes, prior to generating an error.
-                    let _result = redact::redact(
-                        &mut rhs.root,
-                        invalid.outcomes(),
-                        &alloc,
-                        &self.spec.redact_salt,
-                    );
-
-                    Error::FailedValidation(
-                        self.spec.names[rhs.meta.binding()].clone(),
-                        invalid.revalidate_with_context(&rhs.root),
-                    )
+                    Error::FailedValidation(self.spec.names[rhs.meta.binding()].clone(), invalid)
                 })?;
 
             let (lhs, rhs) = (&next[index - 1], &next[index]);
@@ -102,7 +96,7 @@ impl Entries {
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&lhs.root),
                 LazyNode::Heap(&rhs.root),
-                rhs_valid,
+                &rhs_valid,
                 alloc,
                 false, // Compactions are always associative.
             ) {
@@ -219,6 +213,7 @@ impl MemTable {
                 queued: Vec::new(),
                 sorted: Vec::new(),
                 spec,
+                scratch: bytes::BytesMut::new(),
             }),
             zz_alloc: HeapNode::new_allocator(),
         }
@@ -238,15 +233,21 @@ impl MemTable {
     }
 
     /// Add the document to the MemTable.
-    pub fn add<'s>(&'s self, binding: u32, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
+    pub fn add<'s>(&'s self, binding: u16, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
 
+        Extractor::extract_all(
+            &root,
+            &entries.spec.keys[binding as usize],
+            &mut entries.scratch,
+        );
         entries.queued.push(HeapEntry {
-            meta: Meta::new(binding, front),
+            meta: Meta::new(binding, &entries.scratch, front),
             root,
         });
+        entries.scratch.clear();
 
         if entries.should_compact() {
             self.compact()
@@ -299,20 +300,13 @@ impl MemTable {
     ) -> Result<Spec, Error> {
         let (mut sorted, mut spec, alloc) = self.try_into_parts()?;
 
-        // Validate all !front() documents of the spilled segment.
+        // Validate all !front() documents of the spilled segment, applying
+        // "redact" annotations as we go so that no redacted data is written
+        // to disk.
         //
-        // Technically, it's more efficient to defer all validation until we're
-        // draining the combiner, and validating now does very slightly slow the
-        // `combiner_perf` benchmark because we do extra validations that end up
-        // needing to be re-done. But. In the common case we do very little little
-        // reduction across spilled segments and when we're adding/spilling documents
-        // that happens in parallel to useful work an associated connector is doing.
-        // Whereas when we're draining the combiner the connector often can't do other
-        // useful work, and total throughput is thus more sensitive to drain performance.
-        // This is also a nice, tight loop that takes maximum advantage of processor
-        // cache hierarchy and branch prediction as well as memory layout (we read
-        // and write transactions in key order so `sorted` is often laid out in
-        // ascending order within `alloc`).
+        // This also accelerates a common case where no further reduction is
+        // required across spilled segments, and we're typically doing this
+        // validation in parallel to useful work of an associated connector.
         //
         // We do not validate front() documents now because in the common case
         // they'll be reduced with another document on drain, after which we'll
@@ -326,26 +320,16 @@ impl MemTable {
             if doc.meta.front() {
                 continue;
             }
-            let &mut (ref mut validator, ref schema) = &mut spec.validators[doc.meta.binding()];
-
-            let validation = validator.validate(schema.as_ref(), &doc.root)?;
+            let valid = spec.validators[doc.meta.binding()]
+                .validate(&doc.root, validation::redact_filter)
+                .map_err(|invalid| {
+                    Error::FailedValidation(spec.names[doc.meta.binding()].clone(), invalid)
+                })?;
 
             // Redact the document as needed. There's an argument that we should revalidate
             // if the outcome isn't Outcome::Unchanged but this carries a performance cost,
             // and doc::Shape inspections will catch most issues at publication time.
-            let _outcome = redact::redact(
-                &mut doc.root,
-                validation.outcomes(),
-                &alloc,
-                &spec.redact_salt,
-            )?;
-
-            let _valid = validation.ok().map_err(|invalid| {
-                Error::FailedValidation(
-                    spec.names[doc.meta.binding()].clone(),
-                    invalid.revalidate_with_context(&doc.root),
-                )
-            })?;
+            let _outcome = redact::redact(&mut doc.root, &valid, &alloc, &spec.redact_salt)?;
         }
 
         let bytes = writer.write_segment(&sorted, chunk_target_size)?;
@@ -381,7 +365,7 @@ impl MemDrainer {
         };
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let validator = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
@@ -398,30 +382,16 @@ impl MemDrainer {
                 break;
             }
 
-            let rhs_valid = match validator.validate(schema.as_ref(), &next.root)?.ok() {
-                Ok(valid) => valid,
-                Err(invalid) => {
-                    let mut next = self.it.next().unwrap();
-
-                    // Best-effort redaction using available outcomes, prior to generating an error.
-                    let _result = redact::redact(
-                        &mut next.root,
-                        invalid.outcomes(),
-                        &self.zz_alloc,
-                        &self.spec.redact_salt,
-                    );
-
-                    return Err(Error::FailedValidation(
-                        self.spec.names[meta.binding()].clone(),
-                        invalid.revalidate_with_context(&next.root),
-                    ));
-                }
-            };
+            let rhs_valid = validator
+                .validate(&next.root, validation::reduce_filter)
+                .map_err(|invalid| {
+                    Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+                })?;
 
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&root),
                 LazyNode::Heap(&next.root),
-                rhs_valid,
+                &rhs_valid,
                 &self.zz_alloc,
                 is_full,
             ) {
@@ -438,22 +408,14 @@ impl MemDrainer {
             }
         }
 
-        let validation = validator.validate(schema.as_ref(), &root)?;
+        let valid = validator
+            .validate(&root, validation::redact_filter)
+            .map_err(|invalid| {
+                Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+            })?;
 
         // Redact the document as needed. See comment in spill() regarding revalidation.
-        let _outcome = redact::redact(
-            &mut root,
-            validation.outcomes(),
-            &self.zz_alloc,
-            &self.spec.redact_salt,
-        )?;
-
-        let _valid = validation.ok().map_err(|invalid| {
-            Error::FailedValidation(
-                self.spec.names[meta.binding()].clone(),
-                invalid.revalidate_with_context(&root),
-            )
-        })?;
+        let _outcome = redact::redact(&mut root, &valid, &self.zz_alloc, &self.spec.redact_salt)?;
 
         // Safety: `root` was allocated from `self.zz_alloc`.
         let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
@@ -503,7 +465,7 @@ mod test {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
                 let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
+                    &url::Url::parse("http://example/schema").unwrap(),
                     &json!({
                         "properties": {
                             "key": { "type": "string", "default": "def" },
@@ -525,7 +487,6 @@ mod test {
                         json!("def"),
                     )],
                     "source-name",
-                    None,
                     Validator::new(schema).unwrap(),
                 )
             })
@@ -774,10 +735,9 @@ mod test {
                 is_full,
                 vec![Extractor::new("/k", &SerPolicy::noop())],
                 "source-name",
-                None,
                 Validator::new(
                     build_schema(
-                        url::Url::parse("http://example").unwrap(),
+                        &url::Url::parse("http://example").unwrap(),
                         &reduce::merge_patch_schema(),
                     )
                     .unwrap(),
@@ -1027,7 +987,7 @@ mod test {
     #[test]
     fn test_spill_and_validate() {
         let schema = build_schema(
-            url::Url::parse("http://example/schema").unwrap(),
+            &url::Url::parse("http://example/schema").unwrap(),
             &json!({
                 "properties": {
                     "key": { "type": "string" },
@@ -1042,7 +1002,6 @@ mod test {
             vec![Extractor::new("/key", &SerPolicy::noop())],
             "source-name",
             Vec::new(),
-            None,
             Validator::new(schema).unwrap(),
         );
         let memtable = MemTable::new(spec);
@@ -1062,16 +1021,18 @@ mod test {
         let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
         let (spill, ranges) = spill.into_parts();
-        assert_eq!(ranges, vec![0..110]);
+        assert_eq!(ranges, vec![0..137]);
         insta::assert_snapshot!(to_hex(spill.get_ref()), @r"
-        |66000000 d8000000 c0000000 00400000| f............@.. 00000000
-        |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
-        |0010ff1c 0011760a 00021800 40676f6f| ......v.....@goo 00000020
-        |640c0000 1800d006 00000003 000000c8| d............... 00000030
-        |ffffff02 11003c00 00804800 30626262| ......<...H.0bbb 00000040
-        |2f000f48 002e3f63 63634800 02216261| /..H..?cccH..!ba 00000050
-        |8f000160 00079000 50ff0200 0000|     ...`....P.....   00000060
-                                                               0000006e
+        |81000000 08010000 79000002 61616100| ........y...aaa. 00000000
+        |01008040 0000006b 6579ff01 00700800| ...@...key...p.. 00000010
+        |00006161 610b0010 ff250011 760a0002| ..aaa....%..v... 00000020
+        |18004067 6f6f640c 00001800 d0060000| ..@good......... 00000030
+        |00030000 00c8ffff ff021100 51000262| ............Q..b 00000040
+        |62620900 0402001c 01580030 6262623f| bb.......X.0bbb? 00000050
+        |000f5800 1d346363 63530001 02000d58| ..X..4cccS.....X 00000060
+        |003f6363 63580002 216261af 00017000| .?cccX..!ba...p. 00000070
+        |07b00050 ff020000 00|                ...P.....        00000080
+                                                               00000089
         ");
 
         // New MemTable. This time we attempt to spill an invalid, non-reduced document.
@@ -1081,6 +1042,80 @@ mod test {
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let out = memtable.spill(&mut spill, CHUNK_TARGET_SIZE);
         assert!(matches!(out, Err(Error::FailedValidation(n, _)) if n == "source-name"));
+    }
+
+    #[test]
+    fn test_key_ordering_with_varied_lengths() {
+        // Test that the Meta structure with embedded 13-byte key prefix
+        // correctly orders keys of various lengths.
+        let spec = Spec::with_one_binding(
+            true, // Full reduction.
+            vec![Extractor::new("/key", &SerPolicy::noop())],
+            "test-source",
+            Vec::new(),
+            Validator::new(
+                build_schema(
+                    &url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string" },
+                            "value": { "type": "integer" }
+                        },
+                        "required": ["key"],
+                        "reduce": { "strategy": "lastWriteWins" }
+                    }),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let memtable = MemTable::new(spec);
+
+        // Test keys with various lengths and patterns
+        let test_keys = [
+            ("a", 1),
+            ("abc", 2),
+            ("zebra", 3), // Short (< 13 bytes)
+            ("exactly13char", 4),
+            ("exactly13diff", 5), // Exactly 13 bytes
+            ("same_prefix_1234567890_A", 6),
+            ("same_prefix_1234567890_B", 7),
+            ("same_prefix_1234567890_C", 8), // Same 13-byte prefix
+            ("different_prefix_start_A", 9),
+            ("another_long_key_prefix_B", 10), // Different long keys
+            ("", 11),
+            ("zzzzzzzzzzzzz", 12),
+            ("zzzzzzzzzzzzzz", 13), // Edge cases
+            ("identical_13c_but_different_after", 14),
+            ("identical_13c_and_different_after", 15), // Differ after 13 bytes
+        ];
+
+        for (key, value) in test_keys.iter() {
+            let doc = HeapNode::from_node(&json!({"key": key, "value": value}), memtable.alloc());
+            memtable.add(0, doc, false).unwrap();
+        }
+        memtable.compact().unwrap();
+
+        let actual: Vec<(String, i32)> = memtable
+            .try_into_drainer()
+            .unwrap()
+            .map_ok(|doc| {
+                let json_val = serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap();
+                let obj = json_val.as_object().unwrap();
+                (
+                    obj.get("key").unwrap().as_str().unwrap().to_string(),
+                    obj.get("value").unwrap().as_u64().unwrap() as i32,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // Verify keys are sorted lexicographically
+        let mut sorted_keys: Vec<(String, i32)> =
+            test_keys.iter().map(|&(k, v)| (k.to_string(), v)).collect();
+        sorted_keys.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(actual, sorted_keys);
     }
 
     #[test]
@@ -1099,7 +1134,7 @@ mod test {
         let new_memtable = || {
             // Schema with both Block and Sha256 redaction strategies.
             let schema = build_schema(
-                url::Url::parse("http://example/schema").unwrap(),
+                &url::Url::parse("http://example/schema").unwrap(),
                 &schema_json,
             )
             .unwrap();
@@ -1109,7 +1144,6 @@ mod test {
                 vec![Extractor::new("/key", &SerPolicy::noop())],
                 "test-source",
                 b"test-salt".to_vec(),
-                None,
                 Validator::new(schema).unwrap(),
             );
             MemTable::new(spec)
@@ -1232,20 +1266,17 @@ mod test {
 
             insta::assert_json_snapshot!(failed, @r###"
             {
-              "basic_output": {
-                "errors": [
-                  {
-                    "absoluteKeywordLocation": "http://example/schema#/properties/public",
-                    "error": "Invalid: Must be of type \"string\".",
-                    "instanceLocation": "/public",
-                    "keywordLocation": "#/properties/public"
-                  }
-                ],
-                "valid": false
-              },
+              "basic_output": [
+                {
+                  "absoluteKeywordLocation": "http://example/schema#/properties/public",
+                  "detail": "Type mismatch: expected a string",
+                  "instanceLocation": "/public",
+                  "instanceValue": "<array>"
+                }
+              ],
               "document": {
                 "key": "key",
-                "pii": "sha256:09683d8ea037876760947d46c660f56e357d2974a245c073394c5772c7f59ee5",
+                "pii": "sha256:10c407a6244a707d65e7d748895fe108742c786093ac67a74c17044ba3815dec",
                 "public": [
                   "wrong",
                   "type"
@@ -1276,20 +1307,17 @@ mod test {
 
             insta::assert_json_snapshot!(failed, @r###"
             {
-              "basic_output": {
-                "errors": [
-                  {
-                    "absoluteKeywordLocation": "http://example/schema#/properties/public",
-                    "error": "Invalid: Must be of type \"string\".",
-                    "instanceLocation": "/public",
-                    "keywordLocation": "#/properties/public"
-                  }
-                ],
-                "valid": false
-              },
+              "basic_output": [
+                {
+                  "absoluteKeywordLocation": "http://example/schema#/properties/public",
+                  "detail": "Type mismatch: expected a string",
+                  "instanceLocation": "/public",
+                  "instanceValue": "<array>"
+                }
+              ],
               "document": {
                 "key": "key",
-                "pii": "sha256:09683d8ea037876760947d46c660f56e357d2974a245c073394c5772c7f59ee5",
+                "pii": "sha256:10c407a6244a707d65e7d748895fe108742c786093ac67a74c17044ba3815dec",
                 "public": [
                   "wrong",
                   "type"

@@ -214,6 +214,86 @@
     },
     "query": "\n        with orig as (\n          select id, catalog_name from live_specs where catalog_name = any($1::catalog_name[])\n        )\n        select lst.catalog_name::text as \"name!: String\"\n        from orig\n        join live_spec_flows lsf on orig.id = lsf.source_id\n        join live_specs lst on lsf.target_id = lst.id\n        union\n        select lss.catalog_name::text as \"name!: String\"\n        from orig\n        join live_spec_flows lsf on orig.id = lsf.target_id\n        join live_specs lss on lsf.source_id = lss.id\n        union\n        select catalog_name::text as \"name!: String\"\n        from orig\n        "
   },
+  "1165e3b7ea65675f112793b1c4fa68fa48ea26ec339207c1ec5e10b69c8339d0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "alert_type!: AlertType",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "free_trial",
+                  "free_trial_ending",
+                  "free_trial_stalled",
+                  "missing_payment_method",
+                  "data_movement_stalled",
+                  "data_not_processed_in_interval",
+                  "auto_discover_failed",
+                  "shard_failed"
+                ]
+              },
+              "name": "alert_type"
+            }
+          }
+        },
+        {
+          "name": "catalog_name!: String",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "fired_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "resolved_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "arguments!: crate::TextJson<async_graphql::Value>",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Timestamptz",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "free_trial",
+                  "free_trial_ending",
+                  "free_trial_stalled",
+                  "missing_payment_method",
+                  "data_movement_stalled",
+                  "data_not_processed_in_interval",
+                  "auto_discover_failed",
+                  "shard_failed"
+                ]
+              },
+              "name": "alert_type"
+            }
+          },
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            select\n                alert_type as \"alert_type!: AlertType\",\n                catalog_name as \"catalog_name!: String\",\n                fired_at,\n                resolved_at,\n                arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n            from alert_history a\n            where a.catalog_name = $1\n                and a.resolved_at is not null\n                and (\n                    $2::timestamptz is null\n                    or a.fired_at < $2::timestamptz\n                    or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)\n                    or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)\n                )\n            order by a.fired_at desc, a.catalog_name desc\n            limit $5\n            "
+  },
   "1629d33c703d5a92ff53e8a9985600e90263ff508f03c55893f50d736569a411": {
     "describe": {
       "columns": [],
@@ -1049,6 +1129,178 @@
     },
     "query": "\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE id = $1\n        "
   },
+  "3b9e730c56083687f87833d7de187abbe2b7d1060fa8d2e5ea6f9f807763f98b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "catalog_name",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "with_model!: bool",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "with_built!: bool",
+          "ordinal": 2,
+          "type_info": "Bool"
+        },
+        {
+          "name": "live_spec_id: models::Id",
+          "ordinal": 3,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "spec_type!: models::CatalogType",
+          "ordinal": 4,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "capture",
+                  "collection",
+                  "materialization",
+                  "test"
+                ]
+              },
+              "name": "catalog_spec_type"
+            }
+          }
+        },
+        {
+          "name": "model: crate::TextJson<async_graphql::Value>",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_build_id: models::Id",
+          "ordinal": 6,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "last_pub_id: models::Id",
+          "ordinal": 7,
+          "type_info": "Macaddr8"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 8,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 9,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "built_spec: crate::TextJson<async_graphql::Value>",
+          "ordinal": 10,
+          "type_info": "Text"
+        },
+        {
+          "name": "is_disabled!: bool",
+          "ordinal": 11,
+          "type_info": "Bool"
+        },
+        {
+          "name": "reads_from?: Vec<String>",
+          "ordinal": 12,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "writes_to?: Vec<String>",
+          "ordinal": 13,
+          "type_info": "TextArray"
+        },
+        {
+          "name": "source_capture?: String",
+          "ordinal": 14,
+          "type_info": "Text"
+        },
+        {
+          "name": "written_by?: Vec<String>",
+          "ordinal": 15,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Text"
+                    },
+                    "name": "catalog_name"
+                  }
+                }
+              },
+              "name": "_catalog_name"
+            }
+          }
+        },
+        {
+          "name": "read_by?: Vec<String>",
+          "ordinal": 16,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Text"
+                    },
+                    "name": "catalog_name"
+                  }
+                }
+              },
+              "name": "_catalog_name"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        null,
+        null,
+        false,
+        true,
+        null,
+        false,
+        false,
+        false,
+        false,
+        null,
+        null,
+        true,
+        true,
+        null,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Array": {
+                  "Custom": {
+                    "kind": {
+                      "Domain": "Text"
+                    },
+                    "name": "catalog_name"
+                  }
+                }
+              },
+              "name": "_catalog_name"
+            }
+          },
+          "BoolArray",
+          "BoolArray"
+        ]
+      }
+    },
+    "query": "select\n                ls.catalog_name,\n                inputs.with_model as \"with_model!: bool\",\n                inputs.with_built as \"with_built!: bool\",\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when inputs.with_model then ls.spec::text else null end as \"model: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when inputs.with_built then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\",\n                coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false')::boolean as \"is_disabled!: bool\",\n                ls.reads_from as \"reads_from?: Vec<String>\",\n                ls.writes_to as \"writes_to?: Vec<String>\",\n                case json_typeof(ls.spec->'source')\n                when 'object' then ls.spec->'source'->>'capture'\n                when 'string' then ls.spec->>'source'\n                else null\n                end as \"source_capture?: String\",\n                array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as \"written_by?: Vec<String>\",\n                array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and out_flows.flow_type is not null) as \"read_by?: Vec<String>\"\n            from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)\n            join live_specs ls on inputs.name = ls.catalog_name\n            left outer join live_spec_flows in_flows on in_flows.target_id = ls.id\n            left outer join live_spec_flows out_flows on out_flows.source_id = ls.id\n            left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id\n            left outer join live_specs out_flows_specs on out_flows_specs.id = out_flows.target_id\n            group by ls.id, inputs.with_model, inputs.with_built\n            "
+  },
   "40735247033c2693395184471553db708524cfc3b6f4c1095c2ae63f377b8800": {
     "describe": {
       "columns": [
@@ -1367,67 +1619,89 @@
     },
     "query": "select\n            collection_name,\n            schema as \"schema!: Json<Box<RawValue>>\",\n            md5 as \"md5!: String\"\n            from inferred_schemas\n            where collection_name = ANY($1::text[])\n            "
   },
-  "520d8242d4f2d5c588d89c90831263ce5fe4baaf29a9f7c8521fc279c62e9a47": {
+  "547d1817a42a97af13bfcceeb75d8d87a07a3408589ed9c819c56d5eb7962eb0": {
     "describe": {
       "columns": [
         {
-          "name": "alert_type!: AlertType",
+          "name": "name!: String",
           "ordinal": 0,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "free_trial",
-                  "free_trial_ending",
-                  "free_trial_stalled",
-                  "missing_payment_method",
-                  "data_movement_stalled",
-                  "data_not_processed_in_interval",
-                  "auto_discover_failed",
-                  "shard_failed"
-                ]
-              },
-              "name": "alert_type"
-            }
-          }
-        },
-        {
-          "name": "catalog_name!: String",
-          "ordinal": 1,
           "type_info": "Text"
-        },
-        {
-          "name": "fired_at",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "resolved_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "arguments!: crate::TextJson<async_graphql::Value>",
-          "ordinal": 4,
-          "type_info": "Jsonb"
         }
       ],
       "nullable": [
-        false,
-        false,
-        false,
-        true,
         false
       ],
       "parameters": {
         "Left": [
           "Text",
-          "Timestamptz",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "capture",
+                  "collection",
+                  "materialization",
+                  "test"
+                ]
+              },
+              "name": "catalog_spec_type"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Text"
+              },
+              "name": "catalog_name"
+            }
+          },
           "Int8"
         ]
       }
     },
-    "query": "\n            select\n                alert_type as \"alert_type!: AlertType\",\n                catalog_name as \"catalog_name!: String\",\n                fired_at,\n                resolved_at,\n                arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n            from alert_history a\n            where a.catalog_name = $1\n                and a.fired_at < $2\n                and a.resolved_at is not null\n            order by a.fired_at desc\n            limit $3\n            "
+    "query": "select catalog_name as \"name!: String\"\n        from live_specs\n        where starts_with(catalog_name, $1)\n        and case when $3::catalog_name is null then true else catalog_name < $3::catalog_name end\n        and spec_type = $2::catalog_spec_type\n        order by catalog_name desc\n        limit $4"
+  },
+  "55990838134bdebfa31ba7c7ec089c9129f12d9f1d618f72c895dc6666832957": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name!: String",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "capture",
+                  "collection",
+                  "materialization",
+                  "test"
+                ]
+              },
+              "name": "catalog_spec_type"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Domain": "Text"
+              },
+              "name": "catalog_name"
+            }
+          },
+          "Int8"
+        ]
+      }
+    },
+    "query": "select catalog_name as \"name!: String\"\n        from live_specs\n        where starts_with(catalog_name, $1)\n        and case when $3::catalog_name is null then true else catalog_name > $3::catalog_name end\n        and spec_type = $2::catalog_spec_type\n        order by catalog_name asc\n        limit $4"
   },
   "564d38c9d35ffc383d31d3baa087723f0e26ff3cb6e59cf3b2b559902d51e6c8": {
     "describe": {
@@ -1688,66 +1962,6 @@
       }
     },
     "query": "\n            select\n                ls.catalog_name,\n                ls.md5\n            from live_specs ls\n            where ls.catalog_name = any ($1::text[]);\n        "
-  },
-  "6b681d018ac7a2ce94e4fca6f51b663d8d0fe2731c88b108579d3b870ea7242f": {
-    "describe": {
-      "columns": [
-        {
-          "name": "alert_type!: AlertType",
-          "ordinal": 0,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "free_trial",
-                  "free_trial_ending",
-                  "free_trial_stalled",
-                  "missing_payment_method",
-                  "data_movement_stalled",
-                  "data_not_processed_in_interval",
-                  "auto_discover_failed",
-                  "shard_failed"
-                ]
-              },
-              "name": "alert_type"
-            }
-          }
-        },
-        {
-          "name": "catalog_name!: String",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "fired_at",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "resolved_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "arguments!: crate::TextJson<async_graphql::Value>",
-          "ordinal": 4,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        true,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "TextArray"
-        ]
-      }
-    },
-    "query": "\n        select\n            alert_type as \"alert_type!: AlertType\",\n            catalog_name as \"catalog_name!: String\",\n            fired_at,\n            resolved_at,\n            arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n        from unnest($1::text[]) p(prefix)\n        join alert_history a on a.resolved_at is null and starts_with(a.catalog_name, p.prefix)\n        order by a.fired_at desc\n        limit 100\n        "
   },
   "6bc21fd940535409a6b59d230fed417ff92af5cb2f6c11a35944288b14fde343": {
     "describe": {
@@ -2058,6 +2272,87 @@
       }
     },
     "query": "update drafts set updated_at = clock_timestamp() where id = $1\n            returning 1 as \"must_exist\";"
+  },
+  "89e739d5b67c504bd6fcd6889d24f5e3c986d7a154b31e25b51468ea94646066": {
+    "describe": {
+      "columns": [
+        {
+          "name": "alert_type!: AlertType",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "free_trial",
+                  "free_trial_ending",
+                  "free_trial_stalled",
+                  "missing_payment_method",
+                  "data_movement_stalled",
+                  "data_not_processed_in_interval",
+                  "auto_discover_failed",
+                  "shard_failed"
+                ]
+              },
+              "name": "alert_type"
+            }
+          }
+        },
+        {
+          "name": "catalog_name!: String",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "fired_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "resolved_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "arguments!: crate::TextJson<async_graphql::Value>",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Timestamptz",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "free_trial",
+                  "free_trial_ending",
+                  "free_trial_stalled",
+                  "missing_payment_method",
+                  "data_movement_stalled",
+                  "data_not_processed_in_interval",
+                  "auto_discover_failed",
+                  "shard_failed"
+                ]
+              },
+              "name": "alert_type"
+            }
+          },
+          "Text",
+          "Bool",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n                select\n                    alert_type as \"alert_type!: AlertType\",\n                    catalog_name as \"catalog_name!: String\",\n                    fired_at,\n                    resolved_at,\n                    arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n                from alert_history a\n                where starts_with(a.catalog_name, $1)\n                    and (\n                        $2::timestamptz is null\n                        or a.fired_at < $2::timestamptz\n                        or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)\n                        or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)\n                    )\n                    and (\n                        $5::boolean is null\n                        or ($5::boolean = true and a.resolved_at is null)\n                        or ($5::boolean = false and a.resolved_at is not null)\n                    )\n                order by a.fired_at desc, a.catalog_name desc\n                limit $6\n                "
   },
   "8ac954b54699948acc75d6e9747a282bc21f73b53d467da1b8e2a270733ff08a": {
     "describe": {
@@ -2866,7 +3161,7 @@
         false,
         true,
         false,
-        false,
+        true,
         false,
         false,
         true,
@@ -4168,100 +4463,79 @@
     },
     "query": "delete from live_spec_flows where (source_id = $1 or target_id = $1) and flow_type = 'test'"
   },
-  "f111ea6e08fa7b0f354c9ea57f3e061f50eb50f6b30012cfd217693c68107ebc": {
+  "e9c8d33f3b85a5964538fc00fa678286d1024dd706152c005983637982365277": {
     "describe": {
       "columns": [
         {
-          "name": "catalog_name",
+          "name": "catalog_name: String",
           "ordinal": 0,
           "type_info": "Text"
         },
         {
-          "name": "live_spec_id: models::Id",
+          "name": "last_build_id: models::Id",
           "ordinal": 1,
           "type_info": "Macaddr8"
         },
         {
-          "name": "spec_type!: models::CatalogType",
+          "name": "disabled!: bool",
           "ordinal": 2,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          }
+          "type_info": "Bool"
         },
         {
-          "name": "spec: crate::TextJson<async_graphql::Value>",
+          "name": "controller_version: i32",
           "ordinal": 3,
-          "type_info": "Text"
+          "type_info": "Int4"
         },
         {
-          "name": "last_build_id: models::Id",
+          "name": "connector_status?: ConnectorStatus",
           "ordinal": 4,
-          "type_info": "Macaddr8"
+          "type_info": "Json"
         },
         {
-          "name": "last_pub_id: models::Id",
+          "name": "controller_next_run: DateTime<Utc>",
           "ordinal": 5,
-          "type_info": "Macaddr8"
+          "type_info": "Timestamptz"
         },
         {
-          "name": "created_at",
+          "name": "controller_updated_at: DateTime<Utc>",
           "ordinal": 6,
           "type_info": "Timestamptz"
         },
         {
-          "name": "updated_at",
+          "name": "controller_status_json!: String",
           "ordinal": 7,
-          "type_info": "Timestamptz"
+          "type_info": "Text"
         },
         {
-          "name": "built_spec: crate::TextJson<async_graphql::Value>",
+          "name": "controller_error: String",
           "ordinal": 8,
           "type_info": "Text"
+        },
+        {
+          "name": "controller_failures: i32",
+          "ordinal": 9,
+          "type_info": "Int4"
         }
       ],
       "nullable": [
         false,
         false,
-        true,
         null,
         false,
+        true,
+        true,
         false,
-        false,
-        false,
-        null
+        null,
+        true,
+        false
       ],
       "parameters": {
         "Left": [
-          "TextArray",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "capture",
-                  "collection",
-                  "materialization",
-                  "test"
-                ]
-              },
-              "name": "catalog_spec_type"
-            }
-          },
-          "Bool",
-          "Bool"
+          "TextArray"
         ]
       }
     },
-    "query": "select\n                ls.catalog_name,\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when $3 then ls.spec::text else null end as \"spec: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when $4 then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\"\n            from unnest($1::text[]) p(prefix)\n            join live_specs ls on starts_with(ls.catalog_name::text, p.prefix)\n            where ls.spec_type = $2::catalog_spec_type\n        "
+    "query": "select\n        ls.catalog_name as \"catalog_name: String\",\n        ls.last_build_id as \"last_build_id: models::Id\",\n        coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as \"disabled!: bool\",\n        cj.controller_version as \"controller_version: i32\",\n        cs.flow_document as \"connector_status?: ConnectorStatus\",\n        t.wake_at as \"controller_next_run: DateTime<Utc>\",\n        cj.updated_at as \"controller_updated_at: DateTime<Utc>\",\n        coalesce(cj.status::text, '{}') as \"controller_status_json!: String\",\n        cj.error as \"controller_error: String\",\n        cj.failures as \"controller_failures: i32\"\n    from live_specs ls\n    join controller_jobs cj on ls.id = cj.live_spec_id\n    join internal.tasks t on ls.controller_task_id = t.task_id\n    left outer join connector_status cs on ls.catalog_name = cs.catalog_name\n    where ls.catalog_name::text = any($1::text[])\n    and ls.spec_type is not null\n        "
   },
   "f79402d382e8be98c15bbf8255ba8a91e2347dcbb9d7ba5fdc82a5ddcaf630eb": {
     "describe": {

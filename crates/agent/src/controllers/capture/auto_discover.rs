@@ -233,7 +233,6 @@ pub fn new_outcome(
             .map(|(rp, change)| DiscoverChange::new(rp, change))
             .collect(),
         errors,
-        re_created_collections: Default::default(),
         publish_result: None,
     };
     (outcome, draft)
@@ -318,6 +317,7 @@ async fn try_auto_discover<C: ControlPlane>(
         .await
         .context("executing publication")?;
 
+    outcome.errors.extend(pub_result.draft_errors());
     outcome.publish_result = Some(pub_result.status);
 
     Ok(outcome)

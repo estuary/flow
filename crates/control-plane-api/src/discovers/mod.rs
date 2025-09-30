@@ -290,7 +290,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
         let pointers = resource_path_pointers
             .iter()
-            .map(|p| doc::Pointer::from_str(p.as_str()))
+            .map(|p| json::Pointer::from_str(p.as_str()))
             .collect::<Vec<_>>();
         let (used_bindings, added_bindings, removed_bindings) = specs::update_capture_bindings(
             capture_name.as_str(),

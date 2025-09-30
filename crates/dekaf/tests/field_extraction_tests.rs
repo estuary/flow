@@ -89,7 +89,7 @@ fn json_schema_to_shape(schema: &[u8]) -> anyhow::Result<doc::Shape> {
     let json_schema = doc::validation::build_bundle(schema)?;
     let validator = doc::Validator::new(json_schema)?;
     Ok(doc::Shape::infer(
-        &validator.schemas()[0],
+        validator.schema(),
         validator.schema_index(),
     ))
 }

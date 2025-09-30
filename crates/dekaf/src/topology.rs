@@ -50,13 +50,13 @@ impl SessionAuthentication {
 pub struct Collection {
     pub name: String,
     pub journal_client: journal::Client,
-    pub key_ptr: Vec<doc::Pointer>,
+    pub key_ptr: Vec<json::Pointer>,
     pub key_schema: avro::Schema,
     pub not_before: Option<uuid::Clock>,
     pub not_after: Option<uuid::Clock>,
     pub partitions: Vec<Partition>,
     pub spec: flow::CollectionSpec,
-    pub uuid_ptr: doc::Pointer,
+    pub uuid_ptr: json::Pointer,
     pub value_schema: avro::Schema,
     pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
 }
@@ -168,12 +168,12 @@ impl Collection {
 
         tracing::debug!(?partitions, "Got partitions");
 
-        let key_ptr: Vec<doc::Pointer> = collection_spec
+        let key_ptr: Vec<json::Pointer> = collection_spec
             .key
             .iter()
-            .map(|p| doc::Pointer::from_str(p))
+            .map(|p| json::Pointer::from_str(p))
             .collect();
-        let uuid_ptr = doc::Pointer::from_str(&collection_spec.uuid_ptr);
+        let uuid_ptr = json::Pointer::from_str(&collection_spec.uuid_ptr);
 
         let json_schema = if collection_spec.read_schema_json.is_empty() {
             &collection_spec.write_schema_json
@@ -184,7 +184,7 @@ impl Collection {
         let json_schema = doc::validation::build_bundle(json_schema)?;
         let validator = doc::Validator::new(json_schema)?;
         let collection_schema_shape =
-            doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+            doc::Shape::infer(validator.schema(), validator.schema_index());
 
         let selection = binding
             .field_selection

@@ -9,6 +9,33 @@ use std::sync::Arc;
 
 use crate::server::{App, ControlClaims};
 
+#[derive(Debug, Default)]
+pub struct AlertsQuery;
+
+#[derive(Debug, Clone, async_graphql::InputObject)]
+pub struct AlertsBy {
+    /// Show alerts for the given catalog namespace prefix.
+    prefix: String,
+    /// Optionally filter alerts by active status. If unspecified, both active
+    /// and resolved alerts will be returned.
+    active: Option<bool>,
+}
+
+#[async_graphql::Object]
+impl AlertsQuery {
+    /// Returns a list of alerts that are currently active for the given catalog
+    /// prefixes.
+    async fn alerts(
+        &self,
+        ctx: &Context<'_>,
+        by: AlertsBy,
+        before: Option<String>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedAlerts> {
+        fetch_alert_history_by_prefix(ctx, by, before, last).await
+    }
+}
+
 /// An alert from the alert_history table
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, async_graphql::SimpleObject)]
 pub struct Alert {
@@ -16,9 +43,9 @@ pub struct Alert {
     pub alert_type: AlertType,
     /// The catalog name that the alert pertains to.
     pub catalog_name: String,
-    /// Time at which the alert started firing.
+    /// Time at which the alert became active.
     pub fired_at: DateTime<Utc>,
-    /// The time at which the alert was resolved, or null if it is still firing.
+    /// The time at which the alert was resolved, or null if it is still active.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
     /// The alert arguments contain additional details about the alert, which
@@ -29,27 +56,20 @@ pub struct Alert {
     // pub resolved_arguments: Json<async_graphql::Value>,
 }
 
-pub struct AlertLoader(pub sqlx::PgPool);
-
-/// A typed key for loading all of the currently firing alerts for a given `catalog_name`.
+/// A typed key for loading all of the currently active alerts for a given `catalog_name`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FiringAlerts {
-    pub catalog_name: String,
-}
+pub struct ActiveAlerts(pub String);
 
-impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
+impl async_graphql::dataloader::Loader<ActiveAlerts> for super::PgDataLoader {
     type Value = Vec<Alert>;
     type Error = String;
 
     async fn load(
         &self,
-        keys: &[FiringAlerts],
-    ) -> Result<std::collections::HashMap<FiringAlerts, Self::Value>, Self::Error> {
+        keys: &[ActiveAlerts],
+    ) -> Result<std::collections::HashMap<ActiveAlerts, Self::Value>, Self::Error> {
         use itertools::Itertools;
-        let catalog_names = keys
-            .iter()
-            .map(|k| k.catalog_name.as_str())
-            .collect::<Vec<_>>();
+        let catalog_names = keys.iter().map(|k| k.0.as_str()).collect::<Vec<_>>();
         let rows = sqlx::query!(
             r#"select
             alert_type as "alert_type: AlertType",
@@ -71,9 +91,7 @@ impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
         let result = rows
             .into_iter()
             .map(|row| {
-                let key = FiringAlerts {
-                    catalog_name: row.catalog_name.clone(),
-                };
+                let key = ActiveAlerts(row.catalog_name.clone());
                 let alert = Alert {
                     alert_type: row.alert_type,
                     catalog_name: row.catalog_name,
@@ -88,61 +106,159 @@ impl async_graphql::dataloader::Loader<FiringAlerts> for AlertLoader {
     }
 }
 
-/// Get alerts from alert_history by catalog_name
-pub async fn list_alerts_firing(
+pub type PaginatedAlerts = connection::Connection<
+    PaginatedAlertsCursor,
+    Alert,
+    connection::EmptyFields,
+    connection::EmptyFields,
+    connection::DefaultConnectionName,
+    connection::DefaultEdgeName,
+    connection::DisableNodesField,
+>;
+
+pub struct PaginatedAlertsCursor {
+    fired_at: DateTime<Utc>,
+    catalog_name: String,
+    alert_type: AlertType,
+}
+impl PaginatedAlertsCursor {
+    fn into_parts(self) -> (Option<DateTime<Utc>>, Option<AlertType>, Option<String>) {
+        (
+            Some(self.fired_at),
+            Some(self.alert_type),
+            Some(self.catalog_name),
+        )
+    }
+}
+
+impl async_graphql::connection::CursorType for PaginatedAlertsCursor {
+    type Error = anyhow::Error;
+
+    /// Decode cursor from string.
+    fn decode_cursor(s: &str) -> Result<Self, Self::Error> {
+        use anyhow::Context;
+        let mut splits = s.split(";");
+
+        let Some(ts_str) = splits.next() else {
+            anyhow::bail!("invalid alerts cursor, no timestamp: '{s}'");
+        };
+        let Some(alert_type_str) = splits.next() else {
+            anyhow::bail!("invalid alerts cursor, no type: '{s}'");
+        };
+        let Some(catalog_name) = splits.next() else {
+            anyhow::bail!("invalid alerts cursor, no name: '{s}'");
+        };
+        let fired_at = DateTime::parse_from_rfc3339(ts_str)
+            .context("invalid alerts cursor")?
+            .to_utc();
+        let Some(alert_type) = AlertType::from_str(alert_type_str) else {
+            anyhow::bail!("invalid alerts cursor, invalid alert type: '{s}'");
+        };
+        Ok(PaginatedAlertsCursor {
+            fired_at,
+            catalog_name: catalog_name.to_string(),
+            alert_type,
+        })
+    }
+
+    /// Encode cursor to string.
+    fn encode_cursor(&self) -> String {
+        format!(
+            "{};{};{}",
+            self.fired_at.to_rfc3339(),
+            self.alert_type,
+            self.catalog_name
+        )
+    }
+}
+
+async fn fetch_alert_history_by_prefix(
     ctx: &Context<'_>,
-    prefixes: Vec<String>,
-) -> async_graphql::Result<Vec<Alert>> {
+    AlertsBy { prefix, active }: AlertsBy,
+    before_cursor: Option<String>,
+    limit: Option<i32>,
+) -> async_graphql::Result<PaginatedAlerts> {
     let app = ctx.data::<Arc<App>>()?;
     let claims = ctx.data::<ControlClaims>()?;
 
     // Verify user authorization
-    let authorized_names = app
-        .verify_user_authorization(claims, prefixes.clone(), models::Capability::Read)
+    let _ = app
+        .verify_user_authorization(claims, vec![prefix.to_string()], models::Capability::Read)
         .await
         .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
 
-    if authorized_names.is_empty() {
-        return Ok(vec![]);
-    }
+    connection::query_with::<PaginatedAlertsCursor, _, _, _, _>(
+        None,
+        before_cursor,
+        None,
+        limit,
+        |_after, before, _first, last| async move {
+            let effective_limit = last.unwrap_or(20);
+            let (before_ts, before_alert_type, before_name) = before.map(|c| c.into_parts()).unwrap_or_default();
 
-    // Query alert_history table
-    let rows = sqlx::query!(
-        r#"
-        select
-            alert_type as "alert_type!: AlertType",
-            catalog_name as "catalog_name!: String",
-            fired_at,
-            resolved_at,
-            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
-        from unnest($1::text[]) p(prefix)
-        join alert_history a on a.resolved_at is null and starts_with(a.catalog_name, p.prefix)
-        order by a.fired_at desc
-        limit 100
-        "#,
-        &authorized_names as &[String],
+            let rows = sqlx::query!(
+                r#"
+                select
+                    alert_type as "alert_type!: AlertType",
+                    catalog_name as "catalog_name!: String",
+                    fired_at,
+                    resolved_at,
+                    arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+                from alert_history a
+                where starts_with(a.catalog_name, $1)
+                    and (
+                        $2::timestamptz is null
+                        or a.fired_at < $2::timestamptz
+                        or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)
+                        or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)
+                    )
+                    and (
+                        $5::boolean is null
+                        or ($5::boolean = true and a.resolved_at is null)
+                        or ($5::boolean = false and a.resolved_at is not null)
+                    )
+                order by a.fired_at desc, a.catalog_name desc
+                limit $6
+                "#,
+                prefix,
+                before_ts as Option<DateTime<Utc>>,
+                before_alert_type as Option<AlertType>,
+                before_name,
+                active,
+                effective_limit as i64,
+            )
+            .fetch_all(&app.pg_pool)
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
+
+            let has_prev_page = rows.len() == effective_limit;
+            let mut conn = connection::Connection::new(has_prev_page, false);
+
+            for row in rows {
+                let cursor = PaginatedAlertsCursor {
+                    fired_at: row.fired_at,
+                    alert_type: row.alert_type,
+                    catalog_name: row.catalog_name.clone(),
+                };
+                let alert = Alert {
+                    alert_type: row.alert_type,
+                    catalog_name: row.catalog_name,
+                    fired_at: row.fired_at,
+                    resolved_at: row.resolved_at,
+                    arguments: async_graphql::Json(row.arguments.0),
+                };
+                conn.edges.push(connection::Edge::new(cursor, alert));
+            }
+            async_graphql::Result::<PaginatedAlerts>::Ok(conn)
+        },
     )
-    .fetch_all(&app.pg_pool)
     .await
-    .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
-
-    let results = rows
-        .into_iter()
-        .map(|row| Alert {
-            alert_type: row.alert_type,
-            catalog_name: row.catalog_name,
-            fired_at: row.fired_at,
-            resolved_at: row.resolved_at,
-            arguments: Json(row.arguments.0),
-        })
-        .collect();
-
-    Ok(results)
 }
 
-pub type PaginatedAlerts = connection::Connection<DateTime<Utc>, Alert>;
-
-pub async fn alert_history(
+/// Queries the history of alert for a single given live spec.
+/// Note that this currently only returns alerts that are resolved, though
+/// we could allow this to return active alerts as well if we wanted.
+pub async fn live_spec_alert_history(
     ctx: &Context<'_>,
     catalog_name: &str,
     before_date: Option<String>,
@@ -166,7 +282,8 @@ pub async fn alert_history(
         before_date,
         None,
         Some(limit),
-        |_, before, _, limit| async move {
+        |_: Option<PaginatedAlertsCursor>, before, _, limit| async move {
+            let (before_ts, before_alert_type, before_name) = before.map(|c| c.into_parts()).unwrap_or_default();
             let effective_limit = limit.unwrap_or(20);
             let rows = sqlx::query!(
                 r#"
@@ -178,13 +295,20 @@ pub async fn alert_history(
                 arguments as "arguments!: crate::TextJson<async_graphql::Value>"
             from alert_history a
             where a.catalog_name = $1
-                and a.fired_at < $2
                 and a.resolved_at is not null
-            order by a.fired_at desc
-            limit $3
+                and (
+                    $2::timestamptz is null
+                    or a.fired_at < $2::timestamptz
+                    or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)
+                    or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)
+                )
+            order by a.fired_at desc, a.catalog_name desc
+            limit $5
             "#,
                 catalog_name,
-                before.unwrap_or(Utc::now()),
+                before_ts,
+                before_alert_type as Option<AlertType>,
+                before_name,
                 effective_limit as i64,
             )
             .fetch_all(&app.pg_pool)
@@ -195,15 +319,19 @@ pub async fn alert_history(
             let mut conn = connection::Connection::new(has_prev_page, false);
 
             for row in rows {
-                let fired_at = row.fired_at;
+                let cursor = PaginatedAlertsCursor {
+                    fired_at: row.fired_at,
+                    alert_type: row.alert_type,
+                    catalog_name: row.catalog_name.clone(),
+                };
                 let alert = Alert {
                     alert_type: row.alert_type,
                     catalog_name: row.catalog_name,
-                    fired_at,
+                    fired_at: row.fired_at,
                     resolved_at: row.resolved_at,
                     arguments: async_graphql::Json(row.arguments.0),
                 };
-                conn.edges.push(connection::Edge::new(fired_at, alert));
+                conn.edges.push(connection::Edge::new(cursor, alert));
             }
             async_graphql::Result::<PaginatedAlerts>::Ok(conn)
         },

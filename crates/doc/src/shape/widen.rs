@@ -2,7 +2,8 @@
 // of a Shape as needed, to allow a given document to properly validate.
 // It's used as a base operation for schema inference.
 use super::*;
-use crate::{AsNode, Node, OwnedNode};
+use crate::OwnedNode;
+use json::{AsNode, Node};
 use std::cmp::Ordering;
 
 impl StringShape {
@@ -21,9 +22,9 @@ impl StringShape {
 
         match &self.format {
             None => {}
-            Some(lhs) if lhs.validate(val).is_ok() => {}
+            Some(lhs) if lhs.validate(val) => {}
 
-            Some(Format::Integer) if Format::Number.validate(val).is_ok() => {
+            Some(Format::Integer) if Format::Number.validate(val) => {
                 self.format = Some(Format::Number); // Widen integer => number.
                 changed = true;
             }
@@ -55,7 +56,7 @@ impl ObjShape {
     where
         N: AsNode + 'n,
     {
-        use crate::{Field, Fields};
+        use json::{Field, Fields};
 
         // on_unknown_property closes over `new_fields` to enqueue
         // properties which will be added to this ObjShape.
@@ -91,6 +92,7 @@ impl ObjShape {
 
                 new_fields.push(ObjProperty {
                     name: rhs.property().into(),
+                    is_property: true,
                     // A field can only be required if every single document we've seen
                     // has that field present. This means that ONLY fields that exist
                     // on the very first object we encounter for a particular location should
@@ -302,10 +304,10 @@ impl Shape {
             ),
             Node::PosInt(f) => self
                 .numeric
-                .widen(Number::Unsigned(f), apply_type(types::INTEGER)),
+                .widen(Number::PosInt(f), apply_type(types::INTEGER)),
             Node::NegInt(f) => self
                 .numeric
-                .widen(Number::Signed(f), apply_type(types::INTEGER)),
+                .widen(Number::NegInt(f), apply_type(types::INTEGER)),
             Node::Object(fields) => {
                 let is_first = apply_type(types::OBJECT);
                 if is_first {
@@ -336,7 +338,7 @@ impl Shape {
         };
 
         return match (
-            enums.binary_search_by(|lhs| crate::compare(lhs, node)),
+            enums.binary_search_by(|lhs| json::node::compare(lhs, node)),
             node.as_node(),
         ) {
             // Exact match.
@@ -385,53 +387,56 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
     use json::Number;
 
     match num {
-        // Positive integers.
-        Number::Unsigned(n) if n > 0 => {
-            let e = n.ilog10();
-            (
-                Number::Unsigned(10u64.pow(e)),
-                Number::Unsigned(10u64.checked_pow(e + 1).unwrap_or(u64::MAX)),
-            )
+        Number::Float(f) => {
+            if f.total_cmp(&-1.0).is_le() {
+                let e = (-f).log10() as i32;
+                let l = -(10f64.powi(e + 1));
+                (
+                    Number::Float(if l.is_finite() { l } else { f64::MIN }),
+                    Number::Float(-(10f64.powi(e))),
+                )
+            } else if f.total_cmp(&-0.0).is_lt() {
+                (Number::Float(-1.0), Number::Float(0.0))
+            } else if f.total_cmp(&-0.0).is_eq() {
+                (Number::Float(-0.0), Number::Float(-0.0))
+            } else if f.total_cmp(&0.0).is_eq() {
+                (Number::Float(0.0), Number::Float(0.0))
+            } else if f.total_cmp(&1.0).is_lt() {
+                (Number::Float(0.0), Number::Float(1.0))
+            } else {
+                let e = f.log10() as i32;
+                let u = 10f64.powi(e + 1);
+                (
+                    Number::Float(10f64.powi(e)),
+                    Number::Float(if u.is_finite() { u } else { f64::MAX }),
+                )
+            }
         }
-        Number::Signed(n) if n >= 0 => unreachable!("invalid Number::Signed (should be negative)"),
-        // Floats >= 1.0.
-        Number::Float(f) if f >= 1.0 => {
-            let e = f.log10() as i32;
-            let u = 10f64.powi(e + 1);
-            (
-                Number::Float(10f64.powi(e)),
-                Number::Float(if u.is_finite() { u } else { f64::MAX }),
-            )
-        }
-        // Floats between (0.0, 1.0).
-        Number::Float(f) if f > 0.0 => (Number::Float(0.0), Number::Float(1.0)),
-        // Floats between (-1.0, 0.0).
-        Number::Float(f) if f > -1.0 && f < 0.0 => (Number::Float(-1.0), Number::Float(0.0)),
-        // Floats <= -1.0.
-        Number::Float(f) if f <= -1.0 => {
-            let e = (-f).log10() as i32;
-            let l = -(10f64.powi(e + 1));
-            (
-                Number::Float(if l.is_finite() { l } else { f64::MIN }),
-                Number::Float(-(10f64.powi(e))),
-            )
-        }
-        // Negative integers.
-        Number::Signed(n) => {
+        Number::NegInt(n) => {
+            assert!(n < 0, "invalid Number::NegInt (should be negative)");
+
             let e = n.saturating_neg().ilog10();
             (
-                Number::Signed(
+                Number::NegInt(
                     10i64
                         .checked_pow(e + 1)
                         .map(i64::saturating_neg)
                         .unwrap_or(i64::MIN),
                 ),
-                Number::Signed(-(10i64.pow(e))),
+                Number::NegInt(-(10i64.pow(e))),
             )
         }
-        // Zero.
-        Number::Unsigned(_) => (Number::Unsigned(0), Number::Unsigned(0)),
-        Number::Float(_) => (Number::Float(0.0), Number::Float(0.0)),
+        Number::PosInt(n) => {
+            if n > 0 {
+                let e = n.ilog10();
+                (
+                    Number::PosInt(10u64.pow(e)),
+                    Number::PosInt(10u64.checked_pow(e + 1).unwrap_or(u64::MAX)),
+                )
+            } else {
+                (Number::PosInt(0), Number::PosInt(0))
+            }
+        }
     }
 }
 
@@ -1205,6 +1210,7 @@ mod test {
                 // Zero cases.
                 [0, 0, 0],
                 [0.0, 0.0, 0.0],
+                [-0.0, -0.0, -0.0],
                 // Positive cases.
                 [0.001, 0.0, 1.0],
                 [0.999, 0.0, 1.0],
@@ -1243,11 +1249,15 @@ mod test {
             ]))
             .unwrap();
 
-        for (given, expect_min, expect_max) in cases.iter() {
+        for (ind, (given, expect_min, expect_max)) in cases.iter().enumerate() {
             let given: Number = given.into();
             let expect: (Number, Number) = (expect_min.into(), expect_max.into());
 
-            assert_eq!(number_bounds(given), expect, "number bounds of: {}", given);
+            assert_eq!(
+                number_bounds(given),
+                expect,
+                "number bounds of index {ind}: {given:?}"
+            );
         }
     }
 }

@@ -240,7 +240,8 @@ pub fn recv_client_load_or_flush(
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
-            let mut key_packed = doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+            doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+            let mut key_packed = buf.split().freeze();
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
 
@@ -256,7 +257,7 @@ pub fn recv_client_load_or_flush(
                 stats.3 = clock;
             }
 
-            memtable.add(binding_index, doc, false)?;
+            memtable.add(binding_index as u16, doc, false)?;
 
             let (ref prev_max, next_max) = &mut max_keys[binding_index as usize];
 
@@ -343,7 +344,7 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                     )
                 })?;
 
-            memtable.add(binding_index, doc, true)?;
+            memtable.add(binding_index as u16, doc, true)?;
 
             // Accumulate metrics over reads for our transforms.
             let stats = &mut txn.stats.entry(binding_index).or_default();
@@ -412,12 +413,13 @@ pub fn send_connector_store(
     // extract the values last, so that the indicator can account for truncations
     // in both the keys and the flow document.
     let truncation_indicator = AtomicBool::new(false);
-    let key_packed = doc::Extractor::extract_all_owned_indicate_truncation(
+    doc::Extractor::extract_all_owned_indicate_truncation(
         &root,
         &binding.key_extractors,
         buf,
         &truncation_indicator,
     );
+    let key_packed = buf.split().freeze();
 
     // Serialize the root document regardless of whether delta-updates is
     // enabled. We do this so that we can count the number of bytes on the
@@ -432,12 +434,13 @@ pub fn send_connector_store(
     .expect("document serialization cannot fail");
     let mut doc_json = buf.split().freeze();
 
-    let values_packed = doc::Extractor::extract_all_owned_indicate_truncation(
+    doc::Extractor::extract_all_owned_indicate_truncation(
         &root,
         &binding.value_extractors,
         buf,
         &truncation_indicator,
     );
+    let values_packed = buf.split().freeze();
 
     // Accumulate metrics over reads for our transforms.
     let stats = &mut txn.stats.entry(binding_index as u32).or_default();

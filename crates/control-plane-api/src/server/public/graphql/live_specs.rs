@@ -1,116 +1,263 @@
-use async_graphql::{ComplexObject, Context, SimpleObject};
+use async_graphql::{dataloader, ComplexObject, Context, SimpleObject};
 use chrono::{DateTime, Utc};
 use models::Id;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::server::{public::graphql::alerts, App, ControlClaims};
+use crate::server::{
+    public::graphql::live_spec_refs::{
+        paginate_live_specs_refs, LiveSpecRef, PaginatedLiveSpecsRefs,
+    },
+    App, ControlClaims,
+};
 
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
 pub struct LiveSpec {
     pub live_spec_id: Id,
     pub catalog_name: String,
-    pub spec_type: models::CatalogType,
-    pub spec: async_graphql::Json<async_graphql::Value>,
+    pub catalog_type: models::CatalogType,
+    pub model: async_graphql::Json<async_graphql::Value>,
     pub last_build_id: Id,
     pub last_pub_id: Id,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub built_spec: async_graphql::Json<async_graphql::Value>,
+    pub is_disabled: bool,
+
+    // These "connection" fields are represented here as plain strings of the
+    // catalog names, which the resolver functions will expose as paginated
+    // lists of `LiveSpecRef`s. This gives us an opportunity to check user
+    // permissions for any live specs that are connected to this one.
+    #[graphql(skip)]
+    reads_from: Vec<String>,
+    #[graphql(skip)]
+    writes_to: Vec<String>,
+    #[graphql(skip)]
+    source_capture: Option<String>,
+    #[graphql(skip)]
+    written_by: Vec<String>,
+    #[graphql(skip)]
+    read_by: Vec<String>,
 }
 
 #[ComplexObject]
 impl LiveSpec {
-    /// Returns all alerts that are currently firing for this live spec.
-    async fn firing_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<alerts::Alert>> {
-        let loader = ctx.data::<async_graphql::dataloader::DataLoader<alerts::AlertLoader>>()?;
-        let alerts = loader
-            .load_one(alerts::FiringAlerts {
-                catalog_name: self.catalog_name.clone(),
-            })
-            .await?;
-        Ok(alerts.unwrap_or_default())
-    }
-
-    /// Returns the history of resolved alerts for this live spec. Alerts are
-    /// returned in reverse chronological order based on the `firedAt`
-    /// timestamp, and are paginated.
-    async fn alert_history(
+    async fn reads_from(
         &self,
         ctx: &Context<'_>,
+        after: Option<String>,
         before: Option<String>,
-        last: i32,
-    ) -> async_graphql::Result<alerts::PaginatedAlerts> {
-        alerts::alert_history(ctx, &self.catalog_name, before, last).await
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+        paginate_live_specs_refs(
+            ctx,
+            None,
+            self.reads_from.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
     }
 
-    // async fn controller_status(
-    //     &self,
-    //     ctx: &Context<'_>,
-    // ) -> async_graphql::Result<Option<models::status::capture::CaptureStatus>> {
-    //     todo!()
-    // }
+    async fn writes_to(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        before: Option<String>,
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+        paginate_live_specs_refs(
+            ctx,
+            None,
+            self.writes_to.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
+    }
+
+    async fn source_capture(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<LiveSpecRef>> {
+        let app = ctx.data::<Arc<App>>()?;
+        let claims = ctx.data::<ControlClaims>()?;
+
+        let Some(source_capture_name) = &self.source_capture else {
+            return Ok(None);
+        };
+        let attached = app.attach_user_capabilities(
+            claims,
+            vec![source_capture_name.clone()],
+            |name, user_capability| {
+                Some(LiveSpecRef {
+                    catalog_name: models::Name::new(name),
+                    user_capability,
+                })
+            },
+        );
+        Ok(attached.into_iter().next())
+    }
+
+    // Note that we must filter the `writtenBy` and `readBy` names before
+    // paginating because the user may not have permission to see all the things
+    // writing to the spec. This is different from `readsFrom` and `writesTo`,
+    // because those are represented in the model itself, so having capability
+    // to read the model will implicitly include the capability to know the
+    // names of all the things that model reads from or writes to. But
+    // `writtenBy` and `readBy` are determined by the existence of _other_
+    // specs, and we must not leak their names to users who are not authorized
+    // to see them.
+
+    /// Returns a list of live specs that write to this spec. This will always
+    /// be empty if this spec is a not a collection.
+    async fn written_by(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        before: Option<String>,
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+        paginate_live_specs_refs(
+            ctx,
+            Some(models::Capability::Read),
+            self.written_by.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
+    }
+
+    /// Returns a list of live specs that read from this spec. This will always
+    /// be empty if this spec is a not a collection.
+    async fn read_by(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        before: Option<String>,
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+        paginate_live_specs_refs(
+            ctx,
+            Some(models::Capability::Read),
+            self.read_by.clone(),
+            after,
+            before,
+            first,
+            last,
+        )
+        .await
+    }
 }
 
-pub async fn fetch_live_specs(
-    ctx: &Context<'_>,
-    spec_type: models::CatalogType,
-    prefixes: Vec<String>,
-) -> async_graphql::Result<Vec<LiveSpec>> {
-    let app = ctx.data::<Arc<App>>()?;
-    let claims = ctx.data::<ControlClaims>()?;
+/// Typed key for loading live specs by catalog_name
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LiveSpecKey {
+    pub catalog_name: String,
+    /// Whether to include the model in the LiveSpec
+    pub with_model: bool,
+    /// Whether to include the built_spec in the LiveSpec
+    pub with_built: bool,
+}
 
-    // Verify user authorization for the catalog names
-    let authorized_prefixes = app
-        .verify_user_authorization(claims, prefixes, models::Capability::Read)
-        .await
-        .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
+impl dataloader::Loader<LiveSpecKey> for super::PgDataLoader {
+    type Value = LiveSpec;
+    type Error = async_graphql::Error;
 
-    if authorized_prefixes.is_empty() {
-        return Ok(vec![]);
-    }
+    async fn load(
+        &self,
+        keys: &[LiveSpecKey],
+    ) -> Result<HashMap<LiveSpecKey, Self::Value>, Self::Error> {
+        let names = keys
+            .iter()
+            .map(|k| k.catalog_name.as_str())
+            .collect::<Vec<_>>();
+        let spec_selected = keys.iter().map(|k| k.with_model).collect::<Vec<_>>();
+        let built_selected = keys.iter().map(|k| k.with_built).collect::<Vec<_>>();
 
-    let spec_selected = ctx.look_ahead().field("spec").exists();
-    let built_selected = ctx.look_ahead().field("built_spec").exists();
-
-    let rows = sqlx::query!(
-        r#"select
+        tracing::debug!(count = names.len(), "loading live_specs");
+        sqlx::query!(
+            r#"select
                 ls.catalog_name,
+                inputs.with_model as "with_model!: bool",
+                inputs.with_built as "with_built!: bool",
                 ls.id as "live_spec_id: models::Id",
                 ls.spec_type as "spec_type!: models::CatalogType",
-                case when $3 then ls.spec::text else null end as "spec: crate::TextJson<async_graphql::Value>",
+                case when inputs.with_model then ls.spec::text else null end as "model: crate::TextJson<async_graphql::Value>",
                 ls.last_build_id as "last_build_id: models::Id",
                 ls.last_pub_id as "last_pub_id: models::Id",
                 ls.created_at,
                 ls.updated_at,
-                case when $4 then ls.built_spec::text else null end as "built_spec: crate::TextJson<async_graphql::Value>"
-            from unnest($1::text[]) p(prefix)
-            join live_specs ls on starts_with(ls.catalog_name::text, p.prefix)
-            where ls.spec_type = $2::catalog_spec_type
-        "#,
-        &authorized_prefixes,
-        spec_type as models::CatalogType,
-        spec_selected,
-        built_selected,
-    )
-    .fetch_all(&app.pg_pool)
-    .await
-    .map_err(|e| async_graphql::Error::new(format!("Failed to fetch live specs: {}", e)))?;
-
-    let out = rows
-        .into_iter()
-        .map(|row| LiveSpec {
-            catalog_name: row.catalog_name,
-            live_spec_id: row.live_spec_id,
-            spec_type: row.spec_type,
-            spec: async_graphql::Json(row.spec.map(|j| j.0).unwrap_or_default()),
-            last_build_id: row.last_build_id,
-            last_pub_id: row.last_pub_id,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            built_spec: async_graphql::Json(row.built_spec.map(|j| j.0).unwrap_or_default()),
+                case when inputs.with_built then ls.built_spec::text else null end as "built_spec: crate::TextJson<async_graphql::Value>",
+                coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false')::boolean as "is_disabled!: bool",
+                ls.reads_from as "reads_from?: Vec<String>",
+                ls.writes_to as "writes_to?: Vec<String>",
+                case json_typeof(ls.spec->'source')
+                when 'object' then ls.spec->'source'->>'capture'
+                when 'string' then ls.spec->>'source'
+                else null
+                end as "source_capture?: String",
+                array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as "written_by?: Vec<String>",
+                array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and out_flows.flow_type is not null) as "read_by?: Vec<String>"
+            from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)
+            join live_specs ls on inputs.name = ls.catalog_name
+            left outer join live_spec_flows in_flows on in_flows.target_id = ls.id
+            left outer join live_spec_flows out_flows on out_flows.source_id = ls.id
+            left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id
+            left outer join live_specs out_flows_specs on out_flows_specs.id = out_flows.target_id
+            group by ls.id, inputs.with_model, inputs.with_built
+            "#,
+            &names as &[&str],
+            spec_selected.as_slice(),
+            built_selected.as_slice(),
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(|e| async_graphql::Error::from(e))
+        .map(|rows| {
+            rows.into_iter()
+                .map(|row| {
+                    let key = LiveSpecKey {
+                        catalog_name: row.catalog_name.clone(),
+                        with_model: row.with_model,
+                        with_built: row.with_built,
+                    };
+                    let mut live = LiveSpec {
+                        catalog_name: row.catalog_name,
+                        live_spec_id: row.live_spec_id,
+                        catalog_type: row.spec_type,
+                        model: async_graphql::Json(row.model.map(|j| j.0).unwrap_or_default()),
+                        last_build_id: row.last_build_id,
+                        last_pub_id: row.last_pub_id,
+                        created_at: row.created_at,
+                        updated_at: row.updated_at,
+                        built_spec: async_graphql::Json(row.built_spec.map(|j| j.0).unwrap_or_default()),
+                        is_disabled: row.is_disabled,
+                        reads_from: row.reads_from.unwrap_or_default(),
+                        writes_to: row.writes_to.unwrap_or_default(),
+                        source_capture: row.source_capture,
+                        written_by: row.written_by.unwrap_or_default(),
+                        read_by: row.read_by.unwrap_or_default(),
+                    };
+                    // These must be in sorted order for pagination to work, because we
+                    // use the catalog name as the pagination cursor.
+                    live.reads_from.sort();
+                    live.writes_to.sort();
+                    live.read_by.sort();
+                    live.written_by.sort();
+                    (key, live)
+                })
+                .collect()
         })
-        .collect();
-
-    Ok(out)
+    }
 }

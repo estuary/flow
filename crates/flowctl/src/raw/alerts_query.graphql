@@ -1,0 +1,19 @@
+query FiringAlertsQuery($prefix: String!, $before: String, $last: Int!) {
+    alerts(
+        by: { prefix: $prefix, active: true }
+        last: $last
+        before: $before
+    ) {
+        pageInfo {
+            endCursor
+        }
+        edges {
+            node {
+                catalogName
+                alertType
+                firedAt
+                arguments
+            }
+        }
+    }
+}

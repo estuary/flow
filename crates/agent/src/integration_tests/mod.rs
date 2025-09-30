@@ -6,6 +6,7 @@ mod auto_discovers;
 mod collection_resets;
 mod config_updates;
 mod dependencies_and_activations;
+mod graphql;
 pub mod harness;
 mod inferred_schemas;
 mod locking_retries;

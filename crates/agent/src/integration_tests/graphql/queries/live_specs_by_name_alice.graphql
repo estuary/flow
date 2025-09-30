@@ -1,0 +1,30 @@
+# Queries Alice's materialization by name.
+# For Alice, this is expected to just return the materialization.
+# For Bob, this is expected to return null for the liveSpec.
+query LiveSpecsByNameAlice {
+    liveSpecs(by: { names: ["aliceCo/private/capture"] }) {
+        edges {
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    isDisabled
+                    model
+                }
+                activeAlerts {
+                    alertType
+                }
+                alertHistory(last: 20) {
+                    edges {
+                        node {
+                            firedAt
+                        }
+                    }
+                }
+                status {
+                    summary
+                }
+            }
+        }
+    }
+}

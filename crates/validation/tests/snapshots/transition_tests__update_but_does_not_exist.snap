@@ -9,11 +9,11 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/collections/the~1collection/projections/FX,
-        error: location /f_x is prohibited from ever existing by the schema test://example/catalog.yaml#/collections/the~1collection/schema,
+        error: location /f_x is prohibited from ever existing by the schema test://example/catalog.yaml?ptr=/collections/the~1collection/schema,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/the~1collection/projections/FY,
-        error: location /f_y is unknown in schema test://example/catalog.yaml#/collections/the~1collection/schema,
+        error: location /f_y is unknown in schema test://example/catalog.yaml?ptr=/collections/the~1collection/schema,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/the~1derivation,

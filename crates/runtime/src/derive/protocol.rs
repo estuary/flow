@@ -125,10 +125,7 @@ pub fn recv_client_read_or_flush(
         () = || -> anyhow::Result<()> {
             // TODO: use OwnedArchived or parse into HeapNode.
             let doc: serde_json::Value = serde_json::from_slice(&read.doc_json)?;
-            let _valid = validators[read.transform as usize]
-                .validate(None, &doc)?
-                .ok()
-                .map_err(|invalid| anyhow::anyhow!(invalid.revalidate_with_context(&doc)))?;
+            let _valid = validators[read.transform as usize].validate(&doc, |_| None)?;
             Ok(())
         }()
         .with_context(|| {
@@ -200,8 +197,8 @@ pub fn recv_connector_published_or_flushed(
     let uuid_ptr = &task.document_uuid_ptr;
 
     if !uuid_ptr.0.is_empty() {
-        let Ok(_) = uuid_ptr.create_heap_node(
-            &mut doc,
+        let Ok(_) = doc.try_set(
+            uuid_ptr,
             doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc)),
             alloc,
         ) else {
@@ -225,9 +222,10 @@ pub fn send_client_published(
 ) -> Response {
     let doc::combine::DrainedDoc { meta: _, root } = drained;
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
-    let partitions_packed =
-        doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
+    doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
+    let key_packed = buf.split().freeze();
+    doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
+    let partitions_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &task.ser_policy.on_owned(&root))
         .expect("document serialization cannot fail");

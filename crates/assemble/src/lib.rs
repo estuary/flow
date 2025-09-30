@@ -1,21 +1,58 @@
-use doc::shape::{location::Exists, Shape};
+use doc::shape::{self, location::Exists, Shape};
+use doc::{redact, reduce};
 use json::schema::{formats, types};
 use proto_flow::flow;
 use proto_gazette::{broker, consumer};
 use std::time::Duration;
 
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
-    let default_json = shape
+    let default_json: bytes::Bytes = shape
         .default
         .as_ref()
         .map(|v| v.0.to_string().into())
         .unwrap_or_default();
+
+    let enum_json_vec: Vec<bytes::Bytes> = shape
+        .enum_
+        .iter()
+        .flatten()
+        .map(|v| v.to_string().into())
+        .collect();
 
     let exists = match exists {
         Exists::Must => flow::inference::Exists::Must,
         Exists::May => flow::inference::Exists::May,
         Exists::Implicit => flow::inference::Exists::Implicit,
         Exists::Cannot => flow::inference::Exists::Cannot,
+    };
+    let reduce = match shape.reduce {
+        shape::Reduce::Multiple => flow::inference::Reduce::Multiple,
+        shape::Reduce::Strategy(reduce::Strategy::Append) => flow::inference::Reduce::Append,
+        shape::Reduce::Strategy(reduce::Strategy::FirstWriteWins(..)) => {
+            flow::inference::Reduce::FirstWriteWins
+        }
+        shape::Reduce::Strategy(reduce::Strategy::LastWriteWins(..)) => {
+            flow::inference::Reduce::LastWriteWins
+        }
+        shape::Reduce::Strategy(reduce::Strategy::Maximize(..)) => {
+            flow::inference::Reduce::Maximize
+        }
+        shape::Reduce::Strategy(reduce::Strategy::Merge(..)) => flow::inference::Reduce::Merge,
+        shape::Reduce::Strategy(reduce::Strategy::Minimize(..)) => {
+            flow::inference::Reduce::Minimize
+        }
+        shape::Reduce::Strategy(reduce::Strategy::Set(..)) => flow::inference::Reduce::Set,
+        shape::Reduce::Strategy(reduce::Strategy::Sum) => flow::inference::Reduce::Sum,
+        shape::Reduce::Strategy(reduce::Strategy::JsonSchemaMerge) => {
+            flow::inference::Reduce::JsonSchemaMerge
+        }
+        shape::Reduce::Unset => flow::inference::Reduce::Unset,
+    };
+    let redact = match shape.redact {
+        shape::Redact::Multiple => flow::inference::Redact::Multiple,
+        shape::Redact::Strategy(redact::Strategy::Block) => flow::inference::Redact::Block,
+        shape::Redact::Strategy(redact::Strategy::Sha256) => flow::inference::Redact::Sha256,
+        shape::Redact::Unset => flow::inference::Redact::Unset,
     };
 
     flow::Inference {
@@ -56,9 +93,17 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         numeric: if shape.type_.overlaps(types::INT_OR_FRAC) {
             Some(flow::inference::Numeric {
                 has_minimum: shape.numeric.minimum.is_some(),
-                minimum: shape.numeric.minimum.map(Into::into).unwrap_or_default(),
+                minimum: shape.numeric.minimum.map(|n| match n {
+                    json::Number::Float(f) => f,
+                    json::Number::NegInt(i) => i as f64,
+                    json::Number::PosInt(u) => u as f64,
+                }).unwrap_or_default(),
                 has_maximum: shape.numeric.maximum.is_some(),
-                maximum: shape.numeric.maximum.map(Into::into).unwrap_or_default(),
+                maximum: shape.numeric.maximum.map(|n| match n {
+                    json::Number::Float(f) => f,
+                    json::Number::NegInt(i) => i as f64,
+                    json::Number::PosInt(u) => u as f64,
+                }).unwrap_or_default(),
             })
         } else {
             None
@@ -79,10 +124,9 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         } else {
             None
         },
-        // TODO(johnny): Populate these after connectors are updated.
-        enum_json_vec: Vec::new(),
-        reduce: flow::inference::Reduce::Unset as i32,
-        redact: flow::inference::Redact::Unset as i32,
+        enum_json_vec,
+        reduce: reduce as i32,
+        redact: redact as i32,
     }
 }
 
@@ -553,7 +597,7 @@ mod test {
             },
             numeric: NumericShape {
                 minimum: None,
-                maximum: Some(json::Number::Unsigned(1000)),
+                maximum: Some(json::Number::PosInt(1000)),
             },
             array: ArrayShape {
                 additional_items: Some(Box::new(Shape {
@@ -577,6 +621,9 @@ mod test {
                     },
                 ],
             },
+            enum_: Some(vec![json!("hello"), json!(123), json!(true)]),
+            reduce: doc::shape::Reduce::Strategy(doc::reduce::Strategy::Sum),
+            redact: doc::shape::Redact::Strategy(doc::redact::Strategy::Sha256),
             ..Shape::anything()
         };
 

@@ -1,0 +1,49 @@
+query LiveSpecAlertHistory {
+    liveSpecs(
+        by: {
+            prefixAndType: { prefix: "aliceCo/shared/", catalogType: capture }
+        }
+    ) {
+        edges {
+            node {
+                catalogName
+                activeAlerts {
+                    firedAt
+                    resolvedAt
+                    alertType
+                }
+                allAlerts: alertHistory(last: 50) {
+                    pageInfo {
+                        hasNextPage
+                        hasPreviousPage
+                    }
+                    edges {
+                        cursor
+                        node {
+                            firedAt
+                            resolvedAt
+                            alertType
+                        }
+                    }
+                }
+                oneAlert: alertHistory(
+                    before: "2024-08-09T11:41:12+00:00;auto_discover_failed;aliceCo/shared/capture"
+                    last: 1
+                ) {
+                    pageInfo {
+                        hasNextPage
+                        hasPreviousPage
+                    }
+                    edges {
+                        cursor
+                        node {
+                            firedAt
+                            resolvedAt
+                            alertType
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

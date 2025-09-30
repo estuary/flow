@@ -55,6 +55,22 @@ You may then modify the generated configuration as needed before publishing the 
 Discovers can also be run when editing an existing capture. This is commonly done in order to add new bindings, or update the collection specs and schemas associated with existing bindings.
 :::
 
+### Discovery through `flowctl`
+
+You may also discover all currently available bindings through the `flowctl` CLI for a specific capture:
+
+```shell
+flowctl discover --source flow.yaml
+```
+
+Where the provided `flow.yaml` file includes your capture [specification](#specification).
+If your chosen source `flow.yaml` includes more than one capture specification, you will need to specify one using the command's `--capture` parameter.
+
+This command will invoke the capture's connector from your data plane in order to discover the capture's available bindings.
+Bindings and associated collections are then written back to your local source file.
+
+If you are creating a new capture, you can simply leave the bindings stanza blank (`bindings: []`), and then fill in the details using the `flowctl discover` command.
+
 ## Automatically update captures
 
 You can choose to run periodic discovers in the background by adding the `autoDiscover` property to the capture. Flow will periodically check for changes to the source and re-publish the capture to reflect those changes.

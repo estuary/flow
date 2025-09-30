@@ -44,6 +44,8 @@ pub struct CollectionProjectionsResult {
 /// Returns JavaScript errors for invalid input or processing failures.
 #[wasm_bindgen]
 pub fn skim_collection_projections(input: JsValue) -> Result<JsValue, JsValue> {
+    crate::utils::set_panic_hook();
+
     // Must transcode through serde_json due to RawValue.
     let input: serde_json::Value = ::serde_wasm_bindgen::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("invalid JSON: {:?}", err)))?;

@@ -3,100 +3,36 @@
 //! The `QueryRoot`
 mod alerts;
 pub mod id;
+mod live_spec_refs;
 mod live_specs;
+mod prefixes;
+pub mod status;
 
-use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema};
+use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use axum::Extension;
-use live_specs::fetch_live_specs;
 use std::sync::Arc;
 
-use crate::server::{snapshot::Snapshot, App, ControlClaims};
+use crate::server::{App, ControlClaims};
 
 // This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
-// Represents the portion of the GraphQL schema that deals with read-only queries.
-pub struct QueryRoot;
+pub struct PgDataLoader(pub sqlx::PgPool);
 
-#[Object]
-impl QueryRoot {
-    async fn captures(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
-    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
-        fetch_live_specs(ctx, models::CatalogType::Capture, prefixes).await
-    }
-    async fn collections(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
-    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
-        fetch_live_specs(ctx, models::CatalogType::Collection, prefixes).await
-    }
-    async fn materializations(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
-    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
-        fetch_live_specs(ctx, models::CatalogType::Materialization, prefixes).await
-    }
-    async fn tests(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(desc = "Filter by catalog prefix")] prefixes: Vec<String>,
-    ) -> async_graphql::Result<Vec<live_specs::LiveSpec>> {
-        fetch_live_specs(ctx, models::CatalogType::Test, prefixes).await
-    }
-
-    /// Returns a list of alerts that are currently firing for the given catalog
-    /// prefixes.
-    async fn alerts(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(desc = "Show alerts for the given catalog prefixes")] prefixes: Vec<String>,
-    ) -> async_graphql::Result<Vec<alerts::Alert>> {
-        alerts::list_alerts_firing(ctx, prefixes).await
-    }
-
-    async fn authorized_prefixes(
-        &self,
-        ctx: &Context<'_>,
-        min_capability: models::Capability,
-    ) -> async_graphql::Result<Vec<AuthorizedPrefix>> {
-        let claims = ctx.data::<ControlClaims>().unwrap();
-        let app = ctx.data::<App>().unwrap();
-        let (_, roles) =
-            Snapshot::evaluate(app.snapshot(), chrono::Utc::now(), |snapshot: &Snapshot| {
-                let roles = tables::UserGrant::transitive_roles(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    claims.sub,
-                )
-                .filter(|grant| grant.capability >= min_capability)
-                .map(|grant| AuthorizedPrefix {
-                    prefix: grant.object_role.to_string(),
-                    capability: grant.capability,
-                })
-                .collect::<Vec<_>>();
-                Ok((None, roles))
-            })
-            .expect("evaluation cannot fail");
-        Ok(roles)
-    }
-}
-
-/// A prefix to which the user is authorized.
-#[derive(Debug, Clone, async_graphql::SimpleObject)]
-pub struct AuthorizedPrefix {
-    /// The prefix to which the user is authorized.
-    pub prefix: String,
-    /// The capability granted to the user for this prefix.
-    pub capability: models::Capability,
-}
+// Represents the portion of the GraphQL schema that deals with read-only
+// queries. This is a composition of the queries from various modules here. Note
+// that the repetition in those names is intentional, because async-graphql does
+// not accept, for example `live_specs::Query` and `prefixes::Query`. Each query
+// struct must have a unique name.
+#[derive(Debug, Default, async_graphql::MergedObject)]
+pub struct QueryRoot(
+    live_spec_refs::LiveSpecsQuery,
+    alerts::AlertsQuery,
+    prefixes::PrefixesQuery,
+);
 
 pub fn create_schema() -> GraphQLSchema {
-    Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish()
+    Schema::build(QueryRoot::default(), EmptyMutation, EmptySubscription).finish()
 }
 
 /// Returns the GraphQL SDL (Schema Definition Language) as a string.
@@ -112,15 +48,12 @@ pub(crate) async fn graphql_handler(
     app_state: axum::extract::State<Arc<App>>,
     req: axum::extract::Json<async_graphql::Request>,
 ) -> axum::Json<async_graphql::Response> {
-    let pool = app_state.pg_pool.clone();
-    let request =
-        req.0
-            .data(app_state.0)
-            .data(claims.0)
-            .data(async_graphql::dataloader::DataLoader::new(
-                alerts::AlertLoader(pool),
-                tokio::spawn,
-            ));
+    let request = req.0.data(app_state.0.clone()).data(claims.0).data(
+        async_graphql::dataloader::DataLoader::new(
+            PgDataLoader(app_state.pg_pool.clone()),
+            tokio::spawn,
+        ),
+    );
 
     let response = schema.execute(request).await;
     axum::Json(response)
@@ -134,7 +67,6 @@ pub(crate) async fn graphql_handler(
 /// of date, which is why we're using this html instead.
 /// Changes from original:
 ///     1. Added default auth header
-///     2. Added pulling in `access_token` from search params
 pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
     axum::response::Html(
         r#"
@@ -200,7 +132,7 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
               import 'graphiql/setup-workers/esm.sh';
 
               const fetcher = createGraphiQLFetcher({
-                url: 'http://localhost:8675/api/v1/graphql',
+                url: 'http://localhost:8675/api/graphql',
               });
               const plugins = [HISTORY_PLUGIN, explorerPlugin()];
 

@@ -207,7 +207,7 @@ pub fn extract_constraints<'a>(
         }
 
         // Determine the number of JSON pointer path components.
-        let depth = doc::Pointer::from_str(&p.ptr).iter().count();
+        let depth = json::Pointer::from(&p.ptr).iter().count();
 
         let desired = if desired_depth == 0 {
             false

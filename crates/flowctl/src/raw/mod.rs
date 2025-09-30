@@ -2,16 +2,16 @@ use crate::{
     collection::read::ReadBounds,
     local_specs,
     ops::{OpsCollection, TaskSelector},
-    output,
 };
 use anyhow::Context;
 use doc::combine;
 use std::{
-    io::{self, Write},
+    io::{self, Read, Write},
     path::PathBuf,
 };
 use tables::CatalogResolver;
 
+mod alerts;
 mod discover;
 mod materialize_fixture;
 mod oauth;
@@ -25,18 +25,11 @@ pub struct Advanced {
     cmd: Command,
 }
 
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
-pub struct Alerts {
-    #[clap(long)]
-    prefix: Vec<String>,
-}
-
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
     /// Fetch currently firing alerts
-    Alerts(Alerts),
+    Alerts(alerts::Alerts),
     /// Issue a custom table select request to the API.
     ///
     /// Requests are issued to a specific --table and support optional
@@ -223,7 +216,7 @@ impl BearerLogs {
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
-            Command::Alerts(alerts) => do_alerts(ctx, alerts).await,
+            Command::Alerts(alerts) => alerts::do_alerts(ctx, alerts).await,
             Command::Get(get) => do_get(ctx, get).await,
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
@@ -245,28 +238,6 @@ impl Advanced {
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
         }
-    }
-}
-
-async fn do_alerts(ctx: &mut crate::CliContext, alerts: &Alerts) -> anyhow::Result<()> {
-    let resp = flow_client::alerts::fetch_firing_alerts(&ctx.client, alerts.prefix.clone()).await?;
-    ctx.write_all(resp, ())
-}
-
-impl output::CliOutput for flow_client::alerts::FiringAlert {
-    type TableAlt = ();
-
-    type CellValue = output::JsonCell;
-
-    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
-        vec!["Catalog Name", "Fired At", "Alert Type", "Error detail"]
-    }
-
-    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-        output::to_table_row(
-            self,
-            &["/catalogName", "/firedAt", "/alertType", "/arguments/error"],
-        )
     }
 }
 
@@ -392,7 +363,6 @@ async fn do_combine(
             extractors::for_key(&spec.key, &spec.projections, &doc::SerPolicy::noop())?,
             "source",
             Vec::new(), // Empty redact_salt
-            None,
             doc::Validator::new(schema).unwrap(),
         ),
         tempfile::tempfile().context("opening tempfile")?,
@@ -404,18 +374,35 @@ async fn do_combine(
     // We don't track out_bytes because it's awkward to do so
     // and the user can trivially measure for themselves.
 
-    for line in io::stdin().lines() {
-        let line = line?;
+    let mut parser = simd_doc::Parser::new();
+    let mut stdin = io::stdin().lock();
 
+    const CHUNK_SIZE: usize = 1 << 17; // 128KB
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut chunk_offset = 0i64;
+
+    loop {
+        let bytes_read = stdin.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break; // End of input
+        }
+
+        in_bytes += bytes_read;
+
+        // Feed the chunk to the parser.
+        parser.chunk(&buffer[..bytes_read], chunk_offset)?;
+        chunk_offset += bytes_read as i64;
+
+        // Parse and drain all available documents.
         let memtable = accumulator.memtable()?;
-        let rhs = doc::HeapNode::from_serde(
-            &mut serde_json::Deserializer::from_str(&line),
-            memtable.alloc(),
-        )?;
+        let (_begin_offset, docs) = parser
+            .parse_many(memtable.alloc())
+            .map_err(|(err, _location)| err)?;
 
-        in_docs += 1;
-        in_bytes += line.len() + 1;
-        memtable.add(0, rhs, false)?;
+        for (node, _next_offset) in docs {
+            in_docs += 1;
+            memtable.add(0, node, false)?;
+        }
     }
 
     let mut out = io::BufWriter::new(io::stdout().lock());

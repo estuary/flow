@@ -1,0 +1,48 @@
+# Expect to see /b and /c in the results for both alice and bob.
+# Note that hasNextPage will also be true, even though the next
+# page will actually be empty.
+query LiveSpecsPaginationCursor {
+    beforeC: liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
+        before: "aliceCo/shared/c"
+        last: 2
+    ) {
+        pageInfo {
+            hasNextPage
+            hasPreviousPage
+        }
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+            }
+        }
+    }
+    last2: liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
+        last: 2
+    ) {
+        pageInfo {
+            hasNextPage
+            hasPreviousPage
+        }
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+            }
+        }
+    }
+}

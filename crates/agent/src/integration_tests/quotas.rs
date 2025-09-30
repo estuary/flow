@@ -51,11 +51,14 @@ async fn test_quota_single_task() {
         pub_id: Some(
             0000000000000000,
         ),
-        status: PublishFailed,
+        status: JobStatus {
+            type: PublishFailed,
+            lock_failures: [],
+        },
         errors: [
             (
                 "flow://tenant-quotas/seaTurtles/tasks",
-                "Request to add 1 task(s) would exceed tenant 'seaTurtles/' quota of 2. 2 are currently in use.",
+                "Request to add 1 task(s) would exceed tenant 'seaTurtles/' quota of 2. 2 are currently in use. Reach out to Estuary Support to request an increased task limit for your tenant.",
             ),
         ],
         live_specs: [],
@@ -123,11 +126,14 @@ async fn test_quota_derivations() {
         pub_id: Some(
             0000000000000000,
         ),
-        status: PublishFailed,
+        status: JobStatus {
+            type: PublishFailed,
+            lock_failures: [],
+        },
         errors: [
             (
                 "flow://tenant-quotas/seagulls/tasks",
-                "Request to add 1 task(s) would exceed tenant 'seagulls/' quota of 2. 2 are currently in use.",
+                "Request to add 1 task(s) would exceed tenant 'seagulls/' quota of 2. 2 are currently in use. Reach out to Estuary Support to request an increased task limit for your tenant.",
             ),
             (
                 "flow://tenant-quotas/seagulls/collections",
@@ -187,7 +193,10 @@ async fn test_disable_when_over_quota() {
         pub_id: Some(
             0000000000000000,
         ),
-        status: Success,
+        status: JobStatus {
+            type: Success,
+            lock_failures: [],
+        },
         errors: [],
         live_specs: [
             LiveSpec {

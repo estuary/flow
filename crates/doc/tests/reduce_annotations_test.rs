@@ -4,9 +4,9 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{compare, reduce, HeapNode, LazyNode, Schema, Validator};
+use doc::{reduce, HeapNode, LazyNode, Schema, Validator};
 use itertools::{EitherOrBoth, Itertools};
-use json::schema::build::build_schema;
+use json::{node::compare, schema::build::build_schema};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -15,7 +15,7 @@ use url::Url;
 #[test]
 fn test_validate_then_reduce() {
     let schema = build_schema(
-        Url::parse("https://example/schema").unwrap(),
+        &Url::parse("https://example/schema").unwrap(),
         &json!({
             "properties": {
                 "min": {
@@ -134,13 +134,13 @@ fn test_validate_then_reduce() {
     let mut lhs: Option<HeapNode<'_>> = None;
 
     for (rhs, expect) in cases {
-        let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
+        let rhs_valid = validator.validate(&rhs, |outcome| Some(outcome)).unwrap();
 
         let (reduced, _delete) = match lhs {
             Some(lhs) => reduce::reduce(
                 LazyNode::Heap(&lhs),
                 LazyNode::Node(&rhs),
-                rhs_valid,
+                &rhs_valid,
                 &alloc,
                 true,
             )
@@ -212,7 +212,7 @@ fn test_qc_set_array(mut seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
     }
 
     let schema = build_schema(
-        Url::parse("https://example/schema").unwrap(),
+        &Url::parse("https://example/schema").unwrap(),
         &json!({
             "$defs": {
                 "entry": {
@@ -317,7 +317,7 @@ fn test_qc_set_map(seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
     }
 
     let schema = build_schema(
-        Url::parse("https://example/schema").unwrap(),
+        &Url::parse("https://example/schema").unwrap(),
         &json!({
             "properties": {
                 "add": {
@@ -370,14 +370,14 @@ fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
                 let mut cur: Option<HeapNode> = None;
 
                 for rhs in chunk {
-                    let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
+                    let rhs_valid = validator.validate(&rhs, |outcome| Some(outcome)).unwrap();
 
                     cur = Some(match cur {
                         Some(lhs) => {
                             reduce::reduce(
                                 LazyNode::<Value>::Heap(&lhs),
                                 LazyNode::Heap(&rhs),
-                                rhs_valid,
+                                &rhs_valid,
                                 &alloc,
                                 n == 0,
                             )

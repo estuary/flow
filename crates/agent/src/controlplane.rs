@@ -46,7 +46,7 @@ pub struct ConnectorSpec {
     pub documentation_url: String,
     pub endpoint_config_schema: models::Schema,
     pub resource_config_schema: models::Schema,
-    pub resource_path_pointers: Vec<doc::Pointer>,
+    pub resource_path_pointers: Vec<json::Pointer>,
     pub oauth2: Option<Box<RawValue>>,
     pub auto_discover_interval: chrono::Duration,
 }
@@ -198,7 +198,7 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
-    pub publications_handler: Publisher<C>,
+    pub publications_handler: Publisher,
     pub id_generator: models::IdGenerator,
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
@@ -210,7 +210,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
-        publications_handler: Publisher<C>,
+        publications_handler: Publisher,
         id_generator: models::IdGenerator,
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,
@@ -447,7 +447,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
         let resource_path_pointers = resource_path_pointers
             .into_iter()
-            .map(|p| doc::Pointer::from_str(&p))
+            .map(|p| json::Pointer::from_str(&p))
             .collect::<Vec<_>>();
         Ok(ConnectorSpec {
             protocol: runtime_protocol,

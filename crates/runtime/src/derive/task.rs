@@ -1,6 +1,6 @@
 use super::{Task, Transform};
 use anyhow::Context;
-use proto_flow::derive::{Request, Response, request, response};
+use proto_flow::derive::{request, response, Request, Response};
 use proto_flow::flow;
 
 impl Task {
@@ -53,7 +53,7 @@ impl Task {
         let range = range.context("missing range")?;
         let ser_policy = doc::SerPolicy::noop();
 
-        let document_uuid_ptr = doc::Pointer::from(uuid_ptr);
+        let document_uuid_ptr = json::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(&key, &projections, &ser_policy)?;
         let partition_extractors =
             extractors::for_fields(&partition_fields, &projections, &ser_policy)?;
@@ -97,7 +97,6 @@ impl Task {
             self.key_extractors.clone(),
             "derived",
             self.redact_salt.to_vec(),
-            None,
             validator,
         ))
     }

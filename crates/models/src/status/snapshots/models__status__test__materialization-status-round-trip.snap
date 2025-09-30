@@ -16,9 +16,6 @@ StatusSnapshot {
                 },
             ),
             publications: PublicationStatus {
-                dependency_hash: Some(
-                    "abc12345",
-                ),
                 max_observed_pub_id: 0102030405060708,
                 history: [
                     PublicationInfo {
@@ -33,9 +30,9 @@ StatusSnapshot {
                             "some detail",
                         ),
                         result: Some(
-                            BuildFailed {
-                                incompatible_collections: IgnoredAny,
-                                evolution_id: IgnoredAny,
+                            JobStatus {
+                                type: BuildFailed,
+                                lock_failures: [],
                             },
                         ),
                         errors: [
@@ -75,7 +72,7 @@ StatusSnapshot {
             alerts: {},
         },
     ),
-    json: "{\n  \"type\": \"Materialization\",\n  \"source_capture\": {\n    \"up_to_date\": false,\n    \"add_bindings\": [\n      \"snails/shells\"\n    ]\n  },\n  \"publications\": {\n    \"dependency_hash\": \"abc12345\",\n    \"max_observed_pub_id\": \"0102030405060708\",\n    \"history\": [\n      {\n        \"id\": \"0403020101020304\",\n        \"created\": \"2024-05-30T09:10:11Z\",\n        \"completed\": \"2024-05-30T09:10:11Z\",\n        \"detail\": \"some detail\",\n        \"result\": {\n          \"type\": \"buildFailed\"\n        },\n        \"errors\": [\n          {\n            \"catalog_name\": \"snails/shells\",\n            \"scope\": \"flow://materializations/snails/shells\",\n            \"detail\": \"a_field simply cannot be tolerated\"\n          }\n        ]\n      }\n    ]\n  },\n  \"activation\": {\n    \"last_activated\": \"0102030404030201\",\n    \"shard_status\": {\n      \"last_ts\": \"2024-01-02T03:04:05.060Z\",\n      \"first_ts\": \"2024-01-02T03:04:05.060Z\",\n      \"status\": \"Pending\"\n    },\n    \"last_activated_at\": \"2024-01-02T03:04:05.060Z\",\n    \"recent_failure_count\": 3,\n    \"next_retry\": \"2025-01-02T03:04:05.060Z\"\n  }\n}",
+    json: "{\n  \"type\": \"Materialization\",\n  \"source_capture\": {\n    \"up_to_date\": false,\n    \"add_bindings\": [\n      \"snails/shells\"\n    ]\n  },\n  \"publications\": {\n    \"max_observed_pub_id\": \"0102030405060708\",\n    \"history\": [\n      {\n        \"id\": \"0403020101020304\",\n        \"created\": \"2024-05-30T09:10:11Z\",\n        \"completed\": \"2024-05-30T09:10:11Z\",\n        \"detail\": \"some detail\",\n        \"result\": {\n          \"type\": \"buildFailed\"\n        },\n        \"errors\": [\n          {\n            \"catalog_name\": \"snails/shells\",\n            \"scope\": \"flow://materializations/snails/shells\",\n            \"detail\": \"a_field simply cannot be tolerated\"\n          }\n        ]\n      }\n    ]\n  },\n  \"activation\": {\n    \"last_activated\": \"0102030404030201\",\n    \"shard_status\": {\n      \"last_ts\": \"2024-01-02T03:04:05.060Z\",\n      \"first_ts\": \"2024-01-02T03:04:05.060Z\",\n      \"status\": \"Pending\"\n    },\n    \"last_activated_at\": \"2024-01-02T03:04:05.060Z\",\n    \"recent_failure_count\": 3,\n    \"next_retry\": \"2025-01-02T03:04:05.060Z\"\n  }\n}",
     parsed: Materialization(
         MaterializationStatus {
             source_capture: Some(
@@ -89,9 +86,6 @@ StatusSnapshot {
                 },
             ),
             publications: PublicationStatus {
-                dependency_hash: Some(
-                    "abc12345",
-                ),
                 max_observed_pub_id: 0102030405060708,
                 history: [
                     PublicationInfo {
@@ -106,9 +100,9 @@ StatusSnapshot {
                             "some detail",
                         ),
                         result: Some(
-                            BuildFailed {
-                                incompatible_collections: IgnoredAny,
-                                evolution_id: IgnoredAny,
+                            JobStatus {
+                                type: BuildFailed,
+                                lock_failures: [],
                             },
                         ),
                         errors: [

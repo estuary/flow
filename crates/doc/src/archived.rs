@@ -1,4 +1,4 @@
-use super::{heap, AsNode, BumpStr, BumpVec, Field, Fields, HeapNode, Node};
+use super::{heap, BumpStr, BumpVec, HeapNode};
 
 // `rkyv` generates types that mirror the 'alloc lifetime parameter,
 // but this lifetime has no meaning (as far as I can tell).
@@ -83,14 +83,15 @@ where
     }
 }
 
-impl AsNode for ArchivedNode {
+impl json::AsNode for ArchivedNode {
     type Fields = [ArchivedField];
 
     // We *always* want this inline, because the caller will next match
     // over our returned Node, and (when inline'd) the optimizer can
     // collapse the chained `match` blocks into one.
     #[inline(always)]
-    fn as_node<'a>(&'a self) -> Node<'a, Self> {
+    fn as_node<'a>(&'a self) -> json::Node<'a, Self> {
+        use json::Node;
         match self {
             ArchivedNode::Array(_tape_length, a) => Node::Array(a.as_slice()),
             ArchivedNode::Bool(b) => Node::Bool(*b),
@@ -113,7 +114,7 @@ impl AsNode for ArchivedNode {
     }
 }
 
-impl Fields<ArchivedNode> for [ArchivedField] {
+impl json::Fields<ArchivedNode> for [ArchivedField] {
     type Field<'a> = &'a ArchivedField;
     type Iter<'a> = std::slice::Iter<'a, ArchivedField>;
 
@@ -134,7 +135,7 @@ impl Fields<ArchivedNode> for [ArchivedField] {
     }
 }
 
-impl<'a> Field<'a, ArchivedNode> for &'a ArchivedField {
+impl<'a> json::Field<'a, ArchivedNode> for &'a ArchivedField {
     #[inline(always)]
     fn property(&self) -> &'a str {
         &self.property

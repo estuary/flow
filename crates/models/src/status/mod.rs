@@ -16,6 +16,11 @@ use serde::{Deserialize, Serialize};
 pub use self::alerts::{AlertState, AlertType, Alerts, ControllerAlert};
 pub use self::connector::ConnectorStatus;
 pub use self::summary::{StatusSummaryType, Summary};
+pub use activation::ActivationStatus;
+pub use capture::AutoDiscoverStatus;
+pub use collection::InferredSchemaStatus;
+pub use materialization::SourceCaptureStatus;
+pub use publications::PublicationStatus;
 
 /// Response type for the status endpoint
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -72,13 +77,91 @@ pub enum ControllerStatus {
     Collection(collection::CollectionStatus),
     Materialization(materialization::MaterializationStatus),
     Test(catalog_test::TestStatus),
-    #[serde(other, untagged)]
     Uninitialized,
 }
 
-impl Default for ControllerStatus {
-    fn default() -> Self {
-        ControllerStatus::Uninitialized
+impl ControllerStatus {
+    pub fn new(catalog_type: CatalogType) -> Self {
+        match catalog_type {
+            CatalogType::Capture => ControllerStatus::Capture(Default::default()),
+            CatalogType::Collection => ControllerStatus::Collection(Default::default()),
+            CatalogType::Materialization => ControllerStatus::Materialization(Default::default()),
+            CatalogType::Test => ControllerStatus::Test(Default::default()),
+        }
+    }
+}
+
+// The controller status is represented in the GraphQL schema as a single type,
+// rather than separate types for each spec type. We don't use a Union because
+// they add significant complexity to the graphql queries. Instead, this exposes
+// a union of all the constituent parts of each controller status, without
+// requiring that clients treat each status type separately.
+#[cfg(feature = "async-graphql")]
+#[cfg_attr(feature = "async-graphql", async_graphql::Object)]
+impl ControllerStatus {
+    /// Present for captures, collections, and materializations.
+    async fn activation(&self) -> Option<&ActivationStatus> {
+        match self {
+            ControllerStatus::Capture(status) => Some(&status.activation),
+            ControllerStatus::Collection(status) => Some(&status.activation),
+            ControllerStatus::Materialization(status) => Some(&status.activation),
+            _ => None,
+        }
+    }
+
+    /// Present for all catalog types
+    async fn publications(&self) -> Option<&PublicationStatus> {
+        match self {
+            ControllerStatus::Capture(status) => Some(&status.publications),
+            ControllerStatus::Collection(status) => Some(&status.publications),
+            ControllerStatus::Materialization(status) => Some(&status.publications),
+            ControllerStatus::Test(status) => Some(&status.publications),
+            _ => None,
+        }
+    }
+
+    /// Only present for captures that use `autoDiscover`.
+    async fn auto_discover(&self) -> Option<&AutoDiscoverStatus> {
+        match self {
+            ControllerStatus::Capture(status) => status.auto_discover.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Only present for materializations that use `sources`.
+    async fn source_capture(&self) -> Option<&SourceCaptureStatus> {
+        match self {
+            ControllerStatus::Materialization(status) => status.source_capture.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Only present for collections that use the inferred schema.
+    async fn inferred_schema(&self) -> Option<&InferredSchemaStatus> {
+        match self {
+            ControllerStatus::Collection(status) => status.inferred_schema.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Only present for captures or materializations that update their own endpoint configurations
+    /// (typically just captures that need to refres OAuth tokens).
+    async fn config_update(&self) -> Option<&PendingConfigUpdateStatus> {
+        match self {
+            ControllerStatus::Capture(status) => status.config_updates.as_ref(),
+            ControllerStatus::Materialization(status) => status.config_updates.as_ref(),
+            _ => None,
+        }
+    }
+
+    async fn alerts(&self) -> Option<&Alerts> {
+        match self {
+            ControllerStatus::Capture(status) => Some(&status.alerts),
+            ControllerStatus::Collection(status) => Some(&status.alerts),
+            ControllerStatus::Materialization(status) => Some(&status.alerts),
+            ControllerStatus::Test(status) => Some(&status.alerts),
+            _ => None,
+        }
     }
 }
 
@@ -212,6 +295,7 @@ impl ControllerStatus {
 /// Identifies the specific task shard that is the source of an event. This
 /// matches the shape of the `shard` field in an `ops.Log` message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 #[serde(rename_all = "camelCase")]
 pub struct ShardRef {
     /// The name of the task
@@ -233,6 +317,7 @@ pub struct ShardRef {
 /// Information on the config updates performed by the controller.
 /// This does not include any information on user-initiated config updates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PendingConfigUpdateStatus {
     // The next time the config update publication should be attempted
     // if it previously failed.
@@ -251,7 +336,7 @@ mod test {
 
     use super::*;
     use crate::draft_error::Error;
-    use crate::publications::JobStatus;
+    use crate::publications::StatusType;
     use crate::status::activation::ActivationStatus;
     use crate::status::materialization::{MaterializationStatus, SourceCaptureStatus};
     use crate::status::publications::{PublicationInfo, PublicationStatus};
@@ -267,7 +352,7 @@ mod test {
             created: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
             completed: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
             detail: Some("some detail".to_string()),
-            result: Some(JobStatus::build_failed()),
+            result: Some(StatusType::BuildFailed.into()),
             errors: vec![Error {
                 catalog_name: "snails/shells".to_string(),
                 scope: Some("flow://materializations/snails/shells".to_string()),
@@ -301,7 +386,6 @@ mod test {
             publications: PublicationStatus {
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 history,
-                dependency_hash: Some("abc12345".to_string()),
             },
             alerts: Default::default(),
         });

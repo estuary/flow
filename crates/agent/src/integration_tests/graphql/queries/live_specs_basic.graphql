@@ -1,0 +1,100 @@
+# Expect that Alice's snapshot shows both the shared and the private capture in
+# the `writtenBy` fields, while Bob's snapshot should only show the shared
+# capture.
+# Similarly, Bob's snapshot should show both aliceCo/shared/materialize and
+# bobCo/private/materialization in the `readBy`, while Alice's snapshot should
+# only show her shared one.
+fragment ConnectedFields on LiveSpecRefConnection {
+    pageInfo {
+        hasNextPage
+    }
+    edges {
+        cursor
+        node {
+            catalogName
+            userCapability
+            status {
+                type
+            }
+            liveSpec {
+                readsFrom {
+                    edges {
+                        node {
+                            catalogName
+                            userCapability
+                            status {
+                                type
+                            }
+                        }
+                    }
+                }
+                writesTo {
+                    edges {
+                        node {
+                            catalogName
+                            userCapability
+                            status {
+                                type
+                            }
+                        }
+                    }
+                }
+                writtenBy {
+                    edges {
+                        node {
+                            catalogName
+                            userCapability
+                            status {
+                                type
+                            }
+                        }
+                    }
+                }
+                readBy {
+                    edges {
+                        node {
+                            catalogName
+                            userCapability
+                            status {
+                                type
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+query LiveSpecsBasic {
+    liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
+    ) {
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    readsFrom {
+                        ...ConnectedFields
+                    }
+                    writesTo {
+                        ...ConnectedFields
+                    }
+                    readBy {
+                        ...ConnectedFields
+                    }
+                    writtenBy {
+                        ...ConnectedFields
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,25 @@
+# Expect to just get an empty list, with `hasNextPage: false`
+query LiveSpecsPaginationCursor {
+    liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                catalogType: collection
+            }
+        }
+        after: "aliceCo/shared/c"
+        first: 2
+    ) {
+        pageInfo {
+            hasNextPage
+            hasPreviousPage
+        }
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+            }
+        }
+    }
+}

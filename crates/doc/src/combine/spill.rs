@@ -1,6 +1,6 @@
 use super::{bump_mem_used, reduce, DrainedDoc, Error, HeapEntry, Meta, Spec, BUMP_THRESHOLD};
 use crate::owned::OwnedArchivedNode;
-use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{validation, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use bytes::Buf;
 use std::collections::BinaryHeap;
@@ -58,10 +58,13 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             // serializing into `raw_buf` and re-using its storage each
             // iteration to avoid extra allocation.
 
-            // Write meta header.
-            raw_buf.extend_from_slice(&meta.to_bytes());
-            // Reserve space for document size header.
-            raw_buf.extend_from_slice(&[0; 4]);
+            // Write entry header (24 bytes):
+            // - 15 bytes of packed binding index and key prefix
+            // - 4 bytes of padding for alignment
+            // - 1 byte of entry flags
+            // - 4 bytes of little-endian document length (excluding header).
+            raw_buf.extend_from_slice(&meta.0);
+            raw_buf.extend_from_slice(&[0, 0, 0, 0, meta.1, 0, 0, 0, 0]);
 
             raw_buf = rkyv::api::low::to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
                 root,
@@ -71,8 +74,9 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             .expect("serialize of HeapNode to memory always succeeds");
 
             // Update header with the final document length, excluding header.
-            let doc_len = raw_buf.len() - offset - 8;
-            raw_buf[offset + 4..offset + 8].copy_from_slice(&u32::to_le_bytes(doc_len as u32));
+            let doc_len = raw_buf.len() - offset - ENTRY_HEADER_LEN;
+            raw_buf[(offset + ENTRY_HEADER_LEN - 4)..(offset + ENTRY_HEADER_LEN)]
+                .copy_from_slice(&u32::to_le_bytes(doc_len as u32));
 
             // If this isn't the last element and our chunk is under threshold then continue accruing documents.
             if index != entries.len() - 1 && raw_buf.len() < chunk_target_size {
@@ -81,7 +85,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             // We have a complete chunk. Next we compress and write it to the spill file.
 
             // Prepare `lz4_buf` to hold the compressed result, reserving leading bytes for a chunk header.
-            lz4_buf.reserve(8 + lz4::block::compress_bound(raw_buf.len())?);
+            lz4_buf.reserve(CHUNK_HEADER_LEN + lz4::block::compress_bound(raw_buf.len())?);
             unsafe { lz4_buf.set_len(lz4_buf.capacity()) };
 
             // Compress the raw buffer, reserving the header.
@@ -89,13 +93,13 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
                 &raw_buf,
                 Some(lz4::block::CompressionMode::DEFAULT),
                 false,
-                &mut lz4_buf[8..],
+                &mut lz4_buf[CHUNK_HEADER_LEN..],
             )?;
             // Safety: lz4 will not write beyond our given slice.
-            unsafe { lz4_buf.set_len(8 + n) };
+            unsafe { lz4_buf.set_len(CHUNK_HEADER_LEN + n) };
 
             // Update the header with the raw and lz4'd chunk lengths, then send to writer.
-            let lz4_len = u32::to_ne_bytes(lz4_buf.len() as u32 - 8);
+            let lz4_len = u32::to_ne_bytes(lz4_buf.len() as u32 - CHUNK_HEADER_LEN as u32);
             let raw_len = u32::to_ne_bytes(raw_buf.len() as u32);
             lz4_buf[0..4].copy_from_slice(&lz4_len);
             lz4_buf[4..8].copy_from_slice(&raw_len);
@@ -142,20 +146,20 @@ struct Entry {
 impl Entry {
     // Parse the next Entry from a SpillWriter chunk.
     fn parse(mut chunk: bytes::Bytes) -> Result<(Self, bytes::Bytes), io::Error> {
-        if chunk.len() < 8 {
+        if chunk.len() < ENTRY_HEADER_LEN {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 format!(
-                    "corrupt segment: chunk length is smaller than header: {}",
+                    "corrupt segment: chunk length is smaller than entry header: {}",
                     chunk.len()
                 ),
             ));
         }
 
         // Parse entry header.
-        let meta = Meta::from_bytes(chunk[0..4].try_into().unwrap());
-        let doc_len = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as usize;
-        chunk.advance(8); // Consume header.
+        let meta = Meta(chunk[0..15].try_into().unwrap(), chunk[19]);
+        let doc_len = u32::from_le_bytes(chunk[20..ENTRY_HEADER_LEN].try_into().unwrap()) as usize;
+        chunk.advance(ENTRY_HEADER_LEN); // Consume header.
 
         if chunk.len() < doc_len {
             return Err(io::Error::new(
@@ -283,8 +287,11 @@ impl Ord for Segment {
         // For each (binding, key), we take front() entries first, and then
         // take the Segment which was produced into the spill file first.
         // This maintains the left-to-right associative ordering of reductions.
-        let binding = l.meta.binding().cmp(&r.meta.binding());
-        binding
+        //
+        // `meta` contains a packed structure that's order-preserving over
+        // (binding, key), so we first test it for inequality.
+        (l.meta.0)
+            .cmp(&r.meta.0)
             .then_with(|| {
                 Extractor::compare_key(&self.keys[l.meta.binding()], l.root.get(), r.root.get())
             })
@@ -333,7 +340,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let Entry { mut meta, root } = entry;
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
-        let &mut (ref mut validator, ref schema) = &mut self.spec.validators[meta.binding()];
+        let validator = &mut self.spec.validators[meta.binding()];
 
         // `reduced` root which is updated as reductions occur.
         let mut reduced: Option<HeapNode<'_>> = None;
@@ -354,13 +361,11 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             }
 
             let rhs_valid = validator
-                .validate(schema.as_ref(), next.head.root.get())
-                .map_err(Error::SchemaError)?
-                .ok()
+                .validate(next.head.root.get(), validation::reduce_filter)
                 .map_err(|invalid| {
                     Error::FailedValidation(
                         self.spec.names[next.head.meta.binding()].clone(),
-                        invalid.revalidate_with_context(next.head.root.get()),
+                        invalid,
                     )
                 })?;
 
@@ -370,7 +375,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                     None => LazyNode::Node(root.get()),
                 },
                 LazyNode::Node(next.head.root.get()),
-                rhs_valid,
+                &rhs_valid,
                 &self.alloc,
                 is_full,
             ) {
@@ -400,14 +405,12 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 // We validate !front() documents when spilling to disk and
                 // can skip doing so now (this is the common case).
                 if meta.front() {
-                    validator
-                        .validate(schema.as_ref(), root.get())
-                        .map_err(Error::SchemaError)?
-                        .ok()
+                    let _valid = validator
+                        .validate(root.get(), |_| None)
                         .map_err(|invalid| {
                             Error::FailedValidation(
                                 self.spec.names[meta.binding()].clone(),
-                                invalid.revalidate_with_context(root.get()),
+                                invalid,
                             )
                         })?;
                 }
@@ -416,16 +419,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             }
             Some(reduced) => {
                 // We built `reduced` via reduction and must re-validate it.
-                validator
-                    .validate(schema.as_ref(), &reduced)
-                    .map_err(Error::SchemaError)?
-                    .ok()
-                    .map_err(|invalid| {
-                        Error::FailedValidation(
-                            self.spec.names[meta.binding()].clone(),
-                            invalid.revalidate_with_context(&reduced),
-                        )
-                    })?;
+                validator.validate(&reduced, |_| None).map_err(|invalid| {
+                    Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+                })?;
 
                 // Safety: we allocated `reduced` out of `self.alloc`.
                 let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };
@@ -486,10 +482,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, SerPolicy, Validator,
-    };
+    use crate::{combine::CHUNK_TARGET_SIZE, HeapNode, SerPolicy, Validator};
     use itertools::Itertools;
+    use json::node::compare;
     use serde_json::{json, Value};
 
     #[test]
@@ -512,21 +507,22 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..173]);
+        assert_eq!(ranges, vec![0..179]);
 
         insta::assert_snapshot!(to_hex(&spill.get_ref()), @r"
-        |5e000000 90000000 c0000000 00400000| ^............@.. 00000000
-        |006b6579 ff010070 08000000 6161610b| .key...p....aaa. 00000010
-        |0010ff1c 0011760a 00031800 4370706c| ......v.....Cppl 00000020
-        |651800fc 05060000 00030000 00c8ffff| e............... 00000030
-        |ff020000 00010000 80480030 6262623b| .........H.0bbb; 00000040
-        |000d4800 6262616e 616e6118 00074800| ..H.bbanana...H. 00000050
-        |50ff0200 00003f00 00004800 0000c002| P.....?...H..... 00000060
-        |00008040 0000006b 6579ff01 00700800| ...@...key...p.. 00000070
-        |00006363 630b0061 ff000000 00760a00| ..ccc..a.....v.. 00000080
-        |03180052 6172726f 741800f0 01060000| ...Rarrot....... 00000090
-        |00030000 00c8ffff ff020000 00|       .............    000000a0
-                                                               000000ad
+        |62000000 b0000000 1f000100 00804000| b.............@. 00000000
+        |00006b65 79ff0100 70080000 00616161| ..key...p....aaa 00000010
+        |0b0010ff 2b001176 0a000318 00437070| ....+..v.....Cpp 00000020
+        |6c651800 d0060000 00030000 00c8ffff| le.............. 00000030
+        |ff022900 10010500 0902001c 01580030| ..)..........X.0 00000040
+        |6262624b 000d5800 6262616e 616e6118| bbbK..X.bbanana. 00000050
+        |00075800 50ff0200 00004100 00005800| ..X.P.....A...X. 00000060
+        |00003c00 02000100 90014000 00006b65| ..<.......@...ke 00000070
+        |79ff0100 70080000 00636363 0b0010ff| y...p....ccc.... 00000080
+        |29001176 0a000318 00526172 726f7418| )..v.....Rarrot. 00000090
+        |00f00106 00000003 000000c8 ffffff02| ................ 000000a0
+        |000000|                              ...              000000b0
+                                                               000000b3
         ");
 
         // Parse the region as a Segment.
@@ -535,18 +531,18 @@ mod test {
         // First chunk has two documents.
         assert_eq!(segment.head.meta.binding(), 0);
         assert_eq!(segment.head.meta.front(), false);
-        assert!(crate::compare(segment.head.root.get(), &fixture[0].1).is_eq());
+        assert!(compare(segment.head.root.get(), &fixture[0].1).is_eq());
         assert!(!segment.tail.is_empty());
-        assert_eq!(segment.next, 102..173);
+        assert_eq!(segment.next, 106..179);
 
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
         segment = next_segment.unwrap();
 
         assert_eq!(segment.head.meta.binding(), 1);
         assert_eq!(segment.head.meta.front(), true);
-        assert!(crate::compare(segment.head.root.get(), &fixture[1].1).is_eq());
+        assert!(compare(segment.head.root.get(), &fixture[1].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
-        assert_eq!(segment.next, 102..173);
+        assert_eq!(segment.next, 106..179);
 
         // Next chunk is read and has one document.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
@@ -554,9 +550,9 @@ mod test {
 
         assert_eq!(segment.head.meta.binding(), 2);
         assert_eq!(segment.head.meta.front(), true);
-        assert!(crate::compare(segment.head.root.get(), &fixture[2].1).is_eq());
+        assert!(compare(segment.head.root.get(), &fixture[2].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
-        assert_eq!(segment.next, 173..173);
+        assert_eq!(segment.next, 179..179);
 
         // Stepping the segment again consumes it, as no chunks remain.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
@@ -567,8 +563,8 @@ mod test {
     fn test_heap_merge() {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
-                let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
+                let schema = json::schema::build(
+                    &url::Url::parse("http://example/schema").unwrap(),
                     &json!({
                         "properties": {
                             "key": { "type": "string", "default": "def" },
@@ -590,7 +586,6 @@ mod test {
                         json!("def"),
                     )],
                     "source-name",
-                    None,
                     Validator::new(schema).unwrap(),
                 )
             })
@@ -721,8 +716,8 @@ mod test {
     fn test_drain_validation() {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
-                let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
+                let schema = json::schema::build(
+                    &url::Url::parse("http://example/schema").unwrap(),
                     &json!({
                         "properties": {
                             "key": { "type": "string" },
@@ -736,7 +731,6 @@ mod test {
                     true, // Full reduction.
                     vec![Extractor::new("/key", &SerPolicy::noop())],
                     "source-name",
-                    None,
                     Validator::new(schema).unwrap(),
                 )
             })
@@ -821,6 +815,107 @@ mod test {
         assert_eq!(alloc.chunk_capacity(), 36800 - s.len());
     }
 
+    #[test]
+    fn test_spill_merge_preserves_key_ordering_with_varied_lengths() {
+        // Test that merging multiple spilled segments from different MemTables
+        // preserves correct ordering. Include keys having long prefixes, which
+        // overflow Meta's stored-prefix optimization.
+
+        use crate::combine::MemTable;
+        use std::io::Seek;
+
+        let make_spec = || {
+            Spec::with_one_binding(
+                true, // Full reduction.
+                vec![Extractor::new("/key", &SerPolicy::noop())],
+                "test-source",
+                Vec::new(),
+                Validator::new(
+                    json::schema::build::build_schema(
+                        &url::Url::parse("http://example/schema").unwrap(),
+                        &json!({
+                            "properties": {
+                                "key": { "type": "string" },
+                                "value": { "type": "integer" }
+                            },
+                            "required": ["key"],
+                            "reduce": { "strategy": "lastWriteWins" }
+                        }),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+        };
+
+        // Distribute test keys across 3 MemTables to test cross-segment merging
+        let test_data = [
+            // MemTable 1: Interleaved keys
+            vec![
+                ("aardvark", 1),
+                ("dog", 2),
+                ("giraffe", 3),
+                ("same_prefix_1234567890_B", 4),
+            ],
+            // MemTable 2: Edge cases and same-prefix keys
+            vec![
+                ("", 5),
+                ("exactly13char", 6),
+                ("exactly13diff", 7),
+                ("same_prefix_1234567890_A", 8),
+                ("zzzzzzzzzzzzz", 9),
+            ],
+            // MemTable 3: More varied keys
+            vec![
+                ("bear", 10),
+                ("elephant", 11),
+                ("same_prefix_1234567890_C", 12),
+                ("same_prefix_1234567890_D_with_very_long_suffix", 13),
+                ("zzzzzzzzzzzzzz", 14),
+            ],
+        ];
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        let mut ranges = Vec::new();
+        let mut spec = make_spec();
+
+        // Create, populate, and spill each MemTable
+        for keys in &test_data {
+            let memtable = MemTable::new(make_spec());
+            for &(key, value) in keys {
+                let doc =
+                    HeapNode::from_node(&json!({"key": key, "value": value}), memtable.alloc());
+                memtable.add(0, doc, false).unwrap();
+            }
+
+            let start = spill.spill.seek(io::SeekFrom::Current(0)).unwrap();
+            spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
+            let end = spill.spill.seek(io::SeekFrom::Current(0)).unwrap();
+            ranges.push(start..end);
+        }
+
+        // Read back through SpillDrainer and verify ordering
+        let (spill, _) = spill.into_parts();
+        let mut drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+
+        let all_keys: Vec<String> = std::iter::from_fn(|| drainer.next())
+            .map(|doc| {
+                let doc = doc.unwrap();
+                let json_val = serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap();
+                json_val["key"].as_str().unwrap().to_string()
+            })
+            .collect();
+
+        // Verify all keys are present and sorted
+        let mut expected: Vec<&str> = test_data
+            .iter()
+            .flat_map(|v| v.iter().map(|(k, _)| *k))
+            .collect();
+        expected.sort();
+
+        assert_eq!(all_keys, expected);
+    }
+
     fn to_hex(b: &[u8]) -> String {
         hexdump::hexdump_iter(b)
             .map(|line| format!("{line}"))
@@ -829,15 +924,36 @@ mod test {
     }
 
     fn segment_fixture<'alloc>(
-        fixture: &[(u32, Value, bool)],
+        fixture: &[(u16, Value, bool)],
         alloc: &'alloc bumpalo::Bump,
     ) -> Vec<HeapEntry<'alloc>> {
         fixture
             .into_iter()
             .map(|(binding, value, front)| HeapEntry {
-                meta: Meta::new(*binding, *front),
+                meta: Meta::new(*binding, &[], *front),
                 root: HeapNode::from_node(value, &alloc),
             })
             .collect()
     }
 }
+
+// Spilled chunks have a header holding compressed and raw length.
+const CHUNK_HEADER_LEN: usize =
+    // u32_le of the LZ4 compressed length (excluding header).
+    4 +
+    // u32_le of the uncompressed length (excluding header).
+    4;
+
+// Each document within a chunk has a header holding its
+// binding, partial key tuple, flags, and document length.
+const ENTRY_HEADER_LEN: usize =
+    // u16_be binding index.
+    2 +
+    // Key tuple prefix, with trailing zero padding.
+    13 +
+    // 4 bytes of padding for alignment.
+    4 +
+    // Entry flags
+    1 +
+    // u32_le document length (excluding header).
+    4;

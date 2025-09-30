@@ -90,7 +90,7 @@ impl Task {
         let combiner_spec = doc::combine::Spec::with_bindings(
             combiner_spec
                 .into_iter()
-                .map(|(is_full, key, name, validator)| (is_full, key, name, None, validator)),
+                .map(|(is_full, key, name, validator)| (is_full, key, name, validator)),
             Vec::new(),
         );
 
@@ -173,7 +173,7 @@ impl Binding {
         }
         .clone();
 
-        let uuid_ptr = doc::Pointer::from_str(uuid_ptr.as_str());
+        let uuid_ptr = json::Pointer::from_str(uuid_ptr.as_str());
 
         Ok(Self {
             collection_name: collection_name.clone(),

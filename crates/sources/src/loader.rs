@@ -1,10 +1,7 @@
-use super::Scope;
-use doc::Schema as CompiledSchema;
 use futures::future::{BoxFuture, FutureExt};
-use json::schema::{self, build::build_schema};
+use json::Scope;
 use models::RawValue;
 use proto_flow::flow;
-use std::sync::{Mutex, MutexGuard};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -26,9 +23,9 @@ pub enum LoadError {
     YAMLErr(#[from] serde_yaml::Error),
     #[error("failed to merge YAML alias nodes")]
     YAMLMergeErr(#[from] yaml_merge_keys::MergeKeyError),
-    #[error("failed to build JSON schema")]
-    SchemaBuild(#[from] json::schema::BuildError),
-    #[error("failed to index JSON schema")]
+    #[error(transparent)]
+    SchemaBuild(#[from] json::schema::build::Error<doc::Annotation>),
+    #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error("resources cannot have fragments")]
     ResourceWithFragment,
@@ -55,7 +52,7 @@ pub struct Loader<F: Fetcher> {
     // `tables` is never held across await points or accessed across threads, and the
     // tables_mut() accessor asserts that no other lock is held and does not block.
     // Wrapping in a Mutex makes it easy to pass around futures holding a Loader.
-    tables: Mutex<tables::DraftCatalog>,
+    tables: std::sync::Mutex<tables::DraftCatalog>,
     // Fetcher for retrieving discovered, unvisited resources.
     fetcher: F,
 }
@@ -64,7 +61,7 @@ impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
     pub fn new(tables: tables::DraftCatalog, fetcher: F) -> Loader<F> {
         Loader {
-            tables: Mutex::new(tables),
+            tables: std::sync::Mutex::new(tables),
             fetcher,
         }
     }
@@ -118,9 +115,6 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
-    // Resources are loaded recursively, and Rust requires that recursive
-    // async calls be made through a boxed future. Otherwise, the generated
-    // state machine would have infinite size!
     fn load_resource_content<'a>(
         &'a self,
         scope: Scope<'a>,
@@ -128,151 +122,394 @@ impl<F: Fetcher> Loader<F> {
         content: bytes::Bytes,
         content_type: flow::ContentType,
     ) -> BoxFuture<'a, ()> {
+        // Resources are loaded recursively, and Rust requires that recursive
+        // async calls be made through a boxed future. Otherwise, the generated
+        // state machine would have infinite size!
         async move {
-            let scope = scope.push_resource(&resource);
-
-            // Can we expect that `content` is a document-object model (YAML or JSON)?
-            use flow::ContentType as CT;
-            let is_dom = match content_type {
-                CT::Catalog | CT::JsonSchema | CT::DocumentsFixture => true,
-                CT::Config => {
-                    let path = scope.resource().path().to_lowercase();
-                    path.ends_with("yaml") || path.ends_with("yml") || path.ends_with("json")
-                }
-            };
-
-            // We must map the raw `content` into a document object model.
-            // * If we expect this resource is a document, parse it as such.
-            // * If it's UTF8, then wrap it in a string.
-            // * Otherwise, record a LoadError for non-UTF8 content.
-            let content_dom = if is_dom {
-                // Parse YAML and JSON.
-                let mut content_dom = self.fallible(scope, serde_yaml::from_slice(&content))?;
-
-                // We support YAML merge keys in catalog documents (only).
-                // We don't allow YAML aliases in schema documents as they're redundant
-                // with JSON Schema's $ref mechanism.
-                if let flow::ContentType::Catalog = content_type {
-                    content_dom =
-                        self.fallible(scope, yaml_merge_keys::merge_keys_serde(content_dom))?;
-                }
-
-                // Our models embed serde_json::RawValue, which cannot be directly
-                // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
-                // because that could re-order elements along the way (Value is a BTreeMap),
-                // which could violate the message authentication code (MAC) of inlined and
-                // sops-encrypted documents. So, directly transcode into serialized JSON.
-                let mut buf = Vec::<u8>::new();
-                let mut serializer = serde_json::Serializer::new(&mut buf);
-                serde_transcode::transcode(content_dom, &mut serializer).expect("must transcode");
-
-                RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap()
-            } else if let Ok(content) = std::str::from_utf8(&content) {
-                RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
-            } else {
-                self.tables_mut().errors.insert_row(
-                    &scope.flatten(),
-                    anyhow::anyhow!(LoadError::ResourceNotUTF8),
-                );
-                return None;
-            };
-
-            match content_type {
-                flow::ContentType::Catalog => {
-                    self.load_catalog(scope, &content_dom).await;
-                }
-                flow::ContentType::JsonSchema => {
-                    self.load_schema_document(scope, &content_dom).await;
-                }
-                flow::ContentType::DocumentsFixture => {
-                    self.load_documents_fixture(scope, &content_dom);
-                }
-                _ => {}
-            };
-
-            self.tables_mut().resources.insert_row(
-                resource.clone(),
-                content_type,
-                content,
-                content_dom,
-            );
-            None
+            self.load_resource_content_inner(scope, resource, content, content_type)
+                .await
         }
-        .map(|_: Option<()>| ())
         .boxed()
     }
 
-    async fn load_schema_document<'s>(
-        &'s self,
-        scope: Scope<'s>,
-        content_dom: &RawValue,
-    ) -> Option<()> {
+    async fn load_resource_content_inner<'a>(
+        &'a self,
+        scope: Scope<'a>,
+        resource: &'a Url,
+        content: bytes::Bytes,
+        content_type: flow::ContentType,
+    ) {
+        let scope = scope.push_resource(&resource);
+
+        // Can we expect that `content` is a document-object model (YAML or JSON)?
+        use flow::ContentType as CT;
+        let is_dom = match content_type {
+            CT::Catalog | CT::JsonSchema | CT::DocumentsFixture => true,
+            CT::Config => {
+                let path = scope.resource().path().to_lowercase();
+                path.ends_with("yaml") || path.ends_with("yml") || path.ends_with("json")
+            }
+        };
+
+        // We must map the raw `content` into a document object model.
+        // * If we expect this resource is a document, parse it as such.
+        // * If it's UTF8, then wrap it in a string.
+        // * Otherwise, record a LoadError for non-UTF8 content.
+        let content_dom = if is_dom {
+            // Parse YAML and JSON.
+            let Some(mut content_dom) = self.fallible(scope, serde_yaml::from_slice(&content))
+            else {
+                return;
+            };
+
+            // We support YAML merge keys in catalog documents (only).
+            // We don't allow YAML aliases in schema documents as they're redundant
+            // with JSON Schema's $ref mechanism.
+            if let flow::ContentType::Catalog = content_type {
+                let Some(merged_dom) =
+                    self.fallible(scope, yaml_merge_keys::merge_keys_serde(content_dom))
+                else {
+                    return;
+                };
+                content_dom = merged_dom;
+            }
+
+            // Our models embed serde_json::RawValue, which cannot be directly
+            // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
+            // because that could re-order elements along the way (Value is a BTreeMap),
+            // which could violate the message authentication code (MAC) of inlined and
+            // sops-encrypted documents. So, directly transcode into serialized JSON.
+            let mut buf = Vec::<u8>::new();
+            let mut serializer = serde_json::Serializer::new(&mut buf);
+            serde_transcode::transcode(content_dom, &mut serializer).expect("must transcode");
+
+            RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap()
+        } else if let Ok(content) = std::str::from_utf8(&content) {
+            RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
+        } else {
+            self.tables_mut().errors.insert_row(
+                &scope.flatten(),
+                anyhow::anyhow!(LoadError::ResourceNotUTF8),
+            );
+            return;
+        };
+
+        match content_type {
+            flow::ContentType::Catalog => {
+                self.load_catalog(scope, &content_dom).await;
+            }
+            flow::ContentType::JsonSchema => {
+                self.load_schema_document(scope, &content_dom).await;
+            }
+            flow::ContentType::DocumentsFixture => {
+                self.load_documents_fixture(scope, &content_dom);
+            }
+            _ => {}
+        };
+
+        self.tables_mut().resources.insert_row(
+            resource.clone(),
+            content_type,
+            content,
+            content_dom,
+        );
+    }
+
+    async fn load_schema_document<'s>(&'s self, scope: Scope<'s>, content_dom: &RawValue) {
         let dom: serde_json::Value = serde_json::from_str(content_dom.get()).unwrap();
 
-        let doc: CompiledSchema =
-            self.fallible(scope, build_schema(scope.resource().clone(), &dom))?;
+        let schema = match json::schema::build::<doc::Annotation>(&scope.flatten(), &dom) {
+            Ok(schema) => schema,
+            Err(schema_errors) => {
+                let errors = &mut self.tables_mut().errors;
+                for json::schema::build::ScopedError { scope, inner: err } in schema_errors.0 {
+                    errors.insert_row(scope, anyhow::anyhow!(LoadError::SchemaBuild(err)));
+                }
+                return;
+            }
+        };
 
-        let mut index = doc::SchemaIndexBuilder::new();
-        self.fallible(scope, index.add(&doc))?;
-        let index = index.into_index();
+        let mut builder = json::schema::index::Builder::new();
+        let Some(()) = self.fallible(scope, builder.add(&schema)) else {
+            return;
+        };
 
-        self.load_schema_node(scope, &index, &doc).await;
-        Some(())
+        self.load_schema_node(scope, &schema, &builder.into_index())
+            .await;
     }
 
     fn load_schema_node<'s>(
         &'s self,
         scope: Scope<'s>,
-        index: &'s doc::SchemaIndex<'s>,
-        schema: &'s CompiledSchema,
-    ) -> BoxFuture<'s, ()> {
-        let mut tasks = Vec::with_capacity(schema.kw.len());
+        schema: &'s doc::Schema,
+        schema_index: &'s doc::SchemaIndex<'s>,
+    ) -> impl futures::Future<Output = ()> + Send + 's {
+        let mut tasks = Vec::with_capacity(schema.keywords.len());
 
         // Walk keywords, looking for named schemas and references we must resolve.
-        for kw in &schema.kw {
+        for kw in schema.keywords.iter() {
             match kw {
-                schema::Keyword::Application(app, child) => {
-                    // Does |app| map to an external URL that's not contained by this CompiledSchema?
-                    let uri = match app {
-                        schema::Application::Ref(uri) => {
-                            // $ref applications often use #fragment suffixes which indicate
-                            // a sub-schema of the base schema document to use.
-                            let mut uri = uri.clone();
-                            uri.set_fragment(None);
+                json::schema::Keyword::Ref { r#ref } => {
+                    // Is the $ref inline in the current schema and already indexed?
+                    // Also, the "flow://" scheme is used to inject contextual schemas
+                    // and is not attempted to be fetched.
+                    if schema_index.fetch(r#ref).is_some() || r#ref.starts_with("flow://") {
+                        continue;
+                    }
 
-                            // The "flow" scheme is used to inject contextual schemas
-                            // and is not attempted to be fetched.
-                            if index.fetch(&uri).is_none() && uri.scheme() != "flow" {
-                                Some(uri)
-                            } else {
-                                None
-                            }
+                    // $ref applications often use #fragment suffixes which indicate
+                    // a sub-schema of the base schema document to use.
+                    let mut uri = url::Url::parse(r#ref.as_ref()).unwrap();
+                    uri.set_fragment(None);
+
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_import(scope, Some(uri), flow::ContentType::JsonSchema)
+                                .await
                         }
-                        _ => None,
-                    };
-
-                    tasks.push(async move {
-                        // Add Application keywords to the Scope's Location.
-                        let location = app.push_keyword(&scope.location);
-                        let scope = Scope {
-                            location: app.push_keyword_target(&location),
-                            ..scope
-                        };
-
-                        // Recurse to walk the schema, while fetching `uri` in parallel.
-                        let ((), ()) = futures::join!(
-                            self.load_schema_node(scope, index, child),
-                            self.load_import(scope, uri, flow::ContentType::JsonSchema)
-                        );
-                    });
+                        .boxed(),
+                    );
                 }
-                _ => (),
-            }
+                json::schema::Keyword::AdditionalProperties {
+                    additional_properties,
+                } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &**additional_properties, schema_index)
+                                .await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::AllOf { all_of } => {
+                    for (index, schema) in all_of.iter().enumerate() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_item(index);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::AnyOf { any_of } => {
+                    for (index, schema) in any_of.iter().enumerate() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_item(index);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::Definitions { definitions } => {
+                    for (name, schema) in definitions.iter() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_prop(name);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::Defs { defs } => {
+                    for (name, schema) in defs.iter() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_prop(name);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::DependentSchemas { dependent_schemas } => {
+                    for (name, schema) in dependent_schemas.iter() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_prop(name);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::Else { r#else } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &r#else, schema_index).await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::If { r#if } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &r#if, schema_index).await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::Items { items } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &items, schema_index).await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::Not { not } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &not, schema_index).await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::OneOf { one_of } => {
+                    for (index, schema) in one_of.iter().enumerate() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_item(index);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::PatternProperties { pattern_properties } => {
+                    for (name, schema) in pattern_properties.iter() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_prop(name.as_str());
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::PrefixItems { prefix_items } => {
+                    for (index, schema) in prefix_items.iter().enumerate() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_item(index);
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::Properties { properties } => {
+                    for (name, schema) in properties.iter() {
+                        tasks.push(
+                            async move {
+                                let scope = scope.push_prop(kw.keyword());
+                                let scope = scope.push_prop(&name[1..]); // Skip leading status byte.
+                                self.load_schema_node(scope, schema, schema_index).await;
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+                json::schema::Keyword::PropertyNames { property_names } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &property_names, schema_index)
+                                .await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::Then { then } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &then, schema_index).await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::UnevaluatedItems { unevaluated_items } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &unevaluated_items, schema_index)
+                                .await;
+                        }
+                        .boxed(),
+                    );
+                }
+                json::schema::Keyword::UnevaluatedProperties {
+                    unevaluated_properties,
+                } => {
+                    tasks.push(
+                        async move {
+                            let scope = scope.push_prop(kw.keyword());
+                            self.load_schema_node(scope, &unevaluated_properties, schema_index)
+                                .await;
+                        }
+                        .boxed(),
+                    );
+                }
+
+                // Validation or annotation keywords that don't have sub-schemas.
+                json::schema::Keyword::Annotation { .. } => (),
+                json::schema::Keyword::False => (),
+                json::schema::Keyword::Anchor { .. } => (),
+                json::schema::Keyword::Const { .. } => (),
+                json::schema::Keyword::Contains { .. } => (),
+                json::schema::Keyword::DynamicAnchor { .. } => (),
+                json::schema::Keyword::DynamicRef { .. } => (),
+                json::schema::Keyword::Enum { .. } => (),
+                json::schema::Keyword::ExclusiveMaximumPosInt { .. } => (),
+                json::schema::Keyword::ExclusiveMaximumNegInt { .. } => (),
+                json::schema::Keyword::ExclusiveMaximumFloat { .. } => (),
+                json::schema::Keyword::ExclusiveMinimumPosInt { .. } => (),
+                json::schema::Keyword::ExclusiveMinimumNegInt { .. } => (),
+                json::schema::Keyword::ExclusiveMinimumFloat { .. } => (),
+                json::schema::Keyword::Format { .. } => (),
+                json::schema::Keyword::Id { .. } => (),
+                json::schema::Keyword::MaximumPosInt { .. } => (),
+                json::schema::Keyword::MaximumNegInt { .. } => (),
+                json::schema::Keyword::MaximumFloat { .. } => (),
+                json::schema::Keyword::MaxContains { .. } => (),
+                json::schema::Keyword::MaxItems { .. } => (),
+                json::schema::Keyword::MaxLength { .. } => (),
+                json::schema::Keyword::MaxProperties { .. } => (),
+                json::schema::Keyword::MinimumPosInt { .. } => (),
+                json::schema::Keyword::MinimumNegInt { .. } => (),
+                json::schema::Keyword::MinimumFloat { .. } => (),
+                json::schema::Keyword::MinContains { .. } => (),
+                json::schema::Keyword::MinItems { .. } => (),
+                json::schema::Keyword::MinLength { .. } => (),
+                json::schema::Keyword::MinProperties { .. } => (),
+                json::schema::Keyword::MultipleOfPosInt { .. } => (),
+                json::schema::Keyword::MultipleOfNegInt { .. } => (),
+                json::schema::Keyword::MultipleOfFloat { .. } => (),
+                json::schema::Keyword::Pattern { .. } => (),
+                json::schema::Keyword::Type { .. } => (),
+                json::schema::Keyword::UniqueItems { .. } => (),
+            };
         }
 
-        futures::future::join_all(tasks.into_iter())
-            .map(|_: Vec<()>| ())
-            .boxed()
+        futures::future::join_all(tasks.into_iter()).map(|_: Vec<()>| ())
     }
 
     /// Load a schema reference, which may be an inline schema.
@@ -798,7 +1035,7 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
-    fn tables_mut<'a>(&'a self) -> MutexGuard<'a, tables::DraftCatalog> {
+    fn tables_mut<'a>(&'a self) -> std::sync::MutexGuard<'a, tables::DraftCatalog> {
         self.tables
             .try_lock()
             .expect("tables should never be accessed concurrently or locked across await points")

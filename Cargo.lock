@@ -1448,9 +1448,9 @@ checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 
 [[package]]
 name = "bitvec"
-version = "0.19.6"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55f93d0ef3363c364d5976646a38f04cf67cfe1d4c8d160cdea02cab2c116b33"
+checksum = "1bc2832c24239b0141d5674bb9174f9d68a8b5b3f2753311927c172ca46f7e9c"
 dependencies = [
  "funty",
  "radium",
@@ -1507,6 +1507,7 @@ dependencies = [
  "assemble",
  "bytes",
  "futures",
+ "json",
  "models",
  "ops",
  "proto-flow",
@@ -2752,12 +2753,12 @@ name = "doc"
 version = "0.0.0"
 dependencies = [
  "allocator",
+ "anyhow",
  "base64 0.13.1",
  "bigdecimal 0.3.1",
  "bumpalo",
  "bytes",
  "futures",
- "fxhash",
  "hexdump",
  "insta",
  "itertools 0.10.5",
@@ -3003,7 +3004,6 @@ dependencies = [
  "control-plane-api",
  "futures",
  "gazette",
- "graphql_client",
  "jsonwebtoken",
  "lazy_static",
  "models",
@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "flow-web"
-version = "0.5.19"
+version = "0.6.0"
 dependencies = [
  "console_error_panic_hook",
  "doc",
@@ -3068,6 +3068,7 @@ dependencies = [
  "build",
  "bytelines",
  "bytes",
+ "chrono",
  "clap 4.5.21",
  "comfy-table",
  "connector-init",
@@ -3079,6 +3080,7 @@ dependencies = [
  "flow-client",
  "futures",
  "gazette",
+ "graphql_client",
  "humantime",
  "insta",
  "itertools 0.10.5",
@@ -3107,6 +3109,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "simd-doc",
  "size",
  "sources",
  "tables",
@@ -3173,9 +3176,9 @@ checksum = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
 
 [[package]]
 name = "funty"
-version = "1.1.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed34cd105917e91daa4da6b3728c47b068749d6a62c59811f06ed2ac71d9da7"
+checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
 
 [[package]]
 name = "futures"
@@ -3924,6 +3927,7 @@ dependencies = [
  "bytes",
  "doc",
  "insta",
+ "json",
  "jsonwebtoken",
  "reqwest 0.11.27",
  "serde",
@@ -4349,8 +4353,8 @@ dependencies = [
  "bigdecimal 0.3.1",
  "bitvec",
  "criterion",
- "fxhash",
  "glob",
+ "insta",
  "iri-string",
  "itertools 0.10.5",
  "lazy_static",
@@ -4360,7 +4364,6 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.63",
  "time 0.3.36",
- "tracing",
  "url",
  "uuid 1.10.0",
 ]
@@ -4436,6 +4439,7 @@ version = "0.0.0"
 dependencies = [
  "doc",
  "insta",
+ "json",
  "percent-encoding",
  "proto-flow",
  "proto-gazette",
@@ -6120,9 +6124,9 @@ dependencies = [
 
 [[package]]
 name = "radium"
-version = "0.5.3"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "941ba9d78d8e2f7ce474c015eea4d9c6d25b6a3327f9832ee29a4de27f91bbb8"
+checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "radix_trie"
@@ -7271,6 +7275,7 @@ dependencies = [
  "doc",
  "hexdump",
  "insta",
+ "json",
  "memchr",
  "quickcheck",
  "rkyv",
@@ -9220,9 +9225,12 @@ checksum = "1e9df38ee2d2c3c5948ea468a8406ff0db0b29ae1ffde1bcf20ef305bcc95c51"
 
 [[package]]
 name = "wyz"
-version = "0.2.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85e60b0d1b5f99db2556934e21937020776a5d31520bf169e851ac44e6420214"
+checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
+dependencies = [
+ "tap",
+]
 
 [[package]]
 name = "xmlparser"

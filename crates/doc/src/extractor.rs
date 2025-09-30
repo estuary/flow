@@ -1,4 +1,4 @@
-use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer, SerPolicy};
+use crate::{OwnedNode, SerPolicy};
 use bytes::BufMut;
 use std::{
     borrow::Cow,
@@ -13,7 +13,7 @@ pub const TRUNCATION_INDICATOR_PTR: &str = "/_meta/flow_truncated";
 /// details of precisely how that's done.
 #[derive(Debug, Clone)]
 pub struct Extractor {
-    ptr: Pointer,
+    ptr: json::Pointer,
     policy: SerPolicy,
     default: serde_json::Value,
     magic: Option<Magic>,
@@ -28,7 +28,7 @@ enum Magic {
 impl Extractor {
     /// Build an Extractor for the JSON pointer.
     /// If the location doesn't exist, then `null` is extracted.
-    pub fn new<P: Into<Pointer>>(ptr: P, policy: &SerPolicy) -> Self {
+    pub fn new<P: Into<json::Pointer>>(ptr: P, policy: &SerPolicy) -> Self {
         Self {
             ptr: ptr.into(),
             policy: policy.clone(),
@@ -41,7 +41,7 @@ impl Extractor {
     /// If the location doesn't exist, the provided value is extracted instead.
     pub fn with_default(ptr: &str, policy: &SerPolicy, default: serde_json::Value) -> Self {
         Self {
-            ptr: Pointer::from(ptr),
+            ptr: json::Pointer::from(ptr),
             policy: policy.clone(),
             default,
             magic: None,
@@ -51,7 +51,7 @@ impl Extractor {
     /// Build an extractor for the JSON pointer, which is a v1 UUID.
     pub fn for_uuid_v1_date_time(ptr: &str) -> Self {
         Self {
-            ptr: Pointer::from(ptr),
+            ptr: json::Pointer::from(ptr),
             policy: SerPolicy::noop(),
             default: serde_json::Value::Null,
             magic: Some(Magic::UuidV1DateTime),
@@ -60,7 +60,7 @@ impl Extractor {
 
     pub fn for_truncation_indicator() -> Self {
         Self {
-            ptr: Pointer::empty(),
+            ptr: json::Pointer::empty(),
             policy: SerPolicy::noop(),
             default: serde_json::Value::Null,
             magic: Some(Magic::TruncationIndicator),
@@ -76,7 +76,7 @@ impl Extractor {
     /// and a borrowed Value is returned.
     ///
     /// Or, it may be a dynamic Value extracted from a UUID timestamp.
-    pub fn query<'s, 'n, N: AsNode>(
+    pub fn query<'s, 'n, N: json::AsNode>(
         &'s self,
         doc: &'n N,
     ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
@@ -88,7 +88,7 @@ impl Extractor {
             None => { /* sorry, kid, I guess your parents aren't coming back */ }
             Some(Magic::UuidV1DateTime) => {
                 if let Some(date_time) = match node.as_node() {
-                    Node::String(s) => Some(s),
+                    json::Node::String(s) => Some(s),
                     _ => None,
                 }
                 .and_then(|s| proto_gazette::uuid::parse_str(s).ok())
@@ -124,23 +124,19 @@ impl Extractor {
         Ok(node)
     }
 
-    /// Extract a packed tuple representation from an instance of doc::AsNode.
-    pub fn extract_all<N: AsNode>(
-        doc: &N,
-        extractors: &[Self],
-        out: &mut bytes::BytesMut,
-    ) -> bytes::Bytes {
+    /// Extract a packed tuple representation from an instance of json::AsNode.
+    pub fn extract_all<N: json::AsNode>(doc: &N, extractors: &[Self], out: &mut bytes::BytesMut) {
         let indicator = &AtomicBool::new(false);
         Extractor::extract_all_indicate_truncation(doc, extractors, out, indicator)
     }
 
-    /// Extract a packed tuple representation from an instance of doc::AsNode.
-    pub fn extract_all_indicate_truncation<N: AsNode>(
+    /// Extract a packed tuple representation from an instance of json::AsNode.
+    pub fn extract_all_indicate_truncation<N: json::AsNode>(
         doc: &N,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
         indicator: &AtomicBool,
-    ) -> bytes::Bytes {
+    ) {
         let mut w = out.writer();
 
         // Truncation indicators are handled by having the extractor always write
@@ -165,14 +161,13 @@ impl Extractor {
         if let Some(pos) = write_indicator {
             out[pos] = 0x27; // this is the Foundation tuple byte value of `true`
         }
-        out.split().freeze()
     }
 
     pub fn extract_all_owned<'alloc>(
         doc: &OwnedNode,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
-    ) -> bytes::Bytes {
+    ) {
         let indicator = &AtomicBool::new(false);
         Extractor::extract_all_owned_indicate_truncation(doc, extractors, out, indicator)
     }
@@ -183,7 +178,7 @@ impl Extractor {
         extractors: &[Self],
         out: &mut bytes::BytesMut,
         indicator: &AtomicBool,
-    ) -> bytes::Bytes {
+    ) {
         match doc {
             OwnedNode::Heap(n) => {
                 Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
@@ -194,8 +189,8 @@ impl Extractor {
         }
     }
 
-    /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
-    pub fn extract_indicate_truncation<N: AsNode, W: std::io::Write>(
+    /// Extract from an instance of json::AsNode, writing a packed encoding into the writer.
+    pub fn extract_indicate_truncation<N: json::AsNode, W: std::io::Write>(
         &self,
         doc: &N,
         w: &mut W,
@@ -214,14 +209,23 @@ impl Extractor {
         Ok(())
     }
 
-    /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
-    pub fn extract<N: AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
+    /// Extract from an instance of json::AsNode, writing a packed encoding into the writer.
+    pub fn extract<N: json::AsNode, W: std::io::Write>(
+        &self,
+        doc: &N,
+        w: &mut W,
+    ) -> std::io::Result<()> {
         let indicator = &AtomicBool::new(false);
         self.extract_indicate_truncation(doc, w, indicator)
     }
 
     /// Compare the deep ordering of `lhs` and `rhs` with respect to a composite key.
-    pub fn compare_key<L: AsNode, R: AsNode>(key: &[Self], lhs: &L, rhs: &R) -> std::cmp::Ordering {
+    pub fn compare_key<L: json::AsNode, R: json::AsNode>(
+        key: &[Self],
+        lhs: &L,
+        rhs: &R,
+    ) -> std::cmp::Ordering {
+        use json::node::compare;
         use std::cmp::Ordering;
 
         key.iter()
@@ -290,8 +294,8 @@ mod test {
 
         let mut buffer = bytes::BytesMut::new();
         let indicator = AtomicBool::new(false);
-        let packed =
-            Extractor::extract_all_indicate_truncation(&v1, &extractors, &mut buffer, &indicator);
+        Extractor::extract_all_indicate_truncation(&v1, &extractors, &mut buffer, &indicator);
+        let packed = buffer.split().freeze();
         assert!(indicator.load(std::sync::atomic::Ordering::SeqCst));
         let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
 
@@ -375,12 +379,13 @@ mod test {
         // fields were affected by the SerPolicy.
         let mut buffer = bytes::BytesMut::new();
         let prune_indicator = AtomicBool::new(false);
-        let packed = Extractor::extract_all_indicate_truncation(
+        Extractor::extract_all_indicate_truncation(
             &doc,
             &extractors,
             &mut buffer,
             &prune_indicator,
         );
+        let packed = buffer.split().freeze();
         assert!(!prune_indicator.load(std::sync::atomic::Ordering::SeqCst));
         let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
         assert_eq!(tuple::Element::Bool(false), unpacked[0]);
@@ -390,12 +395,13 @@ mod test {
         extractors.push(Extractor::new("", &policy));
         let mut buffer = bytes::BytesMut::new();
         let prune_indicator = AtomicBool::new(false);
-        let packed = Extractor::extract_all_indicate_truncation(
+        Extractor::extract_all_indicate_truncation(
             &doc,
             &extractors,
             &mut buffer,
             &prune_indicator,
         );
+        let packed = buffer.split().freeze();
         assert!(prune_indicator.load(std::sync::atomic::Ordering::SeqCst));
         let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
         assert_eq!(tuple::Element::Bool(true), unpacked[0]);

@@ -139,13 +139,6 @@ expression: schema
           ],
           "description": "The result of publishing the discovered changes, if a publication was attempted."
         },
-        "re_created_collections": {
-          "description": "Collections that were re-created due to the collection key having changed.",
-          "items": {
-            "$ref": "#/definitions/EvolvedCollection"
-          },
-          "type": "array"
-        },
         "removed": {
           "description": "Bindings that were removed because they no longer appear in the source system.",
           "items": {
@@ -340,39 +333,6 @@ expression: schema
       ],
       "type": "object"
     },
-    "EvolvedCollection": {
-      "properties": {
-        "new_name": {
-          "description": "The new name of the collection, which may be the same as the original name if only materialization bindings were updated",
-          "type": "string"
-        },
-        "old_name": {
-          "description": "Original name of the collection",
-          "type": "string"
-        },
-        "updated_captures": {
-          "description": "The names of any captures that were updated as a result of evolving this collection",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "updated_materializations": {
-          "description": "The names of any materializations that were updated as a result of evolving this collection",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "new_name",
-        "old_name",
-        "updated_captures",
-        "updated_materializations"
-      ],
-      "type": "object"
-    },
     "Id": {
       "type": "string"
     },
@@ -397,159 +357,25 @@ expression: schema
       "type": "object"
     },
     "JobStatus": {
-      "description": "JobStatus is the possible outcomes of a handled publication.",
-      "oneOf": [
-        {
-          "description": "The publication has not yet been completed.",
-          "properties": {
-            "type": {
-              "enum": [
-                "queued"
-              ],
-              "type": "string"
-            }
+      "description": "The status of a publication.",
+      "properties": {
+        "lockFailures": {
+          "items": {
+            "$ref": "#/definitions/LockFailure"
           },
-          "required": [
-            "type"
-          ],
-          "type": "object"
+          "type": "array"
         },
-        {
-          "description": "There was a failure to build or validate the drafted specs. This could be due to a mistake in the drafted specs, or due to a failure to validate the proposed changes with an external system connected to one of the connected captures or materializations.",
-          "properties": {
-            "type": {
-              "enum": [
-                "buildFailed"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Publication failed due to the failure of one or more tests.",
-          "properties": {
-            "type": {
-              "enum": [
-                "testFailed"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Something went wrong with the publication process. These errors can typically be retried by the client.",
-          "properties": {
-            "type": {
-              "enum": [
-                "publishFailed"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "The publication was successful. All drafted specs are now committed as the live specs. Note that activation of the published specs in the data plane happens asynchronously, after the publication is committed. Therefore, it may take some time for the published changes to be reflected in running tasks.",
-          "properties": {
-            "type": {
-              "enum": [
-                "success"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Returned when there are no draft specs (after pruning unbound collections). There will not be any `draft_errors` in this case, because there's no `catalog_name` to associate with an error. And it may not be desirable to treat this as an error, depending on the scenario.",
-          "properties": {
-            "type": {
-              "enum": [
-                "emptyDraft"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "One or more expected `last_pub_id`s did not match the actual `last_pub_id`, indicating that specs have been changed since the draft was created.",
-          "properties": {
-            "failures": {
-              "items": {
-                "$ref": "#/definitions/LockFailure"
-              },
-              "type": "array"
-            },
-            "type": {
-              "enum": [
-                "expectPubIdMismatch"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Optimistic locking failure for one or more specs in the publication. This case should typically be retried by the publisher.",
-          "properties": {
-            "failures": {
-              "items": {
-                "$ref": "#/definitions/LockFailure"
-              },
-              "type": "array"
-            },
-            "type": {
-              "enum": [
-                "buildIdLockFailure"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "The publication used the deprecated background flag, which is no longer supported.",
-          "properties": {
-            "type": {
-              "enum": [
-                "deprecatedBackground"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "type": "object"
+        "type": {
+          "$ref": "#/definitions/StatusType"
         }
-      ]
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
     },
     "LockFailure": {
-      "description": "Represents an optimistic lock failure when trying to update live specs.",
+      "description": "Represents an optimistic lock failure when trying to update a specification. This typically means that an expectPubId was not matched, implying that another publication has applied a conflicting update to this specification since it was last fetched.",
       "properties": {
         "actual": {
           "anyOf": [
@@ -661,13 +487,6 @@ expression: schema
     "PublicationStatus": {
       "description": "Information on the publications performed by the controller. This does not include any information on user-initiated publications.",
       "properties": {
-        "dependency_hash": {
-          "description": "Hash of all of the dependencies of this spec at the time of the last observation. This is compared against the `dependency_hash` of the live spec in order to determine whether any of the spec's dependencies have changed since it was last published. If they have, then the controller will initiate a touch publication of the spec.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "history": {
           "description": "A limited history of publications performed by this controller",
           "items": {
@@ -822,6 +641,74 @@ expression: schema
         }
       },
       "type": "object"
+    },
+    "StatusType": {
+      "description": "The highest-level status of a publication.",
+      "oneOf": [
+        {
+          "description": "The publication has not yet been completed.",
+          "enum": [
+            "queued"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "There was a failure to build or validate the drafted specs. This could be due to a mistake in the drafted specs, or due to a failure to validate the proposed changes with an external system connected to one of the connected captures or materializations.",
+          "enum": [
+            "buildFailed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Publication failed due to the failure of one or more tests.",
+          "enum": [
+            "testFailed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Something went wrong with the publication process. These errors can typically be retried by the client.",
+          "enum": [
+            "publishFailed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The publication was successful. All drafted specs are now committed as the live specs. Note that activation of the published specs in the data plane happens asynchronously, after the publication is committed. Therefore, it may take some time for the published changes to be reflected in running tasks.",
+          "enum": [
+            "success"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Returned when there are no draft specs (after pruning unbound collections). There will not be any `draft_errors` in this case, because there's no `catalog_name` to associate with an error. And it may not be desirable to treat this as an error, depending on the scenario.",
+          "enum": [
+            "emptyDraft"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "One or more expected `last_pub_id`s did not match the actual `last_pub_id`, indicating that specs have been changed since the draft was created.",
+          "enum": [
+            "expectPubIdMismatch"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Optimistic locking failure for one or more specs in the publication. This case should typically be retried by the publisher.",
+          "enum": [
+            "buildIdLockFailure"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The publication used the deprecated background flag, which is no longer supported.",
+          "enum": [
+            "deprecatedBackground"
+          ],
+          "type": "string"
+        }
+      ]
     }
   },
   "description": "Represents the internal state of a controller.",

@@ -25,7 +25,7 @@ pub const FLOW_EXTRA_NAME: &str = "_flow_extra";
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    BuildError(#[from] json::schema::build::Error),
+    BuildError(#[from] json::schema::build::Errors<doc::Annotation>),
     #[error(transparent)]
     IndexError(#[from] json::schema::index::Error),
     #[error("at {ptr}, value {actual} does not conform to AVRO schema {}", serde_json::to_string(expected).unwrap())]
@@ -52,17 +52,17 @@ pub fn shape_to_avro(shape: doc::Shape) -> apache_avro::Schema {
 /// Map a JSON schema bundle and key pointers into its equivalent AVRO schema.
 pub fn json_schema_to_avro(
     schema: &str,
-    key: &[doc::Pointer],
+    key: &[json::Pointer],
 ) -> Result<(apache_avro::Schema, apache_avro::Schema), Error> {
-    let json_schema = doc::validation::build_bundle(schema.as_bytes())?;
-    let validator = doc::Validator::new(json_schema)?;
-    let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+    let schema = doc::validation::build_bundle(schema.as_bytes())?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
 
     Ok((key_to_avro(key, shape.clone()), shape_to_avro(shape)))
 }
 
 /// Encode a document into a binary AVRO representation using the given schema.
-pub fn encode<'s, 'n, N: doc::AsNode>(
+pub fn encode<'s, 'n, N: json::AsNode>(
     b: &mut Vec<u8>,
     schema: &'s Schema,
     node: &'n N,

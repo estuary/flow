@@ -27,7 +27,7 @@ pub struct Spec {
     keys: Arc<[Box<[Extractor]>]>,
     names: Vec<String>,
     redact_salt: Vec<u8>,
-    validators: Vec<(Validator, Option<url::Url>)>,
+    validators: Vec<Validator>,
 }
 
 impl Spec {
@@ -44,7 +44,6 @@ impl Spec {
         key: impl Into<Box<[Extractor]>>,
         name: impl Into<String>,
         redact_salt: Vec<u8>,
-        schema: Option<url::Url>,
         validator: Validator,
     ) -> Self {
         Self {
@@ -52,14 +51,14 @@ impl Spec {
             keys: vec![key.into()].into(),
             names: vec![name.into()],
             redact_salt,
-            validators: vec![(validator, schema)],
+            validators: vec![validator],
         }
     }
 
     /// Build a Spec from an Iterator of (is-full-reduction, key, schema, validator).
     pub fn with_bindings<I, K, N>(bindings: I, redact_salt: Vec<u8>) -> Self
     where
-        I: IntoIterator<Item = (bool, K, N, Option<url::Url>, Validator)>,
+        I: IntoIterator<Item = (bool, K, N, Validator)>,
         K: Into<Box<[Extractor]>>,
         N: Into<String>,
     {
@@ -68,11 +67,11 @@ impl Spec {
         let mut names = Vec::new();
         let mut validators = Vec::new();
 
-        for (index, (is_full, key, name, schema, validator)) in bindings.into_iter().enumerate() {
+        for (index, (is_full, key, name, validator)) in bindings.into_iter().enumerate() {
             full.push(is_full);
             keys.push(key.into());
             names.push(format!("{} (binding {index})", name.into()));
-            validators.push((validator, schema));
+            validators.push(validator);
         }
 
         Self {
@@ -85,9 +84,27 @@ impl Spec {
     }
 }
 
-/// Meta is metadata about an entry: its binding index and flags.
+/// Meta is metadata about an entry:
+/// - It's u16 binding index.
+/// - First 13 bytes of it's extracted key tuple.
+/// - Flags
 #[derive(Eq, PartialEq, Clone, Copy)]
-pub struct Meta(u32);
+pub struct Meta(
+    // Packed bytes of:
+    // - bytes [0,2): u16_be binding index (most-significant byte first)
+    // - bytes [2,15): first 13 bytes of extracted key tuple
+    //
+    // This structure is designed to have a natural order that aligns with
+    // ordering under (binding, key): if two entries compare != 0, then their
+    // full (binding, key) order will compare identically.
+    //
+    // This lets us quickly determine that two entries are definitely NOT equal,
+    // and their relative order, without thrashing the CPU cache or awaiting the
+    // memory latency penalty to fetch their full keys.
+    [u8; 15],
+    // Flags
+    u8,
+);
 
 /// HeapEntry is a combiner entry that exists in memory.
 /// It's produced by MemTable and is consumed by SpillWriter.
@@ -245,17 +262,24 @@ impl Combiner {
 }
 
 impl Meta {
-    fn new(mut binding: u32, front: bool) -> Self {
-        if front {
-            binding |= META_FLAG_FRONT;
+    #[inline]
+    fn new(binding: u16, key: &[u8], front: bool) -> Self {
+        let binding = binding.to_be_bytes();
+        let mut packed = [
+            binding[0], binding[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        // Copy up to 13 bytes of `key` into the packed representation.
+        // Shorter keys leave trailing zeroes.
+        for (s, t) in key.iter().zip(packed[2..].iter_mut()) {
+            *t = *s;
         }
-        Self(binding)
+        Self(packed, if front { META_FLAG_FRONT } else { 0x00 })
     }
 
     /// The binding for this entry.
     #[inline]
     pub fn binding(&self) -> usize {
-        (self.0 & META_BINDING_MASK) as usize
+        u16::from_be_bytes([self.0[0], self.0[1]]) as usize
     }
 
     /// Was this entry added at the front of the list of documents?
@@ -263,7 +287,7 @@ impl Meta {
     /// to a combiner after other right-hand documents have already been added.
     #[inline]
     pub fn front(&self) -> bool {
-        self.0 & META_FLAG_FRONT != 0
+        self.1 & META_FLAG_FRONT != 0
     }
 
     /// Is this entry marked as deleted by its reduction annotation?
@@ -271,35 +295,27 @@ impl Meta {
     /// delete a document from a downstream system (instead of doing an upsert).
     #[inline]
     pub fn deleted(&self) -> bool {
-        self.0 & META_FLAG_DELETED != 0
+        self.1 & META_FLAG_DELETED != 0
     }
 
     // This LHS entry does not associatively reduce with its RHS entry.
     #[inline]
     fn not_associative(&self) -> bool {
-        self.0 & META_FLAG_NOT_ASSOCIATIVE != 0
+        self.1 & META_FLAG_NOT_ASSOCIATIVE != 0
     }
 
     #[inline]
     fn set_deleted(&mut self, deleted: bool) {
         if deleted {
-            self.0 = self.0 | META_FLAG_DELETED;
+            self.1 |= META_FLAG_DELETED;
         } else {
-            self.0 = self.0 & !META_FLAG_DELETED;
+            self.1 &= !META_FLAG_DELETED;
         }
     }
 
     #[inline]
     fn set_not_associative(&mut self) {
-        self.0 = self.0 | META_FLAG_NOT_ASSOCIATIVE;
-    }
-
-    fn to_bytes(&self) -> [u8; 4] {
-        self.0.to_le_bytes()
-    }
-
-    fn from_bytes(b: [u8; 4]) -> Self {
-        Self(u32::from_le_bytes(b))
+        self.1 |= META_FLAG_NOT_ASSOCIATIVE;
     }
 }
 
@@ -321,14 +337,12 @@ impl std::fmt::Debug for Meta {
     }
 }
 
-// Binding is the lower 24 bits of Meta (max value is 16MM).
-const META_BINDING_MASK: u32 = 0x00ffffff;
 // Flag marking entry is at the front of the associative list.
-const META_FLAG_FRONT: u32 = 1 << 31;
+const META_FLAG_FRONT: u8 = 0x01;
 // Flag marking that this LHS entry doesn't associatively reduce with a following RHS.
-const META_FLAG_NOT_ASSOCIATIVE: u32 = 1 << 30;
+const META_FLAG_NOT_ASSOCIATIVE: u8 = 0x02;
 // Flag marking this entry is a deletion tombstone.
-const META_FLAG_DELETED: u32 = 1 << 29;
+const META_FLAG_DELETED: u8 = 0x04;
 
 // The number of used bytes within a Bump allocator.
 fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {

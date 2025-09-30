@@ -1,0 +1,20 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "liveSpecs": {
+    "edges": [
+      {
+        "node": {
+          "activeAlerts": null,
+          "alertHistory": null,
+          "catalogName": "aliceCo/private/capture",
+          "liveSpec": null,
+          "status": null,
+          "userCapability": null
+        }
+      }
+    ]
+  }
+}

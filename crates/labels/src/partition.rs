@@ -12,7 +12,7 @@ use std::fmt::Write;
 ///
 // `fields` must be in sorted order and have the
 // same length as `extractors`, or encode_partition_labels panics.
-pub fn encode_field_range<'f, N: doc::AsNode>(
+pub fn encode_field_range<'f, N: json::AsNode>(
     mut set: LabelSet,
     key_begin: u32,
     key_end: u32,
@@ -38,7 +38,7 @@ pub fn encode_field_range<'f, N: doc::AsNode>(
 }
 
 /// Add a logically-partitioned field and value to the LabelSet.
-pub fn add_value<N: doc::AsNode>(set: LabelSet, field: &str, value: &N) -> Result<LabelSet, Error> {
+pub fn add_value<N: json::AsNode>(set: LabelSet, field: &str, value: &N) -> Result<LabelSet, Error> {
     Ok(crate::add_value(
         set,
         &format!("{FIELD_PREFIX}{}", field),
@@ -89,15 +89,15 @@ pub fn decode_key_range(set: &LabelSet) -> Result<(u32, u32), Error> {
 /// never be produced by a query-encoded string and thus allows for unambiguously
 /// mapping a partition value back into its JSON value.
 #[inline]
-pub fn encode_field_value<N: doc::AsNode>(mut b: String, value: &N) -> Result<String, Error> {
+pub fn encode_field_value<N: json::AsNode>(mut b: String, value: &N) -> Result<String, Error> {
     match value.as_node() {
-        doc::Node::Null => b.push_str("%_null"),
-        doc::Node::Bool(true) => b.push_str("%_true"),
-        doc::Node::Bool(false) => b.push_str("%_false"),
-        doc::Node::PosInt(p) => write!(b, "%_{p}").unwrap(),
-        doc::Node::NegInt(n) => write!(b, "%_{n}").unwrap(),
-        doc::Node::String(s) => write!(b, "{}", super::percent_encoding(s)).unwrap(),
-        doc::Node::Array(_) | doc::Node::Bytes(_) | doc::Node::Float(_) | doc::Node::Object(_) => {
+        json::Node::Null => b.push_str("%_null"),
+        json::Node::Bool(true) => b.push_str("%_true"),
+        json::Node::Bool(false) => b.push_str("%_false"),
+        json::Node::PosInt(p) => write!(b, "%_{p}").unwrap(),
+        json::Node::NegInt(n) => write!(b, "%_{n}").unwrap(),
+        json::Node::String(s) => write!(b, "{}", super::percent_encoding(s)).unwrap(),
+        json::Node::Array(_) | json::Node::Bytes(_) | json::Node::Float(_) | json::Node::Object(_) => {
             return Err(Error::InvalidValueType)
         }
     };
