@@ -1,4 +1,3 @@
-use super::{RawValue, RelativeUrl};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
@@ -11,12 +10,12 @@ pub struct DeriveUsingSqlite {
     /// or as a relative URL to a file containing the migration SQL.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(schema_with = "DeriveUsingSqlite::migrations_schema")]
-    pub migrations: Vec<RawValue>,
+    pub migrations: Vec<super::RawValue>,
 }
 
 impl DeriveUsingSqlite {
-    fn migrations_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        let url_schema = RelativeUrl::json_schema(gen);
+    fn migrations_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+        let url_schema = super::RelativeUrl::json_schema(generator);
 
         from_value(json!({
             "type": "array",

@@ -1,4 +1,3 @@
-use super::{RawValue, RelativeUrl};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
@@ -13,12 +12,12 @@ pub struct DeriveUsingTypescript {
     /// is an instance implementing the corresponding Derivation
     /// interface.
     #[schemars(schema_with = "DeriveUsingTypescript::module_schema")]
-    pub module: RawValue,
+    pub module: super::RawValue,
 }
 
 impl DeriveUsingTypescript {
-    fn module_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        let url_schema = RelativeUrl::json_schema(gen);
+    fn module_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+        let url_schema = super::RelativeUrl::json_schema(generator);
 
         from_value(json!({
             "oneOf": [

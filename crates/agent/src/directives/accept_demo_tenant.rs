@@ -12,7 +12,7 @@ pub struct Directive {}
 #[derive(Debug, Deserialize, Serialize, Validate, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Claims {
-    #[validate]
+    #[validate(nested)]
     tenant: models::Prefix,
 }
 

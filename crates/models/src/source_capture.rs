@@ -53,6 +53,7 @@ pub struct SourceDef {
     /// # Capture to source from
     /// The materialization will follow the bindings of the named capture
     /// as they change over time.
+    #[schemars(with = "Capture")]
     pub capture: Option<Capture>,
     /// # Naming convention for new bindings
     /// New bindings will apply the naming convention to determine the

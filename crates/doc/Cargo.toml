@@ -40,7 +40,6 @@ anyhow = { workspace = true }
 hexdump = { workspace = true }
 insta = { workspace = true }
 json-patch = { workspace = true }
-pretty_assertions = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 rand = { workspace = true }

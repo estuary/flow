@@ -15,8 +15,9 @@ use std::collections::BTreeMap;
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MaterializationDef {
     /// # Automatically materialize new bindings from a named capture
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "sourceCapture")]
+    #[schemars(with = "SourceType")]
     pub source: Option<SourceType>,
     /// # Default handling of schema changes that are incompatible with the target resource.
     /// This can be overridden on a per-binding basis.
@@ -36,6 +37,7 @@ pub struct MaterializationDef {
     /// When present, a publication of the materialization will fail if the
     /// last publication ID in the control plane doesn't match this value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
     /// # Delete this materialization within the control plane.
     /// When true, a publication will delete this materialization.
@@ -58,7 +60,7 @@ pub enum MaterializationEndpoint {
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "MaterializationBinding::example")]
+#[schemars(example = MaterializationBinding::example())]
 pub struct MaterializationBinding {
     /// # Endpoint resource to materialize into.
     pub resource: RawValue,
@@ -99,6 +101,7 @@ pub struct MaterializationBinding {
     /// the binding will have its `backfill` counter incremented, causing it to
     /// be re-materialized from the source collection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "OnIncompatibleSchemaChange")]
     pub on_incompatible_schema_change: Option<OnIncompatibleSchemaChange>,
 }
 
@@ -106,7 +109,7 @@ pub struct MaterializationBinding {
 /// as well as optional per-projection, driver-specific configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "MaterializationFields::example")]
+#[schemars(example = MaterializationFields::example())]
 pub struct MaterializationFields {
     /// # Fields to use as the grouping key of this materialization.
     /// If not specified, the key of the source collection is used.
