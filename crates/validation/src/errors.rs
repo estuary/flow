@@ -169,8 +169,6 @@ pub enum Error {
         types: Vec<ShuffleType>,
         given_types: Vec<ShuffleType>,
     },
-    #[error("transform {transform} is missing `shuffle`, which is now a required field (https://go.estuary.dev/LK19Py). If you're unsure of what shuffle to use, try `shuffle: any`")]
-    ShuffleUnset { transform: String },
     #[error("connector returned an invalid generated file URL {url:?}")]
     InvalidGeneratedFileUrl {
         url: String,

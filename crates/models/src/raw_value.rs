@@ -97,14 +97,11 @@ impl std::fmt::Debug for RawValue {
 }
 
 impl schemars::JsonSchema for RawValue {
-    fn schema_name() -> String {
-        "Value".to_string()
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("Value")
     }
-    fn is_referenceable() -> bool {
-        false
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        serde_json::Value::json_schema(gen)
+    fn json_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+        serde_json::Value::json_schema(generator)
     }
 }
 

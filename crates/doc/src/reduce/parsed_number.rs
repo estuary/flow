@@ -52,7 +52,7 @@ impl ParsedNumber {
             PosInt(n) => HeapNode::PosInt(n),
             NegInt(n) => HeapNode::NegInt(n),
             Float(n) => HeapNode::Float(n),
-            Arbitrary(n) => HeapNode::String(crate::BumpStr::from_str(&n.to_string(), alloc)),
+            Arbitrary(n) => HeapNode::String(crate::BumpStr::from_str(&n.normalized().to_string(), alloc)),
         }
     }
 }
