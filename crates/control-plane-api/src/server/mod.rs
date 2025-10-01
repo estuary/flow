@@ -281,7 +281,6 @@ async fn preflight_handler() -> impl IntoResponse {
     (StatusCode::NO_CONTENT, "")
 }
 
-#[axum::async_trait]
 impl<T, S> axum::extract::FromRequest<S> for Request<T>
 where
     T: serde::de::DeserializeOwned + validator::Validate,
@@ -291,10 +290,15 @@ where
 {
     type Rejection = Rejection;
 
-    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
-        let axum::extract::Json(value) = axum::extract::Json::<T>::from_request(req, state).await?;
-        value.validate()?;
-        Ok(Request(value))
+    fn from_request(
+        req: axum::extract::Request,
+        state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            let axum::extract::Json(value) = axum::extract::Json::<T>::from_request(req, state).await?;
+            value.validate()?;
+            Ok(Request(value))
+        }
     }
 }
 

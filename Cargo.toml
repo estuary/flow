@@ -15,8 +15,9 @@ license = "BSL"
 
 [workspace.dependencies]
 addr = { version = "0.15.4", default-features = false, features = ["std"] }
-aide = { version = "0.13", features = [
+aide = { version = "0", features = [
     "axum",
+    "axum-json",
     "macros",
     "scalar",
     "redoc",
@@ -36,7 +37,7 @@ atty = "0.2"
 apache-avro = { version = "0.17.0", features = ["snappy"] }
 
 base64 = "0.13"
-bigdecimal = "0.3.0"
+bigdecimal = "0"
 bitvec = "1"
 bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
 bytes = "1.6"
@@ -136,7 +137,7 @@ rsasl = { version = "2.1.0", default-features = false, features = [
 ] }
 rusqlite = { version = "0.29", features = ["bundled-full"] }
 rustyline = "11.0"
-schemars = "0.8"
+schemars = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0.8"
@@ -209,7 +210,7 @@ unicode-bom = "1.1"
 unicode-normalization = "0.1"
 url = { version = "2.2", features = ["serde"] }
 uuid = { version = "1.1", features = ["serde", "v4"] }
-validator = { version = "0.15", features = ["derive"] }
+validator = { version = "0", features = ["derive"] }
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 wasm-bindgen = "0.2.100"
@@ -228,10 +229,10 @@ aws-sdk-sts = "1.16"
 
 warp = "0.3.3" # TODO(johnny) remove me in favor of axum
 # Used for the agent http server
-axum = { version = "0.7", features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-axum-extra = { version = "0.9", features = ["typed-header", "query"] }
-async-graphql = { version = "7.0", features = [
+axum = { version = "0", features = ["macros"] }
+axum-server = { version = "0", features = ["tls-rustls"] }
+axum-extra = { version = "0", features = ["typed-header", "query"] }
+async-graphql = { version = "7", features = [
     "chrono",
     "dataloader",
     "raw_value",
@@ -240,7 +241,7 @@ async-graphql = { version = "7.0", features = [
     "url",
     "graphiql",
 ] }
-async-graphql-axum = "7.0"
+async-graphql-axum = "7"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
@@ -274,6 +275,10 @@ debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugge
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
 librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
+
+# TODO: Remove patch after next aide release (>0.15.1)
+# Using git commit to get schemars 1.0.4 support
+aide = { git = "https://github.com/tamasfe/aide.git", rev = "6d0e50027011a98a58365bbb6495f763df5f2796" }
 
 # Recommended by sqlx authors to speed up build-time checks.
 # https://github.com/launchbadge/sqlx#compile-time-verification

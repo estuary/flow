@@ -21,7 +21,6 @@ proto-flow = { path = "../proto-flow" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
-indexmap = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 prost = { workspace = true }

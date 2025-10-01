@@ -13,6 +13,7 @@ use std::time::Duration;
 pub struct CaptureDef {
     /// # Continuously keep the collection spec and schema up-to-date
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "AutoDiscover")]
     pub auto_discover: Option<AutoDiscover>,
     /// # Endpoint to capture from.
     pub endpoint: CaptureEndpoint,
@@ -36,13 +37,13 @@ pub struct CaptureDef {
     #[schemars(schema_with = "super::duration_schema")]
     pub interval: Duration,
     /// # Salt used for redacting sensitive fields in captured documents.
-    /// When provided, this salt is used instead of a generated one.
+    /// When provided, this base64-encoded salt is used instead of a generated one.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         with = "crate::serde_opt_bytes"
     )]
-    #[schemars(schema_with = "crate::schema_opt_bytes")]
+    #[schemars(with = "String")]
     pub redact_salt: Option<bytes::Bytes>,
     /// # Template for shards of this capture task.
     #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
@@ -51,6 +52,7 @@ pub struct CaptureDef {
     /// When present, a publication of the capture will fail if the
     /// last publication ID in the control plane doesn't match this value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
     /// # Delete this capture within the control plane.
     /// When true, a publication will delete this capture.
@@ -84,7 +86,7 @@ pub enum CaptureEndpoint {
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "CaptureBinding::example")]
+#[schemars(example = CaptureBinding::example())]
 pub struct CaptureBinding {
     /// # Endpoint resource to capture from.
     pub resource: RawValue,
