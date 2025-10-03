@@ -1,10 +1,10 @@
-# Schema evolution
+# Schema Evolution
 
 **Schema evolutions** are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components.
 
 :::info
 Evolutions are a relatively advanced concept in Flow.
-Before continuing, you should have a basic understanding of [Flow captures](../captures.md), [collections](../collections.md), [schemas](../schemas.md), and [materializations](../materialization.md).
+Before continuing, you should have a basic understanding of [Flow captures](../captures.md), [collections](../collections.md), [schemas](../schemas.md), and [materializations](/concepts/materialization).
 :::
 
 ## Introduction

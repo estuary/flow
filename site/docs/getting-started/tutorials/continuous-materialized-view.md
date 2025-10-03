@@ -5,7 +5,7 @@ sidebar_position: 4
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-# Create a real-time materialized view in PostgreSQL
+# Create a Real-Time Materialized View in PostgreSQL
 
 PostgreSQL supports *materialized views*: database objects that contain the result of a query, usually a focused subset of a large dataset.
 

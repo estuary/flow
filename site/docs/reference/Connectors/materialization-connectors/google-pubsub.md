@@ -118,7 +118,7 @@ bindings:
 
 ## Delta updates
 
-Because Google Cloud Pub/Sub is a write-only event-streaming system, this connector uses only [delta updates](../../../concepts/materialization.md#delta-updates).
+Because Google Cloud Pub/Sub is a write-only event-streaming system, this connector uses only [delta updates](/concepts/materialization/#delta-updates).
 
 ## Message ordering
 

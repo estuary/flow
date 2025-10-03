@@ -123,7 +123,7 @@ captures:
 
 Salesforce objects can contain [formula fields](https://help.salesforce.com/s/articleView?id=platform.customize_formulas.htm&type=5), fields whose values are calculated at query time. Since formula fields [do not maintain state](https://help.salesforce.com/s/articleView?id=000396215&type=1) in Salesforce, formula fields updates do not update the associated record's last modified timestamp. The Salesforce connector uses the last modified timestamp to incrementally detect changes, and since formula field updates don't update the last modified timestamp, formula fields updates are not incrementally captured by the connector.
 
-To address this challenge, the Salesforce connector is able to refresh the values of formula fields on a schedule after the initial backfill completes. This is controlled at a binding level by the cron expression in the [`schedule` property](#bindings). When a scheduled formula field refresh occurs, the connector fetches every record's current formula field values and merges them into the associated collection with a top-level [`merge` reduction strategy](../../../reduction-strategies/merge.md).
+To address this challenge, the Salesforce connector is able to refresh the values of formula fields on a schedule after the initial backfill completes. This is controlled at a binding level by the cron expression in the [`schedule` property](#bindings). When a scheduled formula field refresh occurs, the connector fetches every record's current formula field values and merges them into the associated collection with a top-level [`merge` reduction strategy](/reference/reduction-strategies/merge).
 
 ## Troubleshooting
 

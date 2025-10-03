@@ -85,7 +85,7 @@ materializations:
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read
-about how to configure this [here](../../materialization-sync-schedule.md).
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Reserved words
 

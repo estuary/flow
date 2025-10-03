@@ -1,3 +1,8 @@
+---
+sidebar_position: 0
+pagination_next: concepts/captures
+---
+
 # Concepts
 
 Flow helps you define data pipelines, known as **Data Flows**, that connect multiple data systems, APIs, and storage, and optionally transform data along the way.
@@ -6,7 +11,7 @@ Data Flows are defined by a set of **Flow specifications** and deployed using ei
 This page introduces concepts and terms that will help you begin working with Flow and better understand its underlying mechanisms.
 These concepts are discussed in more detail on subsequent pages.
 
-![](<at-a-glance.png>)
+![Flow at a glance](./concept-images/at-a-glance.png)
 
 ## Working with Flow
 
@@ -110,7 +115,7 @@ As new documents become available within bound collections, the materialization
 keeps the destination up to date within milliseconds, or as fast as that system allows.
 Materializations interface with destinations using [connectors](#connectors).
 
-[Learn more about materializations](materialization.md)
+[Learn more about materializations](/concepts/materialization)
 
 ***
 

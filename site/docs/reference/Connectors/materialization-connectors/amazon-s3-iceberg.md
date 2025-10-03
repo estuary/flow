@@ -6,7 +6,7 @@ import ReactPlayer from "react-player";
 
 # Apache Iceberg Tables in Amazon S3  (delta updates)
 
-This connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of
+This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
 Flow collections into Apache Iceberg tables using Amazon S3 for object storage and [AWS
 Glue](https://docs.aws.amazon.com/glue/latest/dg/aws-glue-programming-etl-format-iceberg.html) as
 the Iceberg catalog.

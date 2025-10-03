@@ -1,8 +1,8 @@
 ---
-sidebar_position: 6
+sidebar_position: 12
 ---
 
-# Web application
+# Web Application
 
 Flow's web application is at [dashboard.estuary.dev](https://dashboard.estuary.dev).
 
@@ -59,7 +59,7 @@ You can use the different pages in the web app to monitor and manage your items 
 
 ## Captures page
 
-The **Captures** page shows you a table of existing Flow [captures](./captures.md) to which you have [access](../reference/authentication.md).
+The **Captures** page shows you a table of existing Flow [captures](./captures.md) to which you have [access](/reference/authentication).
 The **New Capture** button is also visible.
 You can use the table to monitor your captures.
 
@@ -107,7 +107,7 @@ When you click **Edit specification** for a capture, you're taken to the **Edit 
 
 This page is similar to the [**Create Capture**](#creating-a-capture) page as it was filled out just before the capture was published.
 
-For detailed steps to edit a capture, see the [guide](../guides/edit-data-flows.md#edit-a-capture).
+For detailed steps to edit a capture, see the [guide](/guides/edit-data-flows/#edit-a-capture).
 
 ### Creating a capture
 
@@ -161,7 +161,7 @@ Click the time interval in the header to select from **Today**, **Yesterday**, *
 
 ## Materializations page
 
-The **Materializations** page shows you a table of existing Flow [materializations](./materialization.md) to which you have [access](../reference/authentication.md).
+The **Materializations** page shows you a table of existing Flow [materializations](/concepts/materialization) to which you have [access](/reference/authentication).
 The **New Materialization** button is also visible.
 
 You can use the table to monitor your materializations. It's nearly identical to the table on the [Captures page](#captures-page), with a few exceptions.
@@ -207,7 +207,7 @@ When you click **Edit specification** for a materialization, you're taken to the
 
 This page is similar to the [**Create Materialization**](#creating-a-materialization) page as it was filled out just before the materialization was published.
 
-For detailed steps to edit a materialization, see the [guide](../guides/edit-data-flows.md#edit-a-materialization).
+For detailed steps to edit a materialization, see the [guide](/guides/edit-data-flows/#edit-a-materialization).
 
 ### Creating a materialization
 
@@ -344,7 +344,7 @@ You can manage access by generating new user invitations, granting data sharing 
 
 Generating a new invitation will create a URL with a grant token parameter. This token will allow access based on the prefix, capability, and type you select. Copy the URL and share it with its intended recipient to invite them to your organization.
 
-[Learn more about capabilities and access.](../reference/authentication.md)
+[Learn more about capabilities and access.](/reference/authentication)
 
 ### Settings
 
@@ -352,7 +352,7 @@ The **Settings** tab includes additional configuration, such as organization not
 
 #### Organization Notifications
 
-Here, you are able to configure which email address(es) will receive notifications related to your organization or prefix.
+Here, you are able to configure which email address(es) will receive [notifications](/reference/notifications) related to your organization or prefix.
 
 #### Cloud Storage
 
@@ -369,7 +369,7 @@ If you're a trial user, your data is stored temporarily in Estuary's cloud stora
 
 The **Data Planes** section provides a table of all available data plane options, broken out by **Private** and **Public** data planes.
 
-You can find information here related to connecting and allowing access to your data plane of choice. See [Allowlisting IP Addresses](../reference/allow-ip-addresses.md) for more.
+You can find information here related to connecting and allowing access to your data plane of choice. See [Allowlisting IP Addresses](/reference/allow-ip-addresses) for more.
 
 ### Billing
 
@@ -386,4 +386,4 @@ If a connector you need is missing, you can [request it](https://github.com/estu
 
 ### CLI-API
 
-The **CLI-API** tab provides the access token required to [authenticate with flowctl](../reference/authentication.md#authenticating-flow-using-the-cli). You can also revoke old tokens.
+The **CLI-API** tab provides the access token required to [authenticate with flowctl](/reference/authentication/#authenticating-flow-using-the-cli). You can also revoke old tokens.
