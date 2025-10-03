@@ -1,3 +1,4 @@
+
 # Airtable
 
 This connector captures data from Airtable into Flow collections.
@@ -6,7 +7,7 @@ It is available for use in the Flow web application. For local development or op
 
 ## Prerequisites
 
-You must have an an active Airtable account.
+* You must have an an active Airtable account.
 
 ### Setup
 
@@ -33,17 +34,17 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 The following properties reflect the API Key authentication method.
 
-| Property        | Title                 | Description                                         | Type   | Required/Default |
-| --------------- | --------------------- | --------------------------------------------------- | ------ | ---------------- |
-| `/api_key`      | API Key               | API Key                                             | string | Required         |
-| `/access_token` | Personal Access Token | The Personal Access Token for the Airtable account. | string | Required         |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| `/api_key` | API Key | API Key | string | Required |
+| `/access_token` | Personal Access Token | The Personal Access Token for the Airtable account. | string | Required |
 
 #### Bindings
 
-| Property        | Title     | Description                                                            | Type   | Required/Default |
-| --------------- | --------- | ---------------------------------------------------------------------- | ------ | ---------------- |
-| **`/stream`**   | Stream    | Resource of your Airtable project from which collections are captured. | string | Required         |
-| **`/syncMode`** | Sync Mode | Connection method.                                                     | string | Required         |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/stream`** | Stream | Resource of your Airtable project from which collections are captured. | string | Required |
+| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
 
 ### Sample
 
