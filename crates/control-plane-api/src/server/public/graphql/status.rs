@@ -20,16 +20,16 @@ pub struct Controller {
 
 /// The status of a LiveSpec
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
-pub struct Status {
+pub struct LiveSpecStatus {
     pub r#type: StatusSummaryType,
     pub summary: String,
     pub controller: Controller,
     pub connector: Option<ConnectorStatus>,
 }
 
-impl Status {
+impl LiveSpecStatus {
     pub fn missing(catalog_type: models::CatalogType) -> Self {
-        Status {
+        LiveSpecStatus {
             r#type: StatusSummaryType::Error,
             summary: "No status information available".to_string(),
             // Set error and failures here to make sure it's obvious to the caller that something is wrong
@@ -45,7 +45,7 @@ impl Status {
     }
 }
 
-impl TryFrom<StatusRow> for Status {
+impl TryFrom<StatusRow> for LiveSpecStatus {
     type Error = serde_json::Error;
 
     fn try_from(value: StatusRow) -> Result<Self, Self::Error> {
@@ -76,7 +76,7 @@ impl TryFrom<StatusRow> for Status {
             connector_status.as_ref(),
         );
 
-        Ok(Status {
+        Ok(LiveSpecStatus {
             r#type: summary.status,
             summary: summary.message,
             controller: Controller {
@@ -96,7 +96,7 @@ impl TryFrom<StatusRow> for Status {
 pub struct StatusKey(pub String);
 
 impl async_graphql::dataloader::Loader<StatusKey> for PgDataLoader {
-    type Value = Status;
+    type Value = LiveSpecStatus;
 
     type Error = String;
 
@@ -128,7 +128,7 @@ struct StatusRow {
 async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[&str],
-) -> anyhow::Result<HashMap<StatusKey, Status>> {
+) -> anyhow::Result<HashMap<StatusKey, LiveSpecStatus>> {
     let rows = sqlx::query_as!(
         StatusRow,
         r#"select
@@ -158,9 +158,9 @@ async fn fetch_status(
         .into_iter()
         .map(|mut row| {
             let name = StatusKey(std::mem::take(&mut row.catalog_name));
-            let status = Status::try_from(row)?;
+            let status = LiveSpecStatus::try_from(row)?;
             Ok((name, status))
         })
-        .collect::<anyhow::Result<HashMap<StatusKey, Status>>>()?;
+        .collect::<anyhow::Result<HashMap<StatusKey, LiveSpecStatus>>>()?;
     Ok(resp)
 }

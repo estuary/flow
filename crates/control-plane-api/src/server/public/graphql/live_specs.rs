@@ -1,6 +1,6 @@
 use async_graphql::{ComplexObject, Context, SimpleObject, dataloader};
 use chrono::{DateTime, Utc};
-use models::Id;
+use models::{CatalogType, Id};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::server::{
@@ -49,8 +49,11 @@ impl LiveSpec {
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
-    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        paginate_live_specs_refs(
+    ) -> async_graphql::Result<Option<PaginatedLiveSpecsRefs>> {
+        if self.reads_from.is_empty() {
+            return Ok(None);
+        }
+        let conn = paginate_live_specs_refs(
             ctx,
             None,
             self.reads_from.clone(),
@@ -59,7 +62,8 @@ impl LiveSpec {
             first,
             last,
         )
-        .await
+        .await?;
+        Ok(Some(conn))
     }
 
     async fn writes_to(
@@ -69,8 +73,11 @@ impl LiveSpec {
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
-    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        paginate_live_specs_refs(
+    ) -> async_graphql::Result<Option<PaginatedLiveSpecsRefs>> {
+        if self.writes_to.is_empty() {
+            return Ok(None);
+        }
+        let conn = paginate_live_specs_refs(
             ctx,
             None,
             self.writes_to.clone(),
@@ -79,7 +86,8 @@ impl LiveSpec {
             first,
             last,
         )
-        .await
+        .await?;
+        Ok(Some(conn))
     }
 
     async fn source_capture(
@@ -124,8 +132,11 @@ impl LiveSpec {
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
-    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        paginate_live_specs_refs(
+    ) -> async_graphql::Result<Option<PaginatedLiveSpecsRefs>> {
+        if self.written_by.is_empty() {
+            return Ok(None);
+        }
+        let conn = paginate_live_specs_refs(
             ctx,
             Some(models::Capability::Read),
             self.written_by.clone(),
@@ -134,7 +145,8 @@ impl LiveSpec {
             first,
             last,
         )
-        .await
+        .await?;
+        Ok(Some(conn))
     }
 
     /// Returns a list of live specs that read from this spec. This will always
@@ -146,8 +158,11 @@ impl LiveSpec {
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
-    ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        paginate_live_specs_refs(
+    ) -> async_graphql::Result<Option<PaginatedLiveSpecsRefs>> {
+        if self.read_by.is_empty() {
+            return Ok(None);
+        }
+        let conn = paginate_live_specs_refs(
             ctx,
             Some(models::Capability::Read),
             self.read_by.clone(),
@@ -156,7 +171,8 @@ impl LiveSpec {
             first,
             last,
         )
-        .await
+        .await?;
+        Ok(Some(conn))
     }
 }
 

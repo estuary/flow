@@ -100,7 +100,10 @@ impl LiveSpecRef {
     }
 
     /// Returns the status of the live spec.
-    async fn status(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<status::Status>> {
+    async fn status(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<status::LiveSpecStatus>> {
         if self.user_capability.is_none() {
             return Ok(None);
         }
