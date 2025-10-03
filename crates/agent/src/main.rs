@@ -156,7 +156,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         .parse::<sqlx::postgres::PgConnectOptions>()
         .context("parsing database URL")?
         .application_name(&application_name);
-    pg_options.log_slow_statements(log::LevelFilter::Warn, std::time::Duration::from_secs(10));
+    pg_options.log_slow_statements(tracing::log::LevelFilter::Warn, std::time::Duration::from_secs(10));
 
     // If a database CA was provided, require that we use TLS with full cert verification.
     if let Some(ca) = &args.database_ca {

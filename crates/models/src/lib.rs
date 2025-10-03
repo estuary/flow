@@ -285,7 +285,7 @@ impl ModelDef for AnySpec {
     }
 }
 
-fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn duration_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "pattern": "^\\d+(s|m|h|d)$"
@@ -293,7 +293,7 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     .unwrap()
 }
 
-pub fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+pub fn datetime_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string"],
         "format": "date-time",
@@ -301,7 +301,7 @@ pub fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::sche
     .unwrap()
 }
 
-pub fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+pub fn option_datetime_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "format": "date-time",
@@ -351,11 +351,4 @@ pub mod serde_opt_bytes {
             None => Ok(None),
         }
     }
-}
-
-/// JsonSchema helper for Option<Vec<u8>> that represents as base64 string
-pub fn schema_opt_bytes(
-    schema_gen: &mut schemars::gen::SchemaGenerator,
-) -> schemars::schema::Schema {
-    schema_gen.subschema_for::<Option<String>>()
 }
