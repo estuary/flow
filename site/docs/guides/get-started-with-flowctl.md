@@ -1,3 +1,7 @@
+---
+sidebar_position: 5
+---
+
 # Getting Started With flowctl
 
 After your account has been activated through the [web app](../concepts/web-app.md), you can begin to work with your data flows from the command line.

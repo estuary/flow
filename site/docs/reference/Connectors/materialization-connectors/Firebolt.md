@@ -2,7 +2,7 @@
 
 # Firebolt
 
-This Flow connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of Flow collections into Firebolt `FACT` or `DIMENSION` tables.
+This Flow connector materializes [delta updates](/concepts/materialization/#delta-updates) of Flow collections into Firebolt `FACT` or `DIMENSION` tables.
 
 To interface between Flow and Firebolt, the connector uses Firebolt's method for [loading data](https://docs.firebolt.io/Guides/loading-data/loading-data.html):
 First, it stores data as JSON documents in an S3 bucket.
@@ -102,7 +102,7 @@ materializations:
 ## Delta updates
 
 Firebolt is an insert-only system; it doesn't support updates or deletes.
-Because of this, the Firebolt connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
+Because of this, the Firebolt connector operates only in [delta updates](/concepts/materialization/#delta-updates) mode.
 Firebolt stores all deltas — the unmerged collection documents — directly.
 
 In some cases, this will affect how materialized views look in Firebolt compared to other systems that use standard updates.

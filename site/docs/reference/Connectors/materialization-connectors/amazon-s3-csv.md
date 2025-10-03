@@ -4,7 +4,7 @@ description: This connector materializes delta updates of Flow collections into 
 
 # CSV Files in Amazon S3
 
-This connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of
+This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
 Flow collections into files in an S3 bucket per the CSV format described in
 [RFC-4180](https://www.rfc-editor.org/rfc/rfc4180.html). The CSV files are compressed using Gzip
 compression.

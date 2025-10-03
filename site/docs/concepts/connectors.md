@@ -1,5 +1,5 @@
 ---
-sidebar_position: 5
+sidebar_position: 4
 ---
 
 import Tabs from '@theme/Tabs';
@@ -244,4 +244,4 @@ connectors must be reviewed and added by the Estuary team. Have a connector you'
 
 ## Available connectors
 
-[Learn about available connectors in the reference section](../reference/Connectors/README.md)
+[Learn about available connectors](/reference/Connectors/)

@@ -48,7 +48,7 @@ and it has some major implications:
   without knowing how it will be used quite yet.
   Perform ad-hoc analysis using the collection data lake,
   and layer in [derivations](../derivations.md)
-  or [materializations](../materialization.md) later,
+  or [materializations](/concepts/materialization) later,
   or not at all.
 * If you ever decide to stop using Flow,
   your data is still yours.

@@ -133,5 +133,5 @@ materializations:
 ## Delta updates
 
 This connector supports [delta
-updates](../../../concepts/materialization.md#delta-updates) for materializing
+updates](/concepts/materialization/#delta-updates) for materializing
 documents.

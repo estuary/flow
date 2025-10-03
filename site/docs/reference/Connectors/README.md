@@ -1,3 +1,7 @@
+---
+sidebar_position: 1
+---
+
 # Connectors
 
 A current list and configuration details for Estuary's connectors can be found on the following pages:

@@ -295,7 +295,7 @@ For more on configuring transformations, see other [derivation guides](../README
 
 ### Materialization Configuration
 
-Creating a new [materialization](../../concepts/materialization.md) resource is similar to creating a capture.
+Creating a new [materialization](/concepts/materialization) resource is similar to creating a capture.
 In a local `flow.yaml` file, you can fill out a specification according to the materialization connector's [reference guide](../../reference/Connectors/materialization-connectors/README.md).
 The reference will indicate which fields are required and how you can authenticate. It will also provide an example specification you can use to get started.
 

@@ -51,7 +51,8 @@ body.running-in-iframe .theme-doc-breadcrumbs {
     /* Removes underline */
     transition: background-color 0.3s;
     /* Smooth transition for background color */
-
+    margin-left: 2px;
+    margin-right: 4px;
 }
 
 .button-link:hover {
@@ -59,4 +60,28 @@ body.running-in-iframe .theme-doc-breadcrumbs {
     /* Darker blue background on hover */
     cursor: pointer;
     /* Changes cursor to pointer to indicate it's clickable */
+}
+
+.docs-section-link {
+    border-radius: 30px;
+    color: var(--ifm-color-primary);
+}
+
+.docs-section-link:hover {
+    text-decoration: underline;
+    background-color: rgb(233, 238, 237);
+}
+
+.navbar__link--active {
+    color: var(--ifm-color-primary-darker);
+    background-color: rgb(233, 238, 237);
+}
+
+.navbar__link--active:hover {
+    background-color: rgb(211, 214, 213);
+}
+
+.navbar__items .navbar__link {
+    margin-left: 2px;
+    margin-right: 2px;
 }

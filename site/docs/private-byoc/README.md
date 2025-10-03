@@ -1,3 +1,7 @@
+---
+sidebar_position: 0
+pagination_next: private-byoc/byoc-deployments/byoc-deployments
+---
 
 # Private and BYOC Deployments
 

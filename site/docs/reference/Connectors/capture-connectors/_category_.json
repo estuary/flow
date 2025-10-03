@@ -1,4 +1,5 @@
 {
-    "label": "Capture connectors",
-    "position": 1
+    "label": "Capture Connectors",
+    "position": 2,
+    "collapsed": false
 }

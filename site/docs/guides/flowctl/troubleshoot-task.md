@@ -58,4 +58,4 @@ Flow offers several log levels. From least to most detailed, these are:
     ```
    2. Finish the workflow as described, re-publishing the task.
 
-[Learn more about working with logs](../../reference/working-logs-stats.md)
+[Learn more about working with logs](/reference/working-logs-stats)

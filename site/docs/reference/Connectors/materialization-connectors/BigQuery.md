@@ -102,7 +102,7 @@ materializations:
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read
-about how to configure this [here](../../materialization-sync-schedule.md).
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Storage Read API
 
@@ -117,7 +117,7 @@ will be used to read query results.
 
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](/concepts/materialization/#delta-updates).
 The default is to use standard updates.
 
 Enabling delta updates will prevent Flow from querying for documents in your BigQuery table, which can reduce latency and costs for large datasets.
