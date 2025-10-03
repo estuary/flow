@@ -9,7 +9,7 @@ Estuary provides a number of security features to protect your data. This docume
 You can also find guides on setting up specific features, such as:
 
 * [Allowlisting Estuary's IP addresses](/reference/allow-ip-addresses)
-* Authentication methods for connectors:
+* Authentication methods and secure connections for connectors:
    * [IAM authentication](/guides/iam-auth/aws)
    * [PrivateLink](/private-byoc/privatelink)
    * [SSH tunneling](/guides/connect-network/#configure-connections-with-ssh-tunneling)

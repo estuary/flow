@@ -4,8 +4,8 @@ sidebar_position: 2
 
 # Compliance
 
-Estuary is compliant with many data regulations and industry standards and undergoes regular audits to maintain compliance.
-This document explores the regulatory landscape that Estuary explicitly complies with.
+Estuary is compliant with many data regulations and industry standards and undergoes regular audits to track how we're doing.
+This document explores a few of the major standards in the regulatory landscape.
 Compliance reports are available on request.
 
 ### SOC
@@ -13,7 +13,9 @@ Compliance reports are available on request.
 System and Organization Controls (SOC) standards define proper data security, incident response, and access controls.
 SOC audits are performed by independent organizations to assess a company's security practices.
 
-Estuary is SOC 2 Type II certified. Different SOC audits focus on different areas of security, and tend to be more or less relevant for specific types of companies and their audience.
+Estuary is **SOC 2 Type II** certified.
+
+Different SOC audits focus on different areas of security, and tend to be more or less relevant for specific types of companies and their audience.
 Technology service companies like Estuary generally find SOC 2 to be most relevant for their audience and service.
 The **Type** of report relates to duration. Type I tends to have limited scope while Type II audits a company's compliance over an extended period of time.
 
