@@ -7,7 +7,21 @@ It is available for use in the Flow web application. For local development or op
 
 ## Prerequisites
 
-* An active Airtable account
+* You must have an an active Airtable account.
+
+### Setup
+
+1. Log into your Airtable account.
+2. In navigation bar, click on "Builder Hub".
+3. In the "Developers" section, click on "Personal access tokens".
+4. Click on "Create token".
+5. Give your token a name and add the following scopes:
+   - `data.records:read`
+   - `data.recordComments:read`
+   - `schema.bases:read`
+6. Under the "Access" section, choose the bases you want to capture data from.
+7. Click on "Create token".
+8. Copy the token for use in the connector configuration.
 
 ## Configuration
 
