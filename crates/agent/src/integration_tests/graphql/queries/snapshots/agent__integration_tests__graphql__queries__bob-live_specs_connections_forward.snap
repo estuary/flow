@@ -10,13 +10,7 @@ expression: bob_result
         "node": {
           "catalogName": "aliceCo/shared/capture",
           "liveSpec": {
-            "readsFrom": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false,
-                "hasPreviousPage": false
-              }
-            },
+            "readsFrom": null,
             "writesTo": {
               "edges": [
                 {
@@ -56,13 +50,7 @@ expression: bob_result
                 "hasPreviousPage": true
               }
             },
-            "writesTo": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false,
-                "hasPreviousPage": false
-              }
-            }
+            "writesTo": null
           },
           "userCapability": "read"
         }
