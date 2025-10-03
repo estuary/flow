@@ -1,4 +1,3 @@
-
 # Airtable
 
 This connector captures data from Airtable into Flow collections.
@@ -7,7 +6,21 @@ It is available for use in the Flow web application. For local development or op
 
 ## Prerequisites
 
-* An active Airtable account
+You must have an an active Airtable account.
+
+### Setup
+
+1. Log into your Airtable account.
+2. In navigation bar, click on "Builder Hub".
+3. In the "Developers" section, click on "Personal access tokens".
+4. Click on "Create token".
+5. Give your token a name and add the following scopes:
+   - `data.records:read`
+   - `data.recordComments:read`
+   - `schema.bases:read`
+6. Under the "Access" section, choose the bases you want to capture data from.
+7. Click on "Create token".
+8. Copy the token for use in the connector configuration.
 
 ## Configuration
 
@@ -20,17 +33,17 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 The following properties reflect the API Key authentication method.
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| `/api_key` | API Key | API Key | string | Required |
-| `/access_token` | Personal Access Token | The Personal Access Token for the Airtable account. | string | Required |
+| Property        | Title                 | Description                                         | Type   | Required/Default |
+| --------------- | --------------------- | --------------------------------------------------- | ------ | ---------------- |
+| `/api_key`      | API Key               | API Key                                             | string | Required         |
+| `/access_token` | Personal Access Token | The Personal Access Token for the Airtable account. | string | Required         |
 
 #### Bindings
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/stream`** | Stream | Resource of your Airtable project from which collections are captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| Property        | Title     | Description                                                            | Type   | Required/Default |
+| --------------- | --------- | ---------------------------------------------------------------------- | ------ | ---------------- |
+| **`/stream`**   | Stream    | Resource of your Airtable project from which collections are captured. | string | Required         |
+| **`/syncMode`** | Sync Mode | Connection method.                                                     | string | Required         |
 
 ### Sample
 
