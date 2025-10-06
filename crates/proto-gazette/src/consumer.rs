@@ -9,7 +9,6 @@
 /// recovery log, hot standbys, etc. ShardSpecs may be further extended with
 /// domain-specific labels & values to further define application behavior.
 /// ShardSpec is-a allocator.ItemValue.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShardSpec {
     /// ID of the shard.
@@ -28,7 +27,7 @@ pub struct ShardSpec {
     /// determine the minimum fragments of log which must be read to fully recover
     /// local store state. The complete hint key written by the shard primary is:
     ///
-    ///    "{hint_prefix}/{shard_id}.primary"
+    /// "{hint_prefix}/{shard_id}.primary"
     ///
     /// The primary will regularly produce updated hints into this key, and
     /// players of the log will similarly utilize hints from this key.
@@ -38,12 +37,12 @@ pub struct ShardSpec {
     /// Backups of verified recovery log FSMHints, retained as a disaster-recovery
     /// mechanism. On completing playback, a player will write recovered hints to:
     ///
-    ///    "{hints_prefix}/{shard_id}.backup.0".
+    /// "{hints_prefix}/{shard_id}.backup.0".
     ///
     /// It also move hints previously stored under
     /// "{hints_prefix/{shard_id}.backup.0" to
     /// "{hints_prefix/{shard_id}.backup.1", and so on, keeping at most
-    /// |hint_backups| distinct sets of FSMHints.
+    /// \|hint_backups| distinct sets of FSMHints.
     ///
     /// In the case of disaster or data-loss, these copied hints can be an
     /// important fallback for recovering a consistent albeit older version of the
@@ -149,8 +148,7 @@ pub mod shard_spec {
     /// stream. For example, a shard might ingest and index "viewed product"
     /// events, read a comparably low-volume "purchase" event stream, and on each
     /// purchase publish the bundle of its corresponding prior product views.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Source {
         /// Journal which this shard is consuming.
         #[prost(string, tag = "1")]
@@ -166,8 +164,7 @@ pub mod shard_spec {
 }
 /// ConsumerSpec describes a Consumer process instance and its configuration.
 /// It serves as a allocator MemberValue.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConsumerSpec {
     /// ProcessSpec of the consumer.
     #[prost(message, optional, tag = "1")]
@@ -182,8 +179,7 @@ pub struct ConsumerSpec {
 /// replica is BACKFILL and the other STANDBY, then the status is PRIMARY. If one
 /// of the replicas transitioned to FAILED, than the status is FAILED. This
 /// reduction behavior is used to summarize status across all replicas.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ReplicaStatus {
     #[prost(enumeration = "replica_status::Code", tag = "1")]
     pub code: i32,
@@ -227,11 +223,11 @@ pub mod replica_status {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Code::Idle => "IDLE",
-                Code::Backfill => "BACKFILL",
-                Code::Standby => "STANDBY",
-                Code::Primary => "PRIMARY",
-                Code::Failed => "FAILED",
+                Self::Idle => "IDLE",
+                Self::Backfill => "BACKFILL",
+                Self::Standby => "STANDBY",
+                Self::Primary => "PRIMARY",
+                Self::Failed => "FAILED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -249,7 +245,6 @@ pub mod replica_status {
 }
 /// Checkpoint is processing metadata of a consumer shard which allows for its
 /// recovery on fault.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Checkpoint {
     /// Sources is metadata of journals consumed by the shard.
@@ -270,7 +265,6 @@ pub struct Checkpoint {
 /// Nested message and enum types in `Checkpoint`.
 pub mod checkpoint {
     /// Source is metadata of a consumed source journal.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Source {
         /// Offset of the journal which has been read-through.
@@ -283,8 +277,7 @@ pub mod checkpoint {
     pub mod source {
         /// States of journal producers. Producer keys are 6-byte,
         /// RFC 4122 v1 node identifiers (see message.ProducerID).
-        #[allow(clippy::derive_partial_eq_without_eq)]
-        #[derive(Clone, PartialEq, ::prost::Message)]
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct ProducerEntry {
             #[prost(bytes = "vec", tag = "1")]
             pub id: ::prost::alloc::vec::Vec<u8>,
@@ -294,8 +287,7 @@ pub mod checkpoint {
     }
     /// ProducerState is metadata of a producer as-of a read-through journal
     /// offset.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct ProducerState {
         /// LastAck is the last acknowledged Clock of this producer.
         #[prost(fixed64, tag = "1")]
@@ -307,7 +299,6 @@ pub mod checkpoint {
         pub begin: i64,
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListRequest {
     /// Selector optionally refines the set of shards which will be enumerated.
@@ -321,7 +312,6 @@ pub struct ListRequest {
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListResponse {
     /// Status of the List RPC.
@@ -339,7 +329,6 @@ pub struct ListResponse {
 /// Nested message and enum types in `ListResponse`.
 pub mod list_response {
     /// Shards of the response.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Shard {
         #[prost(message, optional, tag = "1")]
@@ -358,7 +347,6 @@ pub mod list_response {
         pub create_revision: i64,
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
     #[prost(message, repeated, tag = "1")]
@@ -371,7 +359,6 @@ pub struct ApplyRequest {
 pub mod apply_request {
     /// Change defines an insertion, update, or deletion to be applied to the set
     /// of ShardSpecs. Exactly one of |upsert| or |delete| must be set.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Change {
         /// Expected ModRevision of the current ShardSpec. If the shard is being
@@ -393,7 +380,6 @@ pub mod apply_request {
         pub primary_hints: ::core::option::Option<super::super::recoverylog::FsmHints>,
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyResponse {
     /// Status of the Apply RPC.
@@ -406,7 +392,6 @@ pub struct ApplyResponse {
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatRequest {
     /// Header may be attached by a proxying consumer peer.
@@ -424,7 +409,6 @@ pub struct StatRequest {
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatResponse {
     /// Status of the Stat RPC.
@@ -454,8 +438,7 @@ pub struct StatResponse {
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetHintsRequest {
     /// Shard to fetch hints for.
     #[prost(string, tag = "1")]
@@ -464,7 +447,6 @@ pub struct GetHintsRequest {
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetHintsResponse {
     /// Status of the Hints RPC.
@@ -487,7 +469,6 @@ pub struct GetHintsResponse {
 }
 /// Nested message and enum types in `GetHintsResponse`.
 pub mod get_hints_response {
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ResponseHints {
         /// If the hints value does not exist Hints will be nil.
@@ -495,8 +476,7 @@ pub mod get_hints_response {
         pub hints: ::core::option::Option<super::super::recoverylog::FsmHints>,
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UnassignRequest {
     /// Shards to unassign.
     #[prost(string, repeated, tag = "1")]
@@ -509,8 +489,7 @@ pub struct UnassignRequest {
     #[prost(bool, tag = "3")]
     pub dry_run: bool,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UnassignResponse {
     /// Status of the Unassign RPC.
     #[prost(enumeration = "Status", tag = "1")]
@@ -551,12 +530,12 @@ impl Status {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Status::Ok => "OK",
-            Status::ShardNotFound => "SHARD_NOT_FOUND",
-            Status::NoShardPrimary => "NO_SHARD_PRIMARY",
-            Status::NotShardPrimary => "NOT_SHARD_PRIMARY",
-            Status::EtcdTransactionFailed => "ETCD_TRANSACTION_FAILED",
-            Status::ShardStopped => "SHARD_STOPPED",
+            Self::Ok => "OK",
+            Self::ShardNotFound => "SHARD_NOT_FOUND",
+            Self::NoShardPrimary => "NO_SHARD_PRIMARY",
+            Self::NotShardPrimary => "NOT_SHARD_PRIMARY",
+            Self::EtcdTransactionFailed => "ETCD_TRANSACTION_FAILED",
+            Self::ShardStopped => "SHARD_STOPPED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.

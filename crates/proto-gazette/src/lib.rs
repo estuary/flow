@@ -61,15 +61,6 @@ pub struct Claims {
     pub sub: String,
 }
 
-impl std::hash::Hash for broker::process_spec::Id {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(self.suffix.as_bytes());
-        state.write(self.zone.as_bytes());
-    }
-}
-
-impl Eq for broker::process_spec::Id {}
-
 impl broker::LabelSelector {
     pub fn include(&self) -> &broker::LabelSet {
         if let Some(set) = &self.include {

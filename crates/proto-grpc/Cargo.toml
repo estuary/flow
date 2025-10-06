@@ -13,15 +13,16 @@ proto-gazette = { path = "../proto-gazette" }
 proto-flow = { path = "../proto-flow", optional = true }
 
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 
 [build-dependencies]
 proto-build = { path = "../proto-build", optional = true }
 
-tonic-build = { workspace = true, optional = true }
+tonic-prost-build = { workspace = true, optional = true }
 
 [features]
 default = []
-generate = ["proto-build", "tonic-build"]
+generate = ["proto-build", "tonic-prost-build"]
 
 broker_client = []
 broker_server = []
