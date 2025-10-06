@@ -16,7 +16,7 @@ concurrency:
 jobs:
   test:
     name: Test flowctl on macos
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
