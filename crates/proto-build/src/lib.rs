@@ -66,8 +66,8 @@ impl Boilerplate {
         }
     }
 
-    pub fn proto_include(&self) -> Vec<&Path> {
-        vec![&self.repo_root, &self.gazette_root, &self.protobuf_root]
+    pub fn proto_include(&self) -> Vec<PathBuf> {
+        vec![self.repo_root.clone(), self.gazette_root.clone(), self.protobuf_root.clone()]
     }
 
     pub fn resolve_gazette_targets(&self) -> Vec<PathBuf> {
