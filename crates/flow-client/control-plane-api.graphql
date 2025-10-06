@@ -622,7 +622,7 @@ type QueryRoot {
 	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
 	"""
-	alerts(by: AlertsBy!, before: String, last: Int): AlertConnection!
+	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
 	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixConnection!
 }
 
