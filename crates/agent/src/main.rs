@@ -150,23 +150,26 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     // The HOSTNAME variable will be set to the name of the pod in k8s
     let application_name = std::env::var("HOSTNAME").unwrap_or_else(|_| "agent".to_string());
-    let mut pg_options = args
+    let pg_options = args
         .database_url
         .as_str()
         .parse::<sqlx::postgres::PgConnectOptions>()
         .context("parsing database URL")?
-        .application_name(&application_name);
-    pg_options.log_slow_statements(tracing::log::LevelFilter::Warn, std::time::Duration::from_secs(10));
+        .application_name(&application_name)
+        .log_slow_statements(
+            tracing::log::LevelFilter::Warn,
+            std::time::Duration::from_secs(10),
+        );
 
     // If a database CA was provided, require that we use TLS with full cert verification.
-    if let Some(ca) = &args.database_ca {
-        pg_options = pg_options
+    let pg_options = if let Some(ca) = &args.database_ca {
+        pg_options
             .ssl_mode(sqlx::postgres::PgSslMode::VerifyFull)
-            .ssl_root_cert(ca);
+            .ssl_root_cert(ca)
     } else {
         // Otherwise, prefer TLS but don't require it.
-        pg_options = pg_options.ssl_mode(sqlx::postgres::PgSslMode::Prefer);
-    }
+        pg_options.ssl_mode(sqlx::postgres::PgSslMode::Prefer)
+    };
 
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_secs(5))
@@ -224,7 +227,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
-    let id_gen_shard = rand::thread_rng().gen_range(1u16..1024u16);
+    let id_gen_shard = rand::rng().random_range(1u16..1024u16);
     let id_gen = models::IdGenerator::new(id_gen_shard);
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let publisher = Publisher::new(

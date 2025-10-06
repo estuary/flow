@@ -84,7 +84,7 @@ impl sqlx::Type<sqlx::postgres::Postgres> for Interval {
 }
 
 impl<'q> sqlx::Encode<'q, sqlx::postgres::Postgres> for Interval {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         self.0.encode_by_ref(buf)
     }
 }

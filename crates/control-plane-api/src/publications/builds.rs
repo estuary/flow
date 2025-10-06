@@ -98,7 +98,7 @@ async fn build_catalog<Conn: Connectors>(
     // Generate a random initialization vector for the validation.
     // Currently, this is used to derive unique but deterministic redact salts.
     let mut init_vector: [u8; 16] = Default::default();
-    rand::thread_rng().fill_bytes(&mut init_vector);
+    rand::rng().fill_bytes(&mut init_vector);
 
     let built = validation::validate(
         pub_id,

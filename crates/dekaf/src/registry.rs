@@ -139,7 +139,7 @@ async fn get_schema_by_id(
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap();
 
-        let mut rows: Vec<Row> = client
+        let response = client
             .from("registered_avro_schemas")
             .eq("registry_id", format!("{id}"))
             .update(serde_json::json!({"updated_at": now}).to_string())
@@ -147,9 +147,10 @@ async fn get_schema_by_id(
             .execute()
             .await
             .and_then(|r| r.error_for_status())
-            .context("querying for an already-registered schema")?
-            .json()
-            .await?;
+            .context("querying for an already-registered schema")?;
+
+        let bytes = response.bytes().await?;
+        let mut rows: Vec<Row> = serde_json::from_slice(&bytes)?;
 
         let Some(Row { avro_schema }) = rows.pop() else {
             anyhow::bail!("could not find schema with registry id {id}");

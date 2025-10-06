@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse};
+use base64::Engine;
 use std::sync::{Arc, Mutex};
 use tables::UserGrant;
 
@@ -31,7 +32,7 @@ type ControlClaims = models::authorizations::ControlClaims;
 /// TODO(johnny): This should be a bare alias for proto_gazette::Claims.
 /// We can do this once data-plane-gateway is updated to be a "dumb" proxy
 /// which requires / forwards authorizations but doesn't inspect them.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct DataClaims {
     #[serde(flatten)]
     inner: proto_gazette::Claims,
@@ -374,7 +375,9 @@ async fn exchange_refresh_token(app: &App, refresh_token: &str) -> anyhow::Resul
         access_token: String,
     }
 
-    let bearer = base64::decode(refresh_token).context("failed to base64-decode bearer token")?;
+    let bearer = base64::engine::general_purpose::STANDARD
+        .decode(refresh_token)
+        .context("failed to base64-decode bearer token")?;
     let bearer: RefreshToken =
         serde_json::from_slice(&bearer).context("failed to decode refresh token")?;
 
