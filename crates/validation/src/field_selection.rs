@@ -63,6 +63,8 @@ pub enum Reject {
     ExcludedParent,
     #[error("field's location is already materialized by another selected field")]
     DuplicateLocation,
+    #[error("connector cannot support this field without a back-fill ({reason})")]
+    ConnectorIncompatible { reason: String },
     #[error("field is represented by the endpoint as {folded_field:?}, which is ambiguous with selected field {other_field:?}")]
     DuplicateFold {
         folded_field: String,
@@ -72,8 +74,6 @@ pub enum Reject {
     ConnectorOmits,
     #[error("field does not exist within the source collection")]
     CollectionOmits,
-    #[error("connector cannot support this field without a back-fill ({reason})")]
-    ConnectorIncompatible { reason: String },
     #[error("field is forbidden by the connector ({reason})")]
     ConnectorForbids { reason: String },
     #[error("field is excluded by the user's field selection")]
@@ -922,6 +922,36 @@ validated:
   foo_id: { type: FIELD_OPTIONAL }
   foo/id: { type: FIELD_OPTIONAL, folded_field: "FOO_ID" }
 live: null
+"##,
+            "{}",
+        );
+        insta::assert_debug_snapshot!(snap);
+    }
+
+    #[test]
+    fn test_incompatible_and_ambiguous() {
+        let snap = run_test(
+            r##"
+collection:
+  key: [/id]
+  schema:
+    type: object
+    properties:
+      id: {type: integer}
+      foo: {type: string}
+      Foo: {type: boolean}
+model:
+  recommended: 1
+case_insensitive: true
+validated:
+  id: { type: FIELD_OPTIONAL }
+  foo: { type: FIELD_OPTIONAL }
+  # Expect we reject Foo because of ambiguity, not incompatibility.
+  Foo: { type: INCOMPATIBLE, reason: "wrong type" }
+live:
+  keys: [id]
+  values:
+    - foo
 "##,
             "{}",
         );
