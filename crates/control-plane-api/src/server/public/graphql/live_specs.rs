@@ -15,7 +15,7 @@ use crate::server::{
 pub struct LiveSpec {
     pub live_spec_id: Id,
     pub catalog_name: String,
-    pub catalog_type: models::CatalogType,
+    pub catalog_type: CatalogType,
     pub model: async_graphql::Json<async_graphql::Value>,
     pub last_build_id: Id,
     pub last_pub_id: Id,
