@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            collection_name,\n            schema as \"schema!: Json<Box<RawValue>>\",\n            md5 as \"md5!: String\"\n            from inferred_schemas\n            where collection_name = ANY($1::text[])\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "collection_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "schema!: Json<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 2,
+        "name": "md5!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4f16146fa90ec45f9697fac2c4ff2073d7c34d406efb0e1d6d0ad0d48a3e8ffb"
+}

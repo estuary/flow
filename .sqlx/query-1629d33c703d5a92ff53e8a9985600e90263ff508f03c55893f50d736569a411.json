@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM internal.tasks WHERE task_id = $1;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1629d33c703d5a92ff53e8a9985600e90263ff508f03c55893f50d736569a411"
+}

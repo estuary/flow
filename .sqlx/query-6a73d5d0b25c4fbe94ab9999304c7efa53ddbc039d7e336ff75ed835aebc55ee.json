@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes\n        WHERE data_plane_name = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "control_id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "data_plane_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "data_plane_fqdn",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "hmac_keys",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "encrypted_hmac_keys: models::RawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 5,
+        "name": "broker_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "reactor_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "ops_logs_name: models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "ops_stats_name: models::Collection",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6a73d5d0b25c4fbe94ab9999304c7efa53ddbc039d7e336ff75ed835aebc55ee"
+}

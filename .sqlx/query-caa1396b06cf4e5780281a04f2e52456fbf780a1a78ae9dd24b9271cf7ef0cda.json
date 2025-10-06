@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            ds.draft_id as \"draft_id!: Id\",\n            ds.catalog_name as \"catalog_name!: String\",\n            coalesce(ds.spec_type, ls.spec_type) as \"spec_type?: CatalogType\",\n            ds.spec as \"spec?: TextJson<Box<RawValue>>\",\n            ds.expect_pub_id as \"expect_pub_id?: Id\"\n        from draft_specs ds\n        left join live_specs ls on ds.catalog_name = ls.catalog_name\n        where ds.draft_id = $1;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "draft_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec_type?: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "spec?: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 4,
+        "name": "expect_pub_id?: Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "caa1396b06cf4e5780281a04f2e52456fbf780a1a78ae9dd24b9271cf7ef0cda"
+}

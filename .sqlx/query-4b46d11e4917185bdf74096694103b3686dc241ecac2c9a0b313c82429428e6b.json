@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE data_planes SET\n                status = $3,\n                updated_at = NOW()\n            WHERE id = $1 AND controller_task_id = $2\n                AND status IS DISTINCT FROM $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Macaddr8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4b46d11e4917185bdf74096694103b3686dc241ecac2c9a0b313c82429428e6b"
+}

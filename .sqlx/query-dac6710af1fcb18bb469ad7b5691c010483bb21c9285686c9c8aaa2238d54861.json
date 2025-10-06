@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from live_spec_flows where target_id = $1 and flow_type = 'collection'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dac6710af1fcb18bb469ad7b5691c010483bb21c9285686c9c8aaa2238d54861"
+}

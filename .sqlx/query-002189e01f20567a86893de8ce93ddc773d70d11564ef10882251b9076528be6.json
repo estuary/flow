@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into publications (user_id, draft_id, detail, data_plane_name)\n            values ($1, $2, $3, $4) returning id as \"id: Id\";",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "002189e01f20567a86893de8ce93ddc773d70d11564ef10882251b9076528be6"
+}

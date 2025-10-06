@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                select users.email as email\n                from user_grants\n                join auth.users as users on user_grants.user_id = users.id\n                where users.email is not null and user_grants.object_role = $1\n                and user_grants.capability = 'admin'\n                order by users.created_at asc\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3284a4b8b8368d36bb286e8aaad6a12642ebfe7815281a62705bd3d7a32e2eb0"
+}

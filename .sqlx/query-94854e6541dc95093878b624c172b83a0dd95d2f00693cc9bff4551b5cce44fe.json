@@ -1,0 +1,143 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            ls.id as \"live_spec_id: Id\",\n            ls.catalog_name as \"catalog_name!: String\",\n            ls.last_pub_id as \"last_pub_id: Id\",\n            ls.last_build_id as \"last_build_id: Id\",\n            ls.spec as \"live_spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.spec_type as \"spec_type: CatalogType\",\n            ls.dependency_hash as \"live_dependency_hash\",\n            ls.created_at,\n            ls.updated_at as \"live_spec_updated_at\",\n            cj.controller_version as \"controller_version: i32\",\n            cj.updated_at as \"controller_updated_at\",\n            cj.logs_token,\n            cj.status as \"status: TextJson<Box<RawValue>>\",\n            cj.failures,\n            cj.error,\n            ls.data_plane_id as \"data_plane_id: Id\",\n            dp.data_plane_name as \"data_plane_name?: String\"\n        from internal.tasks t\n        join live_specs ls on t.task_id = ls.controller_task_id\n        join controller_jobs cj on ls.id = cj.live_spec_id\n        left outer join data_planes dp on ls.data_plane_id = dp.id\n        where t.task_id = $1::flowid;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "live_spec_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_pub_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_build_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "live_spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 5,
+        "name": "built_spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 6,
+        "name": "spec_type: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "live_dependency_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "live_spec_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "controller_version: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "controller_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "logs_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 13,
+        "name": "status: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 14,
+        "name": "failures",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "data_plane_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 17,
+        "name": "data_plane_name?: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "94854e6541dc95093878b624c172b83a0dd95d2f00693cc9bff4551b5cce44fe"
+}

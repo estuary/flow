@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            alert_type as \"alert_type: AlertType\",\n            catalog_name,\n            fired_at,\n            resolved_at,\n            arguments as \"arguments: crate::TextJson<async_graphql::Value>\"\n        from alert_history\n        where catalog_name = any($1::text[])\n        and resolved_at is null\n        order by fired_at desc\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "alert_type: AlertType",
+        "type_info": {
+          "Custom": {
+            "name": "alert_type",
+            "kind": {
+              "Enum": [
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method",
+                "data_movement_stalled",
+                "data_not_processed_in_interval",
+                "auto_discover_failed",
+                "shard_failed"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "fired_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "resolved_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "arguments: crate::TextJson<async_graphql::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "57ebc2036cb193685ebc3a1767f9bdc6cfddc10aaa4671fcfe3ffcf181c87665"
+}

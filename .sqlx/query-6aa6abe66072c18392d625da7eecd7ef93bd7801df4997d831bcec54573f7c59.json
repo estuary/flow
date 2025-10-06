@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select\n                ls.catalog_name,\n                ls.md5\n            from live_specs ls\n            where ls.catalog_name = any ($1::text[]);\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "md5",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "6aa6abe66072c18392d625da7eecd7ef93bd7801df4997d831bcec54573f7c59"
+}

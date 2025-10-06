@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE live_specs SET data_plane_id = $2 WHERE id=ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8Array",
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7846f0f804b0446b8f8ff6e545fd68d49ee8792dca23e2098c166976c02ed067"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE data_planes SET\n                    config = $3,\n                    pulumi_key = $4\n                WHERE id = $1 AND controller_task_id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Macaddr8",
+        "Json",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "364e31f0d133072d91606e49dad5d98e2884d6c2133e2da45ad9342fc4801a29"
+}

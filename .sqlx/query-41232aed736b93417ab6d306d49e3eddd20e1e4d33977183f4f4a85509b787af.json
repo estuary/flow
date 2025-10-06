@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            prev_image,\n            next_image,\n            step\n        FROM data_plane_releases\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "prev_image",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "next_image",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "step",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "41232aed736b93417ab6d306d49e3eddd20e1e4d33977183f4f4a85509b787af"
+}

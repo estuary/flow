@@ -1,0 +1,142 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as \"id!: Id\",\n            coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_pub_id!: Id\",\n            coalesce(ls.last_build_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_build_id!: Id\",\n            coalesce(ls.data_plane_id, '00:00:00:00:00:00:00:00'::flowid) as \"data_plane_id!: Id\",\n            names as \"catalog_name!: String\",\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            case when $3 then (\n                select max(capability) from internal.user_roles($1) r\n                where starts_with(names, r.role_prefix)\n            ) else\n                null\n            end as \"user_capability: Capability\",\n            case when $4 then coalesce(\n                (select json_agg(row_to_json(role_grants))\n                from role_grants\n                where starts_with(names, subject_role)),\n                '[]'\n            ) else\n               '[]'\n            end as \"spec_capabilities!: Json<Vec<RoleGrant>>\",\n            ls.dependency_hash\n        from unnest($2::text[]) names\n        left outer join live_specs ls on ls.catalog_name = names\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_pub_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_build_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "data_plane_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "spec_type?: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 7,
+        "name": "built_spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "inferred_schema_md5",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "user_capability: Capability",
+        "type_info": {
+          "Custom": {
+            "name": "grant_capability",
+            "kind": {
+              "Enum": [
+                "x_00",
+                "x_01",
+                "x_02",
+                "x_03",
+                "x_04",
+                "x_05",
+                "x_06",
+                "x_07",
+                "x_08",
+                "x_09",
+                "read",
+                "x_11",
+                "x_12",
+                "x_13",
+                "x_14",
+                "x_15",
+                "x_16",
+                "x_17",
+                "x_18",
+                "x_19",
+                "write",
+                "x_21",
+                "x_22",
+                "x_23",
+                "x_24",
+                "x_25",
+                "x_26",
+                "x_27",
+                "x_28",
+                "x_29",
+                "admin"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "spec_capabilities!: Json<Vec<RoleGrant>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 11,
+        "name": "dependency_hash",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "2e35c94f15b8221e0a0e62de816deaddd72fb21f19abead8a8540e23722f7e20"
+}
