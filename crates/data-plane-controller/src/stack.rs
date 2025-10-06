@@ -169,7 +169,7 @@ pub struct AzurePrivateLink {
     pub resource_type: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     Etcd,
@@ -432,6 +432,14 @@ impl DataPlane {
             changed = deployment.step_rollout() || changed;
         }
 
+        // Collect roles that currently have active rollouts.
+        let mut roles_in_rollout: std::collections::HashSet<_> = self
+            .deployments
+            .iter()
+            .filter(|d| d.rollout.is_some())
+            .map(|d| d.role.clone())
+            .collect();
+
         // Find deployments which match a release, and start new a rollout.
         let mut added = Vec::new();
 
@@ -439,6 +447,14 @@ impl DataPlane {
             if last.rollout.is_some() {
                 continue; // Must complete current rollout before starting a next.
             }
+
+            // Skip if this role already has an active rollout.
+            if roles_in_rollout.contains(&last.role) {
+                continue;
+            }
+
+            roles_in_rollout.insert(last.role.clone());
+
             let Some(release) = releases.iter().find(|r| r.prev_image == last.oci_image) else {
                 continue;
             };
@@ -770,6 +786,20 @@ mod test {
                 step: 7,
             },
         ];
+
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
+    }
+
+    #[test]
+    fn simulate_multi_az_etcd_releases() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture_multiaz_etcd.json")).unwrap();
+
+        let releases = &[Release {
+            prev_image: "quay.io/coreos/etcd:v3.5.17".to_string(),
+            next_image: "quay.io/coreos/etcd:next".to_string(),
+            step: -1,
+        }];
 
         insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
     }
