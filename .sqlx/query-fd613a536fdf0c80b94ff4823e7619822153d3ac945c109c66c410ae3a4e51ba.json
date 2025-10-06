@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                select\n                    alert_type as \"alert_type!: AlertType\",\n                    catalog_name as \"catalog_name!: String\",\n                    fired_at,\n                    resolved_at,\n                    arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n                from alert_history a\n                where starts_with(a.catalog_name, $1)\n                    and (\n                        $2::timestamptz is null\n                        or a.fired_at < $2::timestamptz\n                        or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)\n                        or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)\n                    )\n                    and (\n                        $5::boolean is null\n                        or ($5::boolean = true and a.resolved_at is null)\n                        or ($5::boolean = false and a.resolved_at is not null)\n                    )\n                order by a.fired_at desc, a.catalog_name desc\n                limit $6\n                ",
+  "query": "\n        select\n            alert_type as \"alert_type!: AlertType\",\n            catalog_name as \"catalog_name!: String\",\n            fired_at,\n            resolved_at,\n            arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n        from alert_history a\n        where starts_with(a.catalog_name, $1)\n            and (\n                $2::boolean is null\n                or ($2::boolean = true and a.resolved_at is null)\n                or ($2::boolean = false and a.resolved_at is not null)\n            )\n            and (\n                a.fired_at > $3::timestamptz\n                or (a.fired_at = $3::timestamptz and a.alert_type > $4::alert_type)\n                or (a.fired_at = $3::timestamptz and a.alert_type = $4::alert_type and a.catalog_name::text > $5)\n            )\n        order by a.fired_at asc, a.alert_type asc, a.catalog_name asc\n        limit $6\n        ",
   "describe": {
     "columns": [
       {
@@ -48,6 +48,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Bool",
         "Timestamptz",
         {
           "Custom": {
@@ -67,7 +68,6 @@
           }
         },
         "Text",
-        "Bool",
         "Int8"
       ]
     },
@@ -79,5 +79,5 @@
       false
     ]
   },
-  "hash": "89e739d5b67c504bd6fcd6889d24f5e3c986d7a154b31e25b51468ea94646066"
+  "hash": "fd613a536fdf0c80b94ff4823e7619822153d3ac945c109c66c410ae3a4e51ba"
 }
