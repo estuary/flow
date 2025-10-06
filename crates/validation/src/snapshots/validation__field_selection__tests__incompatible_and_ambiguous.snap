@@ -1,0 +1,71 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap
+---
+Snap {
+    selects: [
+        (
+            "Foo",
+            DesiredDepth,
+        ),
+        (
+            "flow_published_at",
+            CoreMetadata,
+        ),
+        (
+            "foo",
+            CurrentValue,
+        ),
+        (
+            "foo",
+            DesiredDepth,
+        ),
+        (
+            "id",
+            DesiredDepth,
+        ),
+    ],
+    rejects: [
+        (
+            "Foo",
+            ConnectorIncompatible {
+                reason: "wrong type",
+            },
+        ),
+    ],
+    group_by: [],
+    document: None,
+    field_outcomes: {
+        "Foo": Right(
+            DuplicateFold {
+                folded_field: "Foo",
+                other_field: "foo",
+            },
+        ),
+        "_meta/flow_truncated": Right(
+            ConnectorOmits,
+        ),
+        "flow_document": Right(
+            ConnectorOmits,
+        ),
+        "flow_published_at": Right(
+            ConnectorOmits,
+        ),
+        "foo": Left(
+            CurrentValue,
+        ),
+        "id": Left(
+            DesiredDepth,
+        ),
+    },
+    selection: FieldSelection {
+        keys: [],
+        values: [
+            "foo",
+            "id",
+        ],
+        document: "",
+        field_config_json_map: {},
+    },
+    conflicts: [],
+}
