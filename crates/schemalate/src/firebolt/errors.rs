@@ -2,7 +2,7 @@ use serde::Serialize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Unknown type {r#type} in projection for field '{field}'")]
+    #[error("Unknown type {} in projection for field '{field}'", r#type)]
     UnknownType { r#type: String, field: String },
 }
 

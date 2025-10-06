@@ -450,7 +450,7 @@ impl TestHarness {
             user_id,
             email.as_str()
         )
-        .execute(&mut txn)
+        .execute(&mut *txn)
         .await
         .expect("failed to create user");
 
@@ -468,7 +468,7 @@ impl TestHarness {
         // added by a trigger whenever we create a new tenant. Removing it here
         // ensures that things still work correctly without it.
         sqlx::query!(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
-            .execute(&mut txn)
+            .execute(&mut *txn)
             .await
             .expect("failed to remove estuary_support/ role");
 
@@ -1190,7 +1190,7 @@ impl TestHarness {
             user_id,
             detail.as_str()
         )
-        .fetch_one(&mut txn)
+        .fetch_one(&mut *txn)
         .await
         .expect("failed to insert draft")
         .id;
@@ -1210,7 +1210,7 @@ impl TestHarness {
                 row.model(),
                 control_plane_api::CatalogType::Capture,
                 row.expect_pub_id.map(Into::into),
-                &mut txn,
+                &mut *txn,
             )
             .await
             .unwrap();
@@ -1222,7 +1222,7 @@ impl TestHarness {
                 row.model(),
                 control_plane_api::CatalogType::Collection,
                 row.expect_pub_id.map(Into::into),
-                &mut txn,
+                &mut *txn,
             )
             .await
             .unwrap();
@@ -1234,7 +1234,7 @@ impl TestHarness {
                 row.model(),
                 control_plane_api::CatalogType::Materialization,
                 row.expect_pub_id.map(Into::into),
-                &mut txn,
+                &mut *txn,
             )
             .await
             .unwrap();
@@ -1246,7 +1246,7 @@ impl TestHarness {
                 row.model(),
                 control_plane_api::CatalogType::Test,
                 row.expect_pub_id.map(Into::into),
-                &mut txn,
+                &mut *txn,
             )
             .await
             .unwrap();

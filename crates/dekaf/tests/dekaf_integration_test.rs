@@ -62,11 +62,7 @@ async fn test_specs(
 ) -> anyhow::Result<(String, String)> {
     let mut temp_flow = tempfile::NamedTempFile::new()?;
 
-    let suffix: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(4)
-        .map(char::from)
-        .collect();
+    let suffix: String = format!("{:04x}", rand::rng().random::<u16>());
 
     let capture_name = format!("{}/{suffix}/source-http-ingest", name);
     let materialization_name = format!("{}/{suffix}/test-dekaf", name);

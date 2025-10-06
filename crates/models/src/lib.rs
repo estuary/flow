@@ -333,8 +333,9 @@ pub mod serde_opt_bytes {
     where
         S: Serializer,
     {
+        use base64::Engine;
         match bytes {
-            Some(b) => serializer.serialize_str(&base64::encode(b)),
+            Some(b) => serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(b)),
             None => serializer.serialize_none(),
         }
     }
@@ -343,9 +344,10 @@ pub mod serde_opt_bytes {
     where
         D: Deserializer<'de>,
     {
+        use base64::Engine;
         let opt_str: Option<String> = Option::deserialize(deserializer)?;
         match opt_str {
-            Some(s) => base64::decode(s)
+            Some(s) => base64::engine::general_purpose::STANDARD.decode(s)
                 .map(|b| Some(b.into()))
                 .map_err(serde::de::Error::custom),
             None => Ok(None),

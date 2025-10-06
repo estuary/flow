@@ -11,7 +11,7 @@ pub async fn create_demo_role_grant(
         &tenant as &str,
         detail.clone() as Option<String>,
     )
-    .execute(&mut *txn)
+    .execute(&mut **txn)
     .await?;
 
     Ok(())

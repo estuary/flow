@@ -33,12 +33,14 @@ impl<T: TypedId> GraphqlId<T> {
     }
 
     pub fn encode(&self) -> String {
+        use base64::Engine;
         let ser = serde_json::to_string(&self.0).expect("id type must serialize without error");
-        base64::encode(&ser)
+        base64::engine::general_purpose::STANDARD.encode(&ser)
     }
 
     pub fn decode(encoded: &str) -> anyhow::Result<Self> {
-        let decoded = base64::decode(encoded)?;
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD.decode(encoded)?;
         let deserialized = serde_json::from_slice(&decoded)?;
         Ok(GraphqlId(deserialized))
     }

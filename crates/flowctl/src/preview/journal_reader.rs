@@ -1,7 +1,7 @@
 use anyhow::Context;
 use futures::{channel::mpsc, SinkExt, StreamExt, TryFutureExt};
 use proto_flow::flow;
-use proto_gazette::{broker, consumer};
+use proto_gazette::broker;
 
 /// Reader is a runtime::harness::Reader which performs active reads of live
 /// collection journals.
@@ -75,7 +75,13 @@ impl Reader {
             // Map into a stream that yields lines from across all journals, as they're ready.
             let mut journals = futures::stream::select_all(journals.iter().map(
                 |(binding, source, journal, client)| {
-                    Self::read_journal_lines(*binding, client, journal, &resume, source).boxed()
+                    let initial_offset = resume
+                        .sources
+                        .get(journal.as_str())
+                        .map(|s| s.read_through)
+                        .unwrap_or_default();
+                    Self::read_journal_lines(*binding, client, journal, initial_offset, source)
+                        .boxed()
                 },
             ));
 
@@ -177,16 +183,12 @@ impl Reader {
         binding: u32,
         client: &gazette::journal::Client,
         journal: &'s String,
-        resume: &consumer::Checkpoint,
+        initial_offset: i64,
         source: &Source,
     ) -> impl futures::Stream<Item = gazette::Result<(u32, String, &'s String, i64)>> {
         use gazette::journal::ReadJsonLine;
 
-        let mut offset = resume
-            .sources
-            .get(journal)
-            .map(|s| s.read_through)
-            .unwrap_or_default();
+        let mut offset = initial_offset;
 
         let begin_mod_time = source
             .not_before

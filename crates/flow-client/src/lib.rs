@@ -1,4 +1,5 @@
 use anyhow::Context;
+use base64::Engine;
 
 pub mod client;
 pub use client::{
@@ -20,7 +21,8 @@ where
     let status = resp.status();
 
     if status.is_success() {
-        let body: models::RawValue = resp.json().await?;
+        let text = resp.text().await?;
+        let body: Box<models::RawValue> = serde_json::from_str(&text).context("parsing response as JSON")?;
         tracing::trace!(body = ?::ops::DebugJson(&body), status = %status, "got successful response");
         let t: T = serde_json::from_str(body.get()).context("deserializing response body")?;
         Ok(t)
@@ -49,7 +51,7 @@ pub fn parse_jwt_claims<T: serde::de::DeserializeOwned>(token: &str) -> anyhow::
         .split('.')
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("malformed token"))?;
-    let claims = base64::decode_config(claims, base64::URL_SAFE_NO_PAD)?;
+    let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(claims)?;
     anyhow::Result::Ok(serde_json::from_slice(&claims)?)
 }
 

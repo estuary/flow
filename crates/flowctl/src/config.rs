@@ -1,4 +1,5 @@
 use anyhow::Context;
+use base64::Engine;
 use std::path::PathBuf;
 
 use flow_client::{
@@ -160,7 +161,9 @@ impl Config {
         // If a refresh token is not defined, attempt to parse one from the environment.
         if config.user_refresh_token.is_none() {
             if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
-                let decoded = base64::decode(env_token).context("FLOW_AUTH_TOKEN is not base64")?;
+                let decoded = base64::engine::general_purpose::STANDARD
+                    .decode(env_token)
+                    .context("FLOW_AUTH_TOKEN is not base64")?;
                 let token: RefreshToken =
                     serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
 
