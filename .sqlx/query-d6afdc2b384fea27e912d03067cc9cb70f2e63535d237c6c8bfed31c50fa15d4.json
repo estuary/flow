@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            discovers.capture_name,\n            discovers.connector_tag_id as \"connector_tag_id: Id\",\n            connector_tags.job_status->>'type' = 'success' as \"connector_tag_job_success!\",\n            discovers.created_at,\n            discovers.data_plane_name,\n            discovers.draft_id as \"draft_id: Id\",\n            discovers.endpoint_config as \"endpoint_config: Json<Box<RawValue>>\",\n            discovers.id as \"id: Id\",\n            connectors.image_name,\n            connector_tags.image_tag,\n            discovers.logs_token,\n            connector_tags.protocol as \"protocol!\",\n            discovers.update_only,\n            discovers.updated_at,\n            drafts.user_id\n        from discovers\n        join drafts on discovers.draft_id = drafts.id\n        join connector_tags on discovers.connector_tag_id = connector_tags.id\n        join connectors on connectors.id = connector_tags.connector_id\n        where discovers.id = $1::flowid;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "capture_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "connector_tag_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "connector_tag_job_success!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "data_plane_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "draft_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 6,
+        "name": "endpoint_config: Json<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 7,
+        "name": "id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 8,
+        "name": "image_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "image_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "logs_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "protocol!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "update_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "user_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d6afdc2b384fea27e912d03067cc9cb70f2e63535d237c6c8bfed31c50fa15d4"
+}

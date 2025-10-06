@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                select\n                    date_start as \"date_start!\",\n                    date_end as \"date_end!\",\n                    billed_prefix as \"billed_prefix!\",\n                    invoice_type as \"invoice_type!: InvoiceType\",\n                    line_items as \"line_items!: sqlx::types::Json<Vec<LineItem>>\",\n                    subtotal::bigint as \"subtotal!\",\n                    extra as \"extra: sqlx::types::Json<Option<Extra>>\",\n                    customer.has_payment_method as has_payment_method,\n                    dataflow_hours.capture_hours::float as capture_hours,\n                    dataflow_hours.materialization_hours::float as materialization_hours,\n                    tenants.payment_provider as \"payment_provider!: PaymentProvider\"\n                from invoices_ext\n                left join tenants on tenants.tenant = billed_prefix\n                inner join lateral(\n                \tselect bool_or(\"invoice_settings/default_payment_method\" is not null) as has_payment_method\n                \tfrom stripe.customers\n                \twhere customers.metadata->>'estuary.dev/tenant_name' = billed_prefix\n                \tgroup by billed_prefix\n                ) as customer on true\n                inner join lateral(\n                \tselect\n                \t\tsum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,\n                    \tsum(catalog_stats.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours\n                    from catalog_stats\n                    join live_specs on live_specs.catalog_name = catalog_stats.catalog_name\n                    where\n                    \tcatalog_stats.catalog_name ^@ billed_prefix\n                    \tand grain = 'monthly'\n                    \tand tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats.ts\n                ) as dataflow_hours on true\n                where ((\n                    date_start >= date_trunc('day', $1::date)\n                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'\n                    and invoice_type = 'final'\n                ) or (\n                    invoice_type = 'manual'\n                ))\n                and billed_prefix = any($2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date_start!",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 1,
+        "name": "date_end!",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 2,
+        "name": "billed_prefix!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "invoice_type!: InvoiceType",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "line_items!: sqlx::types::Json<Vec<LineItem>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "subtotal!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "extra: sqlx::types::Json<Option<Extra>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "has_payment_method",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "capture_hours",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 9,
+        "name": "materialization_hours",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 10,
+        "name": "payment_provider!: PaymentProvider",
+        "type_info": {
+          "Custom": {
+            "name": "payment_provider_type",
+            "kind": {
+              "Enum": [
+                "stripe",
+                "external"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "fc45972e1f5c64fca697936bf1bdfd73b9275862329bc159638e4528aeed3be1"
+}

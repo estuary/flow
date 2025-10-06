@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        insert into data_planes (\n            data_plane_name,\n            data_plane_fqdn,\n            ops_logs_name,\n            ops_stats_name,\n            ops_l1_inferred_name,\n            ops_l1_stats_name,\n            ops_l1_events_name,\n            ops_l2_inferred_transform,\n            ops_l2_stats_transform,\n            ops_l2_events_transform,\n            broker_address,\n            reactor_address,\n            hmac_keys,\n            enable_l2,\n            pulumi_stack\n        ) values (\n            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15\n        )\n        on conflict (data_plane_name) do update set\n            broker_address = $11,\n            reactor_address = $12,\n            -- Don't replace non-empty hmac_keys with empty ones.\n            hmac_keys = case when array_length($13, 1) > 0 then $13\n                        else data_planes.hmac_keys end\n        returning logs_token\n        ;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "logs_token",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Text",
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e8d80f44d6387684555f2298b74161921a9c4b91f300e20a20684395012fd8b0"
+}

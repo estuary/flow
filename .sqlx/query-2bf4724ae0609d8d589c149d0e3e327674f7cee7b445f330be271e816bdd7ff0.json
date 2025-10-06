@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH\n        data_plane_ids AS (\n            SELECT id\n            FROM UNNEST($1::flowid[]) AS t(id)\n        ),\n        data_plane_names AS (\n            SELECT name\n            FROM UNNEST($2::text[]) AS t(name)\n            -- User must be read-authorized to data-plane.\n            WHERE EXISTS (\n                SELECT 1\n                FROM internal.user_roles($3, 'read') AS r\n                WHERE starts_with(t.name, r.role_prefix)\n            )\n        )\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE\n            d.id IN (select id from data_plane_ids) OR\n            d.data_plane_name in (select name from data_plane_names)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "control_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "data_plane_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "hmac_keys",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "encrypted_hmac_keys: models::RawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 4,
+        "name": "data_plane_fqdn",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "broker_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "reactor_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "ops_logs_name: models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "ops_stats_name: models::Collection",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TextArray",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2bf4724ae0609d8d589c149d0e3e327674f7cee7b445f330be271e816bdd7ff0"
+}

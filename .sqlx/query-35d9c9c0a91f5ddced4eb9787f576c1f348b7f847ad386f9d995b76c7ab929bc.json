@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        delete from draft_specs\n        where draft_id = $1 and catalog_name = any($2)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "35d9c9c0a91f5ddced4eb9787f576c1f348b7f847ad386f9d995b76c7ab929bc"
+}

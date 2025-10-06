@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        update draft_specs set built_spec = $1, validated = $2\n        where draft_id = $3 and catalog_name = $4;\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Json",
+        "Json",
+        "Macaddr8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a5e2cbc27dd9cee6f28191b59229138d6a01c5ff9ac9bab3412a8cff39847719"
+}

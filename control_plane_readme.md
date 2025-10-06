@@ -55,9 +55,7 @@ Also required: [gsutil](https://cloud.google.com/storage/docs/gsutil), [sops](ht
 
 ## Development
 
-We use the `sqlx` crate for interacting with postgres, which parses the queries provides some type safety. This requires the database to be available at compile time, unless the `SQLX_OFFLINE=1` env variable is set. In offline mode, which is used in CI, it will use cached data from `sqlx-data.json`. This means that `sqlx-data.json` must be updated whenever any queries are added or modified. To do that, run `cargo sqlx prepare --merged` from the workspace root.
-
-Note: This currently requires `sqlx-cli` version `0.6.3`. We intend to update the sqlx dependency, and then the above command will change to `cargo sqlx prepare --workspace`.
+We use the `sqlx` crate for interacting with postgres, which parses the queries provides some type safety. This requires the database to be available at compile time, unless the `SQLX_OFFLINE=1` env variable is set. In offline mode, which is used in CI, it will use cached data from `.sqlx/`. This means that `.sqlx/` must be updated whenever any queries are added or modified. To do that, run `cargo sqlx prepare --workspace --database-url postgresql://postgres:postgres@127.0.0.1:5432/postgres` from the workspace root.
 
 ### Building on M1
 

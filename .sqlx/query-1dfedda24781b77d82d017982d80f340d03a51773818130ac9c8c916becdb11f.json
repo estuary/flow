@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with\n        accounts_root_user as (\n            -- Precondition: the accounts root user must exist.\n            -- Use a sub-select to select either one match or an explicit null row,\n            -- which will then fail a not-null constraint.\n            select (select id from auth.users where email = $4 limit 1) as accounts_id\n        ),\n        grant_user_admin_to_tenant as (\n            insert into user_grants (user_id, object_role, capability, detail) values\n                ($1, $2, 'admin', $3)\n            on conflict do nothing\n        ),\n        grant_to_tenant as (\n            insert into role_grants (subject_role, object_role, capability, detail) values\n                ($2, $2, 'write', $3),             -- Tenant specs may write to other tenant specs.\n                ($2, 'ops/dp/public/', 'read', $3) -- Tenant may access public data-planes.\n            on conflict do nothing\n        ),\n        public_planes as (\n            select json_agg(data_plane_name order by id asc) as arr\n            from data_planes\n            where starts_with(data_plane_name, 'ops/dp/public/')\n            and data_plane_name <> 'ops/dp/public/gcp-us-central1-c1'\n        ),\n        create_storage_mappings as (\n            insert into storage_mappings (catalog_prefix, spec, detail) values\n                ($2, json_build_object(\n                    'stores', '[{\"provider\": \"GCS\", \"bucket\": \"estuary-trial\", \"prefix\": \"collection-data/\"}]'::json,\n                    'data_planes', (select arr from public_planes)\n                ), $3),\n                ('recovery/' || $2, '{\"stores\": [{\"provider\": \"GCS\", \"bucket\": \"estuary-trial\"}]}', $3)\n            on conflict do nothing\n        ),\n        create_alert_subscription as (\n            insert into alert_subscriptions (catalog_prefix, email) values ($2, (select email from auth.users where id = $1 limit 1))\n        )\n        insert into tenants (tenant, detail) values ($2, $3);\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "catalog_prefix",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1dfedda24781b77d82d017982d80f340d03a51773818130ac9c8c916becdb11f"
+}

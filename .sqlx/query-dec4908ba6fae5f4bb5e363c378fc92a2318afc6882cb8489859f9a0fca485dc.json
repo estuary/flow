@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with tenants(name) as (\n          select unnest($1::text[])\n        ),\n        prefixes as (\n          select name as prefix from tenants\n          union all select 'recovery/' || name from tenants\n        )\n        select\n            m.id as \"id: Id\",\n            m.catalog_prefix,\n            m.spec\n        from prefixes p\n        join storage_mappings m on starts_with(m.catalog_prefix, p.prefix);\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dec4908ba6fae5f4bb5e363c378fc92a2318afc6882cb8489859f9a0fca485dc"
+}

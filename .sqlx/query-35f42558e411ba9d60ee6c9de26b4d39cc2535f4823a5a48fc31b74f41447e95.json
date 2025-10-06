@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            a.id as \"apply_id: Id\",\n            a.updated_at as \"apply_updated_at\",\n            d.catalog_prefix as \"catalog_prefix\",\n            d.id as \"directive_id: Id\",\n            d.spec as \"directive_spec: TextJson<Box<RawValue>>\",\n            a.logs_token,\n            a.user_claims as \"user_claims!: TextJson<Box<RawValue>>\",\n            a.user_id as \"user_id\",\n            a.job_status->>'type' as \"status_type\"\n        from directives as d\n        join applied_directives as a on d.id = a.directive_id\n        where a.id = $1::flowid\n        for update of a;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "apply_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "apply_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "catalog_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "directive_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "directive_spec: TextJson<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "logs_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "user_claims!: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 7,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "status_type",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "35f42558e411ba9d60ee6c9de26b4d39cc2535f4823a5a48fc31b74f41447e95"
+}

@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\"\n        FROM role_grants g\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subject_role: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "object_role: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "capability: models::Capability",
+        "type_info": {
+          "Custom": {
+            "name": "grant_capability",
+            "kind": {
+              "Enum": [
+                "x_00",
+                "x_01",
+                "x_02",
+                "x_03",
+                "x_04",
+                "x_05",
+                "x_06",
+                "x_07",
+                "x_08",
+                "x_09",
+                "read",
+                "x_11",
+                "x_12",
+                "x_13",
+                "x_14",
+                "x_15",
+                "x_16",
+                "x_17",
+                "x_18",
+                "x_19",
+                "write",
+                "x_21",
+                "x_22",
+                "x_23",
+                "x_24",
+                "x_25",
+                "x_26",
+                "x_27",
+                "x_28",
+                "x_29",
+                "admin"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "40735247033c2693395184471553db708524cfc3b6f4c1095c2ae63f377b8800"
+}

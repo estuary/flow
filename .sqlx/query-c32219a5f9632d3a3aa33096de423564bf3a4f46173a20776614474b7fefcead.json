@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into role_grants (subject_role, object_role, capability, detail) values\n                ($1::text, 'ops/dp/private/' || $1, 'read', 'private data-plane'),\n                ($1::text, 'ops/tasks/private/' || $1, 'read', 'private data-plane')\n            on conflict do nothing\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c32219a5f9632d3a3aa33096de423564bf3a4f46173a20776614474b7fefcead"
+}

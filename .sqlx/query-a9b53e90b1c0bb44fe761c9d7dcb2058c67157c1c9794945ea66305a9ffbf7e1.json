@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            ls.catalog_name,\n            ls.last_pub_id as \"last_pub_id: Id\"\n        from  live_specs ls\n        where ls.catalog_name = any($1::text[])\n        for update of ls\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_pub_id: Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a9b53e90b1c0bb44fe761c9d7dcb2058c67157c1c9794945ea66305a9ffbf7e1"
+}
