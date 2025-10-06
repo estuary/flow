@@ -1,51 +1,45 @@
+fragment Select on AlertConnection {
+    pageInfo {
+        hasNextPage
+        hasPreviousPage
+    }
+    edges {
+        cursor
+        node {
+            alertType
+            catalogName
+            firedAt
+            resolvedAt
+        }
+    }
+}
+
 query AlertsByPrefix {
     allAlerts: alerts(by: { prefix: "aliceCo/shared/" }, last: 10) {
-        pageInfo {
-            hasNextPage
-            hasPreviousPage
-        }
-        edges {
-            cursor
-            node {
-                alertType
-                catalogName
-                firedAt
-                resolvedAt
-            }
-        }
+        ...Select
     }
     firingAlerts: alerts(by: { prefix: "aliceCo/shared/", active: true }) {
-        pageInfo {
-            hasNextPage
-            hasPreviousPage
-        }
-        edges {
-            cursor
-            node {
-                alertType
-                catalogName
-                firedAt
-                resolvedAt
-            }
-        }
+        ...Select
     }
-    resolvedAlerts: alerts(
+    resolvedAlertsBefore: alerts(
         by: { prefix: "aliceCo/shared/", active: false }
         before: "2024-08-09T11:41:12+00:00;auto_discover_failed;aliceCo/shared/capture"
         last: 1
     ) {
-        pageInfo {
-            hasNextPage
-            hasPreviousPage
-        }
-        edges {
-            cursor
-            node {
-                alertType
-                catalogName
-                firedAt
-                resolvedAt
-            }
-        }
+        ...Select
+    }
+    resolvedAlertsAfter: alerts(
+        by: { prefix: "aliceCo/shared/", active: false }
+        after: "2024-08-09T10:11:12+00:00;auto_discover_failed;aliceCo/shared/capture"
+        first: 2
+    ) {
+        ...Select
+    }
+    resolvedAlertsAfterFakeCursor: alerts(
+        by: { prefix: "aliceCo/shared/", active: false }
+        after: "1929-10-24T12:00:00+00:00;shard_failed;foo/bar"
+        first: 2
+    ) {
+        ...Select
     }
 }
