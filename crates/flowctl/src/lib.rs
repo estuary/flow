@@ -9,6 +9,7 @@ mod config;
 mod discover;
 mod draft;
 mod generate;
+mod graphql;
 mod local_specs;
 mod ops;
 mod output;
