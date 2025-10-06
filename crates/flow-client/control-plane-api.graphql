@@ -439,7 +439,7 @@ The status of a LiveSpec
 type LiveSpecStatus {
 	type: StatusSummaryType!
 	summary: String!
-	controller: Controller!
+	controller: Controller
 	connector: ConnectorStatus
 }
 

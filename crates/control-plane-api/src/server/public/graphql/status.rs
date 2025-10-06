@@ -12,7 +12,9 @@ pub struct Controller {
     pub error: Option<String>,
     pub failures: i32,
     /// The top-level fields of the controller status json are flattened into this struct
-    /// in order to avoid the stuttering of `status.controller.status`.
+    /// in order to avoid the stuttering of `status.controller.status`. Note that we use
+    /// `ControllerStatus::Uninitialized` to represent a missing status, as an `Option`
+    /// does not work with the `flatten` attribute.
     #[graphql(flatten)]
     pub status: ControllerStatus,
     pub updated_at: DateTime<Utc>,
@@ -23,26 +25,8 @@ pub struct Controller {
 pub struct LiveSpecStatus {
     pub r#type: StatusSummaryType,
     pub summary: String,
-    pub controller: Controller,
+    pub controller: Option<Controller>,
     pub connector: Option<ConnectorStatus>,
-}
-
-impl LiveSpecStatus {
-    pub fn missing(catalog_type: models::CatalogType) -> Self {
-        LiveSpecStatus {
-            r#type: StatusSummaryType::Error,
-            summary: "No status information available".to_string(),
-            // Set error and failures here to make sure it's obvious to the caller that something is wrong
-            controller: Controller {
-                next_run: None,
-                error: Some("controller status information unavailable".to_string()),
-                failures: 1,
-                status: ControllerStatus::new(catalog_type),
-                updated_at: Utc::now(),
-            },
-            connector: None,
-        }
-    }
 }
 
 impl TryFrom<StatusRow> for LiveSpecStatus {
@@ -79,13 +63,13 @@ impl TryFrom<StatusRow> for LiveSpecStatus {
         Ok(LiveSpecStatus {
             r#type: summary.status,
             summary: summary.message,
-            controller: Controller {
+            controller: Some(Controller {
                 next_run: controller_next_run,
                 error: controller_error,
                 failures: controller_failures,
                 status: controller_status,
                 updated_at: controller_updated_at,
-            },
+            }),
             connector: connector_status,
         })
     }
