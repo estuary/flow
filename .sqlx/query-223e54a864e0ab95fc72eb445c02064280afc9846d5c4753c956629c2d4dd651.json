@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            ops_l1_inferred_name  as \"ops_l1_inferred_name: models::Collection\",\n            ops_l2_inferred_transform,\n            ops_l1_stats_name     as \"ops_l1_stats_name:    models::Collection\",\n            ops_l2_stats_transform,\n            ops_l1_events_name    as \"ops_l1_events_name:   models::Collection\",\n            ops_l2_events_transform,\n            enable_l2\n        from data_planes\n        order by data_plane_name asc;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ops_l1_inferred_name: models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ops_l2_inferred_transform",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "ops_l1_stats_name:    models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "ops_l2_stats_transform",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ops_l1_events_name:   models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "ops_l2_events_transform",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "enable_l2",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "223e54a864e0ab95fc72eb445c02064280afc9846d5c4753c956629c2d4dd651"
+}

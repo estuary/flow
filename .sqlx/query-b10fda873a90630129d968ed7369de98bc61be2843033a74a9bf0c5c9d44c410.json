@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n        ls.catalog_name as \"catalog_name!: String\",\n        ls.id as \"live_spec_id: Id\",\n        ls.spec_type as \"spec_type: models::CatalogType\",\n        coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as \"disabled!: bool\",\n        ls.last_pub_id as \"last_pub_id: Id\",\n        ls.last_build_id as \"last_build_id: Id\",\n        t.wake_at as \"controller_next_run: DateTime<Utc>\",\n        ls.updated_at as \"live_spec_updated_at: DateTime<Utc>\",\n        cs.flow_document as \"connector_status?: ConnectorStatus\",\n        cj.updated_at as \"controller_updated_at: DateTime<Utc>\",\n        cj.status as \"controller_status?: status::ControllerStatus\",\n        cj.error as \"controller_error: String\",\n        cj.failures as \"controller_failures: i32\"\n    from live_specs ls\n    join controller_jobs cj on ls.id = cj.live_spec_id\n    join internal.tasks t on ls.controller_task_id = t.task_id\n    left outer join connector_status cs on ls.catalog_name = cs.catalog_name\n    where ls.catalog_name::text = any($1::text[])\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "live_spec_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec_type: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "disabled!: bool",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_pub_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_build_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 6,
+        "name": "controller_next_run: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "live_spec_updated_at: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "connector_status?: ConnectorStatus",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 9,
+        "name": "controller_updated_at: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "controller_status?: status::ControllerStatus",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 11,
+        "name": "controller_error: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "controller_failures: i32",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b10fda873a90630129d968ed7369de98bc61be2843033a74a9bf0c5c9d44c410"
+}

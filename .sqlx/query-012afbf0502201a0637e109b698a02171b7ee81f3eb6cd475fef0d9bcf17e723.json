@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            c.id as \"connector_id: Id\",\n            c.external_url,\n            c.image_name,\n            t.created_at,\n            t.id as \"tag_id: Id\",\n            t.image_tag,\n            t.logs_token,\n            t.updated_at\n        from connector_tags as t\n        join connectors as c on c.id = t.connector_id\n        where t.id = $1::flowid;\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "connector_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "external_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "image_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "tag_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 5,
+        "name": "image_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "logs_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "012afbf0502201a0637e109b698a02171b7ee81f3eb6cd475fef0d9bcf17e723"
+}

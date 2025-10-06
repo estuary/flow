@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select generate_access_token($1, $2) as token",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8c00a1c2ef449150e1c6a02698fbf26c38ff4517721578e6158c69f1a781894d"
+}

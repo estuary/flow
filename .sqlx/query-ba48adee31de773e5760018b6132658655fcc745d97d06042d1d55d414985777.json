@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from draft_errors where draft_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba48adee31de773e5760018b6132658655fcc745d97d06042d1d55d414985777"
+}

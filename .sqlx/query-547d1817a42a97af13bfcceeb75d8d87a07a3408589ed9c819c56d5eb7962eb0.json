@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select catalog_name as \"name!: String\"\n        from live_specs\n        where starts_with(catalog_name, $1)\n        and case when $3::catalog_name is null then true else catalog_name < $3::catalog_name end\n        and spec_type = $2::catalog_spec_type\n        order by catalog_name desc\n        limit $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "547d1817a42a97af13bfcceeb75d8d87a07a3408589ed9c819c56d5eb7962eb0"
+}

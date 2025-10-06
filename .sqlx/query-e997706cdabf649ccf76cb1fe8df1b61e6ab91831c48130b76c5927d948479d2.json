@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from live_spec_flows where (source_id = $1 or target_id = $1) and flow_type = 'test'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e997706cdabf649ccf76cb1fe8df1b61e6ab91831c48130b76c5927d948479d2"
+}

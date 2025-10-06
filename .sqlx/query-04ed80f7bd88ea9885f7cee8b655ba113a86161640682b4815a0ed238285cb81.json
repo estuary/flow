@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update discovers set\n            job_status = $2,\n            updated_at = clock_timestamp()\n        where id = $1\n        returning 1 as \"must_exist\";\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "must_exist",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "jsonb_obj",
+            "kind": {
+              "Domain": "Jsonb"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "04ed80f7bd88ea9885f7cee8b655ba113a86161640682b4815a0ed238285cb81"
+}

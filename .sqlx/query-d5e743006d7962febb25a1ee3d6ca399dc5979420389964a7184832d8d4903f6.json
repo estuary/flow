@@ -1,0 +1,129 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id) as (\n            select * from unnest(\n                $3::text[],\n                $4::catalog_spec_type[],\n                $5::json[],\n                $6::json[],\n                $7::flowid[],\n                $8::json[],\n                $9::json[],\n                $10::text[],\n                $11::text[],\n                $12::flowid[],\n                $13::boolean[],\n                $14::text[],\n                $15::flowid[]\n            )\n        ),\n        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, id, last_build_id, next_pub_id, controller_task_id) as (\n            select\n                inputs.catalog_name,\n                inputs.spec_type,\n                inputs.spec,\n                inputs.built_spec,\n                inputs.expect_pub_id,\n                inputs.reads_from,\n                inputs.writes_to,\n                inputs.image,\n                inputs.image_tag,\n                inputs.data_plane_id,\n                inputs.is_touch,\n                inputs.dependency_hash,\n                inputs.id,\n                case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_build_id end as last_build_id,\n                case when inputs.is_touch then ls.last_pub_id else $1::flowid end as next_pub_id,\n                case when ls.controller_task_id is null then internal.id_generator() else ls.controller_task_id end as controller_task_id\n            from inputs\n            left outer join live_specs ls on ls.catalog_name = inputs.catalog_name\n        ),\n        create_controller_tasks as (\n            insert into internal.tasks (task_id, task_type, wake_at, inbox)\n            select\n                controller_task_id,\n                2,\n                now(),\n                array[json_build_array(\n                    '00:00:00:00:00:00:00:00',\n                    json_build_object('type', 'spec_published', 'pub_id', $1::text)\n                )] as inbox\n            from joined\n            on conflict (task_id) do update set\n            wake_at = now(),\n            inbox =\n                CASE WHEN internal.tasks.heartbeat = '0001-01-01T00:00:00Z'\n                THEN ARRAY_APPEND(internal.tasks.inbox, json_build_array(\n                                    '00:00:00:00:00:00:00:00',\n                                    json_build_object('type', 'spec_published', 'pub_id', $1::text)\n                                ))\n                ELSE internal.tasks.inbox\n                END,\n            inbox_next =\n                CASE WHEN internal.tasks.heartbeat = '0001-01-01T00:00:00Z'\n                THEN internal.tasks.inbox_next\n                ELSE ARRAY_APPEND(internal.tasks.inbox_next, json_build_array(\n                                                    '00:00:00:00:00:00:00:00',\n                                                    json_build_object('type', 'spec_published', 'pub_id', $1::text)\n                                                ))\n                END\n            returning task_id\n        ),\n        insert_live_specs(catalog_name,live_spec_id) as (\n            insert into live_specs (\n                catalog_name,\n                spec_type,\n                spec,\n                built_spec,\n                last_build_id,\n                last_pub_id,\n                reads_from,\n                writes_to,\n                connector_image_name,\n                connector_image_tag,\n                data_plane_id,\n                dependency_hash,\n                controller_task_id,\n                id\n            ) select\n                catalog_name,\n                spec_type,\n                spec,\n                built_spec,\n                $2::flowid,\n                joined.next_pub_id,\n                case when json_typeof(reads_from) is null then\n                    null\n                else\n                    array(select json_array_elements_text(reads_from))\n                end,\n                case when json_typeof(writes_to) is null then\n                    null\n                else\n                    array(select json_array_elements_text(writes_to))\n                end,\n                image,\n                image_tag,\n                data_plane_id,\n                dependency_hash,\n                controller_task_id,\n                id\n            from joined\n            on conflict (catalog_name) do update set\n                updated_at = now(),\n                spec_type = excluded.spec_type,\n                spec = excluded.spec,\n                built_spec = excluded.built_spec,\n                last_build_id = excluded.last_build_id,\n                last_pub_id = excluded.last_pub_id,\n                reads_from = excluded.reads_from,\n                writes_to = excluded.writes_to,\n                connector_image_name = excluded.connector_image_name,\n                connector_image_tag = excluded.connector_image_tag,\n                dependency_hash = excluded.dependency_hash\n                -- controller_task_id is not updated here, as it is only set on first publication\n            returning\n                catalog_name,\n                id as live_spec_id,\n                last_build_id\n        ),\n        insert_controller_status as (\n            insert into controller_jobs (live_spec_id, status)\n            select live_spec_id, '{}'::json from insert_live_specs\n            on conflict (live_spec_id) do nothing\n        ),\n        delete_alerts as (\n            delete from alert_data_processing where catalog_name in (\n                select catalog_name from inputs where inputs.spec is null\n            )\n        )\n        select\n            joined.catalog_name as \"catalog_name!: String\",\n            insert_live_specs.live_spec_id as \"live_spec_id!: Id\",\n            joined.expect_build_id as \"expect_build_id!: Id\",\n            joined.last_build_id as \"last_build_id!: Id\"\n        from insert_live_specs\n        join joined using (catalog_name)\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "live_spec_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "expect_build_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_build_id!: Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        "TextArray",
+        {
+          "Custom": {
+            "name": "catalog_spec_type[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "catalog_spec_type",
+                  "kind": {
+                    "Enum": [
+                      "capture",
+                      "collection",
+                      "materialization",
+                      "test"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "JsonArray",
+        "JsonArray",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "JsonArray",
+        "JsonArray",
+        "TextArray",
+        "TextArray",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "BoolArray",
+        "TextArray",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "d5e743006d7962febb25a1ee3d6ca399dc5979420389964a7184832d8d4903f6"
+}
