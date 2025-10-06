@@ -202,12 +202,6 @@ fn tests_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars
     .unwrap()
 }
 
-#[cfg(feature = "sqlx-support")]
-impl sqlx::postgres::PgHasArrayType for CatalogType {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("_catalog_spec_type")
-    }
-}
 
 impl std::str::FromStr for CatalogType {
     type Err = ();

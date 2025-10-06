@@ -82,7 +82,7 @@ impl sqlx::Type<sqlx::postgres::Postgres> for AlertType {
 
 #[cfg(feature = "sqlx-support")]
 impl sqlx::Encode<'_, sqlx::postgres::Postgres> for AlertType {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <&str as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.name(), buf)
     }
 }

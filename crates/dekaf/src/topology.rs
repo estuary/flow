@@ -508,7 +508,8 @@ async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
             resp.text().await?
         )
     } else {
-        Ok(resp.json().await?)
+        let bytes = resp.bytes().await?;
+        Ok(serde_json::from_slice(&bytes)?)
     }
 }
 

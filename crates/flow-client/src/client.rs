@@ -136,7 +136,8 @@ impl Client {
         let status = response.status();
 
         if status.is_success() {
-            Ok(response.json().await?)
+            let bytes = response.bytes().await?;
+            Ok(serde_json::from_slice(&bytes)?)
         } else {
             let body = response.text().await?;
             anyhow::bail!("GET {path}: {status}: {body}");
@@ -165,7 +166,8 @@ impl Client {
         let status = response.status();
 
         if status.is_success() {
-            Ok(response.json().await?)
+            let bytes = response.bytes().await?;
+            Ok(serde_json::from_slice(&bytes)?)
         } else {
             let body = response.text().await?;
             anyhow::bail!("POST {path}: {status}: {body}");
@@ -211,8 +213,9 @@ impl Client {
             )
         }
 
-        let encrypt_response: models::RawValue = response.json().await?;
-        Ok(encrypt_response)
+        let bytes = response.bytes().await?;
+        let encrypt_response: Box<models::RawValue> = serde_json::from_slice(&bytes)?;
+        Ok(*encrypt_response)
     }
 }
 

@@ -180,7 +180,7 @@ pub fn ops_handler(tx: Tx, stream: String, token: Uuid) -> OpsHandler {
 // TODO(johnny): This is a placeholder until all `internal.log_lines` can be JSON.
 // Then we'll pass everything through as JSON and let the UI handle structured presentation.
 fn render_ops_log_for_ui(log: &ops::Log) -> String {
-    use colored_json::{Color, ColorMode, ColoredFormatter, CompactFormatter, Style, Styler};
+    use colored_json::{Color, ColorMode, ColoredFormatter, CompactFormatter, Paint, Style, Styler};
     use ops::log::Level;
     use std::fmt::Write;
 
@@ -204,7 +204,7 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
     write!(
         &mut line,
         "{}: {: <30}", // Right-pad the message to 30 characters.
-        Style::new(level_color).dimmed().paint(level_txt),
+        level_txt.paint(Style::new().fg(level_color).dim()),
         log.message
     )
     .unwrap();
@@ -212,7 +212,7 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
     let f = ColoredFormatter::with_styler(
         CompactFormatter {},
         Styler {
-            key: Style::new(blue).italic(),
+            key: Style::new().fg(blue).italic(),
             string_value: Style::default(),
             string_include_quotation: false,
             ..Default::default()
@@ -225,7 +225,7 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
         write!(
             &mut line,
             " {}={}",
-            Style::new(blue).italic().paint(field),
+            field.paint(Style::new().fg(blue).italic()),
             f.clone().to_colored_json(&content, ColorMode::On).unwrap(),
         )
         .unwrap();
