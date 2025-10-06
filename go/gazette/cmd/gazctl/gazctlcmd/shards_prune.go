@@ -55,12 +55,20 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	for _, shard := range listShards(rsc, cmd.Selector).Shards {
 		metrics.shardsTotal++
 
+		var recoveryLog = shard.Spec.RecoveryLog()
+
+		// Check if the recovery log's fragment stores are healthy before fetching hints.
+		// Skip this shard if any store is unhealthy to avoid hanging.
+		if !checkRecoveryLogStoresHealth(ctx, rjc, recoveryLog) {
+			skipRecoveryLogs[recoveryLog] = true
+			continue
+		}
+
 		var allHints, err = consumer.FetchHints(ctx, rsc, &pc.GetHintsRequest{
 			Shard: shard.Spec.Id,
 		})
 		mbp.Must(err, "failed to fetch hints")
 
-		var recoveryLog = shard.Spec.RecoveryLog()
 		rawHintsResponses[recoveryLog] = append(rawHintsResponses[recoveryLog], *allHints)
 
 		for _, curHints := range append(allHints.BackupHints, allHints.PrimaryHints) {
@@ -94,7 +102,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 
 	for journal, segments := range logSegmentSets {
 		if skipRecoveryLogs[journal] {
-			log.WithField("journal", journal).Warn("skipping journal because a shard is missing hints that cover it")
+			log.WithField("journal", journal).Warn("skipping journal because a shard is missing hints that cover it or has unlhealthy store")
 			continue
 		}
 		log.WithField("journal", journal).Debug("checking fragments of journal")
@@ -160,6 +168,48 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 		log.WithField("failures", metrics.failedToRemove).Fatal("failed to remove fragments")
 	}
 	return nil
+}
+
+// checkRecoveryLogStoresHealth checks if all fragment stores for the given recovery log journal are healthy.
+// Returns true if all stores are healthy, false otherwise.
+func checkRecoveryLogStoresHealth(ctx context.Context, jc pb.JournalClient, recoveryLog pb.Journal) bool {
+	var journalSpec, err = client.GetJournal(ctx, jc, recoveryLog)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"journal": recoveryLog,
+			"error":   err,
+		}).Warn("failed to fetch journal spec for recovery log")
+		return false
+	}
+
+	if len(journalSpec.Fragment.Stores) == 0 {
+		// No stores configured, consider healthy
+		return true
+	}
+
+	for _, store := range journalSpec.Fragment.Stores {
+		var resp, err = client.FragmentStoreHealth(ctx, jc, store)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"journal": recoveryLog,
+				"store":   store,
+				"error":   err,
+			}).Warn("failed to check fragment store health")
+			return false
+		}
+
+		if resp.Status != pb.Status_OK {
+			log.WithFields(log.Fields{
+				"journal":    recoveryLog,
+				"store":      store,
+				"status":     resp.Status,
+				"storeError": resp.StoreHealthError,
+			}).Warn("fragment store is unhealthy")
+			return false
+		}
+	}
+
+	return true
 }
 
 func overlapsAnySegment(segments []recoverylog.Segment, fragment pb.Fragment) bool {

@@ -61,6 +61,9 @@ func TestHealthChecks(t *testing.T) {
 							require.Equal(t, ".test/health-check", path)
 							return server.URL + "/signed/test", nil
 						},
+						IsAuthErrorFunc: func(_ Store, err error) bool {
+							return false
+						},
 					}, nil
 				}
 			},
@@ -76,6 +79,9 @@ func TestHealthChecks(t *testing.T) {
 						},
 						GetFunc: func(_ Store, ctx context.Context, path string) (io.ReadCloser, error) {
 							return nil, errors.New("simulated GET failure")
+						},
+						IsAuthErrorFunc: func(_ Store, err error) bool {
+							return false
 						},
 					}, nil
 				}
@@ -99,6 +105,9 @@ func TestHealthChecks(t *testing.T) {
 						SignGetFunc: func(_ Store, path string, d time.Duration) (string, error) {
 							return server.URL + "/wrong", nil
 						},
+						IsAuthErrorFunc: func(_ Store, err error) bool {
+							return false
+						},
 					}, nil
 				}
 			},
@@ -114,6 +123,9 @@ func TestHealthChecks(t *testing.T) {
 						},
 						GetFunc: func(_ Store, ctx context.Context, path string) (io.ReadCloser, error) {
 							return nil, nil // Return nil reader without error
+						},
+						IsAuthErrorFunc: func(_ Store, err error) bool {
+							return false
 						},
 					}, nil
 				}
@@ -131,6 +143,9 @@ func TestHealthChecks(t *testing.T) {
 						GetFunc: func(_ Store, ctx context.Context, path string) (io.ReadCloser, error) {
 							// Return a reader that fails on Read
 							return io.NopCloser(errorReader{}), nil
+						},
+						IsAuthErrorFunc: func(_ Store, err error) bool {
+							return false
 						},
 					}, nil
 				}
@@ -159,6 +174,9 @@ func TestHealthChecks(t *testing.T) {
 						},
 						SignGetFunc: func(_ Store, path string, d time.Duration) (string, error) {
 							return server.URL + "/signed/test", nil
+						},
+						IsAuthErrorFunc: func(_ Store, err error) bool {
+							return false
 						},
 					}, nil
 				}
