@@ -2,8 +2,7 @@
 /// ShardLabeling is a parsed and validated representation of the Flow
 /// labels which are attached to Gazette ShardSpecs, that are understood
 /// by the Flow runtime and influence its behavior with respect to the shard.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ShardLabeling {
     /// Catalog build identifier which the task uses.
     #[prost(string, tag = "1")]
@@ -37,8 +36,7 @@ pub struct ShardLabeling {
     pub stats_journal: ::prost::alloc::string::String,
 }
 /// Common `shard` sub-document logged by Stats and Log.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ShardRef {
     /// The type of catalog task.
     #[prost(enumeration = "TaskType", tag = "1")]
@@ -57,14 +55,12 @@ pub struct ShardRef {
     pub build: ::prost::alloc::string::String,
 }
 /// Common Meta sub-document of Log and Stats documents.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Meta {
     #[prost(string, tag = "1")]
     pub uuid: ::prost::alloc::string::String,
 }
 /// Log is Flow's unified representation of task logs.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Log {
     /// Meta sub-document added by the Flow runtime.
@@ -123,12 +119,12 @@ pub mod log {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Level::UndefinedLevel => "undefined_level",
-                Level::Error => "error",
-                Level::Warn => "warn",
-                Level::Info => "info",
-                Level::Debug => "debug",
-                Level::Trace => "trace",
+                Self::UndefinedLevel => "undefined_level",
+                Self::Error => "error",
+                Self::Warn => "warn",
+                Self::Info => "info",
+                Self::Debug => "debug",
+                Self::Trace => "trace",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -148,7 +144,6 @@ pub mod log {
 /// Stats is Flow's unified representation of task metrics and statistics.
 ///
 /// Next tag: 10.
-#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Stats {
     /// Meta sub-document added by the Flow runtime.
@@ -191,8 +186,7 @@ pub struct Stats {
 pub mod stats {
     /// DocsAndBytes represents a count of JSON documents and their
     /// cumulative total size in bytes.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct DocsAndBytes {
         #[prost(uint64, tag = "1")]
         pub docs_total: u64,
@@ -202,8 +196,7 @@ pub mod stats {
     /// Binding represents counts of JSON documents and their
     /// cumulative total size in bytes, passing through the binding
     /// of a capture or materialization.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Binding {
         #[prost(message, optional, tag = "1")]
         pub left: ::core::option::Option<DocsAndBytes>,
@@ -218,7 +211,6 @@ pub mod stats {
         pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     /// Derivation metrics.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Derive {
         /// A map from transform name (not collection name), to metrics for that transform.
@@ -236,8 +228,7 @@ pub mod stats {
     }
     /// Nested message and enum types in `Derive`.
     pub mod derive {
-        #[allow(clippy::derive_partial_eq_without_eq)]
-        #[derive(Clone, PartialEq, ::prost::Message)]
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Transform {
             /// The name of the collection that this transform sourced from.
             #[prost(string, tag = "1")]
@@ -253,7 +244,6 @@ pub mod stats {
         }
     }
     /// Interval metrics are emitted at regular intervals.
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct Interval {
         /// Number of seconds that the task shard is metered as having been running.
@@ -263,7 +253,7 @@ pub mod stats {
         pub uptime_seconds: u32,
         /// Usage rate adjustment which accompanies and adjusts `uptime_seconds`.
         /// The effective number of "used" task seconds is:
-        ///    round(uptime_seconds * usage_rate)
+        /// round(uptime_seconds * usage_rate)
         ///
         /// At present, capture and materialization tasks always use a fixed value of 1.0,
         /// while derivation tasks use a fixed value of 0.0.
@@ -288,10 +278,10 @@ impl TaskType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            TaskType::InvalidType => "invalid_type",
-            TaskType::Capture => "capture",
-            TaskType::Derivation => "derivation",
-            TaskType::Materialization => "materialization",
+            Self::InvalidType => "invalid_type",
+            Self::Capture => "capture",
+            Self::Derivation => "derivation",
+            Self::Materialization => "materialization",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
