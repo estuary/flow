@@ -274,6 +274,7 @@ extra-ci-runner-setup:
 	sudo apt install -y \
 		build-essential \
 		clang \
+		libclang-dev \
 		libsqlite3-dev \
 		lld \
 		musl \
