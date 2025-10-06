@@ -18,13 +18,13 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          # Use the oldest ubuntu version because it'll have an old glibc. Programs built agains
+          # Use the oldest ubuntu version because it'll have an old glibc. Programs built against
           # an old glibc can link to a newer version, but not the other way around.
           - os: ubuntu-22.04
             assetName: flowctl-x86_64-linux
           # On mac, it's the opposite. Programs built on the latest macos can run on older versions,
           # but not the other way around.
-          - os: macos-14
+          - os: macos-latest
             assetName: flowctl-multiarch-macos
     steps:
       - name: Checkout code
@@ -42,7 +42,7 @@ jobs:
 
       # Mac build steps:
       - name: Setup mac signing certificate
-        if: matrix.config.os == 'macos-14'
+        if: matrix.config.os == 'macos-latest'
         env:
           MAC_SIGNING_CERTIFICATE_BASE64: ${{ secrets.MAC_SIGNING_CERTIFICATE_BASE64 }}
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -70,9 +70,9 @@ jobs:
           # https://localazy.com/blog/how-to-automatically-sign-macos-apps-using-github-actions
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-      # This one mac build runs on both intel and m1 macs
+      # This one mac build runs on both intel and macs
       - name: Build Mac
-        if: matrix.config.os == 'macos-14'
+        if: matrix.config.os == 'macos-latest'
         env:
           MAC_CERTIFICATE_IDENTITY: ${{ secrets.MAC_CERTIFICATE_IDENTITY }}
         # The toolchain action always gives you the default target, but we always need both
