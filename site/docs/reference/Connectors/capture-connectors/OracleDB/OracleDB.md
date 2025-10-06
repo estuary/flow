@@ -157,6 +157,7 @@ To allow secure connections via SSH tunneling:
 | `/advanced/dictionary_mode`        | Dictionary Mode        | How should dictionaries be used in Logminer: one of online or extract. When using online mode schema changes to the table may break the capture but resource usage is limited. When using extract mode schema changes are handled gracefully but more resources of your database (including disk) are used by the process. Defaults to extract. | string  | `extract`                      |
 | `/advanced/discover_schemas`       | Discover Schemas       | If this is specified only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas.                                                                                                                                                                                              | string  |                                |
 | `/advanced/node_id`                | Node ID                | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn't matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                          | integer |                                |
+| `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
 
 
 #### Bindings

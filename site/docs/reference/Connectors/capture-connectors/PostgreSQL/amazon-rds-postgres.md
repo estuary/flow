@@ -207,6 +207,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | **`/database`**                 | Database            | Logical database name to capture from.                                                                                                      | string  | Required, `"postgres"`     |
 | **`/user`**                     | User                | The database user to authenticate as.                                                                                                       | string  | Required, `"flow_capture"` |
 | **`/password`**                 | Password            | Password for the specified database user.                                                                                                   | string  | Required                   |
+| `/historyMode` | History Mode | Capture change events without reducing them to a final state. | boolean | `false` |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
 | `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query.                                                    | integer | `4096`                     |
 | `/advanced/publicationName`     | Publication Name    | The name of the PostgreSQL publication to replicate from.                                                                                   | string  | `"flow_publication"`       |
@@ -214,6 +215,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
 | `/advanced/sslmode`             | SSL Mode            | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                       | string  |                            |
+| `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
 
 #### Bindings
 

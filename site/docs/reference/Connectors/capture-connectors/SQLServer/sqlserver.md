@@ -161,9 +161,11 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | **`/database`**                 | Database            | Logical database name to capture from.                                                                                                      | string  | Required                   |
 | **`/user`**                     | User                | The database user to authenticate as.                                                                                                       | string  | Required, `"flow_capture"` |
 | **`/password`**                 | Password            | Password for the specified database user.                                                                                                   | string  | Required                   |
+| `/historyMode` | History Mode | Capture change events without reducing them to a final state. | boolean | `false` |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
 | `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query.                                                    | integer | `4096`                     |
 | `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
+| `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
 
 #### Bindings
 
