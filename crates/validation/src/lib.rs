@@ -520,6 +520,7 @@ where
                 }
                 .push(Scope::new(draft.scope()), errors);
             }
+            let data_plane_id = live.data_plane_id().unwrap_or(models::Id::zero());
 
             let Some(model) = draft.model() else {
                 // Catalog specification is being deleted.
@@ -530,7 +531,7 @@ where
                     draft.catalog_name().clone(),
                     draft.scope().clone(),
                     live.control_id(),
-                    live.data_plane_id().unwrap_or(models::Id::zero()),
+                    data_plane_id,
                     live.last_pub_id(),
                     live.last_build_id(),
                     None, // Deletion has no draft model.
@@ -547,12 +548,30 @@ where
                 Error::TouchModelIsNotEqual.push(Scope::new(draft.scope()), errors);
             }
 
+            let explicit_plane = if !draft.catalog_name().as_ref().starts_with("ops/") {
+                // If we used `explicit_plane` here, we'd error if that plane was
+                // intended for a different, initializing spec and not this one.
+                //
+                // If we used `data_plane_id`, we'd error if the data-plane is
+                // no longer listed in its storage mapping (ex it was removed).
+                //
+                // So, we pass None and let walk_prefix use the first storage
+                // mapping plane as init_data_plane, which is a no-op placeholder
+                // (because the spec already exists).
+                None
+            } else {
+                // The ops/ prefix is special: it has no data-planes because it's
+                // in all data-planes, and if we didn't pass data_plane_id here
+                // we'd error about its lack of planes.
+                data_planes.get_key(&data_plane_id)
+            };
+
             let Some((partition_stores, recovery_stores, init_data_plane)) = walk_prefix(
                 Scope::new(draft.scope()),
                 entity,
                 draft.catalog_name().as_ref(),
                 data_planes,
-                None, // Ignore `explicit_plane` for existing specs.
+                explicit_plane,
                 storage_mappings,
                 errors,
             ) else {
