@@ -294,6 +294,50 @@
     },
     "query": "\n            select\n                alert_type as \"alert_type!: AlertType\",\n                catalog_name as \"catalog_name!: String\",\n                fired_at,\n                resolved_at,\n                arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n            from alert_history a\n            where a.catalog_name = $1\n                and a.resolved_at is not null\n                and (\n                    $2::timestamptz is null\n                    or a.fired_at < $2::timestamptz\n                    or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)\n                    or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)\n                )\n            order by a.fired_at desc, a.catalog_name desc\n            limit $5\n            "
   },
+  "116dfd433d943e5aaed435ac5c9b04b5e78920d3972dcd2ce17acf10ae3806ff": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "tasks_quota!: i32",
+          "ordinal": 1,
+          "type_info": "Int4"
+        },
+        {
+          "name": "collections_quota!: i32",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "tasks_used!: i32",
+          "ordinal": 3,
+          "type_info": "Int4"
+        },
+        {
+          "name": "collections_used!: i32",
+          "ordinal": 4,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "TextArray"
+        ]
+      }
+    },
+    "query": "\n        with tenant_names(tenant_name) as (\n            select unnest($1::text[]) as tenant_name\n        ),\n        tenant_usages as (\n            select\n                tenant_names.tenant_name,\n                (count(live_specs.catalog_name) filter (\n                    where\n                        live_specs.spec_type = 'capture' or\n                        live_specs.spec_type = 'materialization' or\n                        live_specs.spec_type = 'collection' and live_specs.spec->'derive' is not null\n                ))::integer as tasks_used,\n                (count(live_specs.catalog_name) filter (\n                    where live_specs.spec_type = 'collection'\n                ))::integer as collections_used\n            from tenant_names\n            left outer join live_specs on\n                live_specs.catalog_name ^@ tenant_names.tenant_name and\n                (live_specs.spec->'shards'->>'disable')::boolean is not true\n            group by tenant_names.tenant_name\n        )\n        select\n            tenants.tenant as name,\n            tenants.tasks_quota::integer as \"tasks_quota!: i32\",\n            tenants.collections_quota::integer as \"collections_quota!: i32\",\n            tenant_usages.tasks_used as \"tasks_used!: i32\",\n            tenant_usages.collections_used as \"collections_used!: i32\"\n        from tenant_usages\n        join tenants on tenants.tenant = tenant_usages.tenant_name\n        order by tenants.tenant;"
+  },
   "1629d33c703d5a92ff53e8a9985600e90263ff508f03c55893f50d736569a411": {
     "describe": {
       "columns": [],
@@ -2354,50 +2398,6 @@
     },
     "query": "\n                select\n                    alert_type as \"alert_type!: AlertType\",\n                    catalog_name as \"catalog_name!: String\",\n                    fired_at,\n                    resolved_at,\n                    arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n                from alert_history a\n                where starts_with(a.catalog_name, $1)\n                    and (\n                        $2::timestamptz is null\n                        or a.fired_at < $2::timestamptz\n                        or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)\n                        or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)\n                    )\n                    and (\n                        $5::boolean is null\n                        or ($5::boolean = true and a.resolved_at is null)\n                        or ($5::boolean = false and a.resolved_at is not null)\n                    )\n                order by a.fired_at desc, a.catalog_name desc\n                limit $6\n                "
   },
-  "8ac954b54699948acc75d6e9747a282bc21f73b53d467da1b8e2a270733ff08a": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "tasks_quota!: i32",
-          "ordinal": 1,
-          "type_info": "Int4"
-        },
-        {
-          "name": "collections_quota!: i32",
-          "ordinal": 2,
-          "type_info": "Int4"
-        },
-        {
-          "name": "tasks_used!: i32",
-          "ordinal": 3,
-          "type_info": "Int4"
-        },
-        {
-          "name": "collections_used!: i32",
-          "ordinal": 4,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        null,
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "TextArray"
-        ]
-      }
-    },
-    "query": "\n        with tenant_names(tenant_name) as (\n            select unnest($1::text[]) as tenant_name\n        ),\n        tenant_usages as (\n            select\n                tenant_names.tenant_name,\n                (count(live_specs.catalog_name) filter (\n                    where\n                        live_specs.spec_type = 'capture' or\n                        live_specs.spec_type = 'materialization' or\n                        live_specs.spec_type = 'collection' and live_specs.spec->'derive' is not null\n                ))::integer as tasks_used,\n                (count(live_specs.catalog_name) filter (\n                    where live_specs.spec_type = 'collection'\n                ))::integer as collections_used\n            from tenant_names\n            left outer join live_specs on\n                starts_with(live_specs.catalog_name, tenant_names.tenant_name) and\n                (live_specs.spec->'shards'->>'disable')::boolean is not true\n            group by tenant_names.tenant_name\n        )\n        select\n            tenants.tenant as name,\n            tenants.tasks_quota::integer as \"tasks_quota!: i32\",\n            tenants.collections_quota::integer as \"collections_quota!: i32\",\n            tenant_usages.tasks_used as \"tasks_used!: i32\",\n            tenant_usages.collections_used as \"collections_used!: i32\"\n        from tenant_usages\n        join tenants on tenants.tenant = tenant_usages.tenant_name\n        order by tenants.tenant;"
-  },
   "8c00a1c2ef449150e1c6a02698fbf26c38ff4517721578e6158c69f1a781894d": {
     "describe": {
       "columns": [
@@ -3161,7 +3161,7 @@
         false,
         true,
         false,
-        true,
+        false,
         false,
         false,
         true,
@@ -4522,7 +4522,7 @@
         false,
         null,
         false,
-        true,
+        false,
         true,
         false,
         null,
