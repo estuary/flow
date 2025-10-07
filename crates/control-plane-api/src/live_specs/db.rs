@@ -49,9 +49,14 @@ pub async fn fetch_live_specs(
     fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpec>> {
+    // The materialized CTE here ensures that `user_roles` is only invoked once,
+    // and the results used for the rest of the query.
     sqlx::query_as!(
         LiveSpec,
         r#"
+        with user_roles as materialized (
+            select role_prefix, capability from internal.user_roles($1)
+        )
         select
             coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as "id!: Id",
             coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as "last_pub_id!: Id",
@@ -63,8 +68,8 @@ pub async fn fetch_live_specs(
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             case when $3 then (
-                select max(capability) from internal.user_roles($1) r
-                where starts_with(names, r.role_prefix)
+                select max(capability) from user_roles
+                where starts_with(names, user_roles.role_prefix)
             ) else
                 null
             end as "user_capability: Capability",
