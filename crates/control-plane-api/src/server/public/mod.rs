@@ -61,7 +61,7 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
                 .route_layer(axum::middleware::from_fn(ensure_accepts_json)),
         )
         .api_route(
-            "/api/v1/metrics/*prefix",
+            "/api/v1/metrics/{*prefix}",
             aide::axum::routing::get(open_metrics::handle_get_metrics),
         )
         .route(
