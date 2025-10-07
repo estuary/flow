@@ -299,7 +299,7 @@ install-tools: ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-gnu-test
 rust-gnu-test:
-	PATH=${PKGDIR}/bin:$$PATH ;\
+	PATH=$$PATH:${PKGDIR}/bin ;\
 	cargo test --release --locked --workspace --exclude parser --exclude schemalate --exclude connector-init
 
 .PHONY: rust-musl-test

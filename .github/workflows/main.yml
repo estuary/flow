@@ -74,8 +74,8 @@ jobs:
 
       - run: make install-tools
       - run: go mod download
-      - run: make rust-gnu-test
       - run: make linux-gnu-binaries
+      - run: make rust-gnu-test
 
       - name: Ensure that we didn't dirty the tree.
         run: git clean --force -d && git diff --exit-code || exit 1
