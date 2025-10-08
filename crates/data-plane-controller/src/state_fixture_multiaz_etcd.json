@@ -1,0 +1,89 @@
+{
+  "stack": {
+    "config": {
+      "est-dry-dock:model": {
+        "fqdn": "the-subdomain.dp.estuary-data.com",
+        "name": "ops/dp/private/AcmeCo/aws-us-west-2-c1",
+        "builds_root": "gs://estuary-control/builds/",
+        "deployments": [
+          {
+            "role": "etcd",
+            "current": 1,
+            "desired": 1,
+            "template": {
+              "zone": "a",
+              "region": "us-west-2",
+              "provider": "aws",
+              "ami_image_id": "ami-01a8b7cc84780badb",
+              "instance_type": "m5d.large"
+            },
+            "oci_image": "quay.io/coreos/etcd:v3.5.17"
+          },
+          {
+            "role": "etcd",
+            "current": 1,
+            "desired": 1,
+            "template": {
+              "zone": "b",
+              "region": "us-west-2",
+              "provider": "aws",
+              "ami_image_id": "ami-01a8b7cc84780badb",
+              "instance_type": "m5d.large"
+            },
+            "oci_image": "quay.io/coreos/etcd:v3.5.17"
+          },
+          {
+            "role": "etcd",
+            "current": 1,
+            "desired": 1,
+            "template": {
+              "zone": "c",
+              "region": "us-west-2",
+              "provider": "aws",
+              "ami_image_id": "ami-01a8b7cc84780badb",
+              "instance_type": "m5d.large"
+            },
+            "oci_image": "quay.io/coreos/etcd:v3.5.17"
+          }
+        ],
+        "gcp_project": "the-gcp-project",
+        "ssh_subnets": [
+          "35.209.143.159/32",
+          "2600:1900:4000:97c7::/128",
+          "34.136.233.238/32"
+        ],
+        "allow_cidrs": [],
+        "data_buckets": [
+          "gs://estuary-trial",
+          "gs://estuary-flow-poc"
+        ],
+        "gcp_byoc": {
+          "project_id": "test-project"
+        },
+        "aws_assume_role": {
+          "role_arn": "arn:aws:iam::12345678:role/estuary",
+          "external_id": "c90634a4-0000-404d-ba7f-0facfba5b5cd",
+          "iam_instance_profile": "arn:aws:iam::12345678:role/instance"
+        },
+        "builds_kms_keys": [
+          "projects/the-project/locations/us-central1/keyRings/the-key-ring/cryptoKeys/the-key"
+        ],
+        "control_plane_api": "https://agent-api-amj6adhsnq-uc.a.run.app/",
+        "connector_limits": {
+          "cpu": "200m",
+          "memory": "1g"
+        }
+      }
+    },
+    "encryptedkey": "encryptedkey",
+    "secretsprovider": "gcpkms://projects/the-project/locations/us-central1/keyRings/the-key-ring/cryptoKeys/the-key"
+  },
+  "status": "Idle",
+  "logs_token": "4cb6ceef-36bc-4f57-89b9-8e4b11f82f0b",
+  "stack_name": "private-AcmeCo-aws-us-west-2-c1",
+  "last_refresh": "2025-02-26T15:23:07.693050947Z",
+  "data_plane_id": "1122334455667788",
+  "deploy_branch": "main",
+  "last_pulumi_up": "2025-02-26T15:46:19.720962982Z",
+  "private_links": []
+}
