@@ -38,6 +38,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/credentials/credentials_title`** | Authentication Method | Set to `Private App Credentials`. | string | Required |
 | **`/site`** | Site | The cloud region where the Datadog organization is deployed. Datadog's sites can be found [here](https://docs.datadoghq.com/getting_started/site/#access-the-datadog-site). | string | Required |
 | `/start_date` | Start Date | The date that we should attempt to start backfilling from. If not provided, will use [Datadog's 30-day RUM retention period](https://docs.datadoghq.com/real_user_monitoring/rum_without_limits/retention_filters/). | date | Not Required |
+| `/advanced/logs_query` | Log Query Filter | Query string to filter logs captured from Datadog. Uses Datadog's log search syntax described in their [documentation](https://docs.datadoghq.com/logs/explorer/search_syntax/). If not provided, all logs will be captured. | string | Not Required |
 | `/advanced/window_size` | Window size | Window size in days for incrementals streams. Typically left as the default unless more frequent checkpoints are desired. | integer | 30 |
 
 #### Bindings
