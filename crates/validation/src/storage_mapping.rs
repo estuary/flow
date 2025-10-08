@@ -1,7 +1,7 @@
-use super::{indexed, Error, Scope};
+use super::{Error, Scope, indexed};
 use models::{
-    Store, AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, CATALOG_PREFIX_RE, GCS_BUCKET_RE,
-    S3_BUCKET_RE, TOKEN_RE,
+    AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, CATALOG_PREFIX_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
+    Store, TOKEN_RE,
 };
 use superslice::Ext;
 

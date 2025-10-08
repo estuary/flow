@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
-pub use db::{fetch_evolution, fetch_resource_spec_schema, resolve, resolve_specs, Row};
-pub use models::{evolutions::EvolvedCollection, Capability};
+pub use db::{Row, fetch_evolution, fetch_resource_spec_schema, resolve, resolve_specs};
+pub use models::{Capability, evolutions::EvolvedCollection};
 
 #[derive(Debug)]
 pub struct Evolution {
@@ -315,7 +315,9 @@ fn evolve_collection(
             .iter()
             .filter(|m| !actual.contains(m.as_str()))
             .format(", ");
-        anyhow::bail!("requested to update the materialization(s) [{diff}], but no such materializations were found that source from the collection '{old_collection}'");
+        anyhow::bail!(
+            "requested to update the materialization(s) [{diff}], but no such materializations were found that source from the collection '{old_collection}'"
+        );
     }
 
     let mut updated_captures = Vec::new();

@@ -1,4 +1,4 @@
-use super::{heap, BumpStr, BumpVec, HeapNode};
+use super::{BumpStr, BumpVec, HeapNode, heap};
 
 // `rkyv` generates types that mirror the 'alloc lifetime parameter,
 // but this lifetime has no meaning (as far as I can tell).

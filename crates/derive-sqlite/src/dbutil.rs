@@ -1,4 +1,4 @@
-use super::{is_url_to_generate, Error, Lambda, Transform};
+use super::{Error, Lambda, Transform, is_url_to_generate};
 use anyhow::Context;
 use prost::Message;
 use proto_flow::RuntimeCheckpoint;
@@ -255,7 +255,7 @@ const BOOTSTRAP: &str = r#"
 #[cfg(test)]
 mod test {
     use super::*;
-    use proto_flow::{runtime_checkpoint, RuntimeCheckpoint};
+    use proto_flow::{RuntimeCheckpoint, runtime_checkpoint};
 
     #[test]
     fn bootstrap_and_migrate() {

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
 use kafka_protocol::{
@@ -491,7 +491,8 @@ impl KafkaApiClient {
                     );
                     topics_to_update.push((topic_name.clone(), *desired_partitions));
                 } else if *desired_partitions < current_partitions {
-                    anyhow::bail!("Topic {} has more partitions ({}) than requested ({}), cannot decrease partition count",
+                    anyhow::bail!(
+                        "Topic {} has more partitions ({}) than requested ({}), cannot decrease partition count",
                         topic_name.as_str(),
                         current_partitions,
                         desired_partitions

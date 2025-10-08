@@ -1,12 +1,12 @@
 use crate::{
-    controllers::ControllerState,
-    integration_tests::harness::{draft_catalog, TestHarness},
     ControlPlane,
+    controllers::ControllerState,
+    integration_tests::harness::{TestHarness, draft_catalog},
 };
 use gazette::consumer::replica_status;
 use models::{
-    status::{activation::ShardsStatus, AlertType, ShardRef, StatusSummaryType},
     CatalogType,
+    status::{AlertType, ShardRef, StatusSummaryType, activation::ShardsStatus},
 };
 use uuid::Uuid;
 

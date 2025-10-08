@@ -1,6 +1,6 @@
 use super::{Task, Transform};
 use anyhow::Context;
-use proto_flow::derive::{request, response, Request, Response};
+use proto_flow::derive::{Request, Response, request, response};
 use proto_flow::flow;
 
 impl Task {

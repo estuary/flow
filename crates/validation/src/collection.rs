@@ -1,4 +1,4 @@
-use super::{indexed, schema, walk_transition, Error, Scope};
+use super::{Error, Scope, indexed, schema, walk_transition};
 use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;

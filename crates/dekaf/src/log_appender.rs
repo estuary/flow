@@ -1,14 +1,13 @@
-use crate::{task_manager::TaskStateListener, TaskManager};
+use crate::{TaskManager, task_manager::TaskStateListener};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{
-    future::{FusedFuture, MaybeDone},
     Stream, StreamExt, TryStreamExt,
+    future::{FusedFuture, MaybeDone},
 };
 use gazette::{
-    journal,
+    RetryError, journal,
     uuid::{self, Producer},
-    RetryError,
 };
 use proto_gazette::message_flags;
 use std::{
@@ -577,7 +576,8 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
                 .out
                 .is_some_and(|s| (s.bytes_total == 0) != (s.docs_total == 0));
 
-        assert!(!is_any_stats_invalid,
+        assert!(
+            !is_any_stats_invalid,
             "Invalid stats document emitted! Cannot emit 0 for just one of `bytes_total` or `docs_total`! {:?}",
             stats
         );
@@ -605,7 +605,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
                     ?msg,
                     // Similarly to the "messages are queueing" warning, we can't actually append these
                     // to the task logs as the queue is already full. So instead we just log them noisily
-                    {EXCLUDE_FROM_TASK_LOGGING} = true,
+                    { EXCLUDE_FROM_TASK_LOGGING } = true,
                     "TaskForwarder message queue is full, dropping message on the ground! Are we unable to append?"
                 );
             }
@@ -674,8 +674,8 @@ mod tests {
     use itertools::Itertools;
     use rand::Rng;
     use std::time::Duration;
+    use tracing::{Instrument, instrument::WithSubscriber};
     use tracing::{info, info_span};
-    use tracing::{instrument::WithSubscriber, Instrument};
 
     use tracing_record_hierarchical::SpanExt;
     use tracing_subscriber::prelude::*;

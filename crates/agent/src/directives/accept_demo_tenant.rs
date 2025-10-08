@@ -1,5 +1,5 @@
 // This directive enables users to opt into having read access to the demo/ tenant.
-use super::{extract, JobStatus, Row};
+use super::{JobStatus, Row, extract};
 
 use serde::{Deserialize, Serialize};
 use tracing::info;

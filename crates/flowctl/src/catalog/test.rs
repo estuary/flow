@@ -1,4 +1,4 @@
-use crate::{draft, local_specs, CliContext};
+use crate::{CliContext, draft, local_specs};
 use anyhow::Context;
 
 #[derive(Debug, clap::Args)]

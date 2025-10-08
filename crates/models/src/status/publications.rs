@@ -1,6 +1,6 @@
+use crate::Id;
 use crate::draft_error;
 use crate::publications;
-use crate::Id;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -199,12 +199,14 @@ mod test {
         // Successful non-touch publications should never be combined because we
         // want to preserve the history of modifications to the model.
         let mut reg_subject = reg_success.clone();
-        assert!(reg_subject
-            .try_reduce(PublicationInfo {
-                id: crate::Id::new([4, 1, 1, 1, 1, 1, 1, 1]),
-                ..reg_success.clone()
-            })
-            .is_some(),);
+        assert!(
+            reg_subject
+                .try_reduce(PublicationInfo {
+                    id: crate::Id::new([4, 1, 1, 1, 1, 1, 1, 1]),
+                    ..reg_success.clone()
+                })
+                .is_some(),
+        );
 
         let reg_fail = PublicationInfo {
             id: crate::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),

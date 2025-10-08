@@ -1,5 +1,5 @@
 use control_plane_api::{
-    directives::{fetch_directive, resolve, Row},
+    directives::{Row, fetch_directive, resolve},
     logs,
 };
 

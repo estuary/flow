@@ -96,7 +96,9 @@ fn test_database_round_trip() {
     if original != recovered {
         std::fs::write("ORIGINAL", original).unwrap();
         std::fs::write("RECOVERED", recovered).unwrap();
-        panic!("database round trip: original & restored tables are different! Wrote ORIGINAL & RECOVERED for debugging");
+        panic!(
+            "database round trip: original & restored tables are different! Wrote ORIGINAL & RECOVERED for debugging"
+        );
     }
 }
 

@@ -1,6 +1,6 @@
-use super::{connector, protocol::*, LoadKeySet, RequestStream, ResponseStream, Transaction};
+use super::{LoadKeySet, RequestStream, ResponseStream, Transaction, connector, protocol::*};
 use crate::Accumulator;
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;

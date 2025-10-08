@@ -1,4 +1,4 @@
-use super::{extract, JobStatus, Row};
+use super::{JobStatus, Row, extract};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;

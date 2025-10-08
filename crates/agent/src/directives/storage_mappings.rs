@@ -4,11 +4,11 @@ use crate::directives::JobStatus;
 use anyhow::Context;
 use control_plane_api::{
     directives::{
-        storage_mappings::{
-            fetch_storage_mappings, upsert_storage_mapping, user_has_admin_capability,
-            StorageMapping,
-        },
         Row,
+        storage_mappings::{
+            StorageMapping, fetch_storage_mappings, upsert_storage_mapping,
+            user_has_admin_capability,
+        },
     },
     jobs, logs,
 };
@@ -86,7 +86,9 @@ async fn validate(
     // Storage mappings can only be updated for an entire tenant. We may one day wish to support
     // updates to narrower prefixes, but are trying to keep it simple for now.
     if claims.catalog_prefix.matches('/').count() > 1 {
-        anyhow::bail!("catalog prefix contains too many path segments. Only top-level tenant prefixes can have storage mappings altered");
+        anyhow::bail!(
+            "catalog prefix contains too many path segments. Only top-level tenant prefixes can have storage mappings altered"
+        );
     }
 
     // Note: we must assert that user has admin capability for the _entire tenant_, even if in the

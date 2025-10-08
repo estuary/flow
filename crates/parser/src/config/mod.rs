@@ -4,8 +4,8 @@ pub mod protobuf;
 use encoding_rs::Encoding;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{
-    de::{self, DeserializeOwned},
     Deserialize, Serialize,
+    de::{self, DeserializeOwned},
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -143,7 +143,10 @@ impl<'de> Deserialize<'de> for EncodingRef {
         if let Some(e) = Encoding::for_label_no_replacement(name.as_bytes()) {
             Ok(EncodingRef(e.name()))
         } else {
-            Err(de::Error::custom(format!("invalid encoding label: '{}', must be a WHATWG name or label as described by: https://encoding.spec.whatwg.org/#names-and-labels", name)))
+            Err(de::Error::custom(format!(
+                "invalid encoding label: '{}', must be a WHATWG name or label as described by: https://encoding.spec.whatwg.org/#names-and-labels",
+                name
+            )))
         }
     }
 }

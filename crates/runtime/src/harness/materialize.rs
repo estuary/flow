@@ -1,10 +1,10 @@
 use super::{Read, Reader};
 use crate::materialize::ResponseStream;
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
-use futures::{channel::mpsc, TryStreamExt};
+use futures::{TryStreamExt, channel::mpsc};
 use proto_flow::flow;
-use proto_flow::materialize::{request, response, Request, Response};
+use proto_flow::materialize::{Request, Response, request, response};
 use proto_flow::runtime;
 use std::pin::Pin;
 

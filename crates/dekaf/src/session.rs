@@ -1,28 +1,26 @@
 use super::{App, Collection, Read};
 use crate::{
-    api_client::KafkaClientAuth, from_downstream_topic_name, from_upstream_topic_name,
-    logging::propagate_task_forwarder, read::BatchResult, to_downstream_topic_name,
-    to_upstream_topic_name, topology::PartitionOffset, DekafError, KafkaApiClient,
-    SessionAuthentication, TaskState,
+    DekafError, KafkaApiClient, SessionAuthentication, TaskState, api_client::KafkaClientAuth,
+    from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
+    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
 };
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use itertools::Itertools;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
-        self,
+        self, ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
+        RequestHeader, TopicName,
         metadata_response::{
             MetadataResponseBroker, MetadataResponsePartition, MetadataResponseTopic,
         },
-        ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
-        RequestHeader, TopicName,
     },
     protocol::{Decodable, Encodable, Message, StrBytes},
 };
 use std::{cmp::max, sync::Arc};
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     time::SystemTime,
 };
 use tracing::instrument;
@@ -177,7 +175,7 @@ impl Session {
                     .with_error_code(ResponseError::SaslAuthenticationFailed.code())
                     .with_error_message(Some(StrBytes::from_string(
                         "Session cannot be reauthenticated with a different username".to_string(),
-                    ))))
+                    ))));
             }
             _ => {}
         };
@@ -276,11 +274,13 @@ impl Session {
                 Ok(MetadataResponseTopic::default()
                     .with_name(Some(self.encode_topic_name(name)?))
                     .with_is_internal(false)
-                    .with_partitions(vec![MetadataResponsePartition::default()
-                        .with_partition_index(0)
-                        .with_leader_id(messages::BrokerId(1))
-                        .with_replica_nodes(vec![messages::BrokerId(1)])
-                        .with_isr_nodes(vec![messages::BrokerId(1)])]))
+                    .with_partitions(vec![
+                        MetadataResponsePartition::default()
+                            .with_partition_index(0)
+                            .with_leader_id(messages::BrokerId(1))
+                            .with_replica_nodes(vec![messages::BrokerId(1)])
+                            .with_isr_nodes(vec![messages::BrokerId(1)]),
+                    ]))
             })
             .collect::<anyhow::Result<_>>()?;
 
@@ -354,13 +354,15 @@ impl Session {
                         MetadataResponseTopic::default()
                             .with_name(req.name)
                             .with_is_internal(false)
-                            .with_partitions(vec![MetadataResponsePartition::default()
-                                .with_partition_index(0)
-                                .with_leader_id(messages::BrokerId(1))
-                                .with_replica_nodes(vec![messages::BrokerId(1)])
-                                .with_isr_nodes(vec![messages::BrokerId(1)])])
+                            .with_partitions(vec![
+                                MetadataResponsePartition::default()
+                                    .with_partition_index(0)
+                                    .with_leader_id(messages::BrokerId(1))
+                                    .with_replica_nodes(vec![messages::BrokerId(1)])
+                                    .with_isr_nodes(vec![messages::BrokerId(1)]),
+                            ])
                     })
-                    .collect_vec())
+                    .collect_vec());
             }
             Err(e) => Err(e),
         }
@@ -616,7 +618,9 @@ impl Session {
                                 if fetch_offset >= data_preview_state.offset
                                     || data_preview_state.offset - fetch_offset > 12
                                 {
-                                    bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
+                                    bail!(
+                                        "Session was used for fetching preview data, cannot be used for fetching non-preview data."
+                                    )
                                 }
                                 Some(data_preview_state.to_owned())
                             }
@@ -630,7 +634,9 @@ impl Session {
                                     entry.insert(state);
                                     Some(state)
                                 } else {
-                                    bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
+                                    bail!(
+                                        "Session was used for fetching preview data, cannot be used for fetching non-preview data."
+                                    )
                                 }
                             }
                         }
@@ -1155,10 +1161,10 @@ impl Session {
                 // Multiple systems had trouble when this returned the actual list of groups...
                 // and AFAICT nothing has any trouble when we return an empty list here.
                 e.groups = vec![]; //e
-                                   // .groups
-                                   // .into_iter()
-                                   // .filter(|grp| !grp.group_id.starts_with("amazon.msk"))
-                                   // .collect_vec();
+                // .groups
+                // .into_iter()
+                // .filter(|grp| !grp.group_id.starts_with("amazon.msk"))
+                // .collect_vec();
 
                 return Ok(e);
             }

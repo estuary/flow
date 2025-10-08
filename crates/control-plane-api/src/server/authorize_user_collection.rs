@@ -76,7 +76,7 @@ pub async fn do_authorize_user_collection(
                 return Ok(axum::Json(Response {
                     retry_millis: backoff.as_millis() as u64,
                     ..Default::default()
-                }))
+                }));
             }
             Err(Ok(backoff)) => {
                 () = tokio::time::sleep(backoff).await;

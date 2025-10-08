@@ -45,7 +45,9 @@ pub async fn do_discover(
     } else if sources.captures.is_empty() {
         anyhow::bail!("sourced specification files do not contain any captures");
     } else {
-        anyhow::bail!("sourced specification files contain multiple captures. Use --capture to identify a specific one");
+        anyhow::bail!(
+            "sourced specification files contain multiple captures. Use --capture to identify a specific one"
+        );
     };
 
     let capture = match sources

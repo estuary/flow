@@ -16,8 +16,8 @@ mod poll;
 mod preview;
 mod raw;
 
-use flow_client::client::refresh_authorizations;
 pub(crate) use flow_client::client::Client;
+use flow_client::client::refresh_authorizations;
 pub(crate) use flow_client::{api_exec, api_exec_paginated};
 use output::{Output, OutputType};
 use poll::poll_while_queued;

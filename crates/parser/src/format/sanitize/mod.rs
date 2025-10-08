@@ -1,4 +1,4 @@
-use crate::{ParseConfig, Output};
+use crate::{Output, ParseConfig};
 
 pub mod datetime;
 
@@ -11,4 +11,3 @@ pub enum SanitizeError {
 pub fn sanitize_output(config: &ParseConfig, output: Output) -> Result<Output, SanitizeError> {
     datetime::sanitize_datetime(config, output).map_err(SanitizeError::DatetimeSanitizeError)
 }
-

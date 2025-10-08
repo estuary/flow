@@ -1,12 +1,13 @@
-use super::{dbutil, do_validate, parse_validate, Config, Lambda, Param, Transform};
+use super::{Config, Lambda, Param, Transform, dbutil, do_validate, parse_validate};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use prost::Message;
-use proto_flow::runtime::{derive_request_ext, derive_response_ext, DeriveRequestExt};
+use proto_flow::runtime::{DeriveRequestExt, derive_request_ext, derive_response_ext};
 use proto_flow::{
-    derive::{request, response, Request, Response},
-    flow, RuntimeCheckpoint,
+    RuntimeCheckpoint,
+    derive::{Request, Response, request, response},
+    flow,
 };
 
 pub fn connector<R>(request_rx: R) -> mpsc::Receiver<anyhow::Result<Response>>

@@ -1,6 +1,6 @@
 use crate::{api_exec, catalog::SpecSummaryItem, draft::encrypt, local_specs};
 use anyhow::Context;
-use futures::{stream::FuturesOrdered, StreamExt};
+use futures::{StreamExt, stream::FuturesOrdered};
 use serde::Serialize;
 
 #[derive(Debug, clap::Args)]

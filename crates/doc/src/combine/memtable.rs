@@ -1,5 +1,5 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{redact, reduce, validation, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode, redact, reduce, validation};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -454,9 +454,9 @@ impl MemDrainer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
-    use crate::{combine::CHUNK_TARGET_SIZE, SerPolicy, Validator};
+    use crate::{SerPolicy, Validator, combine::CHUNK_TARGET_SIZE};
     use itertools::Itertools;
     use json::schema::build::build_schema;
 

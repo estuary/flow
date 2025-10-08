@@ -1,4 +1,4 @@
-use super::{collection, errors::Error, indexed, reference, schema, walk_transition, Scope};
+use super::{Scope, collection, errors::Error, indexed, reference, schema, walk_transition};
 use flow::test_spec::step::Type as StepType;
 use proto_flow::flow;
 use tables::EitherOrBoth as EOB;

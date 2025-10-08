@@ -21,7 +21,7 @@ pub fn build_bundle(bundle: &[u8]) -> Result<Schema, json::schema::build::Errors
                     scope: id,
                     inner: json::schema::build::Error::Json(err),
                 },
-            ]))
+            ]));
         }
     };
 

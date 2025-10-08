@@ -1436,10 +1436,16 @@ mod test {
 
             // Expect that an attempt to split an already-splitting parent fails.
             let err = map_shard_to_split(&key_lhs, true).unwrap_err();
-            assert_eq!(err.to_string(), "shard derivation/example/derivation/2020202020202020/10000000-60000000 is already splitting to target derivation/example/derivation/2020202020202020/20000000-60000000");
+            assert_eq!(
+                err.to_string(),
+                "shard derivation/example/derivation/2020202020202020/10000000-60000000 is already splitting to target derivation/example/derivation/2020202020202020/20000000-60000000"
+            );
 
             let err = map_shard_to_split(&key_rhs, true).unwrap_err();
-            assert_eq!(err.to_string(), "shard derivation/example/derivation/2020202020202020/20000000-60000000 is already splitting from source derivation/example/derivation/2020202020202020/10000000-60000000");
+            assert_eq!(
+                err.to_string(),
+                "shard derivation/example/derivation/2020202020202020/20000000-60000000 is already splitting from source derivation/example/derivation/2020202020202020/10000000-60000000"
+            );
         }
 
         // Case: split a partition on its key.

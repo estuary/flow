@@ -8,10 +8,7 @@ use crate::tokens::AzureTokens;
 /// Generate Azure access token using 2-step workload identity federation with Google as external provider:
 /// 1. Sign JWT using Google's signJWT API with task_name as subject
 /// 2. Exchange signed JWT for target App Registration access token
-pub async fn generate_tokens(
-    config: &AzureConfig,
-    task_name: &str,
-) -> anyhow::Result<AzureTokens> {
+pub async fn generate_tokens(config: &AzureConfig, task_name: &str) -> anyhow::Result<AzureTokens> {
     // Step 1: Sign JWT using Google's signJWT API with task_name as subject
     let mut signed_jwt =
         google_sign_jwt(task_name, task_name, "api://AzureADTokenExchange").await?;

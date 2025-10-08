@@ -1,5 +1,5 @@
-use super::harness::{draft_catalog, set_of, TestHarness};
-use crate::{controllers::ControllerState, ControlPlane};
+use super::harness::{TestHarness, draft_catalog, set_of};
+use crate::{ControlPlane, controllers::ControllerState};
 use control_plane_api::Capability;
 use models::{CatalogType, Id};
 
@@ -300,7 +300,10 @@ async fn assert_publication_included(
     for name in catalog_names {
         let state = harness.get_controller_state(name).await;
         if state.last_pub_id != publication_id {
-            panic!("expected publication {publication_id} to include '{name}', but the last_pub_id of {name} is {}", state.last_pub_id);
+            panic!(
+                "expected publication {publication_id} to include '{name}', but the last_pub_id of {name} is {}",
+                state.last_pub_id
+            );
         }
         states.push(state);
     }
@@ -316,7 +319,10 @@ async fn assert_publication_excluded(
         let state = harness.get_controller_state(name).await;
         // Techincally, `==` would be correct here, but `>=` provides an extra sanity check
         if state.last_pub_id >= publication_id {
-            panic!("expected publication {publication_id} to not include '{name}', but the last_pub_id of {name} is {}", state.last_pub_id);
+            panic!(
+                "expected publication {publication_id} to not include '{name}', but the last_pub_id of {name} is {}",
+                state.last_pub_id
+            );
         }
     }
 }

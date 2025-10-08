@@ -1,10 +1,9 @@
 use anyhow::Context;
 use control_plane_api::{
-    connector_tags,
-    discovers::{fetch_discover, Discover, DiscoverHandler, Row},
+    Id, connector_tags,
+    discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,
-    Id,
 };
 use serde::{Deserialize, Serialize};
 

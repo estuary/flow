@@ -48,7 +48,7 @@ impl CommandResult {
 }
 
 pub fn run_test(config: &ParseConfig, input: Input) -> CommandResult {
-    return run_parser(config, input, true)
+    return run_parser(config, input, true);
 }
 
 pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandResult {
@@ -61,7 +61,11 @@ pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandRes
     serde_json::to_writer_pretty(&mut cfg_file, config).expect("failed to write config");
     std::mem::drop(cfg_file);
 
-    let debug_env = if debug { vec![("PARSER_LOG", "parser=debug")] } else { vec![] };
+    let debug_env = if debug {
+        vec![("PARSER_LOG", "parser=debug")]
+    } else {
+        vec![]
+    };
 
     let mut process = Command::cargo_bin("flow-parser")
         .expect("to find flow-parser binary")

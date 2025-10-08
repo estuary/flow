@@ -532,8 +532,11 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
             .get(&public_label)
             .map(String::as_str)
             .unwrap_or("false");
-        let public = public.parse::<bool>()
-            .with_context(|| format!("invalid '{public_label}' label value: '{public}', must be either 'true' or 'false'"))?;
+        let public = public.parse::<bool>().with_context(|| {
+            format!(
+                "invalid '{public_label}' label value: '{public}', must be either 'true' or 'false'"
+            )
+        })?;
 
         network_ports.push(flow::NetworkPort {
             number: number as u32,

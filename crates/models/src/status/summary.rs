@@ -1,6 +1,6 @@
 use crate::{
-    status::{connector::ConnectorStatus, ControllerStatus},
     Id,
+    status::{ControllerStatus, connector::ConnectorStatus},
 };
 
 use super::activation::ShardsStatus;
@@ -170,11 +170,11 @@ impl Summary {
 mod test {
     use super::*;
     use crate::status::{
+        ControllerStatus, ShardRef,
         activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
         capture::CaptureStatus,
         catalog_test::TestStatus,
         materialization::MaterializationStatus,
-        ControllerStatus, ShardRef,
     };
 
     #[test]

@@ -202,7 +202,6 @@ fn tests_schema(generator: &mut schemars::generate::SchemaGenerator) -> schemars
     .unwrap()
 }
 
-
 impl std::str::FromStr for CatalogType {
     type Err = ();
 

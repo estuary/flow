@@ -1,8 +1,8 @@
 use crate::{
-    integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
     ControlPlane,
+    integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog},
 };
-use models::{status::ShardRef, CaptureEndpoint, MaterializationEndpoint};
+use models::{CaptureEndpoint, MaterializationEndpoint, status::ShardRef};
 use uuid::Uuid;
 
 fn initial_config() -> serde_json::Value {
@@ -441,11 +441,13 @@ async fn test_config_update_publication_backoff() {
         assert!(capture_state.error.is_some());
 
         if i > 0 {
-            assert!(capture_state
-                .error
-                .as_deref()
-                .unwrap()
-                .contains("backing off config update publication"));
+            assert!(
+                capture_state
+                    .error
+                    .as_deref()
+                    .unwrap()
+                    .contains("backing off config update publication")
+            );
         }
     }
 

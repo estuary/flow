@@ -9,16 +9,16 @@
 use std::collections::VecDeque;
 
 use crate::{
-    controllers::{fallback_backoff_next_run, fetch_controller_state, RetryableError},
     ControlPlane,
+    controllers::{RetryableError, fallback_backoff_next_run, fetch_controller_state},
 };
 use anyhow::Context;
 use automations::{Action, Executor, TaskType};
 use control_plane_api::live_specs;
-use models::{status::ControllerStatus, Id};
+use models::{Id, status::ControllerStatus};
 use serde::{Deserialize, Serialize};
 
-use super::{controller_update, ControllerState, NextRun, CONTROLLER_VERSION};
+use super::{CONTROLLER_VERSION, ControllerState, NextRun, controller_update};
 
 #[derive(Clone)]
 pub struct LiveSpecControllerExecutor<C: ControlPlane> {

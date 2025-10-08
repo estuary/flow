@@ -1,5 +1,5 @@
 use crate::integration_tests::harness::{
-    draft_catalog, get_collection_generation_id, mock_inferred_schema, TestHarness,
+    TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema,
 };
 
 #[tokio::test]

@@ -12,7 +12,7 @@ pub use itertools::EitherOrBoth;
 pub use macros::{Row, Table};
 
 #[cfg(feature = "persist")]
-pub use macros::{load_tables, persist_tables, SqlTableObj};
+pub use macros::{SqlTableObj, load_tables, persist_tables};
 #[cfg(feature = "persist")]
 use prost::Message;
 

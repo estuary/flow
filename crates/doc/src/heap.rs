@@ -305,8 +305,8 @@ impl<'a, 'alloc> json::Field<'a, HeapNode<'alloc>> for &'a HeapField<'alloc> {
 mod test {
     use super::*;
     use crate::ArchivedNode;
-    use json::node::compare;
     use json::Pointer;
+    use json::node::compare;
     use serde_json::json;
     use std::cmp::Ordering;
 

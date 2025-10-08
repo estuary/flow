@@ -1,6 +1,6 @@
 use super::{
-    collection, field_selection, indexed, reference, walk_transition, Connectors, Error,
-    NoOpConnectors, Scope,
+    Connectors, Error, NoOpConnectors, Scope, collection, field_selection, indexed, reference,
+    walk_transition,
 };
 use futures::SinkExt;
 use json::schema::types;

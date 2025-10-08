@@ -1,13 +1,13 @@
-use async_graphql::{dataloader, ComplexObject, Context, SimpleObject};
+use async_graphql::{ComplexObject, Context, SimpleObject, dataloader};
 use chrono::{DateTime, Utc};
 use models::Id;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::server::{
-    public::graphql::live_spec_refs::{
-        paginate_live_specs_refs, LiveSpecRef, PaginatedLiveSpecsRefs,
-    },
     App, ControlClaims,
+    public::graphql::live_spec_refs::{
+        LiveSpecRef, PaginatedLiveSpecsRefs, paginate_live_specs_refs,
+    },
 };
 
 #[derive(Debug, Clone, SimpleObject)]

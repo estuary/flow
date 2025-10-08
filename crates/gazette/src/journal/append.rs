@@ -1,5 +1,5 @@
 use super::Client;
-use crate::{router, Error};
+use crate::{Error, router};
 use futures::{FutureExt, Stream, StreamExt};
 use proto_gazette::broker::{self, AppendResponse};
 

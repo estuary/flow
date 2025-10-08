@@ -2,7 +2,7 @@ use doc::{Extractor, Validator};
 use json::schema::build::build_schema;
 use rand::{Rng, SeedableRng};
 use rand_distr::Distribution;
-use serde_json::{json, value::RawValue, Value};
+use serde_json::{Value, json, value::RawValue};
 use std::io::Write;
 use std::time::Instant;
 

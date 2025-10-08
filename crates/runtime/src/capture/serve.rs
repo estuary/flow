@@ -1,11 +1,11 @@
-use super::{connector, protocol::*, RequestStream, ResponseStream, Task, Transaction};
-use crate::{rocksdb::RocksDB, verify, Accumulator, LogHandler, Runtime};
+use super::{RequestStream, ResponseStream, Task, Transaction, connector, protocol::*};
+use crate::{Accumulator, LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
 use futures::channel::oneshot;
 use futures::future::FusedFuture;
 use futures::stream::FusedStream;
 use futures::{FutureExt, SinkExt, StreamExt, TryStreamExt};
-use proto_flow::capture::{request, Request, Response};
+use proto_flow::capture::{Request, Response, request};
 use std::collections::{BTreeMap, HashSet};
 
 #[tonic::async_trait]

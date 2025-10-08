@@ -1,6 +1,7 @@
-#[path="../tests/testutil.rs"] mod testutil;
+#[path = "../tests/testutil.rs"]
+mod testutil;
 
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 use parser::ParseConfig;
 use testutil::{input_for_file, run_parser};
@@ -12,10 +13,12 @@ fn peoples_500(c: &mut Criterion) {
         ..Default::default()
     };
 
-    c.bench_function("peoples_500", |b| b.iter(|| {
-        let input = input_for_file(path);
-        run_parser(&cfg, input, false);
-    }));
+    c.bench_function("peoples_500", |b| {
+        b.iter(|| {
+            let input = input_for_file(path);
+            run_parser(&cfg, input, false);
+        })
+    });
 }
 
 criterion_group!(benches, peoples_500);

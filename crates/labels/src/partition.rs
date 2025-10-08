@@ -1,6 +1,6 @@
 use crate::{
-    expect_one, expect_one_u32, set_value, Error, LabelSet, FIELD_PREFIX, KEY_BEGIN, KEY_BEGIN_MIN,
-    KEY_END,
+    Error, FIELD_PREFIX, KEY_BEGIN, KEY_BEGIN_MIN, KEY_END, LabelSet, expect_one, expect_one_u32,
+    set_value,
 };
 use proto_gazette::broker::Label;
 use serde_json::Value;
@@ -38,7 +38,11 @@ pub fn encode_field_range<'f, N: json::AsNode>(
 }
 
 /// Add a logically-partitioned field and value to the LabelSet.
-pub fn add_value<N: json::AsNode>(set: LabelSet, field: &str, value: &N) -> Result<LabelSet, Error> {
+pub fn add_value<N: json::AsNode>(
+    set: LabelSet,
+    field: &str,
+    value: &N,
+) -> Result<LabelSet, Error> {
     Ok(crate::add_value(
         set,
         &format!("{FIELD_PREFIX}{}", field),
@@ -97,9 +101,10 @@ pub fn encode_field_value<N: json::AsNode>(mut b: String, value: &N) -> Result<S
         json::Node::PosInt(p) => write!(b, "%_{p}").unwrap(),
         json::Node::NegInt(n) => write!(b, "%_{n}").unwrap(),
         json::Node::String(s) => write!(b, "{}", super::percent_encoding(s)).unwrap(),
-        json::Node::Array(_) | json::Node::Bytes(_) | json::Node::Float(_) | json::Node::Object(_) => {
-            return Err(Error::InvalidValueType)
-        }
+        json::Node::Array(_)
+        | json::Node::Bytes(_)
+        | json::Node::Float(_)
+        | json::Node::Object(_) => return Err(Error::InvalidValueType),
     };
     Ok(b)
 }
@@ -174,7 +179,7 @@ pub fn name_prefix<'n>(name: &'n str, set: &LabelSet) -> Option<&'n str> {
 mod test {
     use super::*;
     use crate::build_set;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn test_partition_value_encoding_round_trip() {
@@ -297,7 +302,10 @@ mod test {
             (crate::KEY_END, "20002000"),
             ("estuary.dev/field/Bool", "%_true"),
             ("estuary.dev/field/String", "hi%21%20%F0%9F%91%8B"),
-            ("estuary.dev/field/messy", "Ba%2Bz%21%40_%22Bi.n%2Fg%22%20http%3A%2F%2Fexample-host%2Fpath%3Fq1%3Dv1%26q2%3Dv%2B2%3Bex%25%25tra"),
+            (
+                "estuary.dev/field/messy",
+                "Ba%2Bz%21%40_%22Bi.n%2Fg%22%20http%3A%2F%2Fexample-host%2Fpath%3Fq1%3Dv1%26q2%3Dv%2B2%3Bex%25%25tra",
+            ),
             ("estuary.dev/field/the_int", "%_-8675309"),
         ]);
 

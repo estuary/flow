@@ -329,11 +329,7 @@ impl Shape {
 }
 
 fn union_option<T: Eq>(lhs: Option<T>, rhs: Option<T>) -> Option<T> {
-    if lhs == rhs {
-        lhs
-    } else {
-        None
-    }
+    if lhs == rhs { lhs } else { None }
 }
 
 fn union_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Option<Box<Shape>> {

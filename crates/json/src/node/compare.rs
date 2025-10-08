@@ -89,8 +89,8 @@ pub fn compare_node<'l, 'r, L: AsNode, R: AsNode>(
 
 #[cfg(test)]
 mod test {
-    use super::{compare, Node};
-    use serde_json::{json, Value};
+    use super::{Node, compare};
+    use serde_json::{Value, json};
     use std::cmp::Ordering;
 
     #[test]

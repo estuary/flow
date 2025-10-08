@@ -3,8 +3,8 @@ mod testutil;
 use std::fs;
 use std::path::PathBuf;
 
-use parser::{character_separated::AdvancedCsvConfig, Format, JsonPointer, ParseConfig};
-use serde_json::{json, Value};
+use parser::{Format, JsonPointer, ParseConfig, character_separated::AdvancedCsvConfig};
+use serde_json::{Value, json};
 use testutil::{input_for_file, run_test};
 
 #[test]

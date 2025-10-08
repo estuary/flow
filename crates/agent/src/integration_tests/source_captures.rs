@@ -1,6 +1,6 @@
-use crate::{integration_tests::harness::InjectBuildError, ControlPlane};
+use crate::{ControlPlane, integration_tests::harness::InjectBuildError};
 
-use super::harness::{draft_catalog, TestHarness};
+use super::harness::{TestHarness, draft_catalog};
 use models::Id;
 use uuid::Uuid;
 
@@ -93,10 +93,12 @@ async fn test_source_captures() {
     // Ensure that the error was recorded
     let a_pub = &a_state.current_status.publication_status().unwrap().history[0];
     assert!(!a_pub.is_success());
-    assert!(a_pub
-        .detail
-        .as_deref()
-        .is_some_and(|d| d.starts_with("adding ")));
+    assert!(
+        a_pub
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.starts_with("adding "))
+    );
 
     let new_last_pub = harness.control_plane().current_time() - chrono::Duration::minutes(4);
     // Simulate the passage of time to allow the materialization to re-try adding the bindings
@@ -144,14 +146,18 @@ async fn test_source_captures() {
     );
     let a_status = a_state.current_status.unwrap_materialization();
     assert!(a_status.source_capture.as_ref().unwrap().up_to_date);
-    assert!(a_status
-        .source_capture
-        .as_ref()
-        .unwrap()
-        .add_bindings
-        .is_empty());
+    assert!(
+        a_status
+            .source_capture
+            .as_ref()
+            .unwrap()
+            .add_bindings
+            .is_empty()
+    );
     assert_eq!(
-        Some("adding binding(s) to match the sourceCapture: [ducks/pond/quacks]\nupdated resource /_meta of 1 bindings"),
+        Some(
+            "adding binding(s) to match the sourceCapture: [ducks/pond/quacks]\nupdated resource /_meta of 1 bindings"
+        ),
         a_status.publications.history[0].detail.as_deref()
     );
 
@@ -171,7 +177,9 @@ async fn test_source_captures() {
     );
     let no_source_status = no_source_state.current_status.unwrap_materialization();
     assert_eq!(
-        Some("in response to deletion one or more depencencies, removed source Capture: 'ducks/notARealCapture'"),
+        Some(
+            "in response to deletion one or more depencencies, removed source Capture: 'ducks/notARealCapture'"
+        ),
         no_source_status.publications.history[0].detail.as_deref()
     );
     assert!(no_source_status.source_capture.is_none());
@@ -298,14 +306,18 @@ async fn test_source_captures_collection_name() {
     );
     let a_status = a_state.current_status.unwrap_materialization();
     assert!(a_status.source_capture.as_ref().unwrap().up_to_date);
-    assert!(a_status
-        .source_capture
-        .as_ref()
-        .unwrap()
-        .add_bindings
-        .is_empty());
+    assert!(
+        a_status
+            .source_capture
+            .as_ref()
+            .unwrap()
+            .add_bindings
+            .is_empty()
+    );
     assert_eq!(
-        Some("adding binding(s) to match the sourceCapture: [ducks/pond/quacks]\nupdated resource /_meta of 1 bindings"),
+        Some(
+            "adding binding(s) to match the sourceCapture: [ducks/pond/quacks]\nupdated resource /_meta of 1 bindings"
+        ),
         a_status.publications.history[0].detail.as_deref()
     );
 
@@ -325,7 +337,9 @@ async fn test_source_captures_collection_name() {
     );
     let no_source_status = no_source_state.current_status.unwrap_materialization();
     assert_eq!(
-        Some("in response to deletion one or more depencencies, removed source Capture: 'ducks/notARealCapture'"),
+        Some(
+            "in response to deletion one or more depencencies, removed source Capture: 'ducks/notARealCapture'"
+        ),
         no_source_status.publications.history[0].detail.as_deref()
     );
     assert!(no_source_status.source_capture.is_none());

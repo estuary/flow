@@ -66,9 +66,7 @@ pub mod request {
         /// Last MaterializationSpec which was validated and published.
         /// Note that this MaterializationSpec may not have been applied.
         #[prost(message, optional, tag = "5")]
-        pub last_materialization: ::core::option::Option<
-            super::super::flow::MaterializationSpec,
-        >,
+        pub last_materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
         /// Version of the last validated MaterializationSpec.
         #[prost(string, tag = "6")]
         pub last_version: ::prost::alloc::string::String,
@@ -84,9 +82,7 @@ pub mod request {
             pub resource_config_json: ::prost::bytes::Bytes,
             /// Collection to be materialized.
             #[prost(message, optional, tag = "2")]
-            pub collection: ::core::option::Option<
-                super::super::super::flow::CollectionSpec,
-            >,
+            pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
             /// Projection configuration, keyed by the projection field name,
             /// with JSON-encoded and driver-defined configuration objects.
             #[prost(btree_map = "string, bytes", tag = "3")]
@@ -115,17 +111,13 @@ pub mod request {
     pub struct Apply {
         /// Materialization to be applied.
         #[prost(message, optional, tag = "1")]
-        pub materialization: ::core::option::Option<
-            super::super::flow::MaterializationSpec,
-        >,
+        pub materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
         /// Version of the MaterializationSpec being applied.
         #[prost(string, tag = "2")]
         pub version: ::prost::alloc::string::String,
         /// Last CaptureSpec which was successfully applied.
         #[prost(message, optional, tag = "4")]
-        pub last_materialization: ::core::option::Option<
-            super::super::flow::MaterializationSpec,
-        >,
+        pub last_materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
         /// Version of the last applied MaterializationSpec.
         #[prost(string, tag = "5")]
         pub last_version: ::prost::alloc::string::String,
@@ -155,9 +147,7 @@ pub mod request {
     pub struct Open {
         /// Materialization to be transacted.
         #[prost(message, optional, tag = "1")]
-        pub materialization: ::core::option::Option<
-            super::super::flow::MaterializationSpec,
-        >,
+        pub materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
         /// Version of the opened MaterializationSpec.
         /// The driver may want to require that this match the version last
         /// provided to a successful Apply RPC. It's possible that it won't,
@@ -227,9 +217,7 @@ pub mod request {
     pub struct StartCommit {
         /// Flow runtime checkpoint to commit with this transaction.
         #[prost(message, optional, tag = "1")]
-        pub runtime_checkpoint: ::core::option::Option<
-            ::proto_gazette::consumer::Checkpoint,
-        >,
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     }
     /// Acknowledge to the connector that the previous transaction
     /// has committed to the Flow runtime's recovery log.
@@ -324,15 +312,7 @@ pub mod response {
         pub mod constraint {
             /// Type encodes a constraint type for this flow.Projection.
             #[derive(
-                Clone,
-                Copy,
-                Debug,
-                PartialEq,
-                Eq,
-                Hash,
-                PartialOrd,
-                Ord,
-                ::prost::Enumeration
+                Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
             )]
             #[repr(i32)]
             pub enum Type {
@@ -433,10 +413,8 @@ pub mod response {
             /// Projections of the CollectionSpec which are missing from
             /// constraints are implicitly forbidden.
             #[prost(btree_map = "string, message", tag = "1")]
-            pub constraints: ::prost::alloc::collections::BTreeMap<
-                ::prost::alloc::string::String,
-                Constraint,
-            >,
+            pub constraints:
+                ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, Constraint>,
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
             ///
@@ -494,9 +472,7 @@ pub mod response {
         /// rebuilding the materialization from scratch. This sentinel is a trivial
         /// encoding of the max-value 2^29-1 protobuf tag with boolean true.
         #[prost(message, optional, tag = "1")]
-        pub runtime_checkpoint: ::core::option::Option<
-            ::proto_gazette::consumer::Checkpoint,
-        >,
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
         /// Disable the runtime's load optimization which suppresses Load requests
         /// for keys that are known to not exist in the endpoint. When set to true,
         /// all Load requests will be sent to the connector regardless of the
@@ -565,18 +541,15 @@ pub mod extra {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ValidateExistingProjectionRequest {
         #[prost(message, optional, tag = "1")]
-        pub existing_binding: ::core::option::Option<
-            super::super::flow::materialization_spec::Binding,
-        >,
+        pub existing_binding:
+            ::core::option::Option<super::super::flow::materialization_spec::Binding>,
         #[prost(message, optional, tag = "2")]
         pub proposed_binding: ::core::option::Option<super::request::validate::Binding>,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ValidateBindingAgainstConstraints {
         #[prost(message, optional, tag = "1")]
-        pub binding: ::core::option::Option<
-            super::super::flow::materialization_spec::Binding,
-        >,
+        pub binding: ::core::option::Option<super::super::flow::materialization_spec::Binding>,
         #[prost(btree_map = "string, message", tag = "2")]
         pub constraints: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,

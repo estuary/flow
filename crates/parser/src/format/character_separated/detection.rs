@@ -289,7 +289,10 @@ mod test {
             );
             let expected_rev = expected_ord.map(std::cmp::Ordering::reverse);
             let actual = b.partial_cmp(&a);
-            assert_eq!(expected_rev, actual, "reflexive case: a: {a:?}, b: {b:?}, expected: {expected_rev:?}, actual: {actual:?}");
+            assert_eq!(
+                expected_rev, actual,
+                "reflexive case: a: {a:?}, b: {b:?}, expected: {expected_rev:?}, actual: {actual:?}"
+            );
         }
     }
 

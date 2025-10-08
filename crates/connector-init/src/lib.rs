@@ -90,7 +90,8 @@ fn check_protocol<R>(
     if let Some(actual_protocol) = actual_protocol {
         if EXPECT_PROTOCOL != actual_protocol {
             return Err(tonic::Status::internal(format!(
-                "connector returned an unexpected protocol version {actual_protocol} (expected {EXPECT_PROTOCOL}")));
+                "connector returned an unexpected protocol version {actual_protocol} (expected {EXPECT_PROTOCOL}"
+            )));
         }
     }
     response

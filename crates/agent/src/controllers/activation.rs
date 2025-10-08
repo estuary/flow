@@ -9,15 +9,14 @@ use chrono::{DateTime, Utc};
 use gazette::consumer::{self, list_response, replica_status};
 use itertools::Itertools;
 use models::{
-    status::{
-        self,
-        activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
-        AlertType, Alerts,
-    },
     AnySpec,
+    status::{
+        self, AlertType, Alerts,
+        activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
+    },
 };
 
-use super::{alerts, backoff_data_plane_activate, executor::Event, ControllerState, NextRun};
+use super::{ControllerState, NextRun, alerts, backoff_data_plane_activate, executor::Event};
 
 /// Helper for getting a `chrono::Duration` from an environment variable, using humantime so it
 /// supports parsing durations like `3h`.

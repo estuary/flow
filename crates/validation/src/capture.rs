@@ -1,4 +1,4 @@
-use super::{indexed, reference, Connectors, Error, NoOpConnectors, Scope};
+use super::{Connectors, Error, NoOpConnectors, Scope, indexed, reference};
 use futures::SinkExt;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;

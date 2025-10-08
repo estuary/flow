@@ -1,7 +1,7 @@
 use super::{Runtime, TokioContext};
 use anyhow::Context;
-use futures::channel::oneshot;
 use futures::FutureExt;
+use futures::channel::oneshot;
 use proto_flow::runtime::TaskServiceConfig;
 
 pub struct TaskService {

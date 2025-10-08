@@ -1,10 +1,10 @@
 use super::{
-    compare_key_lazy, compare_lazy, reduce_item, reduce_prop, schema::json_schema_merge, Error,
-    ParsedNumber, Result, Tape,
+    Error, ParsedNumber, Result, Tape, compare_key_lazy, compare_lazy, reduce_item, reduce_prop,
+    schema::json_schema_merge,
 };
 use crate::{
-    lazy::{LazyDestructured, LazyNode},
     BumpVec, HeapNode,
+    lazy::{LazyDestructured, LazyNode},
 };
 use itertools::EitherOrBoth;
 use json::{AsNode, Node};
@@ -873,7 +873,9 @@ mod test {
                 // Sum results in overflow.
                 Partial {
                     rhs: json!(u64::MAX - 32),
-                    expect: Err("reduction failed at location '': sum strategy encountered a numeric overflow"),
+                    expect: Err(
+                        "reduction failed at location '': sum strategy encountered a numeric overflow",
+                    ),
                 },
                 // Add signed.
                 Partial {
@@ -898,7 +900,9 @@ mod test {
                 // Number which overflows returns an error.
                 Partial {
                     rhs: json!(std::f64::MAX / 10.0),
-                    expect: Err("reduction failed at location '': sum strategy encountered a numeric overflow"),
+                    expect: Err(
+                        "reduction failed at location '': sum strategy encountered a numeric overflow",
+                    ),
                 },
                 // Sometimes changes are too small to represent.
                 Partial {

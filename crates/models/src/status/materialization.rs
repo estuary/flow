@@ -3,10 +3,10 @@ use std::collections::BTreeSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::activation::ActivationStatus;
-use super::publications::PublicationStatus;
 use super::Alerts;
 use super::PendingConfigUpdateStatus;
+use super::activation::ActivationStatus;
+use super::publications::PublicationStatus;
 
 /// Status of a materialization controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]

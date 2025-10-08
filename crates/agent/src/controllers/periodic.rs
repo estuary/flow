@@ -7,11 +7,11 @@
 //! already records the last update time of each spec.
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::{status::publications::PublicationStatus, ModelDef};
+use models::{ModelDef, status::publications::PublicationStatus};
 
 use crate::ControlPlane;
 
-use super::{publication_status::PendingPublication, ControllerErrorExt, ControllerState, NextRun};
+use super::{ControllerErrorExt, ControllerState, NextRun, publication_status::PendingPublication};
 
 /// 20 days was chosen because we'd like to have a 30 day retention on our
 /// builds, so this gives us 10 days to notice and correct any problems before

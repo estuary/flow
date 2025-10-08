@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::server::error::ApiErrorExt;
-use crate::server::{error::ApiError, App, ControlClaims};
+use crate::server::{App, ControlClaims, error::ApiError};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 // axum_extra's `Query` is needed here because unlike the one from `axum`, it
@@ -10,7 +10,7 @@ use axum::{Extension, Json};
 use axum_extra::extract::Query;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use models::status::{self, connector::ConnectorStatus, StatusResponse, Summary};
+use models::status::{self, StatusResponse, Summary, connector::ConnectorStatus};
 use models::{CatalogType, Id};
 
 /// Query parameters for the status endpoint

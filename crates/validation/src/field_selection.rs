@@ -65,7 +65,9 @@ pub enum Reject {
     DuplicateLocation,
     #[error("connector cannot support this field without a back-fill ({reason})")]
     ConnectorIncompatible { reason: String },
-    #[error("field is represented by the endpoint as {folded_field:?}, which is ambiguous with selected field {other_field:?}")]
+    #[error(
+        "field is represented by the endpoint as {folded_field:?}, which is ambiguous with selected field {other_field:?}"
+    )]
     DuplicateFold {
         folded_field: String,
         other_field: String,
@@ -573,7 +575,7 @@ fn is_parent_of(ptr: &str, other: &str) -> bool {
 #[cfg(test)]
 mod tests {
 
-    use super::{build_selection, extract_constraints, group_outcomes, Reject, Select};
+    use super::{Reject, Select, build_selection, extract_constraints, group_outcomes};
     use proto_flow::{flow, materialize};
     use std::collections::BTreeMap;
 

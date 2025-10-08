@@ -22,11 +22,7 @@ pub fn map_policy(policy: &flow::SerPolicy) -> doc::SerPolicy {
     } = policy;
 
     fn zero_to_max(i: u32) -> usize {
-        if i == 0 {
-            usize::MAX
-        } else {
-            i as usize
-        }
+        if i == 0 { usize::MAX } else { i as usize }
     }
 
     doc::SerPolicy {

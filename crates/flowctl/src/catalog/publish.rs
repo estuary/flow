@@ -1,4 +1,4 @@
-use crate::{catalog::SpecSummaryItem, draft, local_specs, CliContext};
+use crate::{CliContext, catalog::SpecSummaryItem, draft, local_specs};
 use anyhow::Context;
 
 #[derive(Debug, clap::Args)]
@@ -27,7 +27,10 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     // in common error scenarios. For example, we don't create the draft until after bundling, because
     // then we'd have to clean up the empty draft if the bundling fails. The very first thing is to create the client,
     // since that can fail due to missing/expired credentials.
-    anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
+    anyhow::ensure!(
+        args.auto_approve || std::io::stdin().is_tty(),
+        "The publish command must be run interactively unless the `--auto-approve` flag is provided"
+    );
 
     let (mut draft_catalog, _live, _validations) =
         local_specs::load_and_validate(&ctx.client, &args.source).await?;
@@ -39,7 +42,9 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     let removed = draft::remove_unchanged(&ctx.client, draft.id).await?;
     if !removed.is_empty() {
-        println!("The following specs are identical to the currently published specs, and have been pruned from the draft:");
+        println!(
+            "The following specs are identical to the currently published specs, and have been pruned from the draft:"
+        );
         for name in removed.iter() {
             println!("{name}");
         }

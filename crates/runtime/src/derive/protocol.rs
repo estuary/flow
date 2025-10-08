@@ -1,10 +1,10 @@
 use super::{Task, Transaction};
-use crate::rocksdb::{queue_connector_state_update, RocksDB};
-use crate::{verify, Accumulator};
+use crate::rocksdb::{RocksDB, queue_connector_state_update};
+use crate::{Accumulator, verify};
 use anyhow::Context;
 use bytes::BufMut;
 use prost::Message;
-use proto_flow::derive::{request, response, Request, Response};
+use proto_flow::derive::{Request, Response, request, response};
 use proto_flow::flow;
 use proto_flow::runtime::derive_response_ext;
 use proto_gazette::consumer;

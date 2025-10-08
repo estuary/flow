@@ -56,10 +56,7 @@ impl Iterator for Iter {
     type Item = &'static str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Iter {
-            types,
-            index,
-        } = self;
+        let Iter { types, index } = self;
 
         const ITER_ORDER: &[Set] = &[
             ARRAY,

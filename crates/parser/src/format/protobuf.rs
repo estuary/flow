@@ -1,14 +1,13 @@
 use crate::config::protobuf::ProtobufConfig;
 use crate::format::{Output, ParseError, Parser};
 use crate::input::Input;
-use protobuf::{MessageDyn, CodedInputStream};
-use protobuf_json_mapping::{PrintOptions, PrintError};
+use protobuf::{CodedInputStream, MessageDyn};
+use protobuf_json_mapping::{PrintError, PrintOptions};
 use serde_json::Value;
 
 use std::fs;
 
 use protobuf::reflect::FileDescriptor;
-
 
 #[derive(Debug)]
 pub struct ProtobufParser {
@@ -16,11 +15,8 @@ pub struct ProtobufParser {
 }
 
 pub fn new_protobuf_parser(config: ProtobufConfig) -> Box<dyn Parser> {
-    Box::new(ProtobufParser {
-        config,
-    })
+    Box::new(ProtobufParser { config })
 }
-
 
 impl Parser for ProtobufParser {
     fn parse(&self, input: Input) -> Result<Output, ParseError> {
@@ -52,17 +48,15 @@ impl Parser for ProtobufParser {
                 .next()
                 .ok_or_else(|| ProtobufParseError::NoSuchMessage(self.config.message.clone()))?;
 
-
         let mut buffered_stream = input.into_stream();
         let mut cis: CodedInputStream<'_> = CodedInputStream::new(&mut buffered_stream);
 
         let mut message = message_descriptor.new_instance();
-        message.merge_from_dyn(&mut cis).map_err(ProtobufParseError::ProtobufParse)?;
+        message
+            .merge_from_dyn(&mut cis)
+            .map_err(ProtobufParseError::ProtobufParse)?;
 
-        Ok(Box::new(ProtobufJsonIter{
-            msg: Some(message),
-        }))
-
+        Ok(Box::new(ProtobufJsonIter { msg: Some(message) }))
     }
 }
 
@@ -100,16 +94,17 @@ impl Iterator for ProtobufJsonIter {
             always_output_default_values: false,
             ..Default::default()
         };
-        let result = protobuf_json_mapping::print_to_string_with_options(&*message, &print_options).map_err(ProtobufParseError::PrintError);
+        let result = protobuf_json_mapping::print_to_string_with_options(&*message, &print_options)
+            .map_err(ProtobufParseError::PrintError);
 
         match result {
             Ok(json_str) => {
-                let value: Value = serde_json::from_str(&json_str).expect("internal error re-parsing json-encoded proto message");
+                let value: Value = serde_json::from_str(&json_str)
+                    .expect("internal error re-parsing json-encoded proto message");
                 Some(Ok(value))
             }
-            Err(err) => Some(Err(err.into()))
+            Err(err) => Some(Err(err.into())),
         }
-
     }
 }
 
@@ -128,7 +123,10 @@ mod test {
         let input = Input::File(fs::File::open("tests/examples/vehicle-positions.pb").unwrap());
         let parser = new_protobuf_parser(config);
         let mut output = parser.parse(input).expect("parse failed");
-        let json = output.next().expect("first output must be Some").expect("first output erred");
+        let json = output
+            .next()
+            .expect("first output must be Some")
+            .expect("first output erred");
         insta::assert_json_snapshot!(json);
         assert!(output.next().is_none());
     }

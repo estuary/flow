@@ -1,8 +1,8 @@
-use crate::{verify, LogHandler, Runtime};
+use crate::{LogHandler, Runtime, verify};
 use anyhow::Context;
-use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
 use proto_flow::{
-    capture::{request, Request, Response},
+    capture::{Request, Response, request},
     flow::capture_spec::ConnectorType,
 };
 use unseal;

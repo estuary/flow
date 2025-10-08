@@ -1,7 +1,7 @@
 /// This module is concerned with mapping JSON Schemas into a most-equivalent Shape.
 /// It builds on the union and intersection operations defined over Shape.
 use super::*;
-use crate::{redact, reduce, Annotation, Schema, SchemaIndex};
+use crate::{Annotation, Schema, SchemaIndex, redact, reduce};
 use json::schema::{CoreAnnotation, Keyword};
 
 impl From<&reduce::Strategy> for Reduce {

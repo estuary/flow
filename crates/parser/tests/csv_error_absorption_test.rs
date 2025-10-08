@@ -2,7 +2,7 @@ mod testutil;
 
 use std::io::{Cursor, Seek, Write};
 
-use parser::{character_separated, ErrorThreshold, Format, Input, ParseConfig};
+use parser::{ErrorThreshold, Format, Input, ParseConfig, character_separated};
 use testutil::run_test;
 
 #[test]

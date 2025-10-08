@@ -1,5 +1,5 @@
-use super::{connector, protocol::*, RequestStream, ResponseStream, Transaction};
-use crate::{rocksdb::RocksDB, verify, Accumulator, LogHandler, Runtime};
+use super::{RequestStream, ResponseStream, Transaction, connector, protocol::*};
+use crate::{Accumulator, LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;

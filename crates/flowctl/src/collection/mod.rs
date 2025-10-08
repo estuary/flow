@@ -6,7 +6,7 @@ use proto_flow::flow;
 use proto_gazette::broker;
 use time::OffsetDateTime;
 
-use crate::output::{to_table_row, CliOutput, JsonCell};
+use crate::output::{CliOutput, JsonCell, to_table_row};
 
 use self::read::ReadArgs;
 

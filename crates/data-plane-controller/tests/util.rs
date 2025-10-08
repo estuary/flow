@@ -3,8 +3,8 @@ use data_plane_controller::{
     controller::{EmitLogFn, RunCmdFn},
     stack,
 };
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use itertools::Itertools;
 use sqlx::types::uuid;
 use std::sync::{Arc, Mutex};
@@ -60,7 +60,6 @@ pub fn mock_run_cmd_fn(trace: Arc<Mutex<Vec<TraceEntry>>>) -> RunCmdFn {
                 }])
                 .unwrap();
             }
-
 
             futures::future::ready(Ok(output)).boxed()
         },

@@ -48,7 +48,9 @@ pub async fn read_collection(
     }: &ReadArgs,
 ) -> anyhow::Result<()> {
     if !uncommitted {
-        anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
+        anyhow::bail!(
+            "missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default."
+        );
     }
     // output can be either None or Some(OutputType::Json), but cannot be explicitly set to
     // anything else. _Eventually_, we may want to support outputting collection data as yaml

@@ -1,9 +1,9 @@
 use super::{Read, Reader};
 use crate::derive::ResponseStream;
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
-use futures::{channel::mpsc, TryStreamExt};
-use proto_flow::derive::{request, response, Request, Response};
+use futures::{TryStreamExt, channel::mpsc};
+use proto_flow::derive::{Request, Response, request, response};
 use proto_flow::flow;
 use proto_flow::runtime::{self, derive_request_ext};
 use std::pin::Pin;

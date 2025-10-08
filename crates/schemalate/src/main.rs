@@ -1,5 +1,5 @@
 use clap::Parser;
-use flow_cli_common::{init_logging, LogArgs};
+use flow_cli_common::{LogArgs, init_logging};
 
 /// Schemalate (Schema + Translate) generates things from JSON schemas.
 ///

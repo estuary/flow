@@ -1,11 +1,11 @@
-use crate::stripe_utils::{stripe_search, SearchParams};
-use anyhow::{bail, Context};
+use crate::stripe_utils::{SearchParams, stripe_search};
+use anyhow::{Context, bail};
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
-use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
+use sqlx::{Pool, postgres::PgPoolOptions, types::chrono::NaiveDate};
 use std::collections::HashMap;
 use stripe::InvoiceStatus;
 
@@ -220,7 +220,11 @@ impl Invoice {
                         .invoice_settings
                         .and_then(|i| i.default_payment_method)
                     {
-                        bail!("Stripe reports customer {} ({}) has a payment method set, database disagrees.", customer.id.to_string(), self.billed_prefix.to_owned());
+                        bail!(
+                            "Stripe reports customer {} ({}) has a payment method set, database disagrees.",
+                            customer.id.to_string(),
+                            self.billed_prefix.to_owned()
+                        );
                     }
                 }
                 let unwrapped_extra = extra.clone().0.expect(
@@ -327,7 +331,10 @@ impl Invoice {
                     Some(invoice)
                 }
                 Some(stripe::InvoiceStatus::Open) => {
-                    bail!("Found open invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
+                    bail!(
+                        "Found open invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.",
+                        id = invoice.id.to_string()
+                    )
                 }
                 Some(status) => {
                     bail!(
@@ -444,7 +451,10 @@ impl Invoice {
         }
 
         if diff > 0.0 {
-            tracing::warn!("Invoice line items use fractional quantities, which Stripe does not allow. Rounding up resulted in a difference of ${difference:.2}", difference = diff.ceil()/100.0);
+            tracing::warn!(
+                "Invoice line items use fractional quantities, which Stripe does not allow. Rounding up resulted in a difference of ${difference:.2}",
+                difference = diff.ceil() / 100.0
+            );
         }
 
         // Let's double-check that the invoice total matches the desired total
@@ -841,7 +851,9 @@ async fn get_or_create_customer_for_tenant(
             .iter()
             .find_map(|response| response.email.to_owned())
         {
-            tracing::warn!("Stripe customer object is missing an email. Going with {email}, an admin on that tenant.");
+            tracing::warn!(
+                "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
+            );
             stripe::Customer::update(
                 client,
                 &customer.id,
@@ -852,7 +864,11 @@ async fn get_or_create_customer_for_tenant(
             )
             .await?;
         } else {
-            bail!("Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Found users: {found:?} Skipping", found=responses, tenant=tenant);
+            bail!(
+                "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Found users: {found:?} Skipping",
+                found = responses,
+                tenant = tenant
+            );
         }
     }
     Ok(Some(customer))

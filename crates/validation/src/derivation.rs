@@ -1,4 +1,4 @@
-use super::{collection, indexed, reference, schema, Connectors, Error, NoOpConnectors, Scope};
+use super::{Connectors, Error, NoOpConnectors, Scope, collection, indexed, reference, schema};
 use futures::SinkExt;
 use proto_flow::{
     derive, flow,
@@ -102,48 +102,10 @@ async fn walk_derivation<C: Connectors>(
     Option<String>,
     Vec<String>,
 )> {
-    let (
-        collection,
-        scope,
-        model,
-        expect_build_id,
-        live_model,
-        live_spec,
-        dependency_hash,
-    ) = match eob {
-        // If this is a drafted derivation, pluck out its details.
-        EOB::Right(tables::DraftCollection {
-            collection,
-            scope,
-            model:
-                Some(
-                    collection_model @ models::CollectionDef {
-                        derive: Some(model),
-                        ..
-                    },
-                ),
-            ..
-        }) => (
-            collection,
-            scope,
-            model.clone(),
-            models::Id::zero(),
-            None,
-            None,
-            dependencies.compute_hash(collection_model),
-        ),
-
-        EOB::Both(
-            tables::LiveCollection {
-                model:
-                    models::CollectionDef {
-                        derive: live_model, ..
-                    },
-                last_build_id,
-                spec,
-                ..
-            },
-            tables::DraftCollection {
+    let (collection, scope, model, expect_build_id, live_model, live_spec, dependency_hash) =
+        match eob {
+            // If this is a drafted derivation, pluck out its details.
+            EOB::Right(tables::DraftCollection {
                 collection,
                 scope,
                 model:
@@ -154,24 +116,55 @@ async fn walk_derivation<C: Connectors>(
                         },
                     ),
                 ..
-            },
-        ) => (
-            collection,
-            scope,
-            model.clone(),
-            if spec.derivation.is_some() {
-                *last_build_id
-            } else {
-                models::Id::zero()
-            },
-            live_model.as_ref(),
-            spec.derivation.is_some().then_some(spec),
-            dependencies.compute_hash(collection_model),
-        ),
+            }) => (
+                collection,
+                scope,
+                model.clone(),
+                models::Id::zero(),
+                None,
+                None,
+                dependencies.compute_hash(collection_model),
+            ),
 
-        // For all other cases, don't build this derivation.
-        _ => return None,
-    };
+            EOB::Both(
+                tables::LiveCollection {
+                    model:
+                        models::CollectionDef {
+                            derive: live_model, ..
+                        },
+                    last_build_id,
+                    spec,
+                    ..
+                },
+                tables::DraftCollection {
+                    collection,
+                    scope,
+                    model:
+                        Some(
+                            collection_model @ models::CollectionDef {
+                                derive: Some(model),
+                                ..
+                            },
+                        ),
+                    ..
+                },
+            ) => (
+                collection,
+                scope,
+                model.clone(),
+                if spec.derivation.is_some() {
+                    *last_build_id
+                } else {
+                    models::Id::zero()
+                },
+                live_model.as_ref(),
+                spec.derivation.is_some().then_some(spec),
+                dependencies.compute_hash(collection_model),
+            ),
+
+            // For all other cases, don't build this derivation.
+            _ => return None,
+        };
     let scope = Scope::new(scope);
     let scope = scope.push_prop("derive");
     let mut model_fixes = Vec::new();

@@ -98,9 +98,7 @@ pub mod request {
             pub name: ::prost::alloc::string::String,
             /// Sourced collection of this transform.
             #[prost(message, optional, tag = "2")]
-            pub collection: ::core::option::Option<
-                super::super::super::flow::CollectionSpec,
-            >,
+            pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
             /// JSON-encoded object which specifies the shuffle lambda configuration.
             /// If this transform has no shuffle lambda, this is empty.
             #[prost(bytes = "bytes", tag = "3")]
@@ -177,9 +175,7 @@ pub mod request {
     pub struct StartCommit {
         /// Flow runtime checkpoint associated with this transaction.
         #[prost(message, optional, tag = "1")]
-        pub runtime_checkpoint: ::core::option::Option<
-            ::proto_gazette::consumer::Checkpoint,
-        >,
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     }
     /// Reset any internal state, as if the derivation were just initialized.
     /// This is used only when running Flow tests, and clears the effects of

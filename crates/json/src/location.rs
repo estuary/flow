@@ -330,12 +330,20 @@ mod tests {
                     ("empty object", Node::Object(o)) if o.is_empty() => true,
                     ("-3.14", Node::Float(f)) if f == -3.14 => true,
                     ("hello", Node::String(s)) if s == "hello" => true,
-                    ("4d array" | "3d array" | "2d array" | "1d array", Node::Array(a)) if a.len() == 1 => true,
+                    ("4d array" | "3d array" | "2d array" | "1d array", Node::Array(a))
+                        if a.len() == 1 =>
+                    {
+                        true
+                    }
                     ("99", Node::PosInt(99)) => true,
                     _ => false,
                 };
 
-                assert!(matches, "At index {}, expected {}, but node didn't match", idx, description);
+                assert!(
+                    matches,
+                    "At index {}, expected {}, but node didn't match",
+                    idx, description
+                );
                 loc_str
             });
 
@@ -354,6 +362,4 @@ mod tests {
         assert_eq!(find_tape_index(&doc, 18, |_, _| "unreachable"), None);
         assert_eq!(find_tape_index(&doc, 100, |_, _| "unreachable"), None);
     }
-
-
 }

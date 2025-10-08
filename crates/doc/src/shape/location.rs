@@ -2,7 +2,7 @@
 // the known locations within a Shape.
 use super::*;
 use json::Location;
-use json::{ptr::Token, Pointer};
+use json::{Pointer, ptr::Token};
 
 /// Exists captures an existence constraint of an Shape location.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

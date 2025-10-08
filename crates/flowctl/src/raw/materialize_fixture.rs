@@ -1,9 +1,9 @@
 use anyhow::Context;
 use prost::Message;
 use proto_flow::{
-    flow,
-    materialize::{request, Request},
-    runtime_checkpoint, RuntimeCheckpoint,
+    RuntimeCheckpoint, flow,
+    materialize::{Request, request},
+    runtime_checkpoint,
 };
 use std::collections::BTreeMap;
 use std::io::Write;

@@ -98,8 +98,8 @@ impl ops::log::Level {
 
 // Re-export some commonly used types.
 pub use pbjson_types::Timestamp;
-pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 pub use proto_gazette::consumer::Checkpoint as RuntimeCheckpoint;
+pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 
 mod serde_capture {
     use crate::capture::*;

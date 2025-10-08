@@ -1,5 +1,5 @@
 use anyhow::Result;
-use automations::{task_types, Action, Executor, TaskType};
+use automations::{Action, Executor, TaskType, task_types};
 use models::Id;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;

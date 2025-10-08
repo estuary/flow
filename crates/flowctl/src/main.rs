@@ -1,5 +1,5 @@
 use clap::Parser;
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 fn main() -> Result<(), anyhow::Error> {
     let cli = flowctl::Cli::parse();

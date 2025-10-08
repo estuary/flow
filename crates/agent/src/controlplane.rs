@@ -3,8 +3,8 @@ use chrono::{DateTime, Utc};
 use gazette::{broker, journal, shard};
 use itertools::Itertools;
 use models::{
-    status::{activation::ShardFailure, connector::ConfigUpdate},
     CatalogType, Id,
+    status::{activation::ShardFailure, connector::ConfigUpdate},
 };
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;

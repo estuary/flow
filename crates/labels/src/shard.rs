@@ -1,4 +1,4 @@
-use crate::{expect_one, expect_one_u32, maybe_one, set_value, Error, KEY_BEGIN, RCLOCK_BEGIN};
+use crate::{Error, KEY_BEGIN, RCLOCK_BEGIN, expect_one, expect_one_u32, maybe_one, set_value};
 use proto_flow::{flow, ops};
 use proto_gazette::broker::LabelSet;
 
@@ -42,7 +42,7 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
             return Err(Error::InvalidValue {
                 name: crate::LOG_LEVEL.to_string(),
                 value: log_level.to_string(),
-            })
+            });
         }
         Some(e) => e,
     } as i32;
@@ -62,7 +62,7 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
             return Err(Error::InvalidValue {
                 name: crate::TASK_TYPE.to_string(),
                 value: task_type.to_string(),
-            })
+            });
         }
         Some(e) => e,
     } as i32;

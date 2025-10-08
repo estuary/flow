@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{future::BoxFuture, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, future::BoxFuture};
 use proto_flow::{capture, derive, flow, materialize};
 use std::{
     collections::BTreeMap,

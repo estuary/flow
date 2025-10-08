@@ -1,8 +1,8 @@
 use clap::Parser;
 
 mod publish;
-mod stripe_utils;
 mod send;
+mod stripe_utils;
 
 #[derive(Debug, Parser)]
 #[clap(version)]

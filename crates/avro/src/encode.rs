@@ -1,4 +1,4 @@
-use super::{Error, RecordName, RecordSchema, Schema, FLOW_EXTRA_NAME};
+use super::{Error, FLOW_EXTRA_NAME, RecordName, RecordSchema, Schema};
 use json::{AsNode, Field, Fields, Node};
 
 /// Encode `node` at `loc` with the given `schema` into buffer `b`.

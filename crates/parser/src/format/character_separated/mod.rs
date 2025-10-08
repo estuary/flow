@@ -7,7 +7,7 @@ mod w3c_extended_log;
 use self::error_buffer::ParseErrorBuffer;
 use crate::config::character_separated::{AdvancedCsvConfig, Delimiter, Escape, LineEnding, Quote};
 use crate::format::{Output, ParseError, ParseResult, Parser};
-use crate::input::{detect_encoding, Input};
+use crate::input::{Input, detect_encoding};
 use csv::{Reader, StringRecord, Terminator};
 use json::schema::types;
 use serde_json::Value;
@@ -193,7 +193,9 @@ pub enum Error {
     #[error("failed to parse character-separated content: {0}")]
     InvalidContent(#[from] csv::Error),
 
-    #[error("row {0} has {1} columns, but the headers only define {2} columns. See: https://go.estuary.dev/Pgy3nf for help with configuring the parser")]
+    #[error(
+        "row {0} has {1} columns, but the headers only define {2} columns. See: https://go.estuary.dev/Pgy3nf for help with configuring the parser"
+    )]
     ExtraColumn(u64, usize, usize),
 }
 

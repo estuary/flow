@@ -4,7 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{combine, Extractor, HeapNode, Validator};
+use doc::{Extractor, HeapNode, Validator, combine};
 use json::schema::build::build_schema;
 use serde_json::json;
 use std::collections::BTreeMap;

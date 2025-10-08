@@ -1,4 +1,4 @@
-use crate::integration_tests::harness::{draft_catalog, TestHarness};
+use crate::integration_tests::harness::{TestHarness, draft_catalog};
 
 #[tokio::test]
 #[serial_test::serial]
