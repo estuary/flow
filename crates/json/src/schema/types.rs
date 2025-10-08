@@ -58,7 +58,7 @@ impl Iterator for Iter {
     fn next(&mut self) -> Option<Self::Item> {
         let Iter {
             types,
-            ref mut index,
+            index,
         } = self;
 
         const ITER_ORDER: &[Set] = &[

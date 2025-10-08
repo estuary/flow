@@ -58,23 +58,23 @@ impl Service for UpperCase {
 
 // Define cbindgen <=> CGO hooks for driving the UpperCase service.
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn upper_case_create(log_level: i32, log_dest_fd: i32) -> *mut Channel {
     service::create::<UpperCase>(log_level, log_dest_fd)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn upper_case_invoke1(ch: *mut Channel, i: service::In1) {
     service::invoke::<UpperCase, _>(ch, i)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn upper_case_invoke4(ch: *mut Channel, i: service::In4) {
     service::invoke::<UpperCase, _>(ch, i)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn upper_case_invoke16(ch: *mut Channel, i: service::In16) {
     service::invoke::<UpperCase, _>(ch, i)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn upper_case_drop(ch: *mut Channel) {
     service::drop::<UpperCase>(ch)
 }
@@ -87,7 +87,7 @@ struct UpperCaseNaive {
     arena: Vec<u8>,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn create_upper_case_naive() -> *mut ServiceImpl {
     Box::leak(Box::new(UpperCaseNaive {
         sum_length: 0,
@@ -95,7 +95,7 @@ pub extern "C" fn create_upper_case_naive() -> *mut ServiceImpl {
     })) as *mut UpperCaseNaive as *mut ServiceImpl
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn upper_case_naive(
     svc: *mut ServiceImpl,
     _code: u32,

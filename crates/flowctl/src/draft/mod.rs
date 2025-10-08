@@ -172,23 +172,6 @@ async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 }
 
 async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    #[derive(Deserialize, Serialize)]
-    struct Row {
-        id: models::Id,
-        updated_at: crate::Timestamp,
-    }
-    impl CliOutput for Row {
-        type TableAlt = ();
-        type CellValue = JsonCell;
-
-        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
-            vec!["Deleted Draft ID", "Last Updated"]
-        }
-
-        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-            to_table_row(self, &["/id", "/updated_at"])
-        }
-    }
     let draft_id = ctx.config.selected_draft()?;
     let row = delete_draft(&ctx.client, draft_id).await?;
 

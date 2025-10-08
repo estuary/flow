@@ -283,9 +283,9 @@ pub fn merge_collections(
         });
 
         let DraftCollection {
-            ref collection,
-            ref mut is_touch,
-            ref mut model,
+            collection,
+            is_touch,
+            model,
             ..
         } = draft_target;
 

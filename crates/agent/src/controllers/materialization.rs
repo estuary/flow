@@ -14,7 +14,6 @@ use models::{
     },
     MaterializationEndpoint, ModelDef, RawValue, SourceType,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tables::{utils::pointer_for_schema, LiveRow};
 
@@ -257,12 +256,6 @@ fn handle_deleted_dependencies(
         }
     }
     (description, model)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-enum Action {
-    Added(Vec<String>),
-    Removed(Vec<String>),
 }
 
 /// Adds bindings to match the sourceCapture if necessary, and returns a boolean indicating

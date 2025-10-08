@@ -1,6 +1,6 @@
 use anyhow::Context;
 use control_plane_api::{
-    connector_tags, data_plane,
+    connector_tags,
     discovers::{fetch_discover, Discover, DiscoverHandler, Row},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,

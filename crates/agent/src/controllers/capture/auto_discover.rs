@@ -50,7 +50,7 @@ pub async fn update<C: ControlPlane>(
 
     // Do we need to auto-discover now?
     let now = control_plane.current_time();
-    let AutoDiscoverStatus {
+    let &mut AutoDiscoverStatus {
         ref next_at,
         ref failure,
         ..

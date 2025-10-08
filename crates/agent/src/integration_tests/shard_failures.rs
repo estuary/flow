@@ -269,12 +269,12 @@ async fn test_transition_to_disabled(
     let mut draft = tables::DraftCatalog::default();
     let mut spec = start.live_spec.clone().unwrap();
     match &mut spec {
-        models::AnySpec::Capture(ref mut c) => c.shards.disable = true,
-        models::AnySpec::Collection(ref mut c) => {
+        models::AnySpec::Capture(c) => c.shards.disable = true,
+        models::AnySpec::Collection(c) => {
             let derivation = c.derive.as_mut().unwrap();
             derivation.shards.disable = true;
         }
-        models::AnySpec::Materialization(ref mut m) => m.shards.disable = true,
+        models::AnySpec::Materialization(m) => m.shards.disable = true,
         models::AnySpec::Test(_) => unreachable!(),
     };
     let scope = tables::synthetic_scope(task_type, catalog_name);
