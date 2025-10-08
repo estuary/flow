@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 ---
-# Create a derivation with flowctl
+# Create a Derivation
 
 Once you're familiar with creating a basic [Data Flow](../../concepts/README.md#essential-concepts), you can take things a step further
 and transform your data with [derivations](../../concepts/derivations.md).
@@ -27,11 +27,81 @@ If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
 
    2. Run `flowctl auth token --token <paste-token-here>`
 
+## Start a derivation in the UI
+
+You can create a **draft** derivation in the UI to quickly set up a new derivation template.
+This will generate stub files for you that you can use to complete your derivation.
+
+To create a derivation in this manner:
+
+1. Go to the [**collections** page](https://dashboard.estuary.dev/collections) in the dashboard.
+
+2. Click the **New Transformation** button to open the "Derive A New Collection" modal.
+
+3. **Add** one or more collections you want to transform.
+
+4. Choose between **SQL** or **TypeScript** for your language.
+
+5. Enter a **name** for your derived collection.
+
+6. Click **Create Draft**.
+
+Your draft specification will be created and a new modal screen will be displayed with instructions for proceeding with `flowctl`:
+
+1. Make sure to **copy** the provided `flowctl draft select` command. This includes the ID of your new draft specification.
+
+   Run the command in a terminal in your development environment. This sets your derivation spec as your current draft.
+
+2. To start developing your draft locally, run:
+
+   ```shell
+   flowctl draft develop
+   ```
+
+   This command pulls the current draft specification, generating a new file structure in your local development environment.
+
+3. Open the generated files in a code editor. To complete your transformation, you will edit:
+
+   * The **deepest-nested** `flow.yaml` file. This should contain your desired [schema](/concepts/schemas) and specification for your derived collection.
+
+      [Learn more about crafting a collection specification](/concepts/collections/#specification).
+
+   * SQL or TypeScript **transformation files**. These are generated based on your chosen language and will contain your transformation logic.
+
+      The resulting fields should match the schema defined in your `flow.yaml` file.
+
+      You can see more on modifying these files in the [SQL](#add-a-sql-derivation) and [TypeScript](#add-a-typescript-derivation) sections below.
+
+4. Preview your results to ensure your transformation is working as expected:
+
+   ```shell
+   flowctl preview --source flow.yaml
+   ```
+
+5. Once you are happy with your results, you can publish your draft back to Estuary.
+Since you're working with an existing draft, you first need to sync your local copy back to Estuary:
+
+   ```shell
+   flowctl draft author --source flow.yaml
+   ```
+
+6. Publish the specification.
+
+   ```shell
+   flowctl draft publish
+   ```
+
+   This removes the derivation from your drafts. To modify your specification again later, you can access it with the `flowctl catalog` command.
+
+The derivation you created is now live and ready for further use.
+You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
+just as you would any other Flow collection.
+
 ## Create a derivation locally
 
 In Estuary, a derivation is a new collection that has been **derived** from an existing source collection.
 
-You can create a new `flow.yaml` with your derivation specification and publish it to Estuary.
+You can therefore also create a new derivation specification from scratch using a `flow.yaml` file.
 For this example, we will add our new derived collection to our source collection spec.
 
 1. Locate the source collection for your derivation. Either:
