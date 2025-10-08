@@ -3,7 +3,71 @@ source: crates/agent/src/integration_tests/graphql/queries/mod.rs
 expression: alice_result
 ---
 {
-  "liveSpecs": {
+  "allTypes": {
+    "edges": [
+      {
+        "cursor": "aliceCo/shared/a",
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "liveSpec": {
+            "catalogType": "collection"
+          },
+          "userCapability": "admin"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/b",
+        "node": {
+          "catalogName": "aliceCo/shared/b",
+          "liveSpec": {
+            "catalogType": "collection"
+          },
+          "userCapability": "admin"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/c",
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "liveSpec": {
+            "catalogType": "collection"
+          },
+          "userCapability": "admin"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/capture",
+        "node": {
+          "catalogName": "aliceCo/shared/capture",
+          "liveSpec": {
+            "catalogType": "capture"
+          },
+          "userCapability": "admin"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/disabled",
+        "node": {
+          "catalogName": "aliceCo/shared/disabled",
+          "liveSpec": {
+            "catalogType": "capture"
+          },
+          "userCapability": "admin"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/materialize",
+        "node": {
+          "catalogName": "aliceCo/shared/materialize",
+          "liveSpec": {
+            "catalogType": "materialization"
+          },
+          "userCapability": "admin"
+        }
+      }
+    ]
+  },
+  "collections": {
     "edges": [
       {
         "cursor": "aliceCo/shared/a",
