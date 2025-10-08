@@ -19,7 +19,7 @@ To use this connector, you'll need:
   with the Spark runtime
 - An S3 bucket for staging data files to be merged into tables
 - A dedicated IAM role for executing jobs on the EMR Serverless Application
-- An AWS IAM user for submitting jobs to the EMR Serverless Application
+- An AWS IAM user or role for submitting jobs to the EMR Serverless Application
 
 See below for detailed descriptions of how these should be set up.
 
@@ -44,12 +44,11 @@ catalog:
   and metadata will be stored, by default under `/data` and `/metadata`,
   respectively. It must be an S3 path starting with `s3://<bucket>`. For other
   REST catalogs, this is an optional input
-- Use **AWS SigV4 Authentication** for the **Catalog Authentication** option,
-  with the **Signing Name** `glue`. Input the **AWS Access Key ID** and **AWS
-  Secret Access Key** for an AWS IAM user that has been granted sufficient
-  permissions to read and write metadata to the catalog. See below for an
-  example policy that includes the minimum required permissions to interact with
-  the Glue catalog and bucket containing table metadata.
+- Use **AWS SigV4** or **AWS IAM** for the **Catalog Authentication** option.
+  Input the credentials for an AWS IAM user or role that has been granted
+  sufficient permissions to read and write metadata to the catalog. See below
+  for an example policy that includes the minimum required permissions to
+  interact with the Glue catalog and bucket containing table metadata.
 ```json
 {
   "Version": "2012-10-17",
@@ -89,10 +88,9 @@ catalog:
 }
 ```
 :::tip
-The AWS IAM user configured for the **Catalog Authentication** does not
-necessarily need to be the same user as the one configured to access the AWS EMR
-Serverless Application, but it can be. Enter the same **AWS Access Key ID** and
-**AWS Secret Access Key** in both places if you are using the same user.
+The AWS IAM user or role configured for the **Catalog Authentication** does not
+necessarily need to be the same as the one configured to access the AWS EMR
+Serverless Application, but it can be.
 :::
 
 #### AWS Glue with Lake Formation
@@ -244,16 +242,16 @@ all columns are created as lowercase.
 To configure the materialization to connect directly to the S3 Tables Iceberg REST Endpoint:
 - The **Base URL** for the catalog should be
   `https://s3tables.<region>.amazonaws.com/iceberg`, where `<region>` is the AWS
-  region of the bucket
+  region of the bucket.
 - The **Warehouse** is the table bucket ARN, in the form of
-  `arn:aws:s3tables:<region>:<accountID>:bucket/<bucketname>`
-- Use **AWS SigV4 Authentication** for the **Catalog Authentication** option,
-  with the **Signing Name** `s3tables`. Input the **AWS Access Key ID** and
-  **AWS Secret Access Key** for an AWS IAM user that has been granted sufficient
-  permissions to read and write to the bucket.
+  `arn:aws:s3tables:<region>:<accountID>:bucket/<bucketname>`.
+- Use **AWS SigV4** or **AWS IAM** for the **Catalog Authentication** option.
+  Input the **AWS Access Key ID** and **AWS Secret Access Key** for an AWS IAM
+  user that has been granted sufficient permissions to read and write to the
+  bucket.
 - Your **EMR Execution Role** must also have been granted sufficient permissions
   to read and write to the bucket. See below for an example policy with the
-  necessary permission for both the AWS IAM user and the execution role
+  necessary permission for both the AWS IAM user or role and the execution role.
 ```
 {
     "Version": "2012-10-17",
@@ -533,11 +531,10 @@ the table files:
 
 ### Create IAM User for Compute Configuration
 
-The **AWS Access Key ID** and **AWS Secret Access Key** set in the **AWS EMR
-Serverless** configuration must be for an IAM user with permissions to manage
-jobs for the EMR Serverless Application and read and write data to the staging
-bucket. If you are using AWS Glue as the catalog, parameter store permissions
-are not required.
+The credentials set in the **AWS EMR Serverless** configuration must be for an
+IAM user or role with permissions to manage jobs for the EMR Serverless Application and
+read and write data to the staging bucket. If you are using AWS Glue as the
+catalog, parameter store permissions are not required.
 
 See below for an example policy with these permissions:
 ```json
@@ -606,31 +603,60 @@ See below for a full list of configuration options.
 
 #### Endpoint
 
-| Property                                            | Title                  | Description                                                                                                                          | Type    | Required/Default                |
-|-----------------------------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|---------------------------------|
-| **`/url`**                                          | URL                    | Base URL for the catalog.                                                                                                            | string  | Required                        |
-| **`/warehouse`**                                    | Warehouse              | Warehouse to connect to. For AWS Glue, this is the account ID.                                                                       | string  | Required                        |
-| **`/namespace`**                                    | Namespace              | Namespace for bound collection tables (unless overridden within the binding resource configuration).                                 | string  | Required (Pattern: `^[^.]*$`)   |
-| `/base_location`                                    | Base Location          | Base location for catalog tables. Required if using AWS Glue. Example: `s3://your_bucket/your_prefix/`.                              | string  |                                 |
-| `/hard_delete`                                      | Hard Delete            | If enabled, items deleted in the source will also be deleted from the destination. Disabled by default (soft-delete).                | boolean |                                 |
-| **`/catalog_authentication`**                       | Catalog Authentication | Authentication method for the catalog. Supports OAuth 2.0 Client Credentials or AWS SigV4.                                           | object  |                                 |
-| **`/catalog_authentication/oauth2_server_uri`**     | OAuth 2.0 Server URI   | OAuth 2.0 server URI for requesting access tokens. Usually 'v1/oauth/tokens'.                                                        | string  | Required                        |
-| **`/catalog_authentication/credential`**            | Catalog Credential     | Credential for connecting to the REST catalog. Format: `<client_id>:<client_secret>` for OAuth, `<token>` for Bearer authentication. | string  | Required                        |
-| `/catalog_authentication/scope`                     | Scope                  | Authorization scope for OAuth client credentials. Example: `PRINCIPAL_ROLE:your_principal`.                                          | string  |                                 |
-| **`/catalog_authentication/aws_access_key_id`**     | AWS Access Key ID      | Access Key ID for AWS SigV4 authentication.                                                                                          | string  | Required                        |
-| **`/catalog_authentication/aws_secret_access_key`** | AWS Secret Access Key  | Secret Access Key for AWS SigV4 authentication.                                                                                      | string  | Required                        |
-| **`/catalog_authentication/region`**                | Region                 | AWS region for authentication.                                                                                                       | string  | Required                        |
-| **`/catalog_authentication/signing_name`**          | Signing Name           | Signing Name for SigV4 authentication.                                                                                               | string  | Required (`glue` or `s3tables`) |
-| **`/compute`**                                      | Compute                | Compute backend for processing. Supports AWS EMR Serverless.                                                                         | object  | Required                        |
-| **`/compute/aws_access_key_id`**                    | AWS Access Key ID      | Access Key ID for authenticating with EMR and writing to the staging bucket.                                                         | string  | Required                        |
-| **`/compute/aws_secret_access_key`**                | AWS Secret Access Key  | Secret Access Key for authenticating with EMR and writing to the staging bucket.                                                     | string  | Required                        |
-| **`/compute/region`**                               | Region                 | Region of the EMR application and staging bucket.                                                                                    | string  | Required                        |
-| **`/compute/application_id`**                       | Application ID         | ID of the EMR serverless application.                                                                                                | string  | Required                        |
-| **`/compute/execution_role_arn`**                   | Execution Role ARN     | ARN of the EMR serverless execution role used to run jobs.                                                                           | string  | Required                        |
-| **`/compute/bucket`**                               | Bucket                 | Bucket to store staged data files.                                                                                                   | string  | Required                        |
-| `/compute/bucket_path`                              | Bucket Path            | Optional prefix used to store staged data files.                                                                                     | string  |                                 |
-| `/compute/systems_manager_prefix`                   | System Manager Prefix  | Prefix for parameters in Systems Manager as an absolute directory path (must start and end with `/`).                                | string  | `/estuary/`                     |
-| `/advanced/lowercase_column_names`                  | Lowercase Column Names | Create all columns with lowercase names.                                                                                             | boolean |                                 |
+| Property                             | Title                  | Description                                                                                                          | Type             | Required/Default                |
+|--------------------------------------|------------------------|----------------------------------------------------------------------------------------------------------------------|------------------|---------------------------------|
+| **`/url`**                           | URL                    | Base URL for the catalog.                                                                                            | string           | Required                        |
+| **`/warehouse`**                     | Warehouse              | Warehouse to connect to. For AWS Glue, this is the account ID.                                                       | string           | Required                        |
+| **`/namespace`**                     | Namespace              | Namespace for bound collection tables (unless overridden within the binding resource configuration).                 | string           | Required (Pattern: `^[^.]*$`)   |
+|   `/base_location`                   | Base Location          | Base location for catalog tables. Required if using AWS Glue. Example: `s3://your_bucket/your_prefix/`.              | string           |                                 |
+|   `/hard_delete`                     | Hard Delete            | If enabled, items deleted in the source will also be deleted from the destination. Disabled by default (soft-delete).| boolean          |                                 |
+| **`/credentials`**                   | Catalog Authentication | Authentication method for the catalog. Supports OAuth 2.0 Client Credentials, AWS SigV4, or AWS IAM.                 | [Credentials](#credentials) | Required             |
+| **`/compute`**                       | Compute                | Compute backend for processing. Supports AWS EMR Serverless.                                                         | object           | Required                        |
+| **`/compute/region`**                | Region                 | Region of the EMR application and staging bucket.                                                                    | string           | Required                        |
+| **`/compute/application_id`**        | Application ID         | ID of the EMR serverless application.                                                                                | string           | Required                        |
+| **`/compute/execution_role_arn`**    | Execution Role ARN     | ARN of the EMR serverless execution role used to run jobs.                                                           | string           | Required                        |
+| **`/compute/bucket`**                | Bucket                 | Bucket to store staged data files.                                                                                   | string           | Required                        |
+| **`/compute/credentials`**           | EMR Authentication     | Authentication method for EMR.                                                                                       | [EMR Credentials](#emr-credentials) | Required     |
+|   `/compute/bucket_path`             | Bucket Path            | Optional prefix used to store staged data files.                                                                     | string           |                                 |
+|   `/compute/systems_manager_prefix`  | System Manager Prefix  | Prefix for parameters in Systems Manager as an absolute directory path (must start and end with `/`).                | string           | `/estuary/`                     |
+|   `/advanced/lowercase_column_names` | Lowercase Column Names | Create all columns with lowercase names.                                                                             | boolean          |                                 |
+
+#### Credentials
+
+Credentials specify the authentication method for the catalog.  Use one of the following sets of options:
+
+| Property                       | Title                  | Description                                                                                                                          | Type    | Required/Default                        |
+|--------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| **`/auth_type`**               | Auth Type              | Authentication method for the catalog.                                                                                               | string  | Required: `OAuth 2.0 Client Credentials`|
+| **`/oauth2_server_uri`**       | OAuth 2.0 Server URI   | OAuth 2.0 server URI for requesting access tokens. Usually 'v1/oauth/tokens'.                                                        | string  | Required                                |
+| **`/credential`**              | Catalog Credential     | Credential for connecting to the REST catalog. Format: `<client_id>:<client_secret>` for OAuth, `<token>` for Bearer authentication. | string  | Required                                |
+|   `/scope`                     | Scope                  | Authorization scope for OAuth client credentials. Example: `PRINCIPAL_ROLE:your_principal`.                                          | string  |                                         |
+
+| Property                       | Title                  | Description                                                                                                                          | Type    | Required/Default                        |
+|--------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| **`/auth_type`**               | Auth Type              | Authentication method for the catalog.                                                                                               | string  | Required: `AWS SigV4`                   |
+| **`/aws_access_key_id`**       | AWS Access Key ID      | Access Key ID for AWS SigV4 authentication.                                                                                          | string  | Required                                |
+| **`/aws_secret_access_key`**   | AWS Secret Access Key  | Secret Access Key for AWS SigV4 authentication.                                                                                      | string  | Required                                |
+
+| Property                       | Title                  | Description                                                                                                                          | Type    | Required/Default                        |
+|--------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| **`/auth_type`**               | Auth Type              | Authentication method for the catalog.                                                                                               | string  | Required: `AWS IAM`                     |
+| **`/aws_role_arn`**            | AWS Role ARN           | Role ARN for AWS IAM authentication.                                                                                                 | string  | Required                                |
+| **`/aws_region`**              | AWS Region             | AWS region for AWS SigV4 and IAM authentication.                                                                                     | string  | Required                                |
+
+#### EMR Credentials
+
+EMR Credentials specify the authentication method for EMR and writing to the staging bucket.  Use on of the following sets of options:
+
+| Property                       | Title                  | Description                                                                                                                          | Type    | Required/Default                        |
+|--------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| **`/auth_type`**               | Auth Type              | Authentication method for EMR and writing to the staging bucket.                                                                     | string  | Required: `AWSAccessKey`                |
+| **`/aws_access_key_id`**       | AWS Access Key ID      | Access Key ID for authenticating with EMR and writing to the staging bucket.                                                         | string  | Required                                |
+| **`/aws_secret_access_key`**   | AWS Secret Access Key  | Secret Access Key for authenticating with EMR and writing to the staging bucket.                                                     | string  | Required                                |
+
+| Property                       | Title                  | Description                                                                                                                          | Type    | Required/Default                        |
+|--------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|-----------------------------------------|
+| **`/auth_type`**               | Auth Type              | Authentication method for EMR and writing to the staging bucket.                                                                     | string  | Required: `UseCatalogAuth`              |
 
 #### Bindings
 
