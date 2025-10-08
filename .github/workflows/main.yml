@@ -37,6 +37,10 @@ jobs:
           go-version: "1.21"
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:

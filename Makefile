@@ -300,6 +300,14 @@ print-versions:
 .PHONY: install-tools
 install-tools: ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
+.PHONY: rust-format-check
+rust-format-check:
+	cargo fmt --all -- --check
+
+.PHONY: rust-format
+rust-format:
+	cargo fmt --all
+
 .PHONY: rust-gnu-test
 rust-gnu-test:
 	PATH=${PKGDIR}/bin:$$PATH ;\
