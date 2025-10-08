@@ -234,7 +234,7 @@ pub fn invoke<S: Service, I: InN>(ch: *mut Channel, i: I) {
             // Our ops::tracing::Layer implementation will extract the error
             // chain (if any) into a structured error, and will further attempt
             // to de-nest errors having a JSON Display implementation.
-            tracing::error!(error = &err as &(dyn std::error::Error), "{}", err);
+            tracing::error!(error = &err as &dyn std::error::Error, "{}", err);
 
             // Also pass the errors to Go as a terminal Debug error string.
             // When anyhow::Error is used (recommended!),

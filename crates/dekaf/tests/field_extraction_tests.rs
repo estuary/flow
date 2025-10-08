@@ -1,5 +1,5 @@
 use anyhow::Context;
-use dekaf::connector::{DekafConfig, DeletionMode};
+use dekaf::connector::DekafConfig;
 use itertools::Itertools;
 use serde_json::json;
 

@@ -112,17 +112,6 @@ impl SessionAuthentication {
         }
     }
 
-    pub fn refresh_gazette_clients(&mut self) {
-        match self {
-            SessionAuthentication::Task(auth) => {
-                auth.client = auth.client.clone().with_fresh_gazette_client();
-            }
-            SessionAuthentication::Redirect { .. } => {
-                unreachable!("This session is a redirect and cannot communicate with Gazette");
-            }
-        }
-    }
-
     pub fn deletions(&self) -> connector::DeletionMode {
         match self {
             SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
@@ -161,8 +150,7 @@ impl TaskAuth {
                     self.client = self
                         .client
                         .clone()
-                        .with_user_access_token(Some(token.to_owned()))
-                        .with_fresh_gazette_client();
+                        .with_user_access_token(Some(token.to_owned()));
                     self.exp = time::OffsetDateTime::UNIX_EPOCH
                         + time::Duration::seconds(claims.exp as i64);
                 }
@@ -305,8 +293,7 @@ impl App {
                     Ok(SessionAuthentication::Task(TaskAuth::new(
                         self.client_base
                             .clone()
-                            .with_user_access_token(Some(token.to_owned()))
-                            .with_fresh_gazette_client(),
+                            .with_user_access_token(Some(token.to_owned())),
                         username,
                         config,
                         listener,

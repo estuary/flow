@@ -7,7 +7,6 @@ use anyhow::Context;
 use futures::StreamExt;
 use gazette::{broker, journal};
 use itertools::Itertools;
-use models::LabelSelector;
 use proto_flow::flow::MaterializationSpec;
 use rand::Rng;
 use std::{

@@ -43,7 +43,7 @@ pub struct TaskTemplate<'a> {
 // Map a CaptureSpec into its activation TaskTemplate.
 pub fn capture_template(
     task_spec: Option<&flow::CaptureSpec>,
-) -> anyhow::Result<Option<TaskTemplate>> {
+) -> anyhow::Result<Option<TaskTemplate<'_>>> {
     let Some(task_spec) = task_spec else {
         return Ok(None);
     };
@@ -67,7 +67,7 @@ pub fn capture_template(
 // Map a MaterializationSpec into its activation TaskTemplate.
 pub fn materialization_template(
     task_spec: Option<&flow::MaterializationSpec>,
-) -> anyhow::Result<Option<TaskTemplate>> {
+) -> anyhow::Result<Option<TaskTemplate<'_>>> {
     let Some(task_spec) = task_spec else {
         return Ok(None);
     };
@@ -92,7 +92,7 @@ pub fn materialization_template(
 // if a derivation, its activation TaskTemplate.
 pub fn collection_template(
     task_spec: Option<&flow::CollectionSpec>,
-) -> anyhow::Result<(Option<&JournalSpec>, Option<TaskTemplate>)> {
+) -> anyhow::Result<(Option<&JournalSpec>, Option<TaskTemplate<'_>>)> {
     let Some(task_spec) = task_spec else {
         return Ok((None, None));
     };

@@ -154,7 +154,7 @@ impl<'a> Element<'a> {
         }
     }
 
-    pub fn as_bytes(&self) -> Option<&Bytes> {
+    pub fn as_bytes(&self) -> Option<&Bytes<'_>> {
         match self {
             Element::Bytes(v) => Some(v),
             _ => None,

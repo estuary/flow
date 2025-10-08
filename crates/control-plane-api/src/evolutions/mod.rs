@@ -370,9 +370,9 @@ fn with_cap_binding<'a, 'b>(
     &'b mut bool,
 )> {
     let tables::DraftCapture {
-        ref capture,
-        ref mut model,
-        ref mut is_touch,
+        capture,
+        model,
+        is_touch,
         ..
     } = drafted;
     let model = model.as_mut()?;
@@ -392,9 +392,9 @@ fn with_mat_binding<'a, 'b>(
     &'b mut bool,
 )> {
     let tables::DraftMaterialization {
-        ref materialization,
-        ref mut model,
-        ref mut is_touch,
+        materialization,
+        model,
+        is_touch,
         ..
     } = drafted;
     let model = model.as_mut()?;
