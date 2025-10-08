@@ -1,0 +1,17 @@
+# Ignore Cargo build artifacts
+target
+
+# Ignore other build directories
+.build
+bazel-*
+
+# Ignore node_modules and other non-Bazel directories
+.git
+.github
+site
+
+# Ignore directories for now that we're not building with Bazel yet
+examples
+tests
+supabase
+edge-functions
