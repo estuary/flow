@@ -1,8 +1,8 @@
 use super::App;
-use crate::server::error::ApiErrorExt;
 use crate::publications::{
     DoNotRetry, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
 };
+use crate::server::error::ApiErrorExt;
 use anyhow::Context;
 use axum::http::StatusCode;
 use std::sync::Arc;
@@ -224,7 +224,11 @@ export class Derivation extends Types.IDerivation {"#
         draft,
         dry_run,
         detail: Some(format!("publication for updating L2 reporting")),
-        default_data_plane_name: if default_data_plane.trim().is_empty() { None } else { Some(default_data_plane.clone()) },
+        default_data_plane_name: if default_data_plane.trim().is_empty() {
+            None
+        } else {
+            Some(default_data_plane.clone())
+        },
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,

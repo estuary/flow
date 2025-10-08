@@ -1,5 +1,5 @@
 use super::Read;
-use futures::{stream::BoxStream, StreamExt};
+use futures::{StreamExt, stream::BoxStream};
 use proto_flow::flow;
 use proto_gazette::consumer;
 use std::collections::HashMap;

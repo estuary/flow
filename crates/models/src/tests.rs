@@ -264,7 +264,7 @@ impl<'de> serde::de::Visitor<'de> for TestDefVisitor {
                     return Err(serde::de::Error::unknown_field(
                         key.as_str(),
                         &[DESCRIPTION, STEPS, EXPECT_PUB_ID, DELETE],
-                    ))
+                    ));
                 }
             }
         }

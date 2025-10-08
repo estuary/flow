@@ -165,10 +165,10 @@ impl cgo::Service for API {
 
 #[cfg(test)]
 mod test {
-    use super::{extract_uuid_parts, Code, API};
+    use super::{API, Code, extract_uuid_parts};
     use cgo::Service;
     use proto_flow::flow;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn test_extraction_uuid_to_parts() {

@@ -921,7 +921,7 @@ fn temporary_cross_data_plane_read_check<'a>(
                 "or 2) delete and re-create your collection in a different data-plane.\n",
             ),
             source.collection,
-        ) ;
+        );
 
         Error::Connector { detail }.push(scope, errors);
     }

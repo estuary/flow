@@ -5,7 +5,7 @@ use std::{
 };
 
 mod util;
-use util::{initial_state, mock_emit_log_fn, mock_run_cmd_fn, TraceEntry};
+use util::{TraceEntry, initial_state, mock_emit_log_fn, mock_run_cmd_fn};
 
 #[tokio::test]
 async fn test_private_links() {

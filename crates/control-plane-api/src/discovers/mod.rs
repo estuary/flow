@@ -6,11 +6,11 @@ use crate::proxy_connectors::DiscoverConnectors;
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
 use proto_flow::{capture, flow::capture_spec};
-use sqlx::{types::Uuid, PgPool};
+use sqlx::{PgPool, types::Uuid};
 use std::collections::HashSet;
 
 // Re-export key types and functions that executors will need
-pub use db::{fetch_discover, resolve, Row};
+pub use db::{Row, fetch_discover, resolve};
 
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
 /// those in the `base_model`.

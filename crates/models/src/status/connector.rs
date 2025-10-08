@@ -1,4 +1,4 @@
-use crate::{status::ShardRef, Id};
+use crate::{Id, status::ShardRef};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

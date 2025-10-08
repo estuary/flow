@@ -5,7 +5,7 @@ pub mod status;
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::Arc;
 
-use crate::server::{authorize, error::ApiErrorExt, error::ApiError, App};
+use crate::server::{App, authorize, error::ApiError, error::ApiErrorExt};
 
 /// Creates a router for the public API that can be merged into an existing router.
 /// All endpoints registered here are documented in an OpenAPI spec. For adding new

@@ -180,7 +180,9 @@ pub fn ops_handler(tx: Tx, stream: String, token: Uuid) -> OpsHandler {
 // TODO(johnny): This is a placeholder until all `internal.log_lines` can be JSON.
 // Then we'll pass everything through as JSON and let the UI handle structured presentation.
 fn render_ops_log_for_ui(log: &ops::Log) -> String {
-    use colored_json::{Color, ColorMode, ColoredFormatter, CompactFormatter, Paint, Style, Styler};
+    use colored_json::{
+        Color, ColorMode, ColoredFormatter, CompactFormatter, Paint, Style, Styler,
+    };
     use ops::log::Level;
     use std::fmt::Write;
 

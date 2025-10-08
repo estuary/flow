@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog, draft, CliContext};
+use crate::{CliContext, api_exec, catalog, draft};
 use anyhow::Context;
 use serde::Serialize;
 

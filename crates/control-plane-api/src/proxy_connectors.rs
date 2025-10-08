@@ -13,9 +13,11 @@ pub trait DiscoverConnectors: Clone + Send + Sync + 'static {
         task: &'a models::Capture,
         logs_token: Uuid,
         request: capture::Request,
-    ) -> impl Future<Output = anyhow::Result<(capture::response::Spec, capture::response::Discovered)>>
-           + 'a
-           + Send;
+    ) -> impl Future<
+        Output = anyhow::Result<(capture::response::Spec, capture::response::Discovered)>,
+    >
+    + 'a
+    + Send;
 }
 
 pub trait MakeConnectors: std::fmt::Debug + Sync + Send + 'static {

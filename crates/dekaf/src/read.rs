@@ -1,11 +1,12 @@
 use super::{Collection, Partition};
 use crate::{
+    SessionAuthentication,
     connector::DeletionMode,
     logging,
     task_manager::{self, TaskStateListener},
-    utils, SessionAuthentication,
+    utils,
 };
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, BytesMut};
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
@@ -232,7 +233,9 @@ impl Read {
                 timeout_at = self.stream_exp;
             }
             if timeout_at < now {
-                anyhow::bail!("Encountered a read stream with token expiring in the past. This should not happen, cancelling the read.");
+                anyhow::bail!(
+                    "Encountered a read stream with token expiring in the past. This should not happen, cancelling the read."
+                );
             }
             tokio::time::Instant::now() + timeout_at.duration_since(now)?
         };

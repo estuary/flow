@@ -2,10 +2,10 @@ use crate::log_appender::{self, GazetteWriter, TaskForwarder};
 use futures::Future;
 use lazy_static::lazy_static;
 use rand::Rng;
-use tracing::level_filters::LevelFilter;
 use tracing::Instrument;
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::filter::Targets;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 // These are accessible anywhere inside the call stack of a future wrapped with [`forward_logs()`].
 // The relationship between LogForwarder and log journal is one-to-one. That means that all logs

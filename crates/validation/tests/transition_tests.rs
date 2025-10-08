@@ -94,11 +94,13 @@ driver:
         .into_iter()
         .map(|err| serde_json::json!(format!("{:?}", err.error)));
 
-    insta::assert_json_snapshot!(captures
-        .chain(collections)
-        .chain(materializations)
-        .chain(errors)
-        .collect::<Vec<_>>());
+    insta::assert_json_snapshot!(
+        captures
+            .chain(collections)
+            .chain(materializations)
+            .chain(errors)
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

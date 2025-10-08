@@ -92,17 +92,7 @@ pub struct Log {
 /// Nested message and enum types in `Log`.
 pub mod log {
     /// Level of the log.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Level {
         UndefinedLevel = 0,
@@ -167,18 +157,14 @@ pub struct Stats {
     pub txn_count: u32,
     /// Capture metrics.
     #[prost(btree_map = "string, message", tag = "6")]
-    pub capture: ::prost::alloc::collections::BTreeMap<
-        ::prost::alloc::string::String,
-        stats::Binding,
-    >,
+    pub capture:
+        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, stats::Binding>,
     #[prost(message, optional, tag = "7")]
     pub derive: ::core::option::Option<stats::Derive>,
     /// Materialization metrics.
     #[prost(btree_map = "string, message", tag = "8")]
-    pub materialize: ::prost::alloc::collections::BTreeMap<
-        ::prost::alloc::string::String,
-        stats::Binding,
-    >,
+    pub materialize:
+        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, stats::Binding>,
     #[prost(message, optional, tag = "9")]
     pub interval: ::core::option::Option<stats::Interval>,
 }
@@ -238,9 +224,7 @@ pub mod stats {
             pub input: ::core::option::Option<super::DocsAndBytes>,
             /// The most recent publish timestamp from the source documents that were read by this transform.
             #[prost(message, optional, tag = "3")]
-            pub last_source_published_at: ::core::option::Option<
-                ::pbjson_types::Timestamp,
-            >,
+            pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
         }
     }
     /// Interval metrics are emitted at regular intervals.

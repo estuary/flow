@@ -1,7 +1,7 @@
-use super::{compare_key, compare_key_lazy, reduce_item, reduce_prop, Error, Result, Tape};
+use super::{Error, Result, Tape, compare_key, compare_key_lazy, reduce_item, reduce_prop};
 use crate::{
-    lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
     BumpStr, BumpVec, HeapField, HeapNode, LazyNode,
+    lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
 };
 use itertools::EitherOrBoth;
 use json::{AsNode, Field, Fields};
@@ -86,7 +86,7 @@ impl<'alloc, 'l, 'r, L: AsNode, R: AsNode> Destructured<'alloc, 'l, 'r, L, R> {
                         return Err(Error::with_location(
                             Error::SetWrongType,
                             loc.push_prop(property),
-                        ))
+                        ));
                     }
                 }
             }
@@ -719,26 +719,32 @@ mod test {
         // Cases that fail:
 
         // Mixed types within a side.
-        assert!(Destructured::extract(
-            rt,
-            Some(Node(&json!({"add": {}, "intersect": []}))),
-            Node(&json!({})),
-        )
-        .is_err());
+        assert!(
+            Destructured::extract(
+                rt,
+                Some(Node(&json!({"add": {}, "intersect": []}))),
+                Node(&json!({})),
+            )
+            .is_err()
+        );
         // Mixed types across sides.
-        assert!(Destructured::extract(
-            rt,
-            Some(Node(&json!({"add": {}}))),
-            Node(&json!({"intersect": []}))
-        )
-        .is_err());
+        assert!(
+            Destructured::extract(
+                rt,
+                Some(Node(&json!({"add": {}}))),
+                Node(&json!({"intersect": []}))
+            )
+            .is_err()
+        );
         // Both "intersect" and "remove" on a side.
-        assert!(Destructured::extract(
-            rt,
-            Some(Node(&json!({"intersect": [], "remove": []}))),
-            Node(&json!({}))
-        )
-        .is_err());
+        assert!(
+            Destructured::extract(
+                rt,
+                Some(Node(&json!({"intersect": [], "remove": []}))),
+                Node(&json!({}))
+            )
+            .is_err()
+        );
         // Not an object.
         assert!(
             Destructured::extract(rt, Some(Node(&json!({"intersect": []}))), Node(&json!(42)))

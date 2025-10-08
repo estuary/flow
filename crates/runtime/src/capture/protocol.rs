@@ -1,15 +1,14 @@
 use super::{Task, Transaction};
-use crate::{rocksdb::RocksDB, verify, Accumulator};
+use crate::{Accumulator, rocksdb::RocksDB, verify};
 use anyhow::Context;
 use bytes::BufMut;
 use doc::shape::X_COMPLEXITY_LIMIT;
 use prost::Message;
-use proto_flow::capture::{request, response, Request, Response};
+use proto_flow::capture::{Request, Response, request, response};
 use proto_flow::flow;
 use proto_flow::runtime::{
-    capture_request_ext,
+    CaptureRequestExt, capture_request_ext,
     capture_response_ext::{self, PollResult},
-    CaptureRequestExt,
 };
 use std::collections::{BTreeMap, HashSet};
 

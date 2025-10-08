@@ -1,5 +1,5 @@
 use super::{LogHandler, Runtime};
-use futures::{stream::BoxStream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream::BoxStream};
 use proto_flow::{capture, derive, materialize};
 
 impl<L: LogHandler> Runtime<L> {

@@ -1,6 +1,6 @@
 use super::Client;
 use crate::Error;
-use futures::{stream::BoxStream, SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt, stream::BoxStream};
 use proto_gazette::broker;
 
 /// ReadJsonLine is the enumerated Item type of a read_json_lines() Stream.

@@ -1,6 +1,6 @@
 use super::App;
 use crate::{
-    from_downstream_topic_name, to_downstream_topic_name, DekafError, SessionAuthentication,
+    DekafError, SessionAuthentication, from_downstream_topic_name, to_downstream_topic_name,
 };
 use anyhow::Context;
 use axum::extract::Request;

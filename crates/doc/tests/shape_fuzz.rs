@@ -1,10 +1,10 @@
 use doc::{
-    shape::{limits::enforce_shape_complexity_limit, schema::to_schema},
     Shape, Validator,
+    shape::{limits::enforce_shape_complexity_limit, schema::to_schema},
 };
 use itertools::Itertools;
 use quickcheck::{Gen, QuickCheck, TestResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;
@@ -53,7 +53,9 @@ fn shape_limits(vals: Vec<Value>, limit: usize, depth_limit: usize) -> bool {
 
     if enforced_locations > limit || !assert_docs_fit_schema(vals.clone(), shape.clone()) {
         let schema_yaml = serde_yaml::to_string(&to_schema(shape)).unwrap();
-        println!("Started with {initial_locations} initial locations, enforced down to {enforced_locations}, limit was {limit}");
+        println!(
+            "Started with {initial_locations} initial locations, enforced down to {enforced_locations}, limit was {limit}"
+        );
         println!("start: {initial_schema_yaml}\nenforced down to: {schema_yaml}\ndocs:{vals:?}");
         return false;
     } else {

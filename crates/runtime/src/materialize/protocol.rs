@@ -1,11 +1,11 @@
 use super::{Binding, LoadKeySet, Task, Transaction};
-use crate::rocksdb::{queue_connector_state_update, RocksDB};
-use crate::{verify, Accumulator};
+use crate::rocksdb::{RocksDB, queue_connector_state_update};
+use crate::{Accumulator, verify};
 use anyhow::Context;
 use bytes::{Buf, BufMut};
 use prost::Message;
 use proto_flow::flow;
-use proto_flow::materialize::{request, response, Request, Response};
+use proto_flow::materialize::{Request, Response, request, response};
 use proto_flow::runtime::materialize_response_ext;
 use proto_gazette::consumer;
 use std::collections::{BTreeMap, HashSet};

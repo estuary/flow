@@ -1,7 +1,8 @@
 use anyhow::Context;
 use control_plane_api::{
-    connector_tags::{self, fetch_connector_tag, resolve, Row},
-    jobs, logs, Id,
+    Id,
+    connector_tags::{self, Row, fetch_connector_tag, resolve},
+    jobs, logs,
 };
 use proto_flow::flow;
 use runtime::{LogHandler, Runtime, RuntimeProtocol};

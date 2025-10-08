@@ -1,4 +1,4 @@
-use serde::{de::Error, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error};
 use std::collections::BTreeMap;
 use std::io::Write;
 
@@ -8,7 +8,7 @@ pub mod tracing;
 // Re-export many types from proto_flow::ops, so that users of this crate
 // don't also have to use that module.
 pub use proto_flow::ops::{
-    log::Level as LogLevel, stats, Log, Meta, ShardLabeling, ShardRef, Stats, TaskType,
+    Log, Meta, ShardLabeling, ShardRef, Stats, TaskType, log::Level as LogLevel, stats,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -167,7 +167,7 @@ pub fn merge_docs_and_bytes(from: &stats::DocsAndBytes, to: &mut Option<stats::D
 
 #[cfg(test)]
 mod test {
-    use super::{merge_docs_and_bytes, Log, LogLevel};
+    use super::{Log, LogLevel, merge_docs_and_bytes};
     use crate::new_encoded_json_write_handler;
     use proto_flow::ops::stats;
     use serde_json::json;

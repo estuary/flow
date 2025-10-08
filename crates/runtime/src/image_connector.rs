@@ -1,5 +1,5 @@
 use super::container;
-use futures::{channel::mpsc, future::BoxFuture, Stream, TryStreamExt};
+use futures::{Stream, TryStreamExt, channel::mpsc, future::BoxFuture};
 
 /// Container is a description of a running Container instance.
 pub use proto_flow::runtime::Container;

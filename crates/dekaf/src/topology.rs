@@ -1,8 +1,8 @@
-use crate::{connector, utils, SessionAuthentication, TaskState};
-use anyhow::{anyhow, bail, Context};
+use crate::{SessionAuthentication, TaskState, connector, utils};
+use anyhow::{Context, anyhow, bail};
 use futures::StreamExt;
 use gazette::{
-    broker::{self, journal_spec, ReadResponse},
+    broker::{self, ReadResponse, journal_spec},
     journal, uuid,
 };
 use models::RawValue;
@@ -432,7 +432,7 @@ impl Collection {
                         fragment_start: fragment.map(|f| f.begin).unwrap_or(0),
                         offset: write_head,
                         mod_time: -1,
-                    }))
+                    }));
                 }
                 Some(Err(e)) => {
                     if e.inner.is_transient() {

@@ -3,7 +3,7 @@ use dekaf::connector::DekafConfig;
 use futures::StreamExt;
 use locate_bin;
 use rand::Rng;
-use rdkafka::{consumer::Consumer, Message};
+use rdkafka::{Message, consumer::Consumer};
 use schema_registry_converter::async_impl::avro;
 use schema_registry_converter::async_impl::schema_registry;
 use serde_json::json;
@@ -242,7 +242,7 @@ async fn wait_for_primary(task_name: &str) -> anyhow::Result<()> {
                     status.code() == gazette::consumer::replica_status::Code::Primary
                 }) =>
             {
-                return Ok(())
+                return Ok(());
             }
             Ok(info)
                 if info.status.iter().any(|status| {

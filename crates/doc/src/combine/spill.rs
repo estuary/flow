@@ -1,6 +1,6 @@
-use super::{bump_mem_used, reduce, DrainedDoc, Error, HeapEntry, Meta, Spec, BUMP_THRESHOLD};
+use super::{BUMP_THRESHOLD, DrainedDoc, Error, HeapEntry, Meta, Spec, bump_mem_used, reduce};
 use crate::owned::OwnedArchivedNode;
-use crate::{validation, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode, validation};
 use bumpalo::Bump;
 use bytes::Buf;
 use std::collections::BinaryHeap;
@@ -231,7 +231,10 @@ impl Segment {
         if decompressed_bytes != raw_buf.len() {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("corrupt segment: decompressed chunk bytes don't match the length encoded in the chunk header: {decompressed_bytes} vs {}", raw_buf.len()),
+                format!(
+                    "corrupt segment: decompressed chunk bytes don't match the length encoded in the chunk header: {decompressed_bytes} vs {}",
+                    raw_buf.len()
+                ),
             ));
         }
 
@@ -482,10 +485,10 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{combine::CHUNK_TARGET_SIZE, HeapNode, SerPolicy, Validator};
+    use crate::{HeapNode, SerPolicy, Validator, combine::CHUNK_TARGET_SIZE};
     use itertools::Itertools;
     use json::node::compare;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn test_spill_writes_to_segments() {

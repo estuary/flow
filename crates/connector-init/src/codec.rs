@@ -57,7 +57,9 @@ impl Codec {
                 buf = &buf[bound..];
             },
             Self::Json => loop {
-                let Some(bound) = buf.iter().position(|b| *b == b'\n') else { break };
+                let Some(bound) = buf.iter().position(|b| *b == b'\n') else {
+                    break;
+                };
                 let bound = bound + 1; // Byte index after '\n'.
 
                 out.push(serde_json::from_slice::<M>(&buf[..bound]).with_context(|| {
@@ -128,7 +130,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{reader_to_message_stream, Codec};
+    use super::{Codec, reader_to_message_stream};
     use futures::{StreamExt, TryStreamExt};
     use proto_flow::flow::TestSpec;
 

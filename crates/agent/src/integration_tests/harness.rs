@@ -3,8 +3,8 @@ pub mod connectors;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::publications::PublicationsExecutor;
 use crate::DiscoverExecutor;
+use crate::publications::PublicationsExecutor;
 use crate::{
     controllers::ControllerState,
     controlplane::{ConnectorSpec, ControlPlane, PGControlPlane},
@@ -13,13 +13,13 @@ use crate::{
 use chrono::{DateTime, Utc};
 use control_plane_api::server;
 use control_plane_api::{
+    TextJson,
     discovers::{DiscoverHandler, DiscoverOutput},
     draft,
     publications::{
         self, DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
         PublicationResult, Publisher, UncommittedBuild,
     },
-    TextJson,
 };
 use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
@@ -29,7 +29,7 @@ use models::{Capability, CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
 use serde::Deserialize;
-use serde_json::{value::RawValue, Value};
+use serde_json::{Value, value::RawValue};
 use sqlx::types::Uuid;
 use tables::DraftRow;
 use tempfile::tempdir;
@@ -860,7 +860,9 @@ impl TestHarness {
 
     pub async fn assert_controller_pending(&mut self, catalog_name: &str) -> DateTime<Utc> {
         let Some(wake_at) = self.get_controller_wake_at(catalog_name).await else {
-            panic!("expected controller for '{catalog_name}' to have a non-null wake_at, but it was null");
+            panic!(
+                "expected controller for '{catalog_name}' to have a non-null wake_at, but it was null"
+            );
         };
         wake_at
     }
@@ -917,7 +919,7 @@ impl TestHarness {
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
     /// Returns None if no eligible task was ready.
     pub async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
-        use automations::{task_types, Server};
+        use automations::{Server, task_types};
 
         let semaphor = Arc::new(Semaphore::new(1));
         let mut permit = semaphor.clone().acquire_owned().await.unwrap();

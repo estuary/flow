@@ -64,7 +64,11 @@ async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Resul
 }
 
 /// Sign a JWT using Google's signJWT API with configurable subject and audience
-pub async fn google_sign_jwt(task_name: &str, subject: &str, audience: &str) -> anyhow::Result<String> {
+pub async fn google_sign_jwt(
+    task_name: &str,
+    subject: &str,
+    audience: &str,
+) -> anyhow::Result<String> {
     let credentials_path = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
         .context("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")?;
 
@@ -262,7 +266,7 @@ async fn create_service_account_jwt_token(
     client_email: &str,
     private_key: &str,
 ) -> anyhow::Result<String> {
-    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Serialize, Deserialize)]

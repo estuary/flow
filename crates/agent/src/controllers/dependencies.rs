@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::{status::publications::PublicationStatus, AnySpec, ModelDef};
+use models::{AnySpec, ModelDef, status::publications::PublicationStatus};
 
 use crate::ControlPlane;
 
-use super::{publication_status::PendingPublication, ControllerErrorExt, ControllerState, NextRun};
+use super::{ControllerErrorExt, ControllerState, NextRun, publication_status::PendingPublication};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {

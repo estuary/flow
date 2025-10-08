@@ -1,6 +1,6 @@
-use async_graphql::{types::connection, Context};
+use async_graphql::{Context, types::connection};
 
-use crate::server::{snapshot::Snapshot, App, ControlClaims};
+use crate::server::{App, ControlClaims, snapshot::Snapshot};
 use std::sync::Arc;
 
 /// A prefix to which the user is authorized.

@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use super::UncommittedBuild;
-use models::publications::JobStatus;
 use models::Id;
+use models::publications::JobStatus;
 
 /// A trait for database updates that should be performed as part of committing the publication.
 pub trait WithCommit: Send + Sync {

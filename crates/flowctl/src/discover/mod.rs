@@ -1,4 +1,4 @@
-use crate::{api_exec, api_exec_paginated, draft, local_specs, Client};
+use crate::{Client, api_exec, api_exec_paginated, draft, local_specs};
 use anyhow::Context;
 use serde::Deserialize;
 
@@ -40,7 +40,9 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     } else if draft_catalog.captures.is_empty() {
         anyhow::bail!("sourced specification files do not contain any captures");
     } else {
-        anyhow::bail!("sourced specification files contain multiple captures. Use --capture to identify a specific one");
+        anyhow::bail!(
+            "sourced specification files contain multiple captures. Use --capture to identify a specific one"
+        );
     };
 
     let capture_index = match draft_catalog

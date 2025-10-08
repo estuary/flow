@@ -8,7 +8,7 @@ pub mod materialization;
 pub mod publications;
 pub mod summary;
 
-use crate::{datetime_schema, is_false, option_datetime_schema, CatalogType, Id};
+use crate::{CatalogType, Id, datetime_schema, is_false, option_datetime_schema};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -335,12 +335,12 @@ mod test {
     use chrono::{TimeZone, Utc};
 
     use super::*;
+    use crate::Id;
     use crate::draft_error::Error;
     use crate::publications::StatusType;
     use crate::status::activation::ActivationStatus;
     use crate::status::materialization::{MaterializationStatus, SourceCaptureStatus};
     use crate::status::publications::{PublicationInfo, PublicationStatus};
-    use crate::Id;
 
     #[test]
     fn test_status_round_trip_serde() {

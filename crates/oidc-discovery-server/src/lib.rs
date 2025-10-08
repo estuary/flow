@@ -1,10 +1,10 @@
 use anyhow::Context;
 use axum::{
+    Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::Json,
     routing::get,
-    Router,
 };
 use serde_json::Value;
 use sqlx::PgPool;

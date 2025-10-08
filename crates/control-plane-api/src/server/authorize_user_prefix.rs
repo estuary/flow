@@ -585,8 +585,10 @@ mod tests {
         prefix: models::Prefix,
         data_plane: models::Name,
         capability: models::Capability,
-    ) -> Result<(String, proto_gazette::Claims, String, proto_gazette::Claims), crate::server::error::ApiError>
-    {
+    ) -> Result<
+        (String, proto_gazette::Claims, String, proto_gazette::Claims),
+        crate::server::error::ApiError,
+    > {
         let taken = chrono::Utc::now();
         let snapshot = Snapshot::build_fixture(Some(taken));
         let snapshot = std::sync::RwLock::new(snapshot);

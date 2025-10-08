@@ -1,4 +1,4 @@
-use crate::{ops::TaskSelector, CliContext};
+use crate::{CliContext, ops::TaskSelector};
 
 pub async fn do_list_shards(ctx: &mut CliContext, selector: &TaskSelector) -> anyhow::Result<()> {
     let task_name = &selector.task;

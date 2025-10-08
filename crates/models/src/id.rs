@@ -130,7 +130,10 @@ impl sqlx::postgres::PgHasArrayType for Id {
 
 #[cfg(feature = "sqlx-support")]
 impl sqlx::Encode<'_, sqlx::postgres::Postgres> for Id {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         buf.extend_from_slice(&self.0);
         Ok(sqlx::encode::IsNull::No)
     }
@@ -207,7 +210,10 @@ mod test {
             let id = generator.next();
             let (timestamp, seq, shard) = id.into_parts();
             assert_eq!(generator.shard, shard, "shard mismatch");
-            assert_eq!(generator.last_timestamp, timestamp, "i: {i}, timestamp mismatch");
+            assert_eq!(
+                generator.last_timestamp, timestamp,
+                "i: {i}, timestamp mismatch"
+            );
             assert!(
                 id > prev_id,
                 "i: {i}, ids must increase monotonically, prev: {prev_id}, next: {id}, prev_parts: {:?}, next_parts: {:?}",

@@ -1,18 +1,18 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use models::status::{
+    AlertType, Alerts,
     capture::{AutoDiscoverFailure, AutoDiscoverOutcome, AutoDiscoverStatus, DiscoverChange},
     publications::PublicationStatus,
-    AlertType, Alerts,
 };
 
 use crate::{
+    ControlPlane,
     controllers::{
-        alerts, publication_status::PendingPublication, ControllerErrorExt, ControllerState,
-        NextRun,
+        ControllerErrorExt, ControllerState, NextRun, alerts,
+        publication_status::PendingPublication,
     },
     controlplane::ConnectorSpec,
-    ControlPlane,
 };
 use control_plane_api::discovers::DiscoverOutput;
 

@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{self, BufRead, Read, Seek};
 use tempfile::tempfile;
 
-pub use self::compression::{detect_compression, CompressionError};
+pub use self::compression::{CompressionError, detect_compression};
 pub use self::encoding::detect_encoding;
 
 /// Type of content input provided to parsers.

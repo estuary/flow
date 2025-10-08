@@ -1,4 +1,4 @@
-use crate::integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness};
+use crate::integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog};
 use models::status::ControllerStatus;
 use std::collections::BTreeSet;
 
@@ -170,11 +170,13 @@ async fn specs_are_published_periodically() {
             );
             assert!(after_error_state.error.is_some());
             if i > 0 {
-                assert!(after_error_state
-                    .error
-                    .as_deref()
-                    .unwrap()
-                    .contains("backing off periodic publication"));
+                assert!(
+                    after_error_state
+                        .error
+                        .as_deref()
+                        .unwrap()
+                        .contains("backing off periodic publication")
+                );
             }
         }
         // Change the timestamp of the last publication in the history to

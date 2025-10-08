@@ -157,17 +157,7 @@ pub mod inference {
         pub item_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
     /// Exists enumerates the possible states of existence for a location.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Exists {
         Invalid = 0,
@@ -213,17 +203,7 @@ pub mod inference {
         }
     }
     /// Reduce enumerates the possible `reduce` strategies for a location.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Reduce {
         Unset = 0,
@@ -277,17 +257,7 @@ pub mod inference {
         }
     }
     /// Redact enumerates the possible `redact` strategies for a location.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Redact {
         Unset = 0,
@@ -394,9 +364,7 @@ pub mod collection_spec {
         pub shard_template: ::core::option::Option<::proto_gazette::consumer::ShardSpec>,
         /// Template for recovery logs of shards of this derivation.
         #[prost(message, optional, tag = "6")]
-        pub recovery_log_template: ::core::option::Option<
-            ::proto_gazette::broker::JournalSpec,
-        >,
+        pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
         /// Network ports of this derivation.
         #[prost(message, repeated, tag = "7")]
         pub network_ports: ::prost::alloc::vec::Vec<super::NetworkPort>,
@@ -424,9 +392,7 @@ pub mod collection_spec {
             pub collection: ::core::option::Option<super::super::CollectionSpec>,
             /// Selector of collection partitions which this materialization reads.
             #[prost(message, optional, tag = "3")]
-            pub partition_selector: ::core::option::Option<
-                ::proto_gazette::broker::LabelSelector,
-            >,
+            pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
             /// Priority of this transform, with respect to other transforms of the derivation.
             /// Higher values imply higher priority.
             #[prost(uint32, tag = "4")]
@@ -464,15 +430,7 @@ pub mod collection_spec {
             pub backfill: u32,
         }
         #[derive(
-            Clone,
-            Copy,
-            Debug,
-            PartialEq,
-            Eq,
-            Hash,
-            PartialOrd,
-            Ord,
-            ::prost::Enumeration
+            Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
         )]
         #[repr(i32)]
         pub enum ConnectorType {
@@ -510,15 +468,7 @@ pub mod collection_spec {
         }
         /// JSON types of shuffle key components extracted by the transforms of this derivation.
         #[derive(
-            Clone,
-            Copy,
-            Debug,
-            PartialEq,
-            Eq,
-            Hash,
-            PartialOrd,
-            Ord,
-            ::prost::Enumeration
+            Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
         )]
         #[repr(i32)]
         pub enum ShuffleType {
@@ -597,9 +547,7 @@ pub struct CaptureSpec {
     pub shard_template: ::core::option::Option<::proto_gazette::consumer::ShardSpec>,
     /// Template for recovery logs of shards of this capture.
     #[prost(message, optional, tag = "7")]
-    pub recovery_log_template: ::core::option::Option<
-        ::proto_gazette::broker::JournalSpec,
-    >,
+    pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
     /// Network ports of this capture.
     #[prost(message, repeated, tag = "8")]
     pub network_ports: ::prost::alloc::vec::Vec<NetworkPort>,
@@ -639,17 +587,7 @@ pub mod capture_spec {
         pub state_key: ::prost::alloc::string::String,
     }
     /// Type of the capture's connector.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum ConnectorType {
         Invalid = 0,
@@ -698,9 +636,7 @@ pub struct MaterializationSpec {
     pub shard_template: ::core::option::Option<::proto_gazette::consumer::ShardSpec>,
     /// Template for recovery logs of shards of this materialization.
     #[prost(message, optional, tag = "6")]
-    pub recovery_log_template: ::core::option::Option<
-        ::proto_gazette::broker::JournalSpec,
-    >,
+    pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
     /// Network ports of this materialization.
     #[prost(message, repeated, tag = "7")]
     pub network_ports: ::prost::alloc::vec::Vec<NetworkPort>,
@@ -730,9 +666,7 @@ pub mod materialization_spec {
         pub collection: ::core::option::Option<super::CollectionSpec>,
         /// Selector of collection partitions which this materialization reads.
         #[prost(message, optional, tag = "7")]
-        pub partition_selector: ::core::option::Option<
-            ::proto_gazette::broker::LabelSelector,
-        >,
+        pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
         /// Priority of this binding, with respect to other bindings of the materialization.
         /// Higher values imply higher priority.
         #[prost(uint32, tag = "9")]
@@ -774,23 +708,11 @@ pub mod materialization_spec {
             #[prost(string, tag = "1")]
             pub group_name: ::prost::alloc::string::String,
             #[prost(message, optional, tag = "3")]
-            pub partition_selector: ::core::option::Option<
-                ::proto_gazette::broker::LabelSelector,
-            >,
+            pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
         }
     }
     /// Type of the materialization's connector.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum ConnectorType {
         Invalid = 0,
@@ -928,15 +850,7 @@ pub mod test_spec {
     pub mod step {
         /// Type of this step.
         #[derive(
-            Clone,
-            Copy,
-            Debug,
-            PartialEq,
-            Eq,
-            Hash,
-            PartialOrd,
-            Ord,
-            ::prost::Enumeration
+            Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
         )]
         #[repr(i32)]
         pub enum Type {
@@ -1044,17 +958,7 @@ pub mod extract_api {
         pub projections: ::prost::alloc::vec::Vec<super::Projection>,
     }
     /// Code labels message codes passed over the CGO bridge.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Code {
         Invalid = 0,
@@ -1159,10 +1063,8 @@ pub struct IngestRequest {
 pub struct IngestResponse {
     /// Journals appended to by this ingestion, and their maximum offset on commit.
     #[prost(btree_map = "string, int64", tag = "1")]
-    pub journal_write_heads: ::prost::alloc::collections::BTreeMap<
-        ::prost::alloc::string::String,
-        i64,
-    >,
+    pub journal_write_heads:
+        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, i64>,
     /// Etcd header which describes current journal partitions.
     #[prost(message, optional, tag = "2")]
     pub journal_etcd: ::core::option::Option<::proto_gazette::broker::header::Etcd>,
@@ -1211,17 +1113,7 @@ pub mod task_network_proxy_response {
     /// the connection may proceed. Any other status indicates the reason for refusal.
     /// This enum is a superset of the consumer.Status enum used by the Shards service,
     /// though some statuses have taken on broader meanings.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Status {
         Ok = 0,

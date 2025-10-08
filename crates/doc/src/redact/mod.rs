@@ -1,5 +1,5 @@
 use super::{HeapField, HeapNode};
-use crate::{validation, BumpStr, BumpVec};
+use crate::{BumpStr, BumpVec, validation};
 use itertools::Itertools;
 use json::AsNode;
 use sha2::Digest;

@@ -1,7 +1,7 @@
 /// This module implements various inspections which can be performed over Shapes.
 use super::*;
 use crate::{redact, reduce};
-use json::{location::LocatedProperty, schema::formats::Format, Location};
+use json::{Location, location::LocatedProperty, schema::formats::Format};
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -9,7 +9,9 @@ pub enum Error {
     ImpossibleMustExist(String),
     #[error("'{0}' has reduction strategy, but its parent does not")]
     ChildWithoutParentReduction(String),
-    #[error("{0} has 'sum' reduction strategy (restricted to integers, numbers and strings with `format: integer` or `format: number`) but has types {1:?}")]
+    #[error(
+        "{0} has 'sum' reduction strategy (restricted to integers, numbers and strings with `format: integer` or `format: number`) but has types {1:?}"
+    )]
     SumNotNumber(String, types::Set),
     #[error(
         "{0} has 'merge' reduction strategy, restricted to objects & arrays, but has types {1:?}"
@@ -191,7 +193,7 @@ impl Shape {
 
 #[cfg(test)]
 mod test {
-    use super::{shape_from, Error};
+    use super::{Error, shape_from};
     use json::schema::types;
 
     #[test]

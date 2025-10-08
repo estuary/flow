@@ -1,7 +1,7 @@
 use itertools::{EitherOrBoth, Itertools};
 use json::{
-    schema::{self, build::ScopedError, Annotation},
     Schema, Validator,
+    schema::{self, Annotation, build::ScopedError},
 };
 
 /// Runs tests from the given file within the `draft2019-09/optional/format` directory.
@@ -240,18 +240,24 @@ fn run_file_test(target: &[&str], expected_failures: &[(&str, &str, serde_json::
                 if expect == actual {
                     continue; // Passing case.
                 }
-                println!("FAILURE: unexpected failure (desc: {desc:?} sub_desc: {sub_desc:?} data:{data})");
+                println!(
+                    "FAILURE: unexpected failure (desc: {desc:?} sub_desc: {sub_desc:?} data:{data})"
+                );
                 failed = true;
             }
             EitherOrBoth::Right((desc, sub_desc, data)) => {
-                println!("FAILURE: expected failure not observed (desc: {desc:?} sub_desc: {sub_desc:?} data:{data})");
+                println!(
+                    "FAILURE: expected failure not observed (desc: {desc:?} sub_desc: {sub_desc:?} data:{data})"
+                );
                 failed = true;
             }
             EitherOrBoth::Both(((desc, sub_desc, data), expect, actual), _case) => {
                 if expect != actual {
                     continue; // Expected failure.
                 }
-                println!("FAILURE: expected failure did not fail (desc: {desc:?} sub_desc: {sub_desc:?} data:{data})");
+                println!(
+                    "FAILURE: expected failure did not fail (desc: {desc:?} sub_desc: {sub_desc:?} data:{data})"
+                );
                 failed = true;
             }
         }

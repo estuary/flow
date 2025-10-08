@@ -74,7 +74,7 @@ async fn do_authorize_task(
             return Err(
                 anyhow::anyhow!("capability {cap} cannot be authorized by this service")
                     .with_status(StatusCode::FORBIDDEN),
-            )
+            );
         }
     };
 
@@ -129,7 +129,7 @@ async fn do_authorize_task(
             return Ok(axum::Json(Response {
                 retry_millis: backoff.as_millis() as u64,
                 ..Default::default()
-            }))
+            }));
         }
         Err(Err(err)) => return Err(err),
     };

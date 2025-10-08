@@ -1,11 +1,11 @@
 // Links in the allocator crate, which sets the global allocator to jemalloc
 extern crate allocator;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{
-    log_appender::GazetteWriter, logging, KafkaApiClient, KafkaClientAuth, Session, TaskManager,
+    KafkaApiClient, KafkaClientAuth, Session, TaskManager, log_appender::GazetteWriter, logging,
 };
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
@@ -147,7 +147,6 @@ struct TlsArgs {
     certificate_key_file: Option<PathBuf>,
 }
 
-
 impl Cli {
     fn build_broker_urls(&self) -> anyhow::Result<Vec<String>> {
         self.default_broker_urls
@@ -206,7 +205,6 @@ fn main() {
 
 async fn async_main(cli: Cli) -> anyhow::Result<()> {
     let upstream_kafka_urls = cli.build_broker_urls()?;
-
 
     test_kafka(&cli).await?;
 
@@ -522,7 +520,6 @@ async fn test_kafka(cli: &Cli) -> anyhow::Result<()> {
     let broker_urls = cli.build_broker_urls()?;
 
     KafkaApiClient::connect(broker_urls.as_slice(), iam_creds).await?;
-
 
     tracing::info!("Successfully connected to upstream kafka");
 

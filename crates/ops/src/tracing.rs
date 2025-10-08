@@ -201,7 +201,7 @@ pub fn level_from_tracing(lvl: &tracing::Level) -> LogLevel {
 mod test {
 
     use super::Layer;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::prelude::*;
 

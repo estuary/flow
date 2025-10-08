@@ -1,7 +1,7 @@
 use super::{parsed_and_fallback, to_hex, transcoded_and_fallback};
 use crate::Parser;
 use json::AsNode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[test]
 fn test_simd_and_fallback_results_are_equal() {

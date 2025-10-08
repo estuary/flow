@@ -149,7 +149,6 @@ impl Controller {
         };
         let state = state.as_mut().unwrap();
 
-
         let sleep = match state.status {
             Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
             Status::SetEncryption => self.on_set_encryption(state, checkouts).await?,
@@ -164,7 +163,6 @@ impl Controller {
             Status::PulumiUp2 => self.on_pulumi_up_2(state, checkouts).await?,
             Status::AwaitDNS2 => self.on_await_dns_2(state).await?,
         };
-
 
         // We publish an updated stack only when transitioning back to Idle.
         let publish_stack = if matches!(state.status, Status::Idle) {
@@ -848,7 +846,6 @@ impl Controller {
 
         (self.run_cmd_fn)(owned, true, stream, logs_token).await
     }
-
 }
 
 async fn fetch_row_state(

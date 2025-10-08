@@ -3,10 +3,10 @@ use std::iter::FromIterator;
 
 use json::schema::types;
 use proto_flow::{
-    flow::{inference::Exists, materialization_spec, FieldSelection},
+    flow::{FieldSelection, inference::Exists, materialization_spec},
     materialize::request::validate::Binding as ValidateBinding,
-    materialize::response::validated::constraint,
     materialize::response::validated::Constraint,
+    materialize::response::validated::constraint,
 };
 
 use crate::firebolt::errors::BindingConstraintError;
@@ -61,7 +61,7 @@ pub fn validate_binding_against_constraints(
                 return Err(BindingConstraintError::RequiredFieldMissing {
                     field: field.to_string(),
                     reason: constraint.reason.to_string(),
-                })
+                });
             }
             constraint::Type::LocationRequired => {
                 let projection = projections.iter().find(|p| &p.field == field).unwrap();

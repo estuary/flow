@@ -13,8 +13,8 @@ use std::{
     collections::HashMap,
     fmt,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -98,7 +98,9 @@ impl TaskStateListener {
                         } if access_token_claims.exp
                             <= time::OffsetDateTime::now_utc().unix_timestamp() as u64 =>
                         {
-                            anyhow::bail!("Access token has expired and the task manager has been unable to refresh it.");
+                            anyhow::bail!(
+                                "Access token has expired and the task manager has been unable to refresh it."
+                            );
                         }
                         _ => return Ok(state.clone()),
                     },
@@ -233,9 +235,8 @@ impl TaskManager {
         task_name: String,
     ) -> anyhow::Result<()> {
         // Start the loop at some random point between now and the interval duration
-        let jittered_start = Duration::from_millis(
-            rand::rng().random_range(0..self.interval.as_millis() as u64),
-        );
+        let jittered_start =
+            Duration::from_millis(rand::rng().random_range(0..self.interval.as_millis() as u64));
         let mut interval =
             tokio::time::interval_at(tokio::time::Instant::now() + jittered_start, self.interval);
 

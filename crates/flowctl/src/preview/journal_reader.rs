@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{channel::mpsc, SinkExt, StreamExt, TryFutureExt};
+use futures::{SinkExt, StreamExt, TryFutureExt, channel::mpsc};
 use proto_flow::flow;
 use proto_gazette::broker;
 

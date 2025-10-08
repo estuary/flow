@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies, periodic,
-    publication_status::PendingPublication, ControlPlane, ControllerErrorExt, ControllerState,
-    Inbox, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
+    coalesce_results, dependencies::Dependencies, periodic, publication_status::PendingPublication,
 };
 use crate::controllers::{activation, publication_status};
 use anyhow::Context;

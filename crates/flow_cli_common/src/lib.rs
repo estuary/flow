@@ -1,7 +1,7 @@
 //! Contains helpers and things that are used by all Flow rust executables.
 mod logging;
 
-pub use logging::{init_logging, LogArgs, LogFormat, LogLevel};
+pub use logging::{LogArgs, LogFormat, LogLevel, init_logging};
 
 /// An arguments container that accepts all arguments verbatim. This is used by external
 /// subcommands to allow all their argument parsing to be handled by the external binary.

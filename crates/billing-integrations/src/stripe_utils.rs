@@ -1,6 +1,6 @@
 use crate::publish::TENANT_METADATA_KEY;
 use num_format::{Locale, ToFormattedString};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::ops::{Deref, DerefMut};
 use stripe::SearchList;
 

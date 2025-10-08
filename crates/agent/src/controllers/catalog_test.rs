@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::{dependencies::Dependencies, periodic, ControlPlane, ControllerState, Inbox, NextRun};
+use super::{ControlPlane, ControllerState, Inbox, NextRun, dependencies::Dependencies, periodic};
 use models::status::catalog_test::TestStatus;
 
 pub async fn update<C: ControlPlane>(

@@ -1,14 +1,14 @@
 use super::{LockFailure, UncommittedBuild};
+use crate::Capability;
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
-use crate::Capability;
 use anyhow::Context;
 use itertools::Itertools;
-use models::{split_image_tag, Id, ModelDef, SourceType, TargetNaming};
+use models::{Id, ModelDef, SourceType, TargetNaming, split_image_tag};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use tables::{utils, BuiltRow, DraftRow};
+use tables::{BuiltRow, DraftRow, utils};
 
 pub async fn persist_updates(
     uncommitted: &UncommittedBuild,
@@ -1056,9 +1056,11 @@ mod test {
             let Err(error) = to_raw_value(Some(&rv), |x| x) else {
                 panic!("expected error for example: {example} but was success");
             };
-            assert!(error
-                .to_string()
-                .contains("a string in the spec contains a disallowed unicode null escape"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("a string in the spec contains a disallowed unicode null escape")
+            );
         }
 
         let good = vec![

@@ -189,17 +189,7 @@ pub struct ReplicaStatus {
 }
 /// Nested message and enum types in `ReplicaStatus`.
 pub mod replica_status {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Code {
         Idle = 0,
@@ -249,18 +239,13 @@ pub mod replica_status {
 pub struct Checkpoint {
     /// Sources is metadata of journals consumed by the shard.
     #[prost(map = "string, message", tag = "1")]
-    pub sources: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        checkpoint::Source,
-    >,
+    pub sources: ::std::collections::HashMap<::prost::alloc::string::String, checkpoint::Source>,
     /// AckIntents is acknowledgement intents to be written to journals to which
     /// uncommitted messages were published during the transaction which produced
     /// this Checkpoint.
     #[prost(map = "string, bytes", tag = "2")]
-    pub ack_intents: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::vec::Vec<u8>,
-    >,
+    pub ack_intents:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::vec::Vec<u8>>,
 }
 /// Nested message and enum types in `Checkpoint`.
 pub mod checkpoint {

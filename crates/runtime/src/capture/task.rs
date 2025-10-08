@@ -1,6 +1,6 @@
 use super::{Binding, Task};
 use anyhow::Context;
-use proto_flow::capture::{request, response, Request, Response};
+use proto_flow::capture::{Request, Response, request, response};
 use proto_flow::flow;
 use std::collections::BTreeMap;
 

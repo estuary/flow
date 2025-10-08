@@ -1,7 +1,7 @@
 use proto_flow::ops;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use tracing_subscriber::prelude::*;
 
 /// TokioContext manages a tokio::Runtime that names its threads under a given thread name,

@@ -1,7 +1,6 @@
 use crate::{
-    schema,
+    Node, schema,
     validator::{Outcome, ScopedOutcome},
-    Node,
 };
 use itertools::Itertools;
 use serde_json::json;
@@ -148,8 +147,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        schema::{self, build, CoreAnnotation},
         Validator,
+        schema::{self, CoreAnnotation, build},
     };
     use serde_json::json;
 

@@ -1,10 +1,10 @@
 use doc::{
+    HeapNode, LazyNode, SerPolicy,
     combine::{MemTable, Spec, SpillDrainer, SpillWriter},
     reduce::Error,
-    HeapNode, LazyNode, SerPolicy,
 };
 use quickcheck::quickcheck;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io;
 
 mod arbitrary_value;

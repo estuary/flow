@@ -7,10 +7,10 @@ pub mod shard_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     /// Shard is the Consumer service API for interacting with Shards. Applications
     /// are able to wrap or alter the behavior of Shard API implementations via the
     /// Service.ShardAPI structure. They're also able to implement additional gRPC
@@ -53,14 +53,13 @@ pub mod shard_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
+                    http::Request<tonic::body::Body>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::Body>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ShardClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -103,18 +102,14 @@ pub mod shard_client {
             tonic::Response<::proto_gazette::consumer::StatResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/Stat");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "Stat"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("consumer.Shard", "Stat"));
             self.inner.unary(req, path, codec).await
         }
         /// List Shards, their ShardSpecs and their processing status.
@@ -125,18 +120,14 @@ pub mod shard_client {
             tonic::Response<::proto_gazette::consumer::ListResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/List");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "List"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("consumer.Shard", "List"));
             self.inner.unary(req, path, codec).await
         }
         /// Apply changes to the collection of Shards managed by the consumer.
@@ -147,18 +138,14 @@ pub mod shard_client {
             tonic::Response<::proto_gazette::consumer::ApplyResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/Apply");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "Apply"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("consumer.Shard", "Apply"));
             self.inner.unary(req, path, codec).await
         }
         /// GetHints fetches hints for a shard.
@@ -169,18 +156,14 @@ pub mod shard_client {
             tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/GetHints");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "GetHints"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("consumer.Shard", "GetHints"));
             self.inner.unary(req, path, codec).await
         }
         /// Unassign a Shard.
@@ -191,18 +174,14 @@ pub mod shard_client {
             tonic::Response<::proto_gazette::consumer::UnassignResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/Unassign");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "Unassign"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("consumer.Shard", "Unassign"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -215,7 +194,7 @@ pub mod shard_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ShardServer.
@@ -287,10 +266,7 @@ pub mod shard_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -345,25 +321,18 @@ pub mod shard_server {
                 "/consumer.Shard/Stat" => {
                     #[allow(non_camel_case_types)]
                     struct StatSvc<T: Shard>(pub Arc<T>);
-                    impl<
-                        T: Shard,
-                    > tonic::server::UnaryService<::proto_gazette::consumer::StatRequest>
-                    for StatSvc<T> {
+                    impl<T: Shard>
+                        tonic::server::UnaryService<::proto_gazette::consumer::StatRequest>
+                        for StatSvc<T>
+                    {
                         type Response = ::proto_gazette::consumer::StatResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::consumer::StatRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::consumer::StatRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Shard>::stat(&inner, request).await
-                            };
+                            let fut = async move { <T as Shard>::stat(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -392,25 +361,18 @@ pub mod shard_server {
                 "/consumer.Shard/List" => {
                     #[allow(non_camel_case_types)]
                     struct ListSvc<T: Shard>(pub Arc<T>);
-                    impl<
-                        T: Shard,
-                    > tonic::server::UnaryService<::proto_gazette::consumer::ListRequest>
-                    for ListSvc<T> {
+                    impl<T: Shard>
+                        tonic::server::UnaryService<::proto_gazette::consumer::ListRequest>
+                        for ListSvc<T>
+                    {
                         type Response = ::proto_gazette::consumer::ListResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::consumer::ListRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::consumer::ListRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Shard>::list(&inner, request).await
-                            };
+                            let fut = async move { <T as Shard>::list(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -439,26 +401,18 @@ pub mod shard_server {
                 "/consumer.Shard/Apply" => {
                     #[allow(non_camel_case_types)]
                     struct ApplySvc<T: Shard>(pub Arc<T>);
-                    impl<
-                        T: Shard,
-                    > tonic::server::UnaryService<
-                        ::proto_gazette::consumer::ApplyRequest,
-                    > for ApplySvc<T> {
+                    impl<T: Shard>
+                        tonic::server::UnaryService<::proto_gazette::consumer::ApplyRequest>
+                        for ApplySvc<T>
+                    {
                         type Response = ::proto_gazette::consumer::ApplyResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::consumer::ApplyRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::consumer::ApplyRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Shard>::apply(&inner, request).await
-                            };
+                            let fut = async move { <T as Shard>::apply(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -487,26 +441,18 @@ pub mod shard_server {
                 "/consumer.Shard/GetHints" => {
                     #[allow(non_camel_case_types)]
                     struct GetHintsSvc<T: Shard>(pub Arc<T>);
-                    impl<
-                        T: Shard,
-                    > tonic::server::UnaryService<
-                        ::proto_gazette::consumer::GetHintsRequest,
-                    > for GetHintsSvc<T> {
+                    impl<T: Shard>
+                        tonic::server::UnaryService<::proto_gazette::consumer::GetHintsRequest>
+                        for GetHintsSvc<T>
+                    {
                         type Response = ::proto_gazette::consumer::GetHintsResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::consumer::GetHintsRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::consumer::GetHintsRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Shard>::get_hints(&inner, request).await
-                            };
+                            let fut = async move { <T as Shard>::get_hints(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -535,26 +481,18 @@ pub mod shard_server {
                 "/consumer.Shard/Unassign" => {
                     #[allow(non_camel_case_types)]
                     struct UnassignSvc<T: Shard>(pub Arc<T>);
-                    impl<
-                        T: Shard,
-                    > tonic::server::UnaryService<
-                        ::proto_gazette::consumer::UnassignRequest,
-                    > for UnassignSvc<T> {
+                    impl<T: Shard>
+                        tonic::server::UnaryService<::proto_gazette::consumer::UnassignRequest>
+                        for UnassignSvc<T>
+                    {
                         type Response = ::proto_gazette::consumer::UnassignResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::consumer::UnassignRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::consumer::UnassignRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Shard>::unassign(&inner, request).await
-                            };
+                            let fut = async move { <T as Shard>::unassign(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -580,25 +518,19 @@ pub mod shard_server {
                     };
                     Box::pin(fut)
                 }
-                _ => {
-                    Box::pin(async move {
-                        let mut response = http::Response::new(
-                            tonic::body::Body::default(),
-                        );
-                        let headers = response.headers_mut();
-                        headers
-                            .insert(
-                                tonic::Status::GRPC_STATUS,
-                                (tonic::Code::Unimplemented as i32).into(),
-                            );
-                        headers
-                            .insert(
-                                http::header::CONTENT_TYPE,
-                                tonic::metadata::GRPC_CONTENT_TYPE,
-                            );
-                        Ok(response)
-                    })
-                }
+                _ => Box::pin(async move {
+                    let mut response = http::Response::new(tonic::body::Body::default());
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        tonic::Status::GRPC_STATUS,
+                        (tonic::Code::Unimplemented as i32).into(),
+                    );
+                    headers.insert(
+                        http::header::CONTENT_TYPE,
+                        tonic::metadata::GRPC_CONTENT_TYPE,
+                    );
+                    Ok(response)
+                }),
             }
         }
     }

@@ -1,12 +1,12 @@
 use super::{
-    Frame, FrameSpeculative, Outcome, ScopedOutcome, Validation, FLAG_INVALID, FLAG_VALID_ANY_OF,
-    FLAG_VALID_IF_ELSE, FLAG_VALID_IF_THEN, FLAG_VALID_ONE_OF,
+    FLAG_INVALID, FLAG_VALID_ANY_OF, FLAG_VALID_IF_ELSE, FLAG_VALID_IF_THEN, FLAG_VALID_ONE_OF,
+    Frame, FrameSpeculative, Outcome, ScopedOutcome, Validation,
 };
 use crate::{
+    AsNode, Node,
     node::{Field, Fields},
     number,
-    schema::{self, types, Annotation, Keyword, Schema},
-    AsNode, Node,
+    schema::{self, Annotation, Keyword, Schema, types},
 };
 use bitvec::{order::Lsb0, view::BitView};
 use std::cmp::Ordering;

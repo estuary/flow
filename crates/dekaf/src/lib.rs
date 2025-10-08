@@ -2,7 +2,7 @@ use anyhow::Context;
 use bytes::{BufMut, Bytes};
 use kafka_protocol::{
     messages::{self, ApiKey, TopicName},
-    protocol::{buf::ByteBuf, Decodable, Encodable, StrBytes},
+    protocol::{Decodable, Encodable, StrBytes, buf::ByteBuf},
 };
 use tracing::instrument;
 
@@ -14,8 +14,8 @@ pub use topology::extract_dekaf_config;
 use topology::{Collection, Partition};
 
 mod read;
-pub use read::extract_and_encode;
 use read::Read;
+pub use read::extract_and_encode;
 
 pub mod utils;
 
@@ -34,7 +34,7 @@ pub use api_client::{KafkaApiClient, KafkaClientAuth};
 /// Re-export the dekaf-connector crate so it can be used as `crate::connector`.
 pub use dekaf_connector as connector;
 
-use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
+use aes_siv::{Aes256SivAead, KeyInit, KeySizeUser, aead::Aead};
 use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow::MaterializationSpec;
@@ -60,8 +60,6 @@ pub struct App {
     /// The manager responsible for maintaining fresh task metadata
     pub task_manager: Arc<TaskManager>,
 }
-
-
 
 #[derive(Clone)]
 pub struct TaskAuth {
@@ -119,7 +117,6 @@ impl SessionAuthentication {
         }
     }
 }
-
 
 impl TaskAuth {
     pub fn new(
@@ -683,7 +680,6 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
 fn dekaf_shard_template_id(task_name: &str) -> String {
     format!("materialize/{task_name}/0000000000000000/")
 }
-
 
 #[cfg(test)]
 mod test {

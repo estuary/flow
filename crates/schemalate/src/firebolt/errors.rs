@@ -10,7 +10,9 @@ pub enum Error {
 pub enum BindingConstraintError {
     #[error("No such projction for field '{field}'")]
     NoProjectionForField { field: String },
-    #[error("The field '{field}' may not be materialize because it has constraint: {constraint} with reason: {reason}")]
+    #[error(
+        "The field '{field}' may not be materialize because it has constraint: {constraint} with reason: {reason}"
+    )]
     NotMaterializableField {
         field: String,
         constraint: String,
@@ -18,6 +20,8 @@ pub enum BindingConstraintError {
     },
     #[error("Required field '{field}' is missing. It is required because: {reason}")]
     RequiredFieldMissing { field: String, reason: String },
-    #[error("The materialization must include a projections of location '{ptr}', but no such projection is included")]
+    #[error(
+        "The materialization must include a projections of location '{ptr}', but no such projection is included"
+    )]
     MissingProjection { ptr: String },
 }

@@ -71,7 +71,10 @@ impl<I: Iterator<Item = ParseResult>> ParseErrorBuffer<I> {
     fn buffer_next(&mut self) -> bool {
         if let Some(item) = self.inner.next() {
             if let Err(err) = item.as_ref() {
-                tracing::warn!(error=err.to_string(), "failed to parse row, but ignoring due to error threshold");
+                tracing::warn!(
+                    error = err.to_string(),
+                    "failed to parse row, but ignoring due to error threshold"
+                );
                 self.errors_in_buffer += 1;
             }
             self.total_records += 1;
@@ -93,19 +96,23 @@ impl<I: Iterator<Item = ParseResult>> Iterator for ParseErrorBuffer<I> {
             if self.exceeded() {
                 // Find the earliest error in the buffer to include as part of the error
                 // to make the user-facing error more understandable
-                let err = self.buffer.iter().find_map(|item| {
-                    if let Err(e) = item {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                }).unwrap();
+                let err = self
+                    .buffer
+                    .iter()
+                    .find_map(|item| if let Err(e) = item { Some(e) } else { None })
+                    .unwrap();
 
-                return Some(Err(ParseError::ErrorLimitExceeded(self.threshold, err.to_string())));
+                return Some(Err(ParseError::ErrorLimitExceeded(
+                    self.threshold,
+                    err.to_string(),
+                )));
             } else {
                 let item = self.advance()?;
                 if let Err(err) = item.as_ref() {
-                    tracing::warn!(error=err.to_string(), "failed to parse row, but ignoring due to error threshold");
+                    tracing::warn!(
+                        error = err.to_string(),
+                        "failed to parse row, but ignoring due to error threshold"
+                    );
                     continue;
                 } else {
                     return Some(item);

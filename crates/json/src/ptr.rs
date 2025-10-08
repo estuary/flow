@@ -296,13 +296,15 @@ mod test {
 
         // Basic example.
         let ptr = Pointer::from("/p1/2/p3");
-        assert!(vec![
-            Property("p1".to_string()),
-            Index(2),
-            Property("p3".to_string())
-        ]
-        .iter()
-        .eq(ptr.iter()));
+        assert!(
+            vec![
+                Property("p1".to_string()),
+                Index(2),
+                Property("p3".to_string())
+            ]
+            .iter()
+            .eq(ptr.iter())
+        );
 
         // Empty pointer.
         let ptr = Pointer::from("");
@@ -311,9 +313,11 @@ mod test {
         // Un-rooted pointers are treated as rooted. Note that such pointers
         // are in technical violation of the spec.
         let ptr = Pointer::from("p1/2");
-        assert!(vec![Property("p1".to_string()), Index(2)]
-            .iter()
-            .eq(ptr.iter()));
+        assert!(
+            vec![Property("p1".to_string()), Index(2)]
+                .iter()
+                .eq(ptr.iter())
+        );
 
         // Handles escapes.
         let ptr = Pointer::from("/p~01/~12");
@@ -325,14 +329,16 @@ mod test {
 
         // Handles disallowed integer representations.
         let ptr = Pointer::from("/01/+2/-3/4");
-        assert!(vec![
-            Property("01".to_string()),
-            Property("+2".to_string()),
-            Property("-3".to_string()),
-            Index(4)
-        ]
-        .iter()
-        .eq(ptr.iter()));
+        assert!(
+            vec![
+                Property("01".to_string()),
+                Property("+2".to_string()),
+                Property("-3".to_string()),
+                Index(4)
+            ]
+            .iter()
+            .eq(ptr.iter())
+        );
     }
 
     #[test]
