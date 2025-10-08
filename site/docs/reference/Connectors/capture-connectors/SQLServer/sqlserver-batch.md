@@ -46,6 +46,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/timezone` | Timezone | The IANA timezone name in which datetime columns will be converted to RFC3339 timestamps. | string | `UTC` |
 | `/advanced/poll` | Polling Schedule | When and how often to execute fetch queries. Accepts a Go duration string like '5m' or '6h' for frequency-based polling or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. | string | `24h` |
 | `/advanced/discover_schemas` | Discovery Schema Selection | If this is specified only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas. | string[] |  |
+| `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
 
 #### Bindings
 
