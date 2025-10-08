@@ -16,7 +16,10 @@ const DEFAULT_PAGE_SIZE: usize = 50;
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct ByPrefixAndType {
     pub prefix: models::Prefix,
+    /// Optionally filter by catalogType
     pub catalog_type: Option<models::CatalogType>,
+    /// Optionally filter by dataPlane name
+    pub data_plane_name: Option<models::Name>,
 }
 
 #[derive(Debug, Clone, async_graphql::OneofObject)]
@@ -276,6 +279,7 @@ async fn fetch_live_specs_by_prefix(
     let ByPrefixAndType {
         prefix,
         catalog_type,
+        data_plane_name: data_plane,
     } = by;
     let app = ctx.data::<Arc<App>>()?;
     let claims = ctx.data::<ControlClaims>()?;
@@ -300,6 +304,7 @@ async fn fetch_live_specs_by_prefix(
                         &db,
                         prefix.as_str(),
                         catalog_type,
+                        data_plane.as_deref(),
                         before.as_deref(),
                         limit as i64,
                     )
@@ -315,6 +320,7 @@ async fn fetch_live_specs_by_prefix(
                         &db,
                         prefix.as_str(),
                         catalog_type,
+                        data_plane.as_deref(),
                         after.as_deref(),
                         limit as i64,
                     )
@@ -353,19 +359,23 @@ async fn fetch_live_specs_names_after(
     db: &sqlx::PgPool,
     prefix: &str,
     catalog_type: Option<models::CatalogType>,
+    data_plane: Option<&str>,
     after: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<String>> {
     let names = sqlx::query_scalar!(
-        r#"select catalog_name as "name!: String"
-        from live_specs
-        where starts_with(catalog_name, $1)
-        and case when $3::catalog_name is null then true else catalog_name > $3::catalog_name end
-        and coalesce($2::catalog_spec_type, spec_type) = spec_type
-        order by catalog_name asc
-        limit $4"#,
+        r#"select ls.catalog_name as "name!: String"
+        from live_specs ls
+        left outer join data_planes dp on ls.data_plane_id = dp.id
+        where starts_with(ls.catalog_name, $1)
+        and case when $4::catalog_name is null then true else ls.catalog_name > $4::catalog_name end
+        and coalesce($2::catalog_spec_type, ls.spec_type) = ls.spec_type
+        and case when $3::text is null then true else $3::text = dp.data_plane_name end
+        order by ls.catalog_name asc
+        limit $5"#,
         prefix as &str,
         catalog_type as Option<models::CatalogType>,
+        data_plane as Option<&str>,
         after as Option<&str>,
         limit
     )
@@ -381,19 +391,23 @@ async fn fetch_live_specs_names_before(
     db: &sqlx::PgPool,
     prefix: &str,
     catalog_type: Option<models::CatalogType>,
+    data_plane: Option<&str>,
     before: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<String>> {
     let mut names = sqlx::query_scalar!(
-        r#"select catalog_name as "name!: String"
-        from live_specs
-        where starts_with(catalog_name, $1)
-        and case when $3::catalog_name is null then true else catalog_name < $3::catalog_name end
-        and coalesce($2::catalog_spec_type, spec_type) = spec_type
-        order by catalog_name desc
-        limit $4"#,
+        r#"select ls.catalog_name as "name!: String"
+        from live_specs ls
+        left outer join data_planes dp on ls.data_plane_id = dp.id
+        where starts_with(ls.catalog_name, $1)
+        and case when $4::catalog_name is null then true else ls.catalog_name < $4::catalog_name end
+        and coalesce($2::catalog_spec_type, ls.spec_type) = ls.spec_type
+        and case when $3::text is null then true else $3::text = dp.data_plane_name end
+        order by ls.catalog_name desc
+        limit $5"#,
         prefix as &str,
         catalog_type as Option<models::CatalogType>,
+        data_plane as Option<&str>,
         before as Option<&str>,
         limit
     )
