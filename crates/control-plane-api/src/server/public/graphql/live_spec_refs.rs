@@ -16,7 +16,7 @@ const DEFAULT_PAGE_SIZE: usize = 50;
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct ByPrefixAndType {
     pub prefix: models::Prefix,
-    pub catalog_type: models::CatalogType,
+    pub catalog_type: Option<models::CatalogType>,
 }
 
 #[derive(Debug, Clone, async_graphql::OneofObject)]
@@ -352,7 +352,7 @@ async fn fetch_live_specs_by_prefix(
 async fn fetch_live_specs_names_after(
     db: &sqlx::PgPool,
     prefix: &str,
-    catalog_type: models::CatalogType,
+    catalog_type: Option<models::CatalogType>,
     after: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<String>> {
@@ -361,11 +361,11 @@ async fn fetch_live_specs_names_after(
         from live_specs
         where starts_with(catalog_name, $1)
         and case when $3::catalog_name is null then true else catalog_name > $3::catalog_name end
-        and spec_type = $2::catalog_spec_type
+        and coalesce($2::catalog_spec_type, spec_type) = spec_type
         order by catalog_name asc
         limit $4"#,
         prefix as &str,
-        catalog_type as models::CatalogType,
+        catalog_type as Option<models::CatalogType>,
         after as Option<&str>,
         limit
     )
@@ -380,7 +380,7 @@ async fn fetch_live_specs_names_after(
 async fn fetch_live_specs_names_before(
     db: &sqlx::PgPool,
     prefix: &str,
-    catalog_type: models::CatalogType,
+    catalog_type: Option<models::CatalogType>,
     before: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<String>> {
@@ -389,11 +389,11 @@ async fn fetch_live_specs_names_before(
         from live_specs
         where starts_with(catalog_name, $1)
         and case when $3::catalog_name is null then true else catalog_name < $3::catalog_name end
-        and spec_type = $2::catalog_spec_type
+        and coalesce($2::catalog_spec_type, spec_type) = spec_type
         order by catalog_name desc
         limit $4"#,
         prefix as &str,
-        catalog_type as models::CatalogType,
+        catalog_type as Option<models::CatalogType>,
         before as Option<&str>,
         limit
     )

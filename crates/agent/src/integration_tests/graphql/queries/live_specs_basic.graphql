@@ -67,7 +67,7 @@ fragment ConnectedFields on LiveSpecRefConnection {
 }
 
 query LiveSpecsBasic {
-    liveSpecs(
+    collections: liveSpecs(
         by: {
             prefixAndType: {
                 prefix: "aliceCo/shared/"
@@ -93,6 +93,18 @@ query LiveSpecsBasic {
                     writtenBy {
                         ...ConnectedFields
                     }
+                }
+            }
+        }
+    }
+    allTypes: liveSpecs(by: { prefixAndType: { prefix: "aliceCo/shared/" } }) {
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    catalogType
                 }
             }
         }

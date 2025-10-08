@@ -187,7 +187,7 @@ Input type for returning live specs references by prefix and catalog type.
 """
 input ByPrefixAndType {
 	prefix: Prefix!
-	catalogType: CatalogType!
+	catalogType: CatalogType
 }
 
 """
