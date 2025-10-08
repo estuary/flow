@@ -187,7 +187,14 @@ Input type for returning live specs references by prefix and catalog type.
 """
 input ByPrefixAndType {
 	prefix: Prefix!
+	"""
+	Optionally filter by catalogType
+	"""
 	catalogType: CatalogType
+	"""
+	Optionally filter by dataPlane name
+	"""
+	dataPlaneName: Name
 }
 
 """

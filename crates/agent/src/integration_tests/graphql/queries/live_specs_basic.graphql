@@ -97,7 +97,33 @@ query LiveSpecsBasic {
             }
         }
     }
-    allTypes: liveSpecs(by: { prefixAndType: { prefix: "aliceCo/shared/" } }) {
+    allTypes: liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                dataPlaneName: "ops/dp/public/test"
+            }
+        }
+    ) {
+        edges {
+            cursor
+            node {
+                catalogName
+                userCapability
+                liveSpec {
+                    catalogType
+                }
+            }
+        }
+    }
+    wrongDataPlane: liveSpecs(
+        by: {
+            prefixAndType: {
+                prefix: "aliceCo/shared/"
+                dataPlaneName: "ops/dp/public/does/not/exist"
+            }
+        }
+    ) {
         edges {
             cursor
             node {
