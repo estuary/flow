@@ -18,7 +18,7 @@ use kafka_protocol::{
         ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
         RequestHeader, TopicName,
     },
-    protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
+    protocol::{Decodable, Encodable, Message, StrBytes},
 };
 use std::{cmp::max, sync::Arc};
 use std::{
@@ -651,13 +651,6 @@ impl Session {
                         .increment(1);
                         tracing::debug!(lifetime=?started_at.elapsed(), topic_name=?key.0,partition_index=?key.1, "Restarting expired Read");
                         self.reads.remove(&key);
-
-                        let auth = self
-                            .auth
-                            .as_mut()
-                            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-                        auth.refresh_gazette_clients();
                     }
                     Some((pending, _)) if pending.offset == fetch_offset => {
                         metrics::counter!(

@@ -108,9 +108,9 @@ impl DiscoverOutput {
             self.draft = tables::DraftCatalog::default();
         } else {
             let DiscoverOutput {
-                ref mut draft,
-                ref added,
-                ref modified,
+                draft,
+                added,
+                modified,
                 ..
             } = self;
             // At least one binding has changed, so the capture spec itself must
@@ -269,16 +269,16 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         };
 
         let tables::DraftCatalog {
-            ref mut captures,
-            ref mut collections,
+            captures,
+            collections,
             ..
         } = &mut draft;
         let Some(drafted_capture) = captures.get_mut_by_key(&capture_name) else {
             anyhow::bail!("expected capture '{}' to exist in draft", capture_name);
         };
         let tables::DraftCapture {
-            model: Some(ref mut capture_model),
-            ref mut is_touch,
+            model: Some(capture_model),
+            is_touch,
             ..
         } = drafted_capture
         else {

@@ -5,8 +5,8 @@ exclude = ["crates/derive-typescript"]
 
 [workspace.package]
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.65"
+edition = "2024"
+rust-version = "1.90"
 authors = ["Estuary developers <engineering@estuary.dev>"]
 readme = "./README.md"
 homepage = "https://estuary.dev/"

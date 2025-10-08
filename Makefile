@@ -8,6 +8,8 @@ DATE    = $(shell date +%F-%T-%Z)
 # Caller may override with a CARGO_TARGET_DIR environment variable.
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
 CARGO_TARGET_DIR ?= target
+# Treat warnings as errors for Rust builds
+export RUSTFLAGS ?= -D warnings
 UNAME := $(shell uname -sp)
 
 # Unfortunately, cargo's build cache get's completely invalidated when you switch between the
@@ -23,14 +25,14 @@ PACKAGE_ARCH=arm64-darwin
 ETCD_ARCH=darwin-arm64
 ETCD_SHASUM=33094133a771b2d086dc04f2ede41c249258947042de72132af127972880171f
 ETCD_EXT=zip
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc -D warnings
 else ifeq ($(UNAME),Darwin i386)
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 PACKAGE_ARCH=x86-darwin
 ETCD_ARCH=darwin-amd64
 ETCD_SHASUM=8bd279948877cfb730345ecff2478f69eaaa02513c2a43384ba182c9985267bd
 ETCD_EXT=zip
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc -D warnings
 else
 export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
 PACKAGE_ARCH=x86-linux

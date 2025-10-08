@@ -127,9 +127,9 @@ impl TranscodingReader {
         self.read_pos = 0;
         while self.write_pos < self.input_buffer.len() {
             let TranscodingReader {
-                ref mut src,
-                input_buffer: ref mut buffer,
-                ref mut write_pos,
+                src,
+                input_buffer: buffer,
+                write_pos,
                 ..
             } = self;
             match src.read(&mut buffer[*write_pos..]) {
@@ -191,7 +191,7 @@ impl io::Read for TranscodingReader {
         let is_tiny_buf = buf.len() < TINY_OUTPUT_LEN;
         loop {
             let TranscodingReader {
-                ref input_buffer,
+                input_buffer,
                 decoder,
                 output_buffer,
                 read_pos,
