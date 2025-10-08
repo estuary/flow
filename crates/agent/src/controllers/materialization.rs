@@ -1,21 +1,21 @@
 use super::{
-    activation, backoff_data_plane_activate, coalesce_results, dependencies::Dependencies,
-    periodic, publication_status::PendingPublication, ControlPlane, ControllerErrorExt,
-    ControllerState, Inbox, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, activation,
+    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies, periodic,
+    publication_status::PendingPublication,
 };
 use crate::controllers::config_update;
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
+    MaterializationEndpoint, ModelDef, RawValue, SourceType,
     status::{
         connector::ConfigUpdate,
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
-    MaterializationEndpoint, ModelDef, RawValue, SourceType,
 };
 use std::collections::BTreeSet;
-use tables::{utils::pointer_for_schema, LiveRow};
+use tables::{LiveRow, utils::pointer_for_schema};
 
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
@@ -319,7 +319,9 @@ pub async fn update_source_capture<C: ControlPlane>(
     let image = match &model.endpoint {
         models::MaterializationEndpoint::Connector(config) => config.image.clone(),
         models::MaterializationEndpoint::Dekaf(dekaf) => dekaf.image_name(),
-        _ => anyhow::bail!("unexpected materialization endpoint type, only image and dekaf connectors are supported"),
+        _ => anyhow::bail!(
+            "unexpected materialization endpoint type, only image and dekaf connectors are supported"
+        ),
     };
     let connector_spec = control_plane
         .get_connector_spec(image.clone())

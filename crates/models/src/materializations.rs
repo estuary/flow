@@ -1,5 +1,5 @@
 use crate::Capture;
-use crate::{connector::DekafConfig, source::OnIncompatibleSchemaChange, Collection, Id};
+use crate::{Collection, Id, connector::DekafConfig, source::OnIncompatibleSchemaChange};
 
 use crate::source_capture::SourceType;
 

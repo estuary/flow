@@ -7,21 +7,13 @@ use itertools::{EitherOrBoth, Itertools};
 
 impl Reduce {
     fn intersect(self, rhs: Self) -> Self {
-        if let Self::Unset = self {
-            rhs
-        } else {
-            self
-        }
+        if let Self::Unset = self { rhs } else { self }
     }
 }
 
 impl Redact {
     fn intersect(self, rhs: Self) -> Self {
-        if let Self::Unset = self {
-            rhs
-        } else {
-            self
-        }
+        if let Self::Unset = self { rhs } else { self }
     }
 }
 

@@ -44,9 +44,13 @@ pub async fn do_spec(
             .count();
 
     if num_tasks == 0 {
-        anyhow::bail!("sourced specification files do not contain any tasks (captures, derivations, or materializations)");
+        anyhow::bail!(
+            "sourced specification files do not contain any tasks (captures, derivations, or materializations)"
+        );
     } else if num_tasks > 1 && name.is_none() {
-        anyhow::bail!("sourced specification files contain multiple tasks (captures, derivations, or materializations). Use --name to identify a specific task");
+        anyhow::bail!(
+            "sourced specification files contain multiple tasks (captures, derivations, or materializations). Use --name to identify a specific task"
+        );
     }
 
     let needle = if let Some(needle) = name {

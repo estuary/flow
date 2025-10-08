@@ -125,7 +125,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{input_output, output, Child, Command};
+    use super::{Child, Command, input_output, output};
 
     #[tokio::test]
     async fn test_wait() {

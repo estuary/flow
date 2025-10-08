@@ -1,6 +1,7 @@
 use super::{
+    BumpStr, HeapField, HeapNode,
     lazy::{LazyField, LazyNode},
-    validation, BumpStr, HeapField, HeapNode,
+    validation,
 };
 use itertools::{EitherOrBoth, Itertools};
 use json::{AsNode, Field};
@@ -357,7 +358,7 @@ pub mod test {
 
     use crate::Validator;
     use json::schema::build::build_schema;
-    pub use serde_json::{json, Value};
+    pub use serde_json::{Value, json};
 
     #[test]
     fn test_node_counting() {
@@ -554,7 +555,9 @@ pub mod test {
                 },
                 Partial {
                     rhs: json!(1),
-                    expect: Err("reduction failed at location '': conflicting strategies at this location: JsonSchemaMerge vs Sum"),
+                    expect: Err(
+                        "reduction failed at location '': conflicting strategies at this location: JsonSchemaMerge vs Sum",
+                    ),
                 },
             ],
         );

@@ -3,7 +3,7 @@ use crate::discovers::Changed;
 use anyhow::Context;
 use doc::shape::{X_INFER_SCHEMA, X_INITIAL_READ_SCHEMA};
 use itertools::Itertools;
-use models::{discovers::Changes, ResourcePath};
+use models::{ResourcePath, discovers::Changes};
 use proto_flow::capture::{self, response::discovered};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tables::DraftCollection;
@@ -23,14 +23,18 @@ pub fn parse_response(
                 ?binding,
                 "connector discovered response includes a binding with an empty recommended name"
             );
-            anyhow::bail!("connector protocol error: a binding was missing 'recommended_name'. Please contact support for assistance");
+            anyhow::bail!(
+                "connector protocol error: a binding was missing 'recommended_name'. Please contact support for assistance"
+            );
         }
 
         binding.recommended_name = normalize_recommended_name(&binding.recommended_name);
     }
     // Log this only once instead of for each binding
     if bindings.iter().any(|b| b.resource_path.is_empty()) {
-        tracing::warn!("connector discovered response omits field 'resource_path', which will soon be required");
+        tracing::warn!(
+            "connector discovered response omits field 'resource_path', which will soon be required"
+        );
     }
 
     Ok(bindings)
@@ -68,7 +72,9 @@ fn resource_path(
                 continue;
             }
             Some(serde_json::Value::String(s)) => path.push(s.clone()),
-            Some(_) => anyhow::bail!("resource config includes non-string value at resource path pointer location '{pointer}'"),
+            Some(_) => anyhow::bail!(
+                "resource config includes non-string value at resource path pointer location '{pointer}'"
+            ),
         }
     }
     Ok((path, true))
@@ -97,7 +103,9 @@ fn index_fetched_bindings<'a>(
     }
     // Log this so we can identify affected specs before making this an error.
     if fallback_pointers_used {
-        tracing::warn!("live spec was missing embedded resource path for one or more bindings, this will soon become an error");
+        tracing::warn!(
+            "live spec was missing embedded resource path for one or more bindings, this will soon become an error"
+        );
     }
     Ok(map)
 }

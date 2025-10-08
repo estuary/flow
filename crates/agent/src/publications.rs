@@ -1,14 +1,14 @@
 use anyhow::Context;
-use control_plane_api::publications::{fetch_publication, Row};
+use control_plane_api::publications::{Row, fetch_publication};
 use models::draft_error;
 use tracing::info;
 
 use control_plane_api::{
     draft,
     publications::{
-        delete_draft, resolve, specs, ClearDraftErrors, DefaultRetryPolicy, DraftPublication,
-        ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher, StatusType,
-        UpdatePublicationsRow,
+        ClearDraftErrors, DefaultRetryPolicy, DraftPublication, ExpandDraft, JobStatus,
+        PruneUnboundCollections, PublicationResult, Publisher, StatusType, UpdatePublicationsRow,
+        delete_draft, resolve, specs,
     },
 };
 

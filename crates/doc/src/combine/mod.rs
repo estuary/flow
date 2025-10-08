@@ -1,7 +1,6 @@
 use crate::{
-    redact, reduce,
+    Extractor, HeapNode, OwnedNode, redact, reduce,
     validation::{FailedValidation, Validator},
-    Extractor, HeapNode, OwnedNode,
 };
 use std::io::{self, Seek};
 use std::sync::Arc;

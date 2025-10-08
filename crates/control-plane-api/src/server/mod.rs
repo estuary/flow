@@ -19,7 +19,6 @@ use snapshot::Snapshot;
 
 pub use error::{ApiError, ApiErrorExt};
 
-
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
 #[derive(Debug, Clone, Copy, Default)]
@@ -80,7 +79,7 @@ impl App {
             snapshot: std::sync::RwLock::new(Snapshot::empty()),
         }
     }
-    
+
     // TODO(johnny): This should return a VerifiedClaims struct which
     // wraps the validated prefixes, with a const generic over the Capability.
     // It's a larger lift then I want to do right now, because models::Capability
@@ -296,7 +295,8 @@ where
         state: &S,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         async move {
-            let axum::extract::Json(value) = axum::extract::Json::<T>::from_request(req, state).await?;
+            let axum::extract::Json(value) =
+                axum::extract::Json::<T>::from_request(req, state).await?;
             value.validate()?;
             Ok(Request(value))
         }

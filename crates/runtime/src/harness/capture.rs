@@ -1,13 +1,12 @@
 use crate::capture::ResponseStream;
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
-use futures::{channel::mpsc, TryStreamExt};
-use proto_flow::capture::{request, response, Request, Response};
+use futures::{TryStreamExt, channel::mpsc};
+use proto_flow::capture::{Request, Response, request, response};
 use proto_flow::flow;
 use proto_flow::runtime::{
-    self, capture_request_ext,
+    self, CaptureResponseExt, capture_request_ext,
     capture_response_ext::{self, PollResult},
-    CaptureResponseExt,
 };
 use proto_gazette::consumer;
 use std::pin::Pin;

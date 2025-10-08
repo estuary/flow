@@ -1,14 +1,13 @@
 use async_graphql::{
-    dataloader,
+    ComplexObject, Context, SimpleObject, dataloader,
     types::connection::{self, Connection},
-    ComplexObject, Context, SimpleObject,
 };
 
 use std::sync::Arc;
 
 use crate::server::{
-    public::graphql::{alerts, live_specs, status, PgDataLoader},
     App, ControlClaims,
+    public::graphql::{PgDataLoader, alerts, live_specs, status},
 };
 
 const DEFAULT_PAGE_SIZE: usize = 50;

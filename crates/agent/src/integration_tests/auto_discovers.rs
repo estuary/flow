@@ -1,10 +1,10 @@
 use super::spec_fixture;
-use crate::integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness};
+use crate::integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog};
 use models::{
     publications,
-    status::{capture::DiscoverChange, AlertType, StatusSummaryType},
+    status::{AlertType, StatusSummaryType, capture::DiscoverChange},
 };
-use proto_flow::capture::response::{discovered::Binding, Discovered};
+use proto_flow::capture::response::{Discovered, discovered::Binding};
 use serde_json::json;
 
 #[tokio::test]
@@ -67,21 +67,25 @@ async fn test_auto_discovers_add_new_bindings() {
 
     // Assert that we've initialized auto-discover state appropriately.
     let capture_state = harness.get_controller_state("marmots/capture").await;
-    assert!(capture_state
-        .current_status
-        .unwrap_capture()
-        .auto_discover
-        .is_some());
+    assert!(
+        capture_state
+            .current_status
+            .unwrap_capture()
+            .auto_discover
+            .is_some()
+    );
     harness.assert_controller_pending("marmots/capture").await;
 
     let no_disco_capture_state = harness
         .get_controller_state("marmots/no-auto-discover")
         .await;
-    assert!(no_disco_capture_state
-        .current_status
-        .unwrap_capture()
-        .auto_discover
-        .is_none());
+    assert!(
+        no_disco_capture_state
+            .current_status
+            .unwrap_capture()
+            .auto_discover
+            .is_none()
+    );
 
     let discovered = Discovered {
         bindings: vec![
@@ -558,12 +562,14 @@ async fn test_auto_discovers_no_evolution() {
         .as_ref()
         .unwrap();
     assert!(auto_discover.last_success.is_some());
-    assert!(auto_discover
-        .last_success
-        .as_ref()
-        .unwrap()
-        .publish_result
-        .is_none());
+    assert!(
+        auto_discover
+            .last_success
+            .as_ref()
+            .unwrap()
+            .publish_result
+            .is_none()
+    );
     assert!(auto_discover.failure.is_none());
 
     harness
@@ -686,11 +692,13 @@ async fn test_auto_discovers_update_only() {
     // Expect to see that the controller has initialized a blank auto-capture status.
     let capture_state = harness.get_controller_state("pikas/capture").await;
     harness.assert_controller_pending("pikas/capture").await;
-    assert!(capture_state
-        .current_status
-        .unwrap_capture()
-        .auto_discover
-        .is_some());
+    assert!(
+        capture_state
+            .current_status
+            .unwrap_capture()
+            .auto_discover
+            .is_some()
+    );
 
     let disabled_state = harness.get_controller_state("pikas/disabled-capture").await;
     harness
@@ -710,11 +718,13 @@ async fn test_auto_discovers_update_only() {
     harness
         .assert_controller_not_pending("pikas/capture-auto-disco-disabled")
         .await;
-    assert!(ad_disabled_state
-        .current_status
-        .unwrap_capture()
-        .auto_discover
-        .is_none());
+    assert!(
+        ad_disabled_state
+            .current_status
+            .unwrap_capture()
+            .auto_discover
+            .is_none()
+    );
 
     harness.set_auto_discover_due("pikas/capture").await;
     let discovered = Discovered {
@@ -773,10 +783,12 @@ async fn test_auto_discovers_update_only() {
     );
     assert!(last_success.added.is_empty());
     assert!(last_success.removed.is_empty());
-    assert!(last_success
-        .publish_result
-        .as_ref()
-        .is_some_and(|pr| pr.is_success()));
+    assert!(
+        last_success
+            .publish_result
+            .as_ref()
+            .is_some_and(|pr| pr.is_success())
+    );
     let last_disco_time = last_success.ts;
 
     harness.set_auto_discover_due("pikas/capture").await;
@@ -819,9 +831,11 @@ async fn test_auto_discovers_update_only() {
         .unwrap();
     assert!(auto_discover.failure.is_some());
     let failure = auto_discover.failure.as_ref().unwrap();
-    assert!(failure.last_outcome.errors[0]
-        .detail
-        .contains("a simulated discover error"));
+    assert!(
+        failure.last_outcome.errors[0]
+            .detail
+            .contains("a simulated discover error")
+    );
     assert_eq!(1, failure.count);
     assert!(
         auto_discover
@@ -970,9 +984,11 @@ async fn test_auto_discovers_update_only() {
         .history
         .front()
         .unwrap();
-    assert!(pub_history.errors[0]
-        .detail
-        .contains("a simulated build failure"));
+    assert!(
+        pub_history.errors[0]
+            .detail
+            .contains("a simulated build failure")
+    );
     let last_fail_time = failure.last_outcome.ts;
 
     let alert_state = harness

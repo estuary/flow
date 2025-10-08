@@ -2,8 +2,8 @@ use models::{CatalogType, Id};
 use uuid::Uuid;
 
 use crate::{
-    integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
     ControlPlane,
+    integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog},
 };
 use control_plane_api::publications::{
     DefaultRetryPolicy, JobStatus, LockFailure, NoopWithCommit, RetryPolicy, StatusType,

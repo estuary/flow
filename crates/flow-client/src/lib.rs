@@ -3,8 +3,8 @@ use base64::Engine;
 
 pub mod client;
 pub use client::{
-    fetch_task_authorization, fetch_user_collection_authorization, fetch_user_prefix_authorization,
-    fetch_user_task_authorization, Client,
+    Client, fetch_task_authorization, fetch_user_collection_authorization,
+    fetch_user_prefix_authorization, fetch_user_task_authorization,
 };
 
 pub mod pagination;
@@ -22,7 +22,8 @@ where
 
     if status.is_success() {
         let text = resp.text().await?;
-        let body: Box<models::RawValue> = serde_json::from_str(&text).context("parsing response as JSON")?;
+        let body: Box<models::RawValue> =
+            serde_json::from_str(&text).context("parsing response as JSON")?;
         tracing::trace!(body = ?::ops::DebugJson(&body), status = %status, "got successful response");
         let t: T = serde_json::from_str(body.get()).context("deserializing response body")?;
         Ok(t)

@@ -215,7 +215,7 @@ async fn generate_missing_collection_configs(
         // TypeScript and SQLite always generate their own configs.
         // Other connectors may as well, and they'll override those generated here.
         models::DeriveUsing::Sqlite(_) | models::DeriveUsing::Typescript(_) => {
-            return Ok(Vec::new())
+            return Ok(Vec::new());
         }
     };
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = transforms
@@ -416,22 +416,26 @@ fn stub_config(shape: &doc::Shape, collection: Option<&models::Collection>) -> s
         .is_some_and(|v| matches!(v, serde_json::Value::Bool(true)))
         && collection.is_some()
     {
-        json!(collection
-            .unwrap()
-            .rsplit("/")
-            .next()
-            .expect("collection names always have a slash"))
+        json!(
+            collection
+                .unwrap()
+                .rsplit("/")
+                .next()
+                .expect("collection names always have a slash")
+        )
     } else if shape
         .annotations
         .get("x-schema-name")
         .is_some_and(|v| matches!(v, serde_json::Value::Bool(true)))
         && collection.is_some()
     {
-        json!(collection
-            .unwrap()
-            .rsplit("/")
-            .nth(1)
-            .expect("collection names always have a slash"))
+        json!(
+            collection
+                .unwrap()
+                .rsplit("/")
+                .nth(1)
+                .expect("collection names always have a slash")
+        )
     } else if shape.type_.overlaps(types::STRING) {
         json!("")
     } else if shape.type_.overlaps(types::INTEGER) {

@@ -112,7 +112,7 @@ mod ffi {
 // ffi::Parser is safe to Send across threads (but is not Sync).
 unsafe impl Send for ffi::Parser {}
 
-pub(crate) use ffi::{new_parser, Parser};
+pub(crate) use ffi::{Parser, new_parser};
 
 #[repr(transparent)]
 pub(crate) struct Allocator(doc::Allocator);

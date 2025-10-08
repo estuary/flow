@@ -92,9 +92,7 @@ pub mod request {
             pub resource_config_json: ::prost::bytes::Bytes,
             /// Collection to be captured.
             #[prost(message, optional, tag = "2")]
-            pub collection: ::core::option::Option<
-                super::super::super::flow::CollectionSpec,
-            >,
+            pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
             /// Backfill counter for this binding.
             #[prost(uint32, tag = "3")]
             pub backfill: u32,
@@ -207,9 +205,7 @@ pub mod response {
         /// The connector would specify `resource_path_pointers: \["/schema", "/table"\]`,
         /// which would result in a `resource_path` of `\["foo", "bar"\]`.
         #[prost(string, repeated, tag = "6")]
-        pub resource_path_pointers: ::prost::alloc::vec::Vec<
-            ::prost::alloc::string::String,
-        >,
+        pub resource_path_pointers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
     /// Discovered responds to Request.Discover.
     #[derive(Clone, PartialEq, ::prost::Message)]

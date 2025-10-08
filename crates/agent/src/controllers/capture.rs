@@ -1,17 +1,17 @@
 mod auto_discover;
 use super::{
-    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies, ControlPlane,
-    ControllerErrorExt, ControllerState, Inbox, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
+    coalesce_results, dependencies::Dependencies,
 };
 use crate::controllers::{activation, config_update, periodic, publication_status};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
+    CaptureEndpoint, RawValue,
     status::{
         capture::{AutoDiscoverStatus, CaptureStatus},
         connector::ConfigUpdate,
     },
-    CaptureEndpoint, RawValue,
 };
 
 pub async fn update<C: ControlPlane>(

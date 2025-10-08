@@ -1,4 +1,4 @@
-use futures::{channel::mpsc, Stream, StreamExt};
+use futures::{Stream, StreamExt, channel::mpsc};
 use std::collections::BTreeMap;
 
 /// Serve a local connector by starting its program and adapting its stdin and stdout.

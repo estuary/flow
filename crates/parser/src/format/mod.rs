@@ -7,7 +7,7 @@ pub mod sanitize;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
-use crate::input::{detect_compression, CompressionError, Input};
+use crate::input::{CompressionError, Input, detect_compression};
 use crate::{Compression, Format, JsonPointer, ParseConfig};
 
 use ::parquet::errors::ParquetError;
@@ -15,9 +15,9 @@ use bytes::Bytes;
 use serde_json::Value;
 use std::io::{self, Write};
 use std::path::Path;
+use zip::ZipArchive;
 use zip::read::ZipFile;
 use zip::result::ZipError;
-use zip::ZipArchive;
 
 /// Error type returned by all parse operations.
 #[derive(Debug, thiserror::Error)]

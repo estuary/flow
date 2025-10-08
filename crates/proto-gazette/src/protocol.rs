@@ -166,15 +166,7 @@ pub mod journal_spec {
     /// Nested message and enum types in `Suspend`.
     pub mod suspend {
         #[derive(
-            Clone,
-            Copy,
-            Debug,
-            PartialEq,
-            Eq,
-            Hash,
-            PartialOrd,
-            Ord,
-            ::prost::Enumeration
+            Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
         )]
         #[repr(i32)]
         pub enum Level {
@@ -218,17 +210,7 @@ pub mod journal_spec {
     }
     /// Flags define Journal IO control behaviors. Where possible, flags are named
     /// after an equivalent POSIX flag.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Flag {
         /// NOT_SPECIFIED is considered as equivalent to O_RDWR by the broker. When
@@ -518,17 +500,7 @@ pub struct AppendRequest {
 /// Nested message and enum types in `AppendRequest`.
 pub mod append_request {
     /// Suspension control for this request.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Suspend {
         /// SUSPEND_RESUME (the default) will resume a suspended journal.

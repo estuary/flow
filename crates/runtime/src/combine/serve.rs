@@ -1,4 +1,4 @@
-use super::{protocol::*, Request, RequestStream, Response, ResponseStream};
+use super::{Request, RequestStream, Response, ResponseStream, protocol::*};
 use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};

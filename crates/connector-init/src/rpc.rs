@@ -1,4 +1,4 @@
-use super::codec::{reader_to_message_stream, Codec};
+use super::codec::{Codec, reader_to_message_stream};
 use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
 use prost::Message;
@@ -223,7 +223,7 @@ fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
 
 #[cfg(test)]
 mod test {
-    use super::{bidi, new_command, process_logs, unary, Codec};
+    use super::{Codec, bidi, new_command, process_logs, unary};
     use futures::{StreamExt, TryStreamExt};
     use proto_flow::flow::TestSpec;
 

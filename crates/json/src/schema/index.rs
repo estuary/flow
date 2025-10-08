@@ -205,7 +205,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{super::build::build_schema, super::CoreAnnotation, Builder, Error};
+    use super::{super::CoreAnnotation, super::build::build_schema, Builder, Error};
     use serde_json::json;
 
     #[test]

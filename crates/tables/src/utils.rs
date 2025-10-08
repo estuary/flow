@@ -230,7 +230,10 @@ mod test {
             &pointers_no_schema,
         )
         .expect_err("should fail");
-        assert_eq!("sources.targetNaming requires a schema but the materialization connector does not support schemas", err.to_string());
+        assert_eq!(
+            "sources.targetNaming requires a schema but the materialization connector does not support schemas",
+            err.to_string()
+        );
 
         // ResourceSpecPointers are missing x-delta-updates
         let err = test_update(

@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::Alerts;
 use super::activation::ActivationStatus;
 use super::publications::PublicationStatus;
-use super::Alerts;
 
 /// The status of a collection controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]

@@ -1,5 +1,5 @@
 use crate::local_specs;
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use proto_flow::{capture, flow};
 use std::{
     collections::HashMap,
@@ -68,7 +68,9 @@ pub async fn do_oauth(
     } else if draft.captures.is_empty() {
         anyhow::bail!("sourced specification files do not contain any captures");
     } else {
-        anyhow::bail!("sourced specification files contain multiple captures. Use --capture to identify a specific one");
+        anyhow::bail!(
+            "sourced specification files contain multiple captures. Use --capture to identify a specific one"
+        );
     };
 
     let capture = match draft

@@ -1,4 +1,4 @@
-use crate::schema::{self, keywords, types, Keyword};
+use crate::schema::{self, Keyword, keywords, types};
 use crate::scope::Scope;
 use itertools::Itertools;
 use serde::Deserialize;

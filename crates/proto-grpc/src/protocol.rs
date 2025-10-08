@@ -7,10 +7,10 @@ pub mod journal_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     /// Journal is the Gazette broker service API for interacting with Journals.
     #[derive(Debug, Clone)]
     pub struct JournalClient<T> {
@@ -50,14 +50,13 @@ pub mod journal_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
+                    http::Request<tonic::body::Body>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::Body>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::Body>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             JournalClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -97,23 +96,17 @@ pub mod journal_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::ListRequest>,
         ) -> std::result::Result<
-            tonic::Response<
-                tonic::codec::Streaming<::proto_gazette::broker::ListResponse>,
-            >,
+            tonic::Response<tonic::codec::Streaming<::proto_gazette::broker::ListResponse>>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/List");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "List"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "List"));
             self.inner.server_streaming(req, path, codec).await
         }
         /// Apply changes to the collection of Journals managed by the brokers.
@@ -124,18 +117,14 @@ pub mod journal_client {
             tonic::Response<::proto_gazette::broker::ApplyResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Apply");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "Apply"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "Apply"));
             self.inner.unary(req, path, codec).await
         }
         /// Read from a specific Journal.
@@ -143,47 +132,35 @@ pub mod journal_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::ReadRequest>,
         ) -> std::result::Result<
-            tonic::Response<
-                tonic::codec::Streaming<::proto_gazette::broker::ReadResponse>,
-            >,
+            tonic::Response<tonic::codec::Streaming<::proto_gazette::broker::ReadResponse>>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Read");
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "Read"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "Read"));
             self.inner.server_streaming(req, path, codec).await
         }
         /// Append content to a specific Journal.
         pub async fn append(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<
-                Message = ::proto_gazette::broker::AppendRequest,
-            >,
+            request: impl tonic::IntoStreamingRequest<Message = ::proto_gazette::broker::AppendRequest>,
         ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::AppendResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Append");
             let mut req = request.into_streaming_request();
-            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "Append"));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "Append"));
             self.inner.client_streaming(req, path, codec).await
         }
         /// Replicate appended content of a Journal. Replicate is used between broker
@@ -195,23 +172,14 @@ pub mod journal_client {
                 Message = ::proto_gazette::broker::ReplicateRequest,
             >,
         ) -> std::result::Result<
-            tonic::Response<
-                tonic::codec::Streaming<::proto_gazette::broker::ReplicateResponse>,
-            >,
+            tonic::Response<tonic::codec::Streaming<::proto_gazette::broker::ReplicateResponse>>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/protocol.Journal/Replicate",
-            );
+            let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Replicate");
             let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("protocol.Journal", "Replicate"));
@@ -225,18 +193,11 @@ pub mod journal_client {
             tonic::Response<::proto_gazette::broker::FragmentsResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/protocol.Journal/ListFragments",
-            );
+            let path = http::uri::PathAndQuery::from_static("/protocol.Journal/ListFragments");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("protocol.Journal", "ListFragments"));
@@ -245,25 +206,17 @@ pub mod journal_client {
         /// Check the health of a fragment store.
         pub async fn fragment_store_health(
             &mut self,
-            request: impl tonic::IntoRequest<
-                ::proto_gazette::broker::FragmentStoreHealthRequest,
-            >,
+            request: impl tonic::IntoRequest<::proto_gazette::broker::FragmentStoreHealthRequest>,
         ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::FragmentStoreHealthResponse>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/protocol.Journal/FragmentStoreHealth",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/protocol.Journal/FragmentStoreHealth");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("protocol.Journal", "FragmentStoreHealth"));
@@ -279,7 +232,7 @@ pub mod journal_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with JournalServer.
@@ -287,12 +240,8 @@ pub mod journal_server {
     pub trait Journal: std::marker::Send + std::marker::Sync + 'static {
         /// Server streaming response type for the List method.
         type ListStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<
-                    ::proto_gazette::broker::ListResponse,
-                    tonic::Status,
-                >,
-            >
-            + std::marker::Send
+                Item = std::result::Result<::proto_gazette::broker::ListResponse, tonic::Status>,
+            > + std::marker::Send
             + 'static;
         /// List Journals, their JournalSpecs and current Routes.
         async fn list(
@@ -309,12 +258,8 @@ pub mod journal_server {
         >;
         /// Server streaming response type for the Read method.
         type ReadStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<
-                    ::proto_gazette::broker::ReadResponse,
-                    tonic::Status,
-                >,
-            >
-            + std::marker::Send
+                Item = std::result::Result<::proto_gazette::broker::ReadResponse, tonic::Status>,
+            > + std::marker::Send
             + 'static;
         /// Read from a specific Journal.
         async fn read(
@@ -324,9 +269,7 @@ pub mod journal_server {
         /// Append content to a specific Journal.
         async fn append(
             &self,
-            request: tonic::Request<
-                tonic::Streaming<::proto_gazette::broker::AppendRequest>,
-            >,
+            request: tonic::Request<tonic::Streaming<::proto_gazette::broker::AppendRequest>>,
         ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::AppendResponse>,
             tonic::Status,
@@ -337,17 +280,14 @@ pub mod journal_server {
                     ::proto_gazette::broker::ReplicateResponse,
                     tonic::Status,
                 >,
-            >
-            + std::marker::Send
+            > + std::marker::Send
             + 'static;
         /// Replicate appended content of a Journal. Replicate is used between broker
         /// peers in the course of processing Append transactions, but is not intended
         /// for direct use by clients.
         async fn replicate(
             &self,
-            request: tonic::Request<
-                tonic::Streaming<::proto_gazette::broker::ReplicateRequest>,
-            >,
+            request: tonic::Request<tonic::Streaming<::proto_gazette::broker::ReplicateRequest>>,
         ) -> std::result::Result<tonic::Response<Self::ReplicateStream>, tonic::Status>;
         /// List Fragments of a Journal.
         async fn list_fragments(
@@ -388,10 +328,7 @@ pub mod journal_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -446,25 +383,20 @@ pub mod journal_server {
                 "/protocol.Journal/List" => {
                     #[allow(non_camel_case_types)]
                     struct ListSvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::ServerStreamingService<
-                        ::proto_gazette::broker::ListRequest,
-                    > for ListSvc<T> {
+                    impl<T: Journal>
+                        tonic::server::ServerStreamingService<::proto_gazette::broker::ListRequest>
+                        for ListSvc<T>
+                    {
                         type Response = ::proto_gazette::broker::ListResponse;
                         type ResponseStream = T::ListStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<::proto_gazette::broker::ListRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Journal>::list(&inner, request).await
-                            };
+                            let fut = async move { <T as Journal>::list(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -493,25 +425,18 @@ pub mod journal_server {
                 "/protocol.Journal/Apply" => {
                     #[allow(non_camel_case_types)]
                     struct ApplySvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::UnaryService<::proto_gazette::broker::ApplyRequest>
-                    for ApplySvc<T> {
+                    impl<T: Journal>
+                        tonic::server::UnaryService<::proto_gazette::broker::ApplyRequest>
+                        for ApplySvc<T>
+                    {
                         type Response = ::proto_gazette::broker::ApplyResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::broker::ApplyRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::broker::ApplyRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Journal>::apply(&inner, request).await
-                            };
+                            let fut = async move { <T as Journal>::apply(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -540,25 +465,20 @@ pub mod journal_server {
                 "/protocol.Journal/Read" => {
                     #[allow(non_camel_case_types)]
                     struct ReadSvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::ServerStreamingService<
-                        ::proto_gazette::broker::ReadRequest,
-                    > for ReadSvc<T> {
+                    impl<T: Journal>
+                        tonic::server::ServerStreamingService<::proto_gazette::broker::ReadRequest>
+                        for ReadSvc<T>
+                    {
                         type Response = ::proto_gazette::broker::ReadResponse;
                         type ResponseStream = T::ReadStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<::proto_gazette::broker::ReadRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Journal>::read(&inner, request).await
-                            };
+                            let fut = async move { <T as Journal>::read(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -587,16 +507,13 @@ pub mod journal_server {
                 "/protocol.Journal/Append" => {
                     #[allow(non_camel_case_types)]
                     struct AppendSvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::ClientStreamingService<
-                        ::proto_gazette::broker::AppendRequest,
-                    > for AppendSvc<T> {
+                    impl<T: Journal>
+                        tonic::server::ClientStreamingService<
+                            ::proto_gazette::broker::AppendRequest,
+                        > for AppendSvc<T>
+                    {
                         type Response = ::proto_gazette::broker::AppendResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<
@@ -604,9 +521,7 @@ pub mod journal_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Journal>::append(&inner, request).await
-                            };
+                            let fut = async move { <T as Journal>::append(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -635,17 +550,14 @@ pub mod journal_server {
                 "/protocol.Journal/Replicate" => {
                     #[allow(non_camel_case_types)]
                     struct ReplicateSvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::StreamingService<
-                        ::proto_gazette::broker::ReplicateRequest,
-                    > for ReplicateSvc<T> {
+                    impl<T: Journal>
+                        tonic::server::StreamingService<::proto_gazette::broker::ReplicateRequest>
+                        for ReplicateSvc<T>
+                    {
                         type Response = ::proto_gazette::broker::ReplicateResponse;
                         type ResponseStream = T::ReplicateStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<
@@ -653,9 +565,8 @@ pub mod journal_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as Journal>::replicate(&inner, request).await
-                            };
+                            let fut =
+                                async move { <T as Journal>::replicate(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -684,21 +595,15 @@ pub mod journal_server {
                 "/protocol.Journal/ListFragments" => {
                     #[allow(non_camel_case_types)]
                     struct ListFragmentsSvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::UnaryService<
-                        ::proto_gazette::broker::FragmentsRequest,
-                    > for ListFragmentsSvc<T> {
+                    impl<T: Journal>
+                        tonic::server::UnaryService<::proto_gazette::broker::FragmentsRequest>
+                        for ListFragmentsSvc<T>
+                    {
                         type Response = ::proto_gazette::broker::FragmentsResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                ::proto_gazette::broker::FragmentsRequest,
-                            >,
+                            request: tonic::Request<::proto_gazette::broker::FragmentsRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -732,16 +637,13 @@ pub mod journal_server {
                 "/protocol.Journal/FragmentStoreHealth" => {
                     #[allow(non_camel_case_types)]
                     struct FragmentStoreHealthSvc<T: Journal>(pub Arc<T>);
-                    impl<
-                        T: Journal,
-                    > tonic::server::UnaryService<
-                        ::proto_gazette::broker::FragmentStoreHealthRequest,
-                    > for FragmentStoreHealthSvc<T> {
+                    impl<T: Journal>
+                        tonic::server::UnaryService<
+                            ::proto_gazette::broker::FragmentStoreHealthRequest,
+                        > for FragmentStoreHealthSvc<T>
+                    {
                         type Response = ::proto_gazette::broker::FragmentStoreHealthResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<
@@ -777,25 +679,19 @@ pub mod journal_server {
                     };
                     Box::pin(fut)
                 }
-                _ => {
-                    Box::pin(async move {
-                        let mut response = http::Response::new(
-                            tonic::body::Body::default(),
-                        );
-                        let headers = response.headers_mut();
-                        headers
-                            .insert(
-                                tonic::Status::GRPC_STATUS,
-                                (tonic::Code::Unimplemented as i32).into(),
-                            );
-                        headers
-                            .insert(
-                                http::header::CONTENT_TYPE,
-                                tonic::metadata::GRPC_CONTENT_TYPE,
-                            );
-                        Ok(response)
-                    })
-                }
+                _ => Box::pin(async move {
+                    let mut response = http::Response::new(tonic::body::Body::default());
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        tonic::Status::GRPC_STATUS,
+                        (tonic::Code::Unimplemented as i32).into(),
+                    );
+                    headers.insert(
+                        http::header::CONTENT_TYPE,
+                        tonic::metadata::GRPC_CONTENT_TYPE,
+                    );
+                    Ok(response)
+                }),
             }
         }
     }

@@ -215,7 +215,7 @@ impl Snapshot {
             Ok((None, ok)) => return Ok((exp, ok)),
             // Authorization is valid but cordoned after a future `cordon_at`.
             Ok((Some(cordon_at), ok)) if cordon_at > started => {
-                return Ok((std::cmp::min(exp, cordon_at), ok))
+                return Ok((std::cmp::min(exp, cordon_at), ok));
             }
             // Authorization is invalid and the Snapshot was taken after the
             // start of the authorization request. Terminal failure.
@@ -800,9 +800,11 @@ mod tests {
                 .as_str(),
             "acmeCo/source-pineapple"
         );
-        assert!(snapshot
-            .task_by_catalog_name("bobCo/widgets/materialize-mang")
-            .is_none()); // Partial name should not match.
+        assert!(
+            snapshot
+                .task_by_catalog_name("bobCo/widgets/materialize-mang")
+                .is_none()
+        ); // Partial name should not match.
 
         // Verify shard ID lookups with exact and more specific matches.
         assert_eq!(
@@ -823,17 +825,23 @@ mod tests {
                 .as_str(),
             "bobCo/widgets/materialize-mango"
         );
-        assert!(snapshot
-            .task_by_shard_id("materialization/bobCo/widgets/materialize-mango")
-            .is_none()); // Must be _more_ specific to match.
+        assert!(
+            snapshot
+                .task_by_shard_id("materialization/bobCo/widgets/materialize-mango")
+                .is_none()
+        ); // Must be _more_ specific to match.
 
         // Verify that non-existent shard IDs return None.
-        assert!(snapshot
-            .task_by_shard_id("capture/nonexistent-task/0011223344556677")
-            .is_none());
-        assert!(snapshot
-            .task_by_shard_id("materialization/acmeCo/nonexistent/0011223344556677")
-            .is_none());
+        assert!(
+            snapshot
+                .task_by_shard_id("capture/nonexistent-task/0011223344556677")
+                .is_none()
+        );
+        assert!(
+            snapshot
+                .task_by_shard_id("materialization/acmeCo/nonexistent/0011223344556677")
+                .is_none()
+        );
     }
 
     #[test]
@@ -857,9 +865,11 @@ mod tests {
                 .as_str(),
             "bobCo/widgets/mangoes"
         );
-        assert!(snapshot
-            .collection_by_catalog_name("acmeCo/nonexistent")
-            .is_none()); // Non-existent name should not match.
+        assert!(
+            snapshot
+                .collection_by_catalog_name("acmeCo/nonexistent")
+                .is_none()
+        ); // Non-existent name should not match.
 
         // Verify journal name lookups with exact and more specific matches.
         assert_eq!(
@@ -878,17 +888,23 @@ mod tests {
                 .as_str(),
             "bobCo/widgets/mangoes"
         );
-        assert!(snapshot
-            .collection_by_journal_name("bobCo/widgets/mangoes")
-            .is_none()); // Must be _more_ specific to match.
+        assert!(
+            snapshot
+                .collection_by_journal_name("bobCo/widgets/mangoes")
+                .is_none()
+        ); // Must be _more_ specific to match.
 
         // Verify that non-existent journal names return None.
-        assert!(snapshot
-            .collection_by_journal_name("acmeCo/nonexistent/1122334455667788")
-            .is_none());
-        assert!(snapshot
-            .collection_by_journal_name("bobCo/widgets/nonexistent/1122334455667788")
-            .is_none());
+        assert!(
+            snapshot
+                .collection_by_journal_name("acmeCo/nonexistent/1122334455667788")
+                .is_none()
+        );
+        assert!(
+            snapshot
+                .collection_by_journal_name("bobCo/widgets/nonexistent/1122334455667788")
+                .is_none()
+        );
     }
 
     #[test]
@@ -911,9 +927,11 @@ mod tests {
                 .as_str(),
             "ops/dp/public/plane-two"
         );
-        assert!(snapshot
-            .data_plane_by_catalog_name("ops/dp/public/plane-one/1")
-            .is_none()); // Non-existent name should not match.
+        assert!(
+            snapshot
+                .data_plane_by_catalog_name("ops/dp/public/plane-one/1")
+                .is_none()
+        ); // Non-existent name should not match.
     }
 
     #[test]

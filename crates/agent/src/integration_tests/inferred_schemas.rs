@@ -1,5 +1,5 @@
 use super::harness::{
-    draft_catalog, get_collection_generation_id, mock_inferred_schema, TestHarness,
+    TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema,
 };
 use crate::{controllers::ControllerState, integration_tests::harness::InjectBuildError};
 use chrono::{DateTime, Utc};
@@ -195,7 +195,13 @@ fn assert_inferred_schema_status(
         .inferred_schema
         .as_ref()
         .expect("inferred schema status must be present");
-    assert!(schema_status.schema_last_updated.is_some_and(|updated| updated > expect_updated_after), "expected inferred schema status to show update after '{expect_updated_after}', but was {:?}", schema_status.schema_last_updated);
+    assert!(
+        schema_status
+            .schema_last_updated
+            .is_some_and(|updated| updated > expect_updated_after),
+        "expected inferred schema status to show update after '{expect_updated_after}', but was {:?}",
+        schema_status.schema_last_updated
+    );
     assert_eq!(Some(expect_md5), schema_status.schema_md5.as_deref());
 }
 
@@ -212,7 +218,10 @@ fn assert_inferred_schema_present_with(
         .expect("inferred schema missing x-collection-generation-id");
     let actual_generation = models::Id::from_hex(actual_gen_id_str)
         .expect("failed to parse x-collection-generation-id");
-    assert_eq!(generation_id, actual_generation, "expected inferred schema to have x-collection-generation-id: '{generation_id}', but was '{actual_gen_id_str}'");
+    assert_eq!(
+        generation_id, actual_generation,
+        "expected inferred schema to have x-collection-generation-id: '{generation_id}', but was '{actual_gen_id_str}'"
+    );
     assert!(
         actual
             .pointer(&format!("/properties/p{max_property_num}"))
@@ -255,6 +264,7 @@ fn assert_within_minutes(wake_at: DateTime<Utc>, within_minutes: i64) {
     let diff = wake_at - Utc::now();
     assert!(
         diff < chrono::Duration::minutes(within_minutes),
-        "expected next run to be within {within_minutes} minutes, but was at {wake_at} ({} minutes)", diff.num_minutes()
+        "expected next run to be within {within_minutes} minutes, but was at {wake_at} ({} minutes)",
+        diff.num_minutes()
     );
 }

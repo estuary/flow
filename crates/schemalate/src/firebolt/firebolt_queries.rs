@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::firebolt::firebolt_types::TableType;
 
-use super::firebolt_types::{identifier_quote, Table};
+use super::firebolt_types::{Table, identifier_quote};
 
 #[derive(Debug, PartialEq)]
 pub struct CreateTable<'a> {
@@ -89,8 +89,7 @@ impl<'a> Display for InsertFromTable<'a> {
         write!(
             f,
             "INSERT INTO {} ({}) SELECT {} FROM {} WHERE $source_file_name IN (?) AND ((SELECT count(*) FROM {} WHERE $source_file_name IN (?)) < 1);",
-            destination_name, column_list, column_list, source_name,
-            destination_name
+            destination_name, column_list, column_list, source_name, destination_name
         )
     }
 }

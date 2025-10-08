@@ -1,7 +1,7 @@
 use super::{Binding, Task};
 use anyhow::Context;
 use proto_flow::flow;
-use proto_flow::materialize::{request, Request};
+use proto_flow::materialize::{Request, request};
 
 impl Task {
     pub fn new(open: &Request) -> anyhow::Result<Self> {

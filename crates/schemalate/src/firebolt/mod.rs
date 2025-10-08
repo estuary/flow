@@ -54,7 +54,9 @@ pub fn run(args: Args) -> Result<(), anyhow::Error> {
             let result = build_drop_query(&firebolt_types::Table {
                 name: table,
                 r#type: firebolt_types::TableType::Fact,
-                schema: firebolt_types::TableSchema { columns: Vec::new() },
+                schema: firebolt_types::TableSchema {
+                    columns: Vec::new(),
+                },
             })?;
 
             result

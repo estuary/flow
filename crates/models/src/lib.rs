@@ -32,17 +32,17 @@ pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{
-    split_image_tag, ConnectorConfig, DekafConfig, LocalConfig, DEKAF_IMAGE_NAME_PREFIX,
-    DEKAF_IMAGE_TAG,
+    ConnectorConfig, DEKAF_IMAGE_NAME_PREFIX, DEKAF_IMAGE_TAG, DekafConfig, LocalConfig,
+    split_image_tag,
 };
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
 pub use id::{Id, IdGenerator};
 pub use journals::{
-    AzureStorageConfig, CompressionCodec, CustomStore, FragmentTemplate, GcsBucketAndPrefix,
-    JournalTemplate, S3StorageConfig, StorageDef, Store, AZURE_CONTAINER_RE,
-    AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
+    AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, AzureStorageConfig, CompressionCodec,
+    CustomStore, FragmentTemplate, GCS_BUCKET_RE, GcsBucketAndPrefix, JournalTemplate,
+    S3_BUCKET_RE, S3StorageConfig, StorageDef, Store,
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
@@ -50,8 +50,8 @@ pub use materializations::{
 };
 pub use raw_value::RawValue;
 pub use references::{
-    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, Name, PartitionField,
-    Prefix, RelativeUrl, StorageEndpoint, Test, Token, Transform, CATALOG_PREFIX_RE, TOKEN_RE,
+    CATALOG_PREFIX_RE, Capture, Collection, CompositeKey, Field, JsonPointer, Materialization,
+    Name, PartitionField, Prefix, RelativeUrl, StorageEndpoint, TOKEN_RE, Test, Token, Transform,
 };
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
@@ -335,7 +335,9 @@ pub mod serde_opt_bytes {
     {
         use base64::Engine;
         match bytes {
-            Some(b) => serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(b)),
+            Some(b) => {
+                serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(b))
+            }
             None => serializer.serialize_none(),
         }
     }
@@ -347,7 +349,8 @@ pub mod serde_opt_bytes {
         use base64::Engine;
         let opt_str: Option<String> = Option::deserialize(deserializer)?;
         match opt_str {
-            Some(s) => base64::engine::general_purpose::STANDARD.decode(s)
+            Some(s) => base64::engine::general_purpose::STANDARD
+                .decode(s)
                 .map(|b| Some(b.into()))
                 .map_err(serde::de::Error::custom),
             None => Ok(None),

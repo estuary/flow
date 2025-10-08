@@ -1,7 +1,7 @@
 use super::{ControlPlane, ControllerState, Event, Inbox, NextRun};
 use crate::controllers::publication_status;
 use models::status::{
-    connector::ConfigUpdate, publications::PublicationStatus, PendingConfigUpdateStatus,
+    PendingConfigUpdateStatus, connector::ConfigUpdate, publications::PublicationStatus,
 };
 
 pub const CONFIG_UPDATE_PUBLICATION_DETAIL: &str =

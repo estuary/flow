@@ -1,9 +1,9 @@
 use super::spec_fixture;
 use crate::{
-    integration_tests::harness::{draft_catalog, set_of, TestHarness, UserDiscoverResult},
     ControlPlane,
+    integration_tests::harness::{TestHarness, UserDiscoverResult, draft_catalog, set_of},
 };
-use proto_flow::capture::response::{discovered::Binding, Discovered};
+use proto_flow::capture::response::{Discovered, discovered::Binding};
 
 #[tokio::test]
 #[serial_test::serial]

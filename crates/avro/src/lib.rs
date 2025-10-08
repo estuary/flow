@@ -1,12 +1,12 @@
 mod encode;
 mod schema;
 
-pub use schema::{key_to_avro, shape_to_avro as located_shape_to_avro, AVRO_FIELD_RE};
+pub use schema::{AVRO_FIELD_RE, key_to_avro, shape_to_avro as located_shape_to_avro};
 
 // Re-export fundamental schema types so crates don't have to depend on apache_avro.
 pub use apache_avro::{
-    schema::{Name as RecordName, RecordField, RecordSchema, UnionSchema},
     Schema,
+    schema::{Name as RecordName, RecordField, RecordSchema, UnionSchema},
 };
 
 // FLOW_KEY_NAME names a field which contains a sub-record of the

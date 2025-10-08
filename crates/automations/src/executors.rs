@@ -1,4 +1,4 @@
-use super::{server, Action, BoxedRaw, Executor, Outcome, TaskType};
+use super::{Action, BoxedRaw, Executor, Outcome, TaskType, server};
 use anyhow::Context;
 use futures::future::{BoxFuture, FutureExt};
 use sqlx::types::Json as SqlJson;

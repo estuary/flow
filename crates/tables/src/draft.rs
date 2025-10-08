@@ -1,7 +1,7 @@
 use crate::{
-    synthetic_scope, DraftCapture, DraftCaptures, DraftCollection, DraftCollections,
-    DraftMaterialization, DraftMaterializations, DraftTest, DraftTests, Error, Errors, Fetches,
-    Imports, Resources, Row, Table,
+    DraftCapture, DraftCaptures, DraftCollection, DraftCollections, DraftMaterialization,
+    DraftMaterializations, DraftTest, DraftTests, Error, Errors, Fetches, Imports, Resources, Row,
+    Table, synthetic_scope,
 };
 use anyhow::Context;
 use models::{CatalogType, ModelDef};

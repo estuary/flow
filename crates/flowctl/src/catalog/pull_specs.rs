@@ -1,9 +1,9 @@
+use crate::CliContext;
 use crate::catalog::{
-    collect_specs, fetch_live_specs, DataPlaneSelector, List, LiveSpecRow, NameSelector,
-    SpecTypeSelector,
+    DataPlaneSelector, List, LiveSpecRow, NameSelector, SpecTypeSelector, collect_specs,
+    fetch_live_specs,
 };
 use crate::local_specs;
-use crate::CliContext;
 
 /// Arguments for the pull-specs subcommand
 #[derive(Debug, clap::Args)]

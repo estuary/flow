@@ -6,8 +6,8 @@ use std::ops::Deref;
 use uuid::Uuid;
 
 pub use db::{
-    fetch_expanded_live_specs, fetch_inferred_schemas, fetch_live_specs, hard_delete_live_spec,
-    InferredSchemaRow, LiveSpec,
+    InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
+    fetch_live_specs, hard_delete_live_spec,
 };
 
 /// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally

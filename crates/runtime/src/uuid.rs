@@ -1,4 +1,4 @@
-pub use gazette::uuid::{build, parse, Clock, Flags, Producer};
+pub use gazette::uuid::{Clock, Flags, Producer, build, parse};
 use proto_flow::flow;
 
 /// Build a flow::UuidParts from a Producer, Clock, and Flags.

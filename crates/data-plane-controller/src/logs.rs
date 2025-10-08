@@ -1,4 +1,4 @@
-use sqlx::types::{chrono, Uuid};
+use sqlx::types::{Uuid, chrono};
 use tokio::io::AsyncBufReadExt;
 
 // Line is a recorded log line.

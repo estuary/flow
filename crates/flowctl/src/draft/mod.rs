@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     api_exec, api_exec_paginated,
-    output::{to_table_row, CliOutput, JsonCell},
+    output::{CliOutput, JsonCell, to_table_row},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

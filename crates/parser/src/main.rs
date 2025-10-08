@@ -1,5 +1,5 @@
 use clap::Parser;
-use parser::{parse, Input, ParseConfig};
+use parser::{Input, ParseConfig, parse};
 use std::fs::File;
 use std::io;
 use std::mem::ManuallyDrop;

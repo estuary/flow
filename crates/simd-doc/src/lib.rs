@@ -118,7 +118,8 @@ impl Parser {
                 std::io::ErrorKind::InvalidData,
                 format!(
                     "parser has {enqueued} bytes of document prefix starting at offset {}, but got {}-byte chunk at unexpected input offset {chunk_offset}",
-                    self.offset, chunk.len(),
+                    self.offset,
+                    chunk.len(),
                 ),
             );
 
@@ -315,7 +316,7 @@ fn parse_fallback<'a>(
             }
             // Surface an error encountered at the very first document.
             Err(err) if consumed == 0 => {
-                return (pivot, Some((err.into(), offset..offset + pivot as i64)))
+                return (pivot, Some((err.into(), offset..offset + pivot as i64)));
             }
             // Otherwise, return early with the documents we did parse.
             // We'll encounter the error again on our next call and return it then.
@@ -372,7 +373,7 @@ fn transcode_fallback(
             }
             // Surface an error encountered at the very first document.
             Err(err) if consumed == 0 => {
-                return (pivot, v, Some((err.into(), offset..offset + pivot as i64)))
+                return (pivot, v, Some((err.into(), offset..offset + pivot as i64)));
             }
             // Otherwise, return early with the documents we did parse.
             // We'll encounter the error again on our next call and return it then.

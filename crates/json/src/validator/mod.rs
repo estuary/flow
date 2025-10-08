@@ -1,6 +1,6 @@
 use crate::{
-    schema::{self, Annotation, Keyword, Schema},
     AsNode,
+    schema::{self, Annotation, Keyword, Schema},
 };
 mod output;
 mod validation;

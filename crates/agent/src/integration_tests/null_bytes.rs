@@ -1,4 +1,4 @@
-use super::harness::{draft_catalog, md5_hash, TestHarness};
+use super::harness::{TestHarness, draft_catalog, md5_hash};
 use models::publications::StatusType;
 use tables::InferredSchema;
 

@@ -1,6 +1,6 @@
 use crate::{LogHandler, Runtime};
 use anyhow::Context;
-use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, channel::mpsc, stream::BoxStream};
 use proto_flow::{
     derive::{Request, Response},
     flow::collection_spec::derivation::ConnectorType,

@@ -1,11 +1,11 @@
 use super::{Error, Result, Tape};
 use crate::{
+    HeapNode, SerPolicy, Shape,
     shape::limits,
     shape::{
-        limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
-        schema::to_schema, X_COMPLEXITY_LIMIT,
+        X_COMPLEXITY_LIMIT, limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+        limits::DEFAULT_SCHEMA_DEPTH_LIMIT, schema::to_schema,
     },
-    HeapNode, SerPolicy, Shape,
 };
 use json::AsNode;
 use serde_json::Value as JsonValue;
@@ -111,13 +111,17 @@ mod test {
                 },
                 Partial {
                     rhs: json!("oops!"),
-                    expect: Err("reduction failed at location '': json-schema-merge strategy schema error: at schema:///: expected a schema object or boolean"),
+                    expect: Err(
+                        "reduction failed at location '': json-schema-merge strategy schema error: at schema:///: expected a schema object or boolean",
+                    ),
                 },
                 Partial {
                     rhs: json!({
                         "type": "foo"
                     }),
-                    expect: Err("reduction failed at location '': json-schema-merge strategy schema error: at schema:///#/type: invalid type name: 'foo'"),
+                    expect: Err(
+                        "reduction failed at location '': json-schema-merge strategy schema error: at schema:///#/type: invalid type name: 'foo'",
+                    ),
                 },
                 Partial {
                     rhs: json!({

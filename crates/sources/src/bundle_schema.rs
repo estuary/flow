@@ -1,5 +1,5 @@
 use models::RawValue;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // bundled_schema builds a self-contained JSON schema document for the given
 // |schema| URL (which may include a fragment pointer).

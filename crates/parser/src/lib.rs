@@ -4,7 +4,7 @@ mod format;
 mod input;
 
 pub use self::config::{
-    character_separated, protobuf, Compression, ErrorThreshold, Format, JsonPointer, ParseConfig,
+    Compression, ErrorThreshold, Format, JsonPointer, ParseConfig, character_separated, protobuf,
 };
-pub use self::format::{parse, Output, ParseError, Parser};
+pub use self::format::{Output, ParseError, Parser, parse};
 pub use self::input::Input;

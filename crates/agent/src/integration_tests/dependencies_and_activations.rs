@@ -1,16 +1,16 @@
 use std::collections::BTreeSet;
 
 use crate::{
+    ControlPlane,
     controllers::ControllerState,
     integration_tests::harness::{
-        draft_catalog, get_collection_generation_id, mock_inferred_schema, InjectBuildError,
-        TestHarness,
+        InjectBuildError, TestHarness, draft_catalog, get_collection_generation_id,
+        mock_inferred_schema,
     },
-    ControlPlane,
 };
 use models::{
-    status::{publications::PublicationStatus, ShardRef},
     CatalogType,
+    status::{ShardRef, publications::PublicationStatus},
 };
 use uuid::Uuid;
 
@@ -440,11 +440,13 @@ async fn test_dependencies_and_controllers() {
     // dependencies being published, but we'd expect each run to result
     // in the same activation error.
     assert!(hoots_state.failures > 0);
-    assert!(hoots_state
-        .error
-        .as_ref()
-        .unwrap()
-        .contains("data_plane_delete simulated failure"));
+    assert!(
+        hoots_state
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("data_plane_delete simulated failure")
+    );
     assert_eq!(
         hoots_last_activated,
         hoots_state
@@ -608,7 +610,9 @@ async fn test_dependencies_and_controllers() {
     assert!(capture_model.bindings[0].disable);
     assert_eq!(0, capture_state.failures);
     assert_eq!(
-        Some("in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]"),
+        Some(
+            "in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]"
+        ),
         capture_state
             .current_status
             .unwrap_capture()
@@ -632,7 +636,9 @@ async fn test_dependencies_and_controllers() {
         .unwrap();
     assert!(derivation_model.transforms[0].disable);
     assert_eq!(
-        Some("in response to deletion one or more depencencies, disabled 1 transform(s) in response to deleted collections: [owls/hoots]"),
+        Some(
+            "in response to deletion one or more depencencies, disabled 1 transform(s) in response to deleted collections: [owls/hoots]"
+        ),
         derivation_state
             .current_status
             .unwrap_collection()

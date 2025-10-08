@@ -303,7 +303,7 @@ impl serde::Serialize for SerOwned<'_, '_> {
 
 #[cfg(test)]
 mod test {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 

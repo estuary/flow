@@ -72,11 +72,7 @@ impl<'db> Lambda<'db> {
                     .enumerate()
                     .filter_map(
                         |(index, (encoding, _param))| {
-                            if name == encoding {
-                                Some(index)
-                            } else {
-                                None
-                            }
+                            if name == encoding { Some(index) } else { None }
                         },
                     )
                     .next();

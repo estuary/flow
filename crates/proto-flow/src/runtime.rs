@@ -139,10 +139,8 @@ pub struct Container {
     /// as either IPv4 or IPv6, through which the port can be accessed. If empty,
     /// then the container `ip_addr` should be used directly.
     #[prost(btree_map = "uint32, string", tag = "3")]
-    pub mapped_host_ports: ::prost::alloc::collections::BTreeMap<
-        u32,
-        ::prost::alloc::string::String,
-    >,
+    pub mapped_host_ports:
+        ::prost::alloc::collections::BTreeMap<u32, ::prost::alloc::string::String>,
     /// The usage rate of a container is the number of connector credits per second that
     /// are consumed by the connector.
     #[prost(float, tag = "4")]
@@ -165,9 +163,7 @@ pub mod capture_request_ext {
     pub struct StartCommit {
         /// Flow runtime checkpoint associated with this transaction.
         #[prost(message, optional, tag = "1")]
-        pub runtime_checkpoint: ::core::option::Option<
-            ::proto_gazette::consumer::Checkpoint,
-        >,
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -186,9 +182,7 @@ pub mod capture_response_ext {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
         #[prost(message, optional, tag = "1")]
-        pub runtime_checkpoint: ::core::option::Option<
-            ::proto_gazette::consumer::Checkpoint,
-        >,
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Captured {
@@ -206,17 +200,7 @@ pub mod capture_response_ext {
         #[prost(enumeration = "PollResult", tag = "2")]
         pub poll_result: i32,
     }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum PollResult {
         Invalid = 0,
@@ -293,9 +277,7 @@ pub mod derive_response_ext {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
         #[prost(message, optional, tag = "1")]
-        pub runtime_checkpoint: ::core::option::Option<
-            ::proto_gazette::consumer::Checkpoint,
-        >,
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Published {
@@ -365,9 +347,7 @@ pub mod combine_request {
             pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
             /// Projections of the collection, which must include all `key` and `values` pointers.
             #[prost(message, repeated, tag = "3")]
-            pub projections: ::prost::alloc::vec::Vec<
-                super::super::super::flow::Projection,
-            >,
+            pub projections: ::prost::alloc::vec::Vec<super::super::super::flow::Projection>,
             /// Collection JSON-Schema to reduce over.
             #[prost(bytes = "bytes", tag = "4")]
             pub schema_json: ::prost::bytes::Bytes,

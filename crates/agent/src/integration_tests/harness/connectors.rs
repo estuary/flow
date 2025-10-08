@@ -70,8 +70,8 @@ impl Connectors for TestConnectors {
         R: futures::Stream<Item = proto_flow::capture::Request> + Send + Unpin + 'static,
     {
         use proto_flow::capture::{
-            response::{self, Validated},
             Response,
+            response::{self, Validated},
         };
 
         coroutines::try_coroutine(|mut co| async move {
@@ -123,8 +123,8 @@ impl Connectors for TestConnectors {
         R: futures::Stream<Item = proto_flow::derive::Request> + Send + Unpin + 'static,
     {
         use proto_flow::derive::{
-            response::{self, Spec, Validated},
             Response,
+            response::{self, Spec, Validated},
         };
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {

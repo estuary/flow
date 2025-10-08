@@ -1,9 +1,9 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use json::{
-    schema::{self, index},
     Validator,
+    schema::{self, index},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const CITI_RIDES_SCHEMA: &[u8] = include_bytes!("testdata/citi-rides.schema.json");
 const CITI_RIDES: &[u8] = include_bytes!("testdata/citi-rides1.json");

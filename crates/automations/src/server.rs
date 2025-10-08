@@ -1,4 +1,4 @@
-use super::{executors, BoxedRaw, Executor, Server, TaskType};
+use super::{BoxedRaw, Executor, Server, TaskType, executors};
 use futures::stream::StreamExt;
 use sqlx::types::Json as SqlJson;
 use std::sync::Arc;

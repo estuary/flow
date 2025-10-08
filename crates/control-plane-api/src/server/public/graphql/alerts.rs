@@ -1,6 +1,6 @@
 use async_graphql::{
-    types::{connection, Json},
     Context,
+    types::{Json, connection},
 };
 use chrono::{DateTime, Utc};
 use models::status::AlertType;

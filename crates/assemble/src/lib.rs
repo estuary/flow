@@ -1,4 +1,4 @@
-use doc::shape::{self, location::Exists, Shape};
+use doc::shape::{self, Shape, location::Exists};
 use doc::{redact, reduce};
 use json::schema::{formats, types};
 use proto_flow::flow;
@@ -93,17 +93,25 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         numeric: if shape.type_.overlaps(types::INT_OR_FRAC) {
             Some(flow::inference::Numeric {
                 has_minimum: shape.numeric.minimum.is_some(),
-                minimum: shape.numeric.minimum.map(|n| match n {
-                    json::Number::Float(f) => f,
-                    json::Number::NegInt(i) => i as f64,
-                    json::Number::PosInt(u) => u as f64,
-                }).unwrap_or_default(),
+                minimum: shape
+                    .numeric
+                    .minimum
+                    .map(|n| match n {
+                        json::Number::Float(f) => f,
+                        json::Number::NegInt(i) => i as f64,
+                        json::Number::PosInt(u) => u as f64,
+                    })
+                    .unwrap_or_default(),
                 has_maximum: shape.numeric.maximum.is_some(),
-                maximum: shape.numeric.maximum.map(|n| match n {
-                    json::Number::Float(f) => f,
-                    json::Number::NegInt(i) => i as f64,
-                    json::Number::PosInt(u) => u as f64,
-                }).unwrap_or_default(),
+                maximum: shape
+                    .numeric
+                    .maximum
+                    .map(|n| match n {
+                        json::Number::Float(f) => f,
+                        json::Number::NegInt(i) => i as f64,
+                        json::Number::PosInt(u) => u as f64,
+                    })
+                    .unwrap_or_default(),
             })
         } else {
             None
@@ -577,7 +585,7 @@ pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
 mod test {
     use super::*;
     use doc::shape::{ArrayShape, NumericShape, StringShape};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::collections::BTreeMap;
 
     #[test]
@@ -660,7 +668,10 @@ mod test {
         let gross_url =
             "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
         let out = encode_state_key(&vec!["prefix".to_string(), gross_url.to_string()], 42);
-        assert_eq!(&out, "prefix%2Fhttp%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true.v42");
+        assert_eq!(
+            &out,
+            "prefix%2Fhttp%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true.v42"
+        );
     }
 
     #[test]

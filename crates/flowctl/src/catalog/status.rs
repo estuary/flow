@@ -1,7 +1,7 @@
 use models::status::StatusResponse;
 use serde::Serialize;
 
-use crate::output::{to_table_row, JsonCell};
+use crate::output::{JsonCell, to_table_row};
 
 #[derive(Debug, clap::Args)]
 pub struct Status {

@@ -3,8 +3,8 @@
 use super::{Input, Output, ParseError, Parser};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::reader::RowIter;
-use std::convert::TryFrom;
 use serde_json::Value;
+use std::convert::TryFrom;
 
 struct ParquetParser;
 
@@ -19,10 +19,10 @@ impl Parser for ParquetParser {
     fn parse(&self, content: Input) -> Result<Output, ParseError> {
         let file = content.into_file()?;
         let file_reader = SerializedFileReader::try_from(file)?;
-    
+
         for rg in file_reader.metadata().row_groups() {
             if rg.total_byte_size() > MAX_RG_SIZE {
-                return Err(ParseError::RowGroupTooLarge)
+                return Err(ParseError::RowGroupTooLarge);
             }
         }
 
@@ -51,7 +51,6 @@ impl Iterator for ParquetIter<'_> {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use std::fs::File;
@@ -75,24 +74,30 @@ mod test {
             .next()
             .expect("expected a result")
             .expect("must parse object Ok");
-        assert_eq!(json!({
-            "petal.length": 1.4,
-            "petal.width": 0.2,
-            "sepal.length": 5.1,
-            "sepal.width": 3.5,
-            "variety": "Setosa"
-        }), first);
+        assert_eq!(
+            json!({
+                "petal.length": 1.4,
+                "petal.width": 0.2,
+                "sepal.length": 5.1,
+                "sepal.width": 3.5,
+                "variety": "Setosa"
+            }),
+            first
+        );
         let second = output
             .next()
             .expect("expected a result")
             .expect("must parse object Ok");
-        assert_eq!(json!({
-            "petal.length": 1.4,
-            "petal.width": 0.2,
-            "sepal.length": 4.9,
-            "sepal.width": 3.0,
-            "variety": "Setosa"
-        }), second);
+        assert_eq!(
+            json!({
+                "petal.length": 1.4,
+                "petal.width": 0.2,
+                "sepal.length": 4.9,
+                "sepal.width": 3.0,
+                "variety": "Setosa"
+            }),
+            second
+        );
 
         // 50 total items
         assert_eq!(output.count(), 148);

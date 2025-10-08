@@ -1,6 +1,6 @@
 use crate::format::{Output, ParseError, ParseResult, Parser};
 use crate::input::Input;
-use apache_avro::{schema::SchemaKind, types::Value as AvroValue, Reader, Schema};
+use apache_avro::{Reader, Schema, schema::SchemaKind, types::Value as AvroValue};
 use base64::Engine;
 use chrono::{DateTime, NaiveTime};
 use serde_json::Value;
@@ -299,7 +299,7 @@ fn timestamp_from_unix_epoch(
 #[cfg(test)]
 mod test {
     use super::*;
-    use apache_avro::{types::Record, Writer};
+    use apache_avro::{Writer, types::Record};
 
     #[test]
     fn test_to_secs_and_nanos() {

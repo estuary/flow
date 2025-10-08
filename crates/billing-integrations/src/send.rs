@@ -1,6 +1,6 @@
 use crate::{
     publish::{BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY},
-    stripe_utils::{fetch_invoices, Invoice},
+    stripe_utils::{Invoice, fetch_invoices},
 };
 use chrono::{Duration, NaiveDate, Utc};
 use clap::Args;

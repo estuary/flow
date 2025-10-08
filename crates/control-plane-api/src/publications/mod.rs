@@ -2,8 +2,8 @@ use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use rand::Rng;
-use sqlx::types::Uuid;
 use sqlx::Executor;
+use sqlx::types::Uuid;
 use tables::BuiltRow;
 
 pub mod builds;
@@ -17,7 +17,7 @@ mod quotas;
 pub mod specs;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
-pub use self::db::{create, delete_draft, fetch_publication, resolve, Row};
+pub use self::db::{Row, create, delete_draft, fetch_publication, resolve};
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
 pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};

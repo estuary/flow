@@ -1,5 +1,5 @@
-use super::{check_ok, Client};
-use crate::{router, Error};
+use super::{Client, check_ok};
+use crate::{Error, router};
 use futures::TryStreamExt;
 use proto_gazette::broker;
 

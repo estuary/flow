@@ -4,11 +4,11 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{reduce, HeapNode, LazyNode, Schema, Validator};
+use doc::{HeapNode, LazyNode, Schema, Validator, reduce};
 use itertools::{EitherOrBoth, Itertools};
 use json::{node::compare, schema::build::build_schema};
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use url::Url;
 

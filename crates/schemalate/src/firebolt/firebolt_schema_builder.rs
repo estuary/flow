@@ -2,9 +2,9 @@ use super::errors::*;
 use super::firebolt_queries::{CreateTable, DropTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
 use json::schema::types;
-use proto_flow::flow::materialization_spec::Binding;
 use proto_flow::flow::Inference;
 use proto_flow::flow::MaterializationSpec;
+use proto_flow::flow::materialization_spec::Binding;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
