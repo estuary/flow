@@ -1,0 +1,96 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test", "rust_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+# Export testdata for use by other crates (e.g., doc crate tests)
+exports_files(glob(["benches/testdata/**"]))
+
+rust_library(
+    name = "json",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "@crates_io//:addr",
+        "@crates_io//:bigdecimal",
+        "@crates_io//:bitvec",
+        "@crates_io//:iri-string",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:percent-encoding",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+        "@crates_io//:time",
+        "@crates_io//:url",
+        "@crates_io//:uuid",
+    ],
+)
+
+rust_test(
+    name = "json_lib_test",
+    crate = ":json",
+    size = "small",
+    edition = "2024",
+    compile_data = glob(["tests/**/*"]),
+    data = glob(["src/**/snapshots/*.snap"]),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "@crates_io//:insta",
+        "@crates_io//:glob",
+    ],
+)
+
+_SCHEMA_TEST_DEPS = [
+    ":json",
+    "@crates_io//:glob",
+    "@crates_io//:itertools",
+    "@crates_io//:serde_json",
+    "@crates_io//:url",
+]
+
+[
+    rust_test(
+        name = test_name,
+        srcs = [
+            "tests/{}.rs".format(test_name),
+            "tests/utils.rs",
+        ],
+        size = "small",
+        data = glob(["tests/**/*.json"]),
+        edition = "2024",
+        deps = _SCHEMA_TEST_DEPS,
+    )
+    for test_name in [
+        "draft2019_tests",
+        "draft2019_format_tests",
+        "draft2020_tests",
+        "draft2020_format_tests",
+    ]
+]
+
+_BENCH_DEPS = [
+    ":json",
+    "@crates_io//:criterion",
+    "@crates_io//:serde_json",
+    "@crates_io//:url",
+]
+
+[
+    rust_binary(
+        name = "{}_bench".format(bench_name),
+        srcs = ["benches/{}.rs".format(bench_name)],
+        compile_data = glob(["benches/testdata/**"]),
+        edition = "2024",
+        deps = _BENCH_DEPS,
+    )
+    for bench_name in [
+        "github_events",
+        "citi_rides",
+    ]
+]

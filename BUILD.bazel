@@ -1,0 +1,9 @@
+# Root BUILD file for Estuary Flow
+
+# This is a placeholder BUILD file for the root of the workspace.
+# Individual crates have their own BUILD files under crates/*/BUILD.bazel
+
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+])

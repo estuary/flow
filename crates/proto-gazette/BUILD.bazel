@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "proto-gazette",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "@crates_io//:bytes",
+        "@crates_io//:pbjson",
+        "@crates_io//:pbjson-types",
+        "@crates_io//:prost",
+        "@crates_io//:serde",
+        "@crates_io//:thiserror",
+        "@crates_io//:uuid",
+    ],
+)
+
+rust_test(
+    name = "proto-gazette_test",
+    crate = ":proto-gazette",
+    size = "small",
+    edition = "2024",
+)

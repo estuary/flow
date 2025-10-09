@@ -1,0 +1,191 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Shared library dependencies
+_LIB_DEPS = [
+    "//crates/json:json",
+    "//crates/proto-gazette:proto-gazette",
+    "//crates/tuple:tuple",
+    "@crates_io//:base64",
+    "@crates_io//:bigdecimal",
+    "@crates_io//:bumpalo",
+    "@crates_io//:bytes",
+    "@crates_io//:futures",
+    "@crates_io//:itertools",
+    "@crates_io//:regex",
+    "@crates_io//:rkyv",
+    "@crates_io//:schemars",
+    "@crates_io//:serde",
+    "@crates_io//:serde_json",
+    "@crates_io//:sha2",
+    "@crates_io//:tempfile",
+    "@crates_io//:thiserror",
+    "@crates_io//:time",
+    "@crates_io//:tracing",
+    "@crates_io//:url",
+    "@crates_io//:uuid",
+]
+
+rust_library(
+    name = "doc",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = _LIB_DEPS,
+)
+
+# Library with "combine" feature enabled
+rust_library(
+    name = "doc_combine",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_name = "doc",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_features = ["combine"],
+    deps = _LIB_DEPS + ["@crates_io//:lz4"],
+)
+
+rust_test(
+    name = "doc_lib_test",
+    crate = ":doc_combine",
+    size = "small",
+    edition = "2024",
+    data = glob(["src/**/snapshots/*.snap"]),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "@crates_io//:anyhow",
+        "@crates_io//:hexdump",
+        "@crates_io//:insta",
+        "@crates_io//:serde_json",
+        "@crates_io//:serde_yaml",
+    ],
+)
+
+# Common test dependencies (without doc library - that's added per-test)
+_TEST_DEPS = [
+    "//crates/json:json",
+    "@crates_io//:anyhow",
+    "@crates_io//:hexdump",
+    "@crates_io//:insta",
+    "@crates_io//:itertools",
+    "@crates_io//:json-patch",
+    "@crates_io//:quickcheck",
+    "@crates_io//:rand",
+    "@crates_io//:rand_distr",
+    "@crates_io//:serde",
+    "@crates_io//:serde-transcode",
+    "@crates_io//:serde_json",
+    "@crates_io//:serde_yaml",
+    "@crates_io//:url",
+]
+
+_TEST_PROC_MACRO_DEPS = [
+    "@crates_io//:quickcheck_macros",
+]
+
+_PERF_TESTDATA = [
+    "//crates/json:benches/testdata/citi-rides.schema.json",
+    "//crates/json:benches/testdata/citi-rides1.json",
+    "//crates/json:benches/testdata/github-event.schema.json",
+    "//crates/json:benches/testdata/github-scrape1.json",
+    "//crates/json:benches/testdata/github-scrape2.json",
+    "//crates/json:benches/testdata/github-scrape3.json",
+    "//crates/json:benches/testdata/github-scrape4.json",
+]
+
+rust_test(
+    name = "redact_fuzz",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/redact_fuzz.rs",
+    ],
+    size = "small",
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [":doc"] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "shape_fuzz",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/shape_fuzz.rs",
+    ],
+    size = "small",
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [":doc"] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "merge_patch_fuzz",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/merge_patch_fuzz.rs",
+    ],
+    size = "small",
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [":doc_combine"] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "reduce_annotations_test",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/reduce_annotations_test.rs",
+    ],
+    size = "small",
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [":doc"] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "widen_perf",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/widen_perf.rs",
+    ],
+    size = "small",
+    compile_data = _PERF_TESTDATA,
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [":doc", "//crates/allocator:allocator"] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "spill_merge_fuzz",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/spill_merge_fuzz.rs",
+    ],
+    size = "small",
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [":doc_combine", "@crates_io//:thiserror"] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "combiner_perf",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/combiner_perf.rs",
+    ],
+    size = "small",
+    compile_data = _PERF_TESTDATA,
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [
+        ":doc_combine",
+        "//crates/allocator:allocator",
+        "@crates_io//:tempfile",
+    ] + _TEST_DEPS,
+)

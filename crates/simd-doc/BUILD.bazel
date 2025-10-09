@@ -1,0 +1,108 @@
+load("@cxx.rs//tools/bazel:rust_cxx_bridge.bzl", "rust_cxx_bridge")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+#    copts = [
+#        "-std=c++20",
+#        "-DNDEBUG",
+#        "-DSIMDJSON_DISABLE_DEPRECATED_API=1",
+#        "-DSIMDJSON_EXCEPTIONS=1",
+#        "-DSIMDJSON_IMPLEMENTATION_WESTMERE=0",
+#        "-DSIMDJSON_IMPLEMENTATION_PPC64=0",
+#    ],
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "sys-include",
+    hdrs = [
+        "src/ffi/simd-doc.hpp",
+        "src/ffi/simdjson.h",
+    ],
+    deps = ["@cxx.rs//:core"],
+)
+
+rust_cxx_bridge(
+    name = "bridge",
+    src = "src/ffi/mod.rs",
+    deps = [":sys-include"],
+)
+
+cc_library(
+    name = "sys-lib",
+    srcs = [
+        "src/ffi/simd-doc.cpp",
+        "src/ffi/simdjson.cpp",
+    ],
+    # Extra import path which allows simd-doc.cpp to import
+    # "simd-doc/src/ffi/mod.rs.h", which is the canonical CXX location,
+    # instead of as "crates/simd-doc/src/ffi/mod.rs.h".
+    copts = ["-I$(BINDIR)/crates"],
+    linkstatic = True,
+    deps = [
+        ":bridge/include",
+        ":sys-include",
+    ],
+)
+
+rust_library(
+    name = "simd-doc",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    edition = "2024",
+    deps = [
+        ":bridge",
+        ":sys-lib",
+        "//crates/doc",
+        "//crates/json",
+        "@crates_io//:bytes",
+        "@crates_io//:memchr",
+        "@crates_io//:rkyv",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tracing",
+        "@cxx.rs//:cxx",
+    ],
+)
+
+rust_test(
+    name = "unit-test",
+    crate = ":simd-doc",
+    size = "small",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "//crates/allocator",
+        "@crates_io//:hexdump",
+        "@crates_io//:insta",
+        "@crates_io//:quickcheck",
+        "@crates_io//:xxhash-rust",
+    ],
+)
+
+rust_test(
+    name = "parser_perf",
+    srcs = ["tests/parser_perf.rs"],
+    size = "small",
+    compile_data = [
+        "//crates/json:benches/testdata/citi-rides.schema.json",
+        "//crates/json:benches/testdata/citi-rides1.json",
+        "//crates/json:benches/testdata/github-event.schema.json",
+        "//crates/json:benches/testdata/github-scrape1.json",
+        "//crates/json:benches/testdata/github-scrape2.json",
+        "//crates/json:benches/testdata/github-scrape3.json",
+        "//crates/json:benches/testdata/github-scrape4.json",
+    ],
+    edition = "2024",
+    deps = [
+        ":simd-doc",
+        "//crates/allocator",
+        "//crates/doc",
+        "//crates/json",
+        "@crates_io//:hexdump",
+        "@crates_io//:rkyv",
+        "@crates_io//:serde_json",
+    ],
+)

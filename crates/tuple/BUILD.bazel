@@ -1,0 +1,23 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "tuple",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "@crates_io//:memchr",
+        "@crates_io//:serde_json",
+    ],
+)
+
+rust_test(
+    name = "tuple_test",
+    crate = ":tuple",
+    size = "small",
+    edition = "2024",
+)
