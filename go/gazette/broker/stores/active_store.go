@@ -13,9 +13,9 @@ import (
 
 // ActiveStore wraps a Store implementation with mark-and-sweep GC support and instrumentation.
 type ActiveStore struct {
-	Key pb.FragmentStore // FragmentStore from which this ActiveStore was built
-	Store
-	Mark atomic.Bool // Mark bit for GC
+	Key   pb.FragmentStore // FragmentStore from which this ActiveStore was built
+	Store Store
+	Mark  atomic.Bool // Mark bit for GC
 
 	initErr error // Initialization error (if any) - checked by all methods
 

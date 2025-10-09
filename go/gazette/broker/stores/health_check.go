@@ -58,11 +58,11 @@ func checkLoop(stores map[pb.FragmentStore]*ActiveStore, fs pb.FragmentStore, at
 		}
 
 		log.WithFields(log.Fields{
-			"store":    fs,
-			"error":    err,
-			"attempt":  attempt,
-			"interval": checkInterval,
-			"authError": active.IsAuthError(err),
+			"store":     fs,
+			"error":     err,
+			"attempt":   attempt,
+			"interval":  checkInterval,
+			"authError": active.Store.IsAuthError(err),
 		}).Warn("store health check failed")
 		attempt += 1
 	}

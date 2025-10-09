@@ -47,12 +47,12 @@ func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec, isExiting b
 			spool.PathPostfix = postfix
 		}
 
-		var store = stores.Get(spool.Fragment.BackingStore)
-		store.Mark.Store(true)
+		var active = stores.Get(spool.Fragment.BackingStore)
+		active.Mark.Store(true)
 
-		exists, err := store.Exists(ctx, spool.ContentPath())
+		exists, err := active.Exists(ctx, spool.ContentPath())
 		if err != nil {
-			if store.IsAuthError(err) && isExiting && len(fs) != 0 {
+			if isExiting && len(fs) != 0 && active.Store != nil && active.Store.IsAuthError(err) {
 				continue // Fall back to the next store.
 			}
 			return err
@@ -91,9 +91,9 @@ func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec, isExiting b
 			contentLength = spool.ContentLength()
 		}
 
-		err = store.Put(timeoutCtx, spool.ContentPath(), reader, contentLength, contentEncoding)
+		err = active.Put(timeoutCtx, spool.ContentPath(), reader, contentLength, contentEncoding)
 		if err != nil {
-			if store.IsAuthError(err) && isExiting && len(fs) != 0 {
+			if isExiting && len(fs) != 0 && active.Store != nil && active.Store.IsAuthError(err) {
 				continue // During shutdown with auth errors, try next store.
 			}
 			return err
