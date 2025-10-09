@@ -1,0 +1,35 @@
+# Auto-detect our platform and apply platform-specific configuration.
+build --enable_platform_specific_config
+
+# Strip most environment variables from leaking into build actions
+build --incompatible_strict_action_env # Default
+
+# Prefix of directories holding bazel outputs
+build --symlink_prefix=bazel- # Default
+
+# Options are `fastbuild`, `dbg` (adds debug symbols), and `opt`.
+# You can pass `-c dbg` or `-c opt` on the command line to override this.
+build --compilation_mode=fastbuild # Default.
+
+build --verbose_failures
+
+# Platform-specific settings.
+# host_cxxopt is for tools built by bazel that run on the host machine,
+# while cxxopt is for code being built for the target platform.
+build:linux --cxxopt=-std=c++20
+build:linux --host_cxxopt=-std=c++20
+
+build:macos --cxxopt=-std=c++20
+build:macos --host_cxxopt=-std=c++20
+
+# Rust-specific settings
+# build --@rules_rust//:rustfmt.toml=//:rustfmt.toml  # Uncomment if rustfmt.toml is added
+
+test --test_output=errors
+test --test_summary=short
+
+# Remote cache (disabled by default, can be enabled for CI)
+# build --remote_cache=grpc://localhost:9092
+
+# Hermetic actions (disabled by default for compatibility)
+# build --incompatible_strict_action_env

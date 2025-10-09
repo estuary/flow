@@ -3,6 +3,8 @@ target/
 .build/
 .build-ci/
 
+# Bazel build outputs
+bazel-*
 
 # Typical IDE stuff.
 .vim

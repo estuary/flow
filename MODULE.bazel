@@ -1,0 +1,61 @@
+"Blaze module for Estuary Flow"
+module(
+    name = "flow",
+    version = "0.6.0",
+)
+
+###############################################################################
+# Bazel dependencies from Bazel Central Registry (BCR)
+###############################################################################
+
+# rules_rust - Bazel rules for building Rust code
+# Available versions: https://registry.bazel.build/modules/rules_rust
+bazel_dep(name = "rules_rust", version = "0.65.0")
+
+# rules_cc - Bazel rules for C/C++
+# Available versions: https://registry.bazel.build/modules/rules_cc
+bazel_dep(name = "rules_cc", version = "0.2.9")
+
+# rules_proto - Bazel rules for Protocol Buffers
+# Available versions: https://registry.bazel.build/modules/rules_proto
+bazel_dep(name = "rules_proto", version = "7.1.0")
+
+# protobuf - Protocol Buffers library
+# Available versions: https://registry.bazel.build/modules/protobuf
+bazel_dep(name = "protobuf", version = "29.1")
+
+# cxx.rs - Safe interop between Rust and C++
+# Available versions: https://registry.bazel.build/modules/cxx.rs
+bazel_dep(name = "cxx.rs", version = "1.0.186")
+
+###############################################################################
+# Rust toolchain configuration
+###############################################################################
+
+# Register Rust toolchains for the version specified in Cargo.toml (1.90.0)
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.90.0"],
+)
+use_repo(rust, "rust_toolchains")
+register_toolchains("@rust_toolchains//:all")
+
+###############################################################################
+# Cargo dependencies (crates from crates.io)
+###############################################################################
+
+# crate_universe extension for managing Cargo dependencies
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+
+# Define our workspace with all crates
+# This reads the root Cargo.toml (workspace) and Cargo.lock
+crate.from_cargo(
+    name = "crates_io",
+    cargo_lockfile = "//:Cargo.lock",
+    # Point to workspace Cargo.toml to handle workspace inheritance properly
+    manifests = ["//:Cargo.toml"],
+)
+
+# Make the crates_io repository available
+use_repo(crate, "crates_io")

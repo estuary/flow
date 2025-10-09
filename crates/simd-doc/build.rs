@@ -13,7 +13,9 @@ fn main() {
         // Disabled implementations for older architectures we don't need.
         .define("SIMDJSON_IMPLEMENTATION_WESTMERE", "0")
         .define("SIMDJSON_IMPLEMENTATION_PPC64", "0")
+        .include(format!("{}/../..", env!("CARGO_MANIFEST_DIR")))
         .file("src/ffi/simdjson.cpp")
+        .file("src/ffi/simd-doc.cpp")
         .std("c++2a")
         .compile("simdjson");
 }
