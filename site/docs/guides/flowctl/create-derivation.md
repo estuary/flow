@@ -85,7 +85,7 @@ Your draft specification will be created and a new modal screen will be displaye
    ```
 
 5. Once you are happy with your results, you can publish your draft back to Estuary.
-Since you're working with an existing draft, you first need to sync your local copy back to Estuary:
+You will first need to sync your local copy with the global draft:
 
    ```shell
    flowctl draft author --source flow.yaml
@@ -107,7 +107,7 @@ just as you would any other Flow collection.
 
 In Estuary, a derivation is a new collection that has been **derived** from an existing source collection.
 
-You can therefore also create a new derivation specification from scratch using a `flow.yaml` file.
+You can therefore create a derivation specification from scratch using a `flow.yaml` file, similar to any [collection specification](/concepts/collections/#specification).
 For this example, we will add our new derived collection to our source collection spec.
 
 1. Locate the source collection for your derivation. Either:
