@@ -52,6 +52,12 @@ Your draft specification will be created and a new modal screen will be displaye
 
    Run the command in a terminal in your development environment. This sets your derivation spec as your current draft.
 
+   :::tip
+   If you close the modal before copying your draft ID, you can find your draft by running `flowctl draft list`.
+
+   Then plug the ID into: `flowctl draft select --id <your:draft:id>`.
+   :::
+
 2. To start developing your draft locally, run:
 
    ```shell
