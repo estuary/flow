@@ -97,7 +97,7 @@ func (s *store) Exists(ctx context.Context, path string) (exists bool, err error
 	_, err = s.client.Bucket(s.bucket).Object(s.args.RewritePath(s.prefix, path)).Attrs(ctx)
 	if err == nil {
 		exists = true
-	} else if err == storage.ErrObjectNotExist {
+	} else if errors.Is(err, storage.ErrObjectNotExist) {
 		err = nil
 	}
 	return exists, err
@@ -158,7 +158,7 @@ func (s *store) IsAuthError(err error) bool {
 		return false
 	}
 
-	if err == storage.ErrBucketNotExist {
+	if errors.Is(err, storage.ErrBucketNotExist) {
 		return true
 	}
 
