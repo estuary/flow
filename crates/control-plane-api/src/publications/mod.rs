@@ -1,3 +1,5 @@
+use std::u32;
+
 use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -500,6 +502,7 @@ impl Publisher {
             !uncommitted.has_errors(),
             "cannot commit uncommitted build that has errors"
         );
+        let start_time = std::time::Instant::now();
 
         // Assign live spec ids prior to attempting commit. This simplifies the
         // commit process, which would otherwise need to determine the IDs and
@@ -511,33 +514,72 @@ impl Publisher {
         // return a lock failure after retrying here. Lock failures can also be
         // retried, but doing so requires a fresh build, and so is handled
         // outside of this function.
-        for attempt in 0..10 {
+        const MAX_ATTEMPTS: usize = 10;
+        for attempt in 0..MAX_ATTEMPTS {
             let completed_at = Utc::now();
-            match self.try_commit(&uncommitted, &with_commit).await {
+            let attempt_start_time = std::time::Instant::now();
+            let commit_result = self.try_commit(&uncommitted, &with_commit).await;
+
+            let attempt_elapsed_ms = elapsed_ms(attempt_start_time);
+            let commit_elapsed_ms = elapsed_ms(start_time);
+
+            match commit_result {
                 Ok((_, quota_errors)) if !quota_errors.is_empty() => {
+                    tracing::info!(
+                        attempt,
+                        attempt_elapsed_ms,
+                        commit_elapsed_ms,
+                        result = "overQuotaError",
+                        "finished publication commit"
+                    );
                     let mut result =
                         uncommitted.into_result(completed_at, StatusType::PublishFailed.into());
                     result.built.errors.extend(quota_errors.into_iter());
                     return Ok(result);
                 }
                 Ok((lock_failures, _)) if !lock_failures.is_empty() => {
+                    tracing::info!(
+                        attempt,
+                        attempt_elapsed_ms,
+                        commit_elapsed_ms,
+                        result = "buildIdLockFailure",
+                        "finished publication commit"
+                    );
                     return Ok(uncommitted.into_result(
                         completed_at,
                         JobStatus::build_id_lock_failure(lock_failures),
                     ));
                 }
                 Ok(_no_failures) => {
-                    tracing::info!("successfully committed publication");
+                    tracing::info!(
+                        attempt,
+                        attempt_elapsed_ms,
+                        commit_elapsed_ms,
+                        result = "success",
+                        // TODO(phil): remove after dashboards are updated
+                        temp_dashboard_compat = "successfully committed publication",
+                        "finished publication commit"
+                    );
                     return Ok(uncommitted.into_result(completed_at, StatusType::Success.into()));
                 }
                 Err(err) if is_transaction_serialization_error(&err) => {
-                    let jitter = rand::rng().random_range(0..500);
-                    tracing::debug!(
-                        attempt,
-                        backoff_ms = jitter,
-                        "retrying commit due to transaction serialization failure"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(jitter)).await;
+                    if attempt == (MAX_ATTEMPTS - 1) {
+                        tracing::info!(
+                            attempt,
+                            attempt_elapsed_ms,
+                            commit_elapsed_ms,
+                            result = "optimisticLockingFailureLimit",
+                            "finished publication commit"
+                        );
+                    } else {
+                        let jitter = rand::rng().random_range(0..500);
+                        tracing::debug!(
+                            attempt,
+                            backoff_ms = jitter,
+                            "retrying commit due to transaction serialization failure"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(jitter)).await;
+                    }
                 }
                 Err(err) => return Err(err),
             }
@@ -662,6 +704,10 @@ fn is_empty_draft(build: &UncommittedBuild) -> bool {
             .iter()
             .all(BuiltRow::is_passthrough)
         && built.built_tests.iter().all(BuiltRow::is_passthrough)
+}
+
+fn elapsed_ms(from: std::time::Instant) -> u32 {
+    u32::try_from(from.elapsed().as_millis()).unwrap_or(u32::MAX)
 }
 
 /// Determines whether the given error is due to a transaction serialization failure,
