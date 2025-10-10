@@ -200,7 +200,9 @@ impl Config {
     }
 
     pub fn build_anon_client(&self) -> flow_client::Client {
+        let user_agent = format!("flowctl-{}", env!("CARGO_PKG_VERSION"));
         flow_client::Client::new(
+            user_agent,
             self.get_agent_url().clone(),
             self.get_pg_public_token().to_string(),
             self.get_pg_url().clone(),

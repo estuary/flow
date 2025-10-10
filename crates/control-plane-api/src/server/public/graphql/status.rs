@@ -12,7 +12,9 @@ pub struct Controller {
     pub error: Option<String>,
     pub failures: i32,
     /// The top-level fields of the controller status json are flattened into this struct
-    /// in order to avoid the stuttering of `status.controller.status`.
+    /// in order to avoid the stuttering of `status.controller.status`. Note that we use
+    /// `ControllerStatus::Uninitialized` to represent a missing status, as an `Option`
+    /// does not work with the `flatten` attribute.
     #[graphql(flatten)]
     pub status: ControllerStatus,
     pub updated_at: DateTime<Utc>,
@@ -20,32 +22,14 @@ pub struct Controller {
 
 /// The status of a LiveSpec
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
-pub struct Status {
+pub struct LiveSpecStatus {
     pub r#type: StatusSummaryType,
     pub summary: String,
-    pub controller: Controller,
+    pub controller: Option<Controller>,
     pub connector: Option<ConnectorStatus>,
 }
 
-impl Status {
-    pub fn missing(catalog_type: models::CatalogType) -> Self {
-        Status {
-            r#type: StatusSummaryType::Error,
-            summary: "No status information available".to_string(),
-            // Set error and failures here to make sure it's obvious to the caller that something is wrong
-            controller: Controller {
-                next_run: None,
-                error: Some("controller status information unavailable".to_string()),
-                failures: 1,
-                status: ControllerStatus::new(catalog_type),
-                updated_at: Utc::now(),
-            },
-            connector: None,
-        }
-    }
-}
-
-impl TryFrom<StatusRow> for Status {
+impl TryFrom<StatusRow> for LiveSpecStatus {
     type Error = serde_json::Error;
 
     fn try_from(value: StatusRow) -> Result<Self, Self::Error> {
@@ -76,16 +60,16 @@ impl TryFrom<StatusRow> for Status {
             connector_status.as_ref(),
         );
 
-        Ok(Status {
+        Ok(LiveSpecStatus {
             r#type: summary.status,
             summary: summary.message,
-            controller: Controller {
+            controller: Some(Controller {
                 next_run: controller_next_run,
                 error: controller_error,
                 failures: controller_failures,
                 status: controller_status,
                 updated_at: controller_updated_at,
-            },
+            }),
             connector: connector_status,
         })
     }
@@ -96,7 +80,7 @@ impl TryFrom<StatusRow> for Status {
 pub struct StatusKey(pub String);
 
 impl async_graphql::dataloader::Loader<StatusKey> for PgDataLoader {
-    type Value = Status;
+    type Value = LiveSpecStatus;
 
     type Error = String;
 
@@ -128,7 +112,7 @@ struct StatusRow {
 async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[&str],
-) -> anyhow::Result<HashMap<StatusKey, Status>> {
+) -> anyhow::Result<HashMap<StatusKey, LiveSpecStatus>> {
     let rows = sqlx::query_as!(
         StatusRow,
         r#"select
@@ -158,9 +142,9 @@ async fn fetch_status(
         .into_iter()
         .map(|mut row| {
             let name = StatusKey(std::mem::take(&mut row.catalog_name));
-            let status = Status::try_from(row)?;
+            let status = LiveSpecStatus::try_from(row)?;
             Ok((name, status))
         })
-        .collect::<anyhow::Result<HashMap<StatusKey, Status>>>()?;
+        .collect::<anyhow::Result<HashMap<StatusKey, LiveSpecStatus>>>()?;
     Ok(resp)
 }

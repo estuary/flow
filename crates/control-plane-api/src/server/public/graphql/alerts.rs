@@ -31,8 +31,10 @@ impl AlertsQuery {
         by: AlertsBy,
         before: Option<String>,
         last: Option<i32>,
+        after: Option<String>,
+        first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlerts> {
-        fetch_alert_history_by_prefix(ctx, by, before, last).await
+        fetch_alert_history_by_prefix(ctx, by, before, last, after, first).await
     }
 }
 
@@ -172,67 +174,58 @@ impl async_graphql::connection::CursorType for PaginatedAlertsCursor {
     }
 }
 
+const DEFAULT_PAGE_SIZE: usize = 20;
+
 async fn fetch_alert_history_by_prefix(
     ctx: &Context<'_>,
-    AlertsBy { prefix, active }: AlertsBy,
-    before_cursor: Option<String>,
-    limit: Option<i32>,
+    by: AlertsBy,
+    before: Option<String>,
+    last: Option<i32>,
+    after: Option<String>,
+    first: Option<i32>,
 ) -> async_graphql::Result<PaginatedAlerts> {
     let app = ctx.data::<Arc<App>>()?;
     let claims = ctx.data::<ControlClaims>()?;
 
     // Verify user authorization
     let _ = app
-        .verify_user_authorization(claims, vec![prefix.to_string()], models::Capability::Read)
+        .verify_user_authorization(
+            claims,
+            vec![by.prefix.to_string()],
+            models::Capability::Read,
+        )
         .await
         .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
 
     connection::query_with::<PaginatedAlertsCursor, _, _, _, _>(
-        None,
-        before_cursor,
-        None,
-        limit,
-        |_after, before, _first, last| async move {
-            let effective_limit = last.unwrap_or(20);
-            let (before_ts, before_alert_type, before_name) = before.map(|c| c.into_parts()).unwrap_or_default();
+        after,
+        before,
+        first,
+        last,
+        |after, before, first, last| async move {
+            let (rows, has_prev, has_next) = if let Some(after_cursor) = after {
+                let limit = first.unwrap_or(DEFAULT_PAGE_SIZE);
+                let (rows, has_next) =
+                    fetch_alerts_by_prefix_after(by, after_cursor, limit, &app.pg_pool).await?;
+                // We cannot efficiently determine whether alerts exist before
+                // this cursor, so return `hasPreviousPage: false`, as per the
+                // spec.
+                (rows, false, has_next)
+            } else {
+                let limit = last.unwrap_or(DEFAULT_PAGE_SIZE);
+                let before_cursor = before.unwrap_or(PaginatedAlertsCursor {
+                    fired_at: Utc::now() + chrono::Duration::minutes(1),
+                    catalog_name: String::new(),
+                    alert_type: AlertType::ShardFailed,
+                });
+                let (rows, has_prev) =
+                    fetch_alerts_by_prefix_before(by, before_cursor, limit, &app.pg_pool).await?;
+                // We cannot efficiently determine whether alerts exist after
+                // this cursor, so return `hasNextPage: false`, as per the spec.
+                (rows, has_prev, false)
+            };
 
-            let rows = sqlx::query!(
-                r#"
-                select
-                    alert_type as "alert_type!: AlertType",
-                    catalog_name as "catalog_name!: String",
-                    fired_at,
-                    resolved_at,
-                    arguments as "arguments!: crate::TextJson<async_graphql::Value>"
-                from alert_history a
-                where starts_with(a.catalog_name, $1)
-                    and (
-                        $2::timestamptz is null
-                        or a.fired_at < $2::timestamptz
-                        or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)
-                        or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)
-                    )
-                    and (
-                        $5::boolean is null
-                        or ($5::boolean = true and a.resolved_at is null)
-                        or ($5::boolean = false and a.resolved_at is not null)
-                    )
-                order by a.fired_at desc, a.catalog_name desc
-                limit $6
-                "#,
-                prefix,
-                before_ts as Option<DateTime<Utc>>,
-                before_alert_type as Option<AlertType>,
-                before_name,
-                active,
-                effective_limit as i64,
-            )
-            .fetch_all(&app.pg_pool)
-            .await
-            .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
-
-            let has_prev_page = rows.len() == effective_limit;
-            let mut conn = connection::Connection::new(has_prev_page, false);
+            let mut conn = connection::Connection::new(has_prev, has_next);
 
             for row in rows {
                 let cursor = PaginatedAlertsCursor {
@@ -253,6 +246,118 @@ async fn fetch_alert_history_by_prefix(
         },
     )
     .await
+}
+
+struct AlertRow {
+    fired_at: DateTime<Utc>,
+    alert_type: AlertType,
+    catalog_name: String,
+    resolved_at: Option<DateTime<Utc>>,
+    arguments: crate::TextJson<async_graphql::Value>,
+}
+
+async fn fetch_alerts_by_prefix_before(
+    AlertsBy { prefix, active }: AlertsBy,
+    before: PaginatedAlertsCursor,
+    last: usize,
+    db: &sqlx::PgPool,
+) -> sqlx::Result<(Vec<AlertRow>, bool)> {
+    // Try fetching one more than the requested number of rows so that we can
+    // determine `hasPreviousPage`.
+    let limit = last + 1;
+    let mut rows = sqlx::query_as!(
+        AlertRow,
+        r#"
+        select
+            alert_type as "alert_type!: AlertType",
+            catalog_name as "catalog_name!: String",
+            fired_at,
+            resolved_at,
+            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+        from alert_history a
+        where starts_with(a.catalog_name, $1)
+            and (
+                a.fired_at < $2::timestamptz
+                or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)
+                or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)
+            )
+            and (
+                $5::boolean is null
+                or ($5::boolean = true and a.resolved_at is null)
+                or ($5::boolean = false and a.resolved_at is not null)
+            )
+        order by a.fired_at desc, a.alert_type desc, a.catalog_name desc
+        limit $6
+        "#,
+        prefix,
+        before.fired_at as DateTime<Utc>,
+        before.alert_type as AlertType,
+        before.catalog_name,
+        active,
+        limit as i64,
+    )
+    .fetch_all(db)
+    .await?;
+
+    let has_more = rows.len() == limit;
+    if has_more {
+        rows.pop();
+    }
+
+    Ok((rows, has_more))
+}
+
+async fn fetch_alerts_by_prefix_after(
+    AlertsBy { prefix, active }: AlertsBy,
+    after: PaginatedAlertsCursor,
+    first: usize,
+    db: &sqlx::PgPool,
+) -> sqlx::Result<(Vec<AlertRow>, bool)> {
+    // Try fetching one more than the requested number of rows so that we can
+    // determine `hasNextPage`.
+    let limit = first + 1;
+    let mut rows = sqlx::query_as!(
+        AlertRow,
+        r#"
+        select
+            alert_type as "alert_type!: AlertType",
+            catalog_name as "catalog_name!: String",
+            fired_at,
+            resolved_at,
+            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+        from alert_history a
+        where starts_with(a.catalog_name, $1)
+            and (
+                $2::boolean is null
+                or ($2::boolean = true and a.resolved_at is null)
+                or ($2::boolean = false and a.resolved_at is not null)
+            )
+            and (
+                a.fired_at > $3::timestamptz
+                or (a.fired_at = $3::timestamptz and a.alert_type > $4::alert_type)
+                or (a.fired_at = $3::timestamptz and a.alert_type = $4::alert_type and a.catalog_name::text > $5)
+            )
+        order by a.fired_at asc, a.alert_type asc, a.catalog_name asc
+        limit $6
+        "#,
+        prefix,
+        active,
+        after.fired_at as DateTime<Utc>,
+        after.alert_type as AlertType,
+        after.catalog_name,
+        limit as i64,
+    )
+    .fetch_all(db)
+    .await?;
+
+    let has_more = rows.len() == limit;
+    if has_more {
+        rows.pop();
+    }
+
+    // Reverse the order of the rows so that they are ordered consistently when paginating forward and backward
+    rows.reverse();
+    Ok((rows, has_more))
 }
 
 /// Queries the history of alert for a single given live spec.

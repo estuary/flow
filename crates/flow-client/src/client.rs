@@ -28,6 +28,7 @@ pub struct Client {
 impl Client {
     /// Build a new Client from the Config.
     pub fn new(
+        user_agent: String,
         agent_endpoint: Url,
         pg_api_token: String,
         pg_url: Url,
@@ -51,9 +52,13 @@ impl Client {
             router.clone(),
         );
 
+        let http_client = reqwest::ClientBuilder::new()
+            .user_agent(user_agent)
+            .build()
+            .expect("failed to build http client");
         Self {
             agent_endpoint,
-            http_client: reqwest::Client::new(),
+            http_client,
             pg_parent: postgrest::Postgrest::new(pg_url.as_str())
                 .insert_header("apikey", pg_api_token.as_str()),
             journal_client,

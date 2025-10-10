@@ -1,0 +1,174 @@
+fragment SelectShard on ShardRef {
+    name
+    keyBegin
+    rClockBegin
+    build
+}
+
+fragment SelectDraftErrors on Error {
+    catalogName
+    scope
+    detail
+}
+
+fragment SelectAutoDiscoverOutcome on AutoDiscoverOutcome {
+    ts
+    added {
+        resourcePath
+        target
+        disable
+    }
+    modified {
+        resourcePath
+        target
+        disable
+    }
+    removed {
+        resourcePath
+        target
+        disable
+    }
+    errors {
+        ...SelectDraftErrors
+    }
+    publishResult {
+        type
+        lockFailures {
+            catalogName
+            expected
+            actual
+        }
+    }
+}
+
+fragment SelectStatus on LiveSpecStatus {
+    type
+    summary
+
+    controller {
+        nextRun
+        error
+        updatedAt
+        failures
+        alerts
+        activation @include(if: $fullStatus) {
+            lastActivated
+            lastActivatedAt
+            shardStatus {
+                count
+                lastTs
+                firstTs
+                status
+            }
+            lastFailure {
+                ts
+                message
+                fields
+                shard {
+                    ...SelectShard
+                }
+            }
+            recentFailureCount
+            nextRetry
+        }
+        publications @include(if: $fullStatus) {
+            history {
+                id
+                created
+                completed
+                detail
+                result {
+                    type
+                    lockFailures {
+                        catalogName
+                        expected
+                        actual
+                    }
+                }
+                errors {
+                    ...SelectDraftErrors
+                }
+                isTouch
+                count
+            }
+        }
+        autoDiscover @include(if: $fullStatus) {
+            nextAt
+            pendingPublish {
+                ...SelectAutoDiscoverOutcome
+            }
+            lastSuccess {
+                ...SelectAutoDiscoverOutcome
+            }
+            failure {
+                count
+                firstTs
+                lastOutcome {
+                    ...SelectAutoDiscoverOutcome
+                }
+            }
+        }
+    }
+}
+
+fragment SelectAllStatuses on LiveSpecRefConnection {
+    edges {
+        node {
+            catalogName
+            userCapability
+            liveSpec {
+                updatedAt
+                catalogType
+            }
+            status {
+                ...SelectStatus
+            }
+        }
+    }
+}
+
+query ConnectedStatusQuery(
+    $names: [String!]
+    $connected: Boolean!
+    $fullStatus: Boolean!
+) {
+    liveSpecs(by: { names: $names }) {
+        edges {
+            node {
+                catalogName
+                userCapability
+
+                liveSpec {
+                    updatedAt
+                    catalogType
+                    readsFrom @include(if: $connected) {
+                        ...SelectAllStatuses
+                    }
+                    writesTo @include(if: $connected) {
+                        ...SelectAllStatuses
+                    }
+                    readBy @include(if: $connected) {
+                        ...SelectAllStatuses
+                    }
+                    writtenBy @include(if: $connected) {
+                        ...SelectAllStatuses
+                    }
+                    sourceCapture @include(if: $connected) {
+                        catalogName
+                        userCapability
+                        liveSpec {
+                            updatedAt
+                            catalogType
+                        }
+                        status {
+                            ...SelectStatus
+                        }
+                    }
+                }
+                status {
+                    ...SelectStatus
+                }
+            }
+        }
+    }
+}
