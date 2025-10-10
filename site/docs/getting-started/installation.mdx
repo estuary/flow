@@ -17,15 +17,19 @@ redirect to the path /getting-started/installation
 # Configuring Cloud Storage for Flow
 
 New Flow accounts are connected to Flow's secure cloud storage bucket to store collection data.
-To switch to your own bucket, choose a cloud provider and complete the setup steps:
+To switch to your own bucket, you will need to:
 
-* [Google Cloud Storage](#google-cloud-storage-buckets)
+1. [Choose a data plane](#choose-a-data-plane).
 
-* [Amazon S3](#amazon-s3-buckets)
+2. Then choose a cloud provider for your storage bucket and complete the setup steps:
 
-* [Azure Blob Storage](#azure-blob-storage)
+   * [Google Cloud Storage](#google-cloud-storage-buckets)
 
-Once you're done, [add the bucket](#add-the-bucket) in Estuary.
+   * [Amazon S3](#amazon-s3-buckets)
+
+   * [Azure Blob Storage](#azure-blob-storage)
+
+3. [Add the bucket](#add-the-bucket) in Estuary.
 
 Once your collections begin to persist data, you can view your storage bucket to confirm that the
 bucket is receiving data as expected. This should indicate that your bucket has been set up correctly.
@@ -34,6 +38,30 @@ You can also set a [bucket lifecycle policy](../concepts/storage-mappings.md#buc
 how long collections keep data.
 Note that lifecycle policies should be specific to the `collection-data/` sub-directory that Estuary creates,
 **not** cover the entire bucket.
+
+## Choose a Data Plane
+
+In Estuary, data planes handle connector tasks and data movement.
+While there is one control plane that orchestrates tasks, there are multiple data planes to choose from, even [private data planes](/private-byoc).
+
+Choosing a data plane with the same cloud provider or region as your existing infrastructure can reduce latency
+or you can ensure data stays within certain regional bounds for compliance purposes.
+
+Data planes with running tasks must be able to talk to your cloud storage to save collection and recovery data.
+You must therefore grant access to your storage bucket to the data plane's **IAM user** or **service account**.
+
+You can find your available data planes and their authentication details from the dashboard:
+
+1. Go to the **Admin** page in the Estuary dashboard and select the [**Settings** tab](https://dashboard.estuary.dev/admin/settings).
+
+2. Scroll down to the **Data Planes** table.
+
+3. Find your desired data plane by the **cloud provider** and **region** listing.
+Copy its information for use when setting up your storage bucket permissions:
+
+   * For [GCS buckets](#google-cloud-storage-buckets), copy the **GCP Service Account Email**.
+
+   * For [S3 buckets](#amazon-s3-buckets), copy the **AWS IAM User ARN**.
 
 ## Google Cloud Storage buckets
 
@@ -45,20 +73,9 @@ You'll need to grant Estuary Flow access to your GCS bucket.
    to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
    As you do so:
 
-   <Tabs>
-   <TabItem value="US Data Plane" default>
-    - For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
+   - For the principal, enter your data plane's [**GCP Service Account Email**](#choose-a-data-plane).
 
-    - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
-   </TabItem>
-   <TabItem value="EU Data Plane">
-    - For the principal, enter `data-plane-48vsfi8i91j6c1ns@helpful-kingdom-273219.iam.gserviceaccount.com`
-
-    - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
-   </TabItem>
-   </Tabs>
-
-   You can also find the correct principal in the **Data Planes** section on your [Settings page](https://dashboard.estuary.dev/admin/settings) in the Estuary dashboard.
+   - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
 
 ## Amazon S3 buckets
 
@@ -68,50 +85,13 @@ You'll need to grant Estuary Flow access to your S3 bucket.
    if you haven't already.
 
 2. Follow the steps
-   to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting in one of the
-   policies below.
-   Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
+   to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html).
+   Use the example policy below, making the following modifications:
 
-<Tabs>
-<TabItem value="US Data Plane policy" default>
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "AllowUsersToAccessObjectsUnderPrefix",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::789740162118:user/flow-aws"
-      },
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET/*"
-    },
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::789740162118:user/flow-aws"
-      },
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
-    },
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::789740162118:user/flow-aws"
-      },
-      "Action": "s3:GetBucketPolicy",
-      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
-    }
-  ]
-}
-```
-</TabItem>
-<TabItem value="EU Data Plane policy">
+   - Replace `YOUR-S3-BUCKET` with the actual name of your bucket.
+
+   - Replace `DATA-PLANE-IAM-ARN` with your data plane's [**AWS IAM User ARN**](#choose-a-data-plane).
+
 ```json
 {
   "Version": "2012-10-17",
@@ -121,7 +101,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
       "Effect": "Allow",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::770785070253:user/data-planes/data-plane-342o84ecos0opkov",
+          "DATA-PLANE-IAM-ARN",
           "arn:aws:iam::789740162118:user/flow-aws"
         ]
       },
@@ -136,7 +116,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
       "Effect": "Allow",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::770785070253:user/data-planes/data-plane-342o84ecos0opkov",
+          "DATA-PLANE-IAM-ARN",
           "arn:aws:iam::789740162118:user/flow-aws"
         ]
       },
@@ -147,7 +127,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
       "Effect": "Allow",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::770785070253:user/data-planes/data-plane-342o84ecos0opkov",
+          "DATA-PLANE-IAM-ARN",
           "arn:aws:iam::789740162118:user/flow-aws"
         ]
       },
@@ -157,8 +137,6 @@ You'll need to grant Estuary Flow access to your S3 bucket.
   ]
 }
 ```
-</TabItem>
-</Tabs>
 
 ## Azure Blob Storage
 
@@ -194,7 +172,7 @@ import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 
    <Tabs>
-   <TabItem value="US Data Plane" default>
+   <TabItem value="GCP US Central-1 Data Plane" default>
 
     <BrowserOnly>{() => <AzureAuthorizeComponent />}</BrowserOnly>
     <br />
@@ -206,7 +184,7 @@ import BrowserOnly from "@docusaurus/BrowserOnly";
     https://login.microsoftonline.com/<YOUR_AZURE_TENANT>/oauth2/authorize?client_id=42cb0c6c-dab0-411f-9c21-16d5a2b1b025&response_type=code&redirect_uri=https%3A%2F%2Feyrcnmuzzyriypdajwdk.supabase.co%2Ffunctions%2Fv1%2Fazure-dpc-oauth&resource_id=https://storage.azure.com
     ```
    </TabItem>
-   <TabItem value="EU Data Plane">
+   <TabItem value="AWS EU West-1 Data Plane">
     Add the Estuary EU Application to your Azure tenant using the following link:
     [Add Azure Application To Your Tenant](https://login.microsoftonline.com/common/oauth2/authorize?client_id=24bedcf9-4b7b-4417-b91b-6cc126b57e20&response_type=code&redirect_uri=https%3A%2F%2Festuary.dev%2F&resource_id=https%3A%2F%2Fstorage.azure.com)
 
@@ -230,8 +208,8 @@ import BrowserOnly from "@docusaurus/BrowserOnly";
     - On the next page, make sure `User, group, or service principal` is selected, then click **+ Select Members**.
 
     - You must search for the exact name of the application, otherwise it won't show up.
-      - **US Data Plane:** `Estuary Storage Mappings Prod`
-      - **EU Data Plane:** `data-plane-aws-eu-west-1-c1.dp.estuary-data.com`
+      - **GCP US Central-1 Data Plane:** `Estuary Storage Mappings Prod`
+      - **AWS EU West-1 Data Plane:** `data-plane-aws-eu-west-1-c1.dp.estuary-data.com`
 
     - Once you've selected the application, finish granting the role.
 
