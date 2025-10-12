@@ -8,12 +8,30 @@ use assert_cmd::cargo::CommandCargoExt;
 use parser::{Input, ParseConfig};
 use serde_json::Value;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
 
-use tempdir::TempDir;
+/// Resolve a test file path that works in both Cargo and Bazel contexts.
+pub fn path(rel: impl AsRef<Path>) -> PathBuf {
+    let cargo_manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cargo_workspace = cargo_manifest.parent().unwrap().parent().unwrap();
+
+    // Bazel: detect test execution context and compute relative path.
+    if let (Ok(bazel_srcdir), Ok(bazel_ws)) = (
+        std::env::var("TEST_SRCDIR"),
+        std::env::var("TEST_WORKSPACE"),
+    ) {
+        PathBuf::from(bazel_srcdir)
+            .join(bazel_ws)
+            .join(cargo_manifest.strip_prefix(cargo_workspace).unwrap())
+            .join(rel)
+    } else {
+        cargo_manifest.join(rel)
+    }
+}
 
 pub fn input_for_file(rel_path: impl AsRef<Path>) -> Input {
-    let file = File::open(rel_path).expect("failed to open file");
+    let file = File::open(path(rel_path)).expect("failed to open file");
     Input::File(file)
 }
 
@@ -51,11 +69,34 @@ pub fn run_test(config: &ParseConfig, input: Input) -> CommandResult {
     return run_parser(config, input, true);
 }
 
+/// Find the flow-parser binary in both Cargo and Bazel contexts.
+fn find_flow_parser_bin() -> PathBuf {
+    // In Bazel, check for runfiles location
+    if let (Ok(bazel_srcdir), Ok(bazel_ws)) = (
+        std::env::var("TEST_SRCDIR"),
+        std::env::var("TEST_WORKSPACE"),
+    ) {
+        let bin_path = PathBuf::from(bazel_srcdir)
+            .join(bazel_ws)
+            .join("crates/parser/flow-parser");
+        if bin_path.exists() {
+            return bin_path;
+        }
+    }
+
+    // Fall back to assert_cmd's cargo_bin for Cargo builds
+    use std::process::Command;
+    Command::cargo_bin("flow-parser")
+        .expect("to find flow-parser binary")
+        .get_program()
+        .into()
+}
+
 pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandResult {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
 
-    let tmp = TempDir::new("jsonl-parser-test").unwrap();
+    let tmp = TempDir::new().unwrap();
     let cfg_path = tmp.path().join("config.json");
     let mut cfg_file = File::create(&cfg_path).unwrap();
     serde_json::to_writer_pretty(&mut cfg_file, config).expect("failed to write config");
@@ -67,8 +108,8 @@ pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandRes
         vec![]
     };
 
-    let mut process = Command::cargo_bin("flow-parser")
-        .expect("to find flow-parser binary")
+    let bin_path = find_flow_parser_bin();
+    let mut process = Command::new(bin_path)
         .args(&["parse", "--config-file", cfg_path.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())

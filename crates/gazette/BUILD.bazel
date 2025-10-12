@@ -1,0 +1,48 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "gazette",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/coroutines",
+        "//crates/doc",
+        "//crates/ops",
+        "//crates/proto-gazette",
+        "//crates/proto-grpc:proto-grpc-runtime-full",
+        "//crates/simd-doc",
+        "@crates_io//:async-compression",
+        "@crates_io//:bytes",
+        "@crates_io//:futures",
+        "@crates_io//:futures-core",
+        "@crates_io//:hyper-util",
+        "@crates_io//:jsonwebtoken",
+        "@crates_io//:pin-project-lite",
+        "@crates_io//:rand",
+        "@crates_io//:reqwest",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+        "@crates_io//:tokio",
+        "@crates_io//:tokio-util",
+        "@crates_io//:tonic",
+        "@crates_io//:tower",
+        "@crates_io//:tracing",
+        "@crates_io//:uuid",
+    ],
+)
+
+rust_test(
+    name = "gazette_lib_test",
+    crate = ":gazette",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:hexdump",
+        "@crates_io//:tracing-subscriber",
+    ],
+)

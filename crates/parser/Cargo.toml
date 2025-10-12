@@ -58,5 +58,4 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
-tempdir = { workspace = true }
 insta = { workspace = true }

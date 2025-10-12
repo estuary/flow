@@ -1,0 +1,34 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "dekaf-connector",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/avro",
+        "//crates/coroutines",
+        "//crates/models",
+        "//crates/proto-flow",
+        "//crates/unseal",
+        "@crates_io//:anyhow",
+        "@crates_io//:futures",
+        "@crates_io//:schemars",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+    ],
+)
+
+rust_test(
+    name = "dekaf-connector_lib_test",
+    crate = ":dekaf-connector",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

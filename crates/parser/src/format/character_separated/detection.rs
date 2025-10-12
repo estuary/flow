@@ -350,7 +350,11 @@ mod test {
             delimiter: Delimiter,
         }
 
-        for result in std::fs::read_dir("src/format/character_separated/detection_cases").unwrap() {
+        for result in std::fs::read_dir(crate::test::path(
+            "src/format/character_separated/detection_cases",
+        ))
+        .unwrap()
+        {
             let entry = result.unwrap();
 
             let filename = entry.file_name();

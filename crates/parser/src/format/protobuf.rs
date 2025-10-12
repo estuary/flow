@@ -114,13 +114,16 @@ mod test {
 
     #[test]
     fn proto_file_is_parsed() {
-        let proto_file = fs::read_to_string("tests/examples/gtfs-realtime.proto").unwrap();
+        let proto_file =
+            fs::read_to_string(crate::test::path("tests/examples/gtfs-realtime.proto")).unwrap();
 
         let config = ProtobufConfig {
             proto_file_content: proto_file,
             message: "FeedMessage".to_string(),
         };
-        let input = Input::File(fs::File::open("tests/examples/vehicle-positions.pb").unwrap());
+        let input = Input::File(
+            fs::File::open(crate::test::path("tests/examples/vehicle-positions.pb")).unwrap(),
+        );
         let parser = new_protobuf_parser(config);
         let mut output = parser.parse(input).expect("parse failed");
         let json = output

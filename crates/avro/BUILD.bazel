@@ -1,0 +1,38 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+# Export snapshot files for testing
+exports_files(glob(["src/snapshots/*.snap"]))
+
+rust_library(
+    name = "avro",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "avro",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc",
+        "//crates/json",
+        "@crates_io//:apache-avro",
+        "@crates_io//:lazy_static",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+        "@crates_io//:time",
+    ],
+)
+
+rust_test(
+    name = "avro_lib_test",
+    crate = ":avro",
+    data = glob(["src/snapshots/*.snap"]),
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "@crates_io//:hexdump",
+        "@crates_io//:insta",
+        "@crates_io//:url",
+    ],
+)

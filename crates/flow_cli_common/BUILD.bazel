@@ -1,0 +1,26 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "flow_cli_common",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "@crates_io//:anyhow",
+        "@crates_io//:atty",
+        "@crates_io//:clap",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+)
+
+rust_test(
+    name = "flow_cli_common_lib_test",
+    crate = ":flow_cli_common",
+    size = "small",
+    edition = "2024",
+)

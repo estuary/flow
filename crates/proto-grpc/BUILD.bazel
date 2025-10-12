@@ -1,0 +1,125 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "proto-grpc",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_features = [],
+    deps = [
+        "//crates/proto-gazette:proto-gazette",
+        "@crates_io//:tonic",
+        "@crates_io//:tonic-prost",
+    ],
+)
+
+rust_test(
+    name = "proto-grpc_test",
+    crate = ":proto-grpc",
+    size = "small",
+    edition = "2024",
+)
+
+# Library variants with different feature combinations for clients/servers
+
+rust_library(
+    name = "proto-grpc-with-flow",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_name = "proto_grpc",
+    crate_features = [],
+    deps = [
+        "//crates/proto-flow:proto-flow",
+        "//crates/proto-gazette:proto-gazette",
+        "@crates_io//:tonic",
+        "@crates_io//:tonic-prost",
+    ],
+)
+
+rust_library(
+    name = "proto-grpc-connectors",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_name = "proto_grpc",
+    crate_features = [
+        "capture_server",
+        "derive_server",
+        "materialize_server",
+        "flow_server",
+    ],
+    deps = [
+        "//crates/proto-flow:proto-flow",
+        "//crates/proto-gazette:proto-gazette",
+        "@crates_io//:tonic",
+        "@crates_io//:tonic-prost",
+    ],
+)
+
+rust_library(
+    name = "proto-grpc-runtime-full",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_name = "proto_grpc",
+    crate_features = [
+        "capture_client",
+        "capture_server",
+        "derive_client",
+        "derive_server",
+        "materialize_client",
+        "materialize_server",
+        "runtime_server",
+        "broker_client",
+        "consumer_client",
+    ],
+    deps = [
+        "//crates/proto-flow:proto-flow",
+        "//crates/proto-gazette:proto-gazette",
+        "@crates_io//:tonic",
+        "@crates_io//:tonic-prost",
+    ],
+)
+
+# Convenience aliases for common feature combinations
+
+alias(
+    name = "broker",
+    actual = ":proto-grpc",
+)
+
+alias(
+    name = "consumer",
+    actual = ":proto-grpc",
+)
+
+alias(
+    name = "capture",
+    actual = ":proto-grpc-with-flow",
+)
+
+alias(
+    name = "derive",
+    actual = ":proto-grpc-with-flow",
+)
+
+alias(
+    name = "materialize",
+    actual = ":proto-grpc-with-flow",
+)
+
+alias(
+    name = "runtime",
+    actual = ":proto-grpc-with-flow",
+)
