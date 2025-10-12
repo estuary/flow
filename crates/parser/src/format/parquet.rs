@@ -65,7 +65,7 @@ mod test {
 
     #[test]
     fn parse_sample_file_iris() {
-        let input = input_for_file("tests/examples/iris.parquet");
+        let input = input_for_file(crate::test::path("tests/examples/iris.parquet"));
         let mut output = ParquetParser
             .parse(input)
             .expect("must return output iterator");

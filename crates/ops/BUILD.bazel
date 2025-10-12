@@ -1,0 +1,34 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "ops",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:colored_json",
+        "@crates_io//:lazy_static",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:time",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+)
+
+rust_test(
+    name = "ops_lib_test",
+    crate = ":ops",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

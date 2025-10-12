@@ -1,0 +1,17 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "cgo",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/proto-gazette",
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:prost",
+        "@crates_io//:tracing",
+    ],
+)

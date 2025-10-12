@@ -20,10 +20,6 @@ bazel_dep(name = "rules_cc", version = "0.2.9")
 # Available versions: https://registry.bazel.build/modules/rules_proto
 bazel_dep(name = "rules_proto", version = "7.1.0")
 
-# protobuf - Protocol Buffers library
-# Available versions: https://registry.bazel.build/modules/protobuf
-bazel_dep(name = "protobuf", version = "29.1")
-
 # cxx.rs - Safe interop between Rust and C++
 # Available versions: https://registry.bazel.build/modules/cxx.rs
 bazel_dep(name = "cxx.rs", version = "1.0.186")
@@ -33,9 +29,11 @@ bazel_dep(name = "cxx.rs", version = "1.0.186")
 ###############################################################################
 
 # Register Rust toolchains for the version specified in Cargo.toml (1.90.0)
+# Includes MUSL target triple for static linking
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2024",
+    extra_target_triples = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"],
     versions = ["1.90.0"],
 )
 use_repo(rust, "rust_toolchains")

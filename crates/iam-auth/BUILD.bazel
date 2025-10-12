@@ -1,0 +1,36 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "iam-auth",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc",
+        "//crates/json",
+        "@crates_io//:anyhow",
+        "@crates_io//:aws-config",
+        "@crates_io//:aws-sdk-sts",
+        "@crates_io//:bytes",
+        "@crates_io//:jsonwebtoken",
+        "@crates_io//:reqwest",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tokio",
+        "@crates_io//:zeroize",
+    ],
+)
+
+rust_test(
+    name = "iam-auth_lib_test",
+    crate = ":iam-auth",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

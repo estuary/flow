@@ -1,0 +1,63 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "validation",
+    srcs = glob(
+        include = ["src/**/*.rs"],
+        exclude = [],
+    ),
+    compile_data = glob([
+        "src/**/*.yaml",
+        "src/**/*.snap",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/assemble",
+        "//crates/doc",
+        "//crates/extractors",
+        "//crates/json",
+        "//crates/labels",
+        "//crates/models",
+        "//crates/proto-flow",
+        "//crates/tables",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:futures",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:strsim",
+        "@crates_io//:superslice",
+        "@crates_io//:thiserror",
+        "@crates_io//:tracing",
+        "@crates_io//:url",
+        "@crates_io//:xxhash-rust",
+    ],
+)
+
+rust_test(
+    name = "validation_lib_test",
+    crate = ":validation",
+    data = glob([
+        "src/**/snapshots/*.snap",
+        "tests/**/snapshots/*.snap",
+    ]),
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "//crates/coroutines",
+        "//crates/proto-gazette",
+        "//crates/sources",
+        "@crates_io//:insta",
+        "@crates_io//:json-patch",
+        "@crates_io//:rusqlite",
+        "@crates_io//:serde",
+        "@crates_io//:serde_yaml",
+    ],
+)

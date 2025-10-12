@@ -1,0 +1,31 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "labels",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc",
+        "//crates/json",
+        "//crates/proto-flow",
+        "//crates/proto-gazette",
+        "@crates_io//:percent-encoding",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+    ],
+)
+
+rust_test(
+    name = "labels_lib_test",
+    crate = ":labels",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

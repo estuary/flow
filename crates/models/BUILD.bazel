@@ -1,0 +1,50 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "models",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_features = [],
+    compile_data = glob(["src/**/*.json"]),
+    deps = [
+        "@crates_io//:anyhow",
+        "@crates_io//:base64",
+        "@crates_io//:bytes",
+        "@crates_io//:caseless",
+        "@crates_io//:chrono",
+        "@crates_io//:humantime-serde",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:regex",
+        "@crates_io//:schemars",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:superslice",
+        "@crates_io//:time",
+        "@crates_io//:unicode-normalization",
+        "@crates_io//:url",
+        "@crates_io//:uuid",
+        "@crates_io//:validator",
+    ],
+)
+
+rust_test(
+    name = "models_lib_test",
+    crate = ":models",
+    size = "small",
+    edition = "2024",
+    data = glob(["src/**/snapshots/*.snap"]),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "@crates_io//:insta",
+        "@crates_io//:itertools",
+        "@crates_io//:serde_yaml",
+    ],
+)

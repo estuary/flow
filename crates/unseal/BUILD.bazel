@@ -1,0 +1,43 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "unseal",
+    srcs = glob(
+        include = ["src/**/*.rs"],
+        exclude = [],
+    ),
+    compile_data = glob(["src/**/*.json"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/async-process",
+        "//crates/locate-bin",
+        "//crates/models",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:futures",
+        "@crates_io//:insta",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tokio",
+        "@crates_io//:zeroize",
+    ],
+)
+
+# Test disabled: requires ambient credentials (GCP application default credentials)
+# and external binaries (sops, jq) which are not available in Bazel sandbox.
+# Run via cargo test instead: cargo test --release --locked -p unseal
+#
+# rust_test(
+#     name = "unseal_lib_test",
+#     crate = ":unseal",
+#     edition = "2024",
+#     env = {
+#         "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+#     },
+#     data = ["//:Cargo.toml"],
+#     deps = [
+#         "@crates_io//:insta",
+#     ],
+# )

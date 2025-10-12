@@ -1,0 +1,74 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "connector-init",
+    srcs = glob(["src/**/*.rs"], exclude=["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/async-process",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/proto-grpc:proto-grpc-connectors",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:clap",
+        "@crates_io//:futures",
+        "@crates_io//:prost",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:time",
+        "@crates_io//:tokio",
+        "@crates_io//:tokio-util",
+        "@crates_io//:tonic",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+    proc_macro_deps = [
+        "@crates_io//:async-trait",
+    ],
+)
+
+rust_binary(
+    name = "flow-connector-init",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":connector-init",
+        "//crates/async-process",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/proto-grpc:proto-grpc-connectors",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:clap",
+        "@crates_io//:futures",
+        "@crates_io//:prost",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:time",
+        "@crates_io//:tokio",
+        "@crates_io//:tokio-util",
+        "@crates_io//:tonic",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+    proc_macro_deps = [
+        "@crates_io//:async-trait",
+    ],
+)
+
+rust_test(
+    name = "connector-init_lib_test",
+    crate = ":connector-init",
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

@@ -1,0 +1,27 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "async-process",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "@crates_io//:libc",
+        "@crates_io//:tokio",
+        "@crates_io//:tracing",
+    ],
+)
+
+rust_test(
+    name = "async-process_lib_test",
+    crate = ":async-process",
+    size = "small",
+    edition = "2024",
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

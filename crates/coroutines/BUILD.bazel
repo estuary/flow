@@ -1,0 +1,27 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "coroutines",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "@crates_io//:futures-core",
+        "@crates_io//:pin-project-lite",
+    ],
+)
+
+rust_test(
+    name = "coroutines_lib_test",
+    crate = ":coroutines",
+    size = "small",
+    edition = "2024",
+    deps = [
+        "@crates_io//:futures",
+        "@crates_io//:tokio",
+    ],
+)

@@ -1,0 +1,43 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "derive-sqlite",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc",
+        "//crates/extractors",
+        "//crates/json",
+        "//crates/proto-flow",
+        "//crates/simd-doc",
+        "@crates_io//:anyhow",
+        "@crates_io//:base64",
+        "@crates_io//:bytes",
+        "@crates_io//:futures",
+        "@crates_io//:prost",
+        "@crates_io//:rusqlite",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:strsim",
+        "@crates_io//:thiserror",
+        "@crates_io//:tokio",
+        "@crates_io//:tonic",
+        "@crates_io//:tracing",
+    ],
+)
+
+rust_test(
+    name = "derive-sqlite_lib_test",
+    crate = ":derive-sqlite",
+    edition = "2024",
+    data = glob(["src/**/snapshots/*.snap"]),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "@crates_io//:insta",
+        "@crates_io//:tempfile",
+    ],
+)

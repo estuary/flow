@@ -272,7 +272,8 @@ mod test {
             ("tests/examples/valid-utf-8.csv", encoding_rs::UTF_8),
         ];
         for &(input_file, source_encoding) in cases {
-            let file = fs::File::open(input_file).expect("failed to open test file");
+            let file =
+                fs::File::open(crate::test::path(input_file)).expect("failed to open test file");
             // Use a really small buffer so that we can exercise the filling and shifting logic.
             let mut subject = TranscodingReader::with_buffer_size(
                 Box::new(file),
@@ -310,7 +311,7 @@ mod test {
             ),
         ];
         for &(path, expected) in cases {
-            let file = fs::File::open(path).expect("failed to open test file");
+            let file = fs::File::open(crate::test::path(path)).expect("failed to open test file");
             // 512 bytes is a little arbitrary. We can adjust this number upward if we add test
             // cases that aren't properly detected, since in the real world we'd probably peek at
             // at least a couple of kilobytes.

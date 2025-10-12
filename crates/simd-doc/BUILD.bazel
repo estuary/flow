@@ -33,7 +33,7 @@ cc_library(
         "src/ffi/simd-doc.cpp",
         "src/ffi/simdjson.cpp",
     ],
-    # Extra import path which allows simd-doc.cpp to import
+    # Extra import path which allows simd-doc.cpp to import as
     # "simd-doc/src/ffi/mod.rs.h", which is the canonical CXX location,
     # instead of as "crates/simd-doc/src/ffi/mod.rs.h".
     copts = ["-I$(BINDIR)/crates"],
@@ -67,8 +67,8 @@ rust_library(
 
 rust_test(
     name = "unit-test",
-    crate = ":simd-doc",
     size = "small",
+    crate = ":simd-doc",
     edition = "2024",
     env = {
         "INSTA_WORKSPACE_ROOT": ".",
@@ -84,8 +84,8 @@ rust_test(
 
 rust_test(
     name = "parser_perf",
-    srcs = ["tests/parser_perf.rs"],
     size = "small",
+    srcs = ["tests/parser_perf.rs"],
     compile_data = [
         "//crates/json:benches/testdata/citi-rides.schema.json",
         "//crates/json:benches/testdata/citi-rides1.json",

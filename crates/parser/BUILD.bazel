@@ -1,0 +1,134 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+# Export snapshot files for testing
+exports_files(glob(["src/**/snapshots/*.snap"]))
+
+rust_library(
+    name = "parser",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "parser",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/json",
+        "@crates_io//:apache-avro",
+        "@crates_io//:base64",
+        "@crates_io//:bytes",
+        "@crates_io//:caseless",
+        "@crates_io//:chardetng",
+        "@crates_io//:chrono",
+        "@crates_io//:clap",
+        "@crates_io//:criterion",
+        "@crates_io//:csv",
+        "@crates_io//:encoding_rs",
+        "@crates_io//:flate2",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:mime",
+        "@crates_io//:num-bigint",
+        "@crates_io//:parquet",
+        "@crates_io//:protobuf",
+        "@crates_io//:protobuf-json-mapping",
+        "@crates_io//:protobuf-parse",
+        "@crates_io//:regex",
+        "@crates_io//:schemars",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:strum",
+        "@crates_io//:tempfile",
+        "@crates_io//:thiserror",
+        "@crates_io//:time",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:unicode-bom",
+        "@crates_io//:unicode-normalization",
+        "@crates_io//:url",
+        "@crates_io//:uuid",
+        "@crates_io//:zip",
+        "@crates_io//:zstd",
+    ],
+)
+
+rust_binary(
+    name = "flow-parser",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":parser",
+        "@crates_io//:clap",
+        "@crates_io//:serde_json",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:uuid",
+    ],
+)
+
+rust_test(
+    name = "parser_lib_test",
+    compile_data = ["tests/examples/w3c-extended-log"],
+    crate = ":parser",
+    data = glob([
+        "src/**/snapshots/*.snap",
+        "src/**/detection_cases/**",
+        "tests/examples/**",
+    ]),
+    edition = "2024",
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+        "RUST_BACKTRACE": "1",
+    },
+    deps = [
+        "@crates_io//:insta",
+    ],
+)
+
+_INTEGRATION_TEST_DEPS = [
+    ":parser",
+    "@crates_io//:assert_cmd",
+    "@crates_io//:serde_json",
+    "@crates_io//:tempfile",
+]
+
+rust_test(
+    name = "csv_error_absorption_test",
+    srcs = [
+        "tests/csv_error_absorption_test.rs",
+        "tests/testutil.rs",
+    ],
+    data = [
+        ":flow-parser",
+    ],
+    edition = "2024",
+    deps = _INTEGRATION_TEST_DEPS,
+)
+
+rust_test(
+    name = "happy_path_test",
+    srcs = [
+        "tests/happy_path_test.rs",
+        "tests/testutil.rs",
+    ],
+    compile_data = glob(["tests/examples/**"]),
+    data = [
+        ":flow-parser",
+    ] + glob(["tests/examples/**"]),
+    edition = "2024",
+    deps = _INTEGRATION_TEST_DEPS,
+)
+
+rust_test(
+    name = "sanitize_test",
+    srcs = [
+        "tests/sanitize_test.rs",
+        "tests/testutil.rs",
+    ],
+    data = [
+        ":flow-parser",
+    ] + glob(["tests/examples/**"]),
+    edition = "2024",
+    deps = _INTEGRATION_TEST_DEPS,
+)

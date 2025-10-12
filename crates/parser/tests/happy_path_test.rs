@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use parser::{Format, JsonPointer, ParseConfig, character_separated::AdvancedCsvConfig};
 use serde_json::{Value, json};
-use testutil::{input_for_file, run_test};
+use testutil::{input_for_file, path, run_test};
 
 #[test]
 fn protobuf_file_is_parsed() {
@@ -21,7 +21,7 @@ fn protobuf_file_is_parsed() {
 
 #[test]
 fn valid_examples_are_parsed_with_default_config() {
-    for result in fs::read_dir("tests/examples").unwrap() {
+    for result in fs::read_dir(path("tests/examples")).unwrap() {
         let entry = result.unwrap();
         let filename = entry.file_name();
         if filename.to_str().unwrap().starts_with("valid") {
