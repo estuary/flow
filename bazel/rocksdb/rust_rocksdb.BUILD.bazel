@@ -1,0 +1,16 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+# High-level rocksdb crate (wraps librocksdb-sys)
+# This crate provides safe Rust APIs on top of the low-level FFI bindings
+rust_library(
+    name = "rocksdb",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    crate_name = "rocksdb",
+    edition = "2021",
+    deps = [
+        "@librocksdb//:rocksdb_sys",
+        "@crates_io//:libc",
+    ],
+    visibility = ["//visibility:public"],
+)

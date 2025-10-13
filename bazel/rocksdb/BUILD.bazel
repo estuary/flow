@@ -1,0 +1,9 @@
+# Export vendored bindings so they can be used by @librocksdb external repository
+# These files are referenced from the librocksdb.BUILD.bazel file via @//bazel/rocksdb:file.rs
+exports_files([
+    "bindings.rs",
+    "lib.rs",
+])
+
+# The actual RocksDB C++ and Rust BUILD rules are in librocksdb.BUILD.bazel
+# which is used as the build_file for the @librocksdb external repository in MODULE.bazel

@@ -1,0 +1,87 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library")
+load("//:rocksdb_sources.bzl", "ROCKSDB_SOURCES")
+
+# Build Snappy compression library (bundled with librocksdb-sys)
+cc_library(
+    name = "snappy",
+    srcs = [
+        "snappy/snappy.cc",
+        "snappy/snappy-sinksource.cc",
+        "snappy/snappy-stubs-internal.cc",
+    ],
+    hdrs = [
+        "snappy/snappy.h",
+        "snappy/snappy-sinksource.h",
+        "snappy/snappy-stubs-internal.h",
+        "snappy/snappy-internal.h",
+        "snappy-stubs-public.h",  # Pre-generated header
+    ],
+    includes = ["."],
+    copts = ["-Wno-sign-compare"],
+    visibility = ["//visibility:public"],
+)
+
+# Build RocksDB from librocksdb-sys bundled sources
+# Uses exact list of sources from rocksdb_lib_sources.txt (generated in MODULE.bazel)
+cc_library(
+    name = "rocksdb_cc",
+    srcs = ROCKSDB_SOURCES,
+    hdrs = glob([
+        "rocksdb/include/**/*.h",
+        "rocksdb/**/*.h",
+    ]),
+    includes = [
+        "rocksdb",
+        "rocksdb/include",
+    ],
+    defines = [
+        "NDEBUG",
+        "OS_LINUX",
+        "ROCKSDB_PLATFORM_POSIX",
+        "ROCKSDB_LIB_IO_POSIX",
+        "ROCKSDB_SCHED_GETCPU_PRESENT",
+        "ROCKSDB_SUPPORT_THREAD_LOCAL",
+        "SNAPPY",  # Enable snappy compression
+    ],
+    copts = [
+        "-std=c++17",
+        "-Wsign-compare",
+        "-Wshadow",
+        "-Wno-unused-parameter",
+        "-Wno-unused-variable",
+        "-Woverloaded-virtual",
+        "-Wnon-virtual-dtor",
+        "-Wno-missing-field-initializers",
+        "-Wno-strict-aliasing",
+        "-Wno-invalid-offsetof",
+        # x86_64 optimizations (assume x86_64 for now)
+        "-msse2",
+        "-msse4.1",
+        "-msse4.2",
+    ],
+    linkopts = ["-lstdc++"],
+    deps = [":snappy"],
+    visibility = ["//visibility:public"],
+)
+
+# librocksdb-sys: Rust wrapper around RocksDB C API
+# Uses vendored pre-generated bindings from main workspace (avoids compiling LLVM)
+rust_library(
+    name = "rocksdb_sys",
+    srcs = [
+        "@//bazel/rocksdb:lib.rs",
+        "@//bazel/rocksdb:bindings.rs",
+    ],
+    crate_root = "@//bazel/rocksdb:lib.rs",
+    crate_name = "librocksdb_sys",
+    edition = "2021",
+    rustc_flags = [
+        "--cap-lints=allow",  # Ignore all lints in generated bindings
+    ],
+    deps = [
+        ":rocksdb_cc",
+        "@crates_io//:libc",
+    ],
+    visibility = ["//visibility:public"],
+)
