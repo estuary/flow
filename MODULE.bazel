@@ -10,7 +10,7 @@ module(
 
 # rules_rust - Bazel rules for building Rust code
 # Available versions: https://registry.bazel.build/modules/rules_rust
-bazel_dep(name = "rules_rust", version = "0.65.0")
+bazel_dep(name = "rules_rust", version = "0.66.0")
 
 # rules_cc - Bazel rules for C/C++
 # Available versions: https://registry.bazel.build/modules/rules_cc
@@ -57,3 +57,39 @@ crate.from_cargo(
 
 # Make the crates_io repository available
 use_repo(crate, "crates_io")
+
+###############################################################################
+# Custom rust-rocksdb - use @rust_rocksdb//:rocksdb instead of @crates_io//:rocksdb
+###############################################################################
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# librocksdb-sys: Low-level C++ RocksDB bindings
+http_archive(
+    name = "librocksdb",
+    url = "https://static.crates.io/crates/librocksdb-sys/librocksdb-sys-0.17.3+10.4.2.crate",
+    sha256 = "cef2a00ee60fe526157c9023edab23943fae1ce2ab6f4abb2a807c1746835de9",
+    strip_prefix = "librocksdb-sys-0.17.3+10.4.2",
+    type = "tar.gz",  # .crate files are actually gzipped tarballs
+    build_file = "//bazel/rocksdb:librocksdb.BUILD.bazel",
+    # Patch to remove snappy BUILD and generate sources list from rocksdb_lib_sources.txt
+    patch_cmds = [
+        "rm -f snappy/BUILD.bazel",
+        # Generate rocksdb_sources.bzl with exact list of sources from rocksdb_lib_sources.txt
+        # Filter out util/build_version.cc and replace with pre-generated build_version.cc
+        "echo 'ROCKSDB_SOURCES = [' > rocksdb_sources.bzl",
+        "echo '    \"build_version.cc\",' >> rocksdb_sources.bzl",
+        "grep -v 'util/build_version.cc' rocksdb_lib_sources.txt | sed 's|^|    \"rocksdb/|' | sed 's|$|\",|' >> rocksdb_sources.bzl",
+        "echo ']' >> rocksdb_sources.bzl",
+    ],
+)
+
+# rocksdb: High-level Rust RocksDB crate (wraps librocksdb-sys)
+http_archive(
+    name = "rust_rocksdb",
+    url = "https://static.crates.io/crates/rocksdb/rocksdb-0.24.0.crate",
+    sha256 = "ddb7af00d2b17dbd07d82c0063e25411959748ff03e8d4f96134c2ff41fce34f",
+    strip_prefix = "rocksdb-0.24.0",
+    type = "tar.gz",
+    build_file = "//bazel/rocksdb:rust_rocksdb.BUILD.bazel",
+)
