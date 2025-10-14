@@ -148,7 +148,11 @@ impl Client {
 
         if status.is_success() {
             let bytes = response.bytes().await?;
-            Ok(serde_json::from_slice(&bytes)?)
+            serde_json::from_slice(&bytes).map_err(|error| {
+                let body_prefix = String::from_utf8_lossy(&bytes[..(bytes.len().min(500))]);
+                tracing::warn!(?error, %body_prefix, "failed to deserialize response body");
+                anyhow::Error::from(error)
+            })
         } else {
             let body = response.text().await?;
             anyhow::bail!("POST {path}: {status}: {body}");
