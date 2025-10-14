@@ -1,6 +1,6 @@
 use super::{
-    CompositeKey, ConnectorConfig, DeriveUsingSqlite, DeriveUsingTypescript, LocalConfig, RawValue,
-    ShardTemplate, Source, Transform,
+    CompositeKey, ConnectorConfig, DeriveUsingPython, DeriveUsingSqlite, DeriveUsingTypescript,
+    LocalConfig, RawValue, ShardTemplate, Source, Transform,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,8 @@ pub enum DeriveUsing {
     Sqlite(DeriveUsingSqlite),
     /// # A TypeScript derivation.
     Typescript(DeriveUsingTypescript),
+    /// # A Python derivation.
+    Python(DeriveUsingPython),
     /// # A local command (development only).
     Local(LocalConfig),
 }

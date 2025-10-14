@@ -439,6 +439,7 @@ pub mod collection_spec {
             Typescript = 2,
             Image = 3,
             Local = 4,
+            Python = 5,
         }
         impl ConnectorType {
             /// String value of the enum field names used in the ProtoBuf definition.
@@ -452,6 +453,7 @@ pub mod collection_spec {
                     Self::Typescript => "TYPESCRIPT",
                     Self::Image => "IMAGE",
                     Self::Local => "LOCAL",
+                    Self::Python => "PYTHON",
                 }
             }
             /// Creates an enum from field names used in the ProtoBuf definition.
@@ -462,6 +464,7 @@ pub mod collection_spec {
                     "TYPESCRIPT" => Some(Self::Typescript),
                     "IMAGE" => Some(Self::Image),
                     "LOCAL" => Some(Self::Local),
+                    "PYTHON" => Some(Self::Python),
                     _ => None,
                 }
             }
