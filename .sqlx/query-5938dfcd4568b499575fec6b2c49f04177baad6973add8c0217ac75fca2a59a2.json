@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            ps.pub_id as \"publication_id: models::Id\",\n            ps.published_at as \"published_at: DateTime<Utc>\",\n            ps.user_id as \"user_id: uuid::Uuid\",\n            u.email as \"user_email: String\",\n            u.raw_user_meta_data->>'picture' as \"user_avatar_url: String\",\n            u.raw_user_meta_data->>'full_name' as \"user_full_name: String\",\n            ps.detail as \"detail: String\",\n            case when $2::boolean then ps.spec else null end as \"model: models::RawValue\"\n          from live_specs ls\n          join publication_specs ps on ls.id = ps.live_spec_id\n          left outer join auth.users u on ps.user_id = u.id\n          where ls.catalog_name = $1::catalog_name\n            and ps.published_at < $3::timestamptz\n          order by ps.published_at desc\n          limit $4\n          ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "publication_id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "published_at: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_email: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_avatar_url: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "user_full_name: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "detail: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "model: models::RawValue",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Bool",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "5938dfcd4568b499575fec6b2c49f04177baad6973add8c0217ac75fca2a59a2"
+}

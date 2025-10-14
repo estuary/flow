@@ -171,40 +171,43 @@ pub async fn common_setup() -> (TestHarness, Uuid, Uuid) {
         .add_role_grant("bobCo/", "aliceCo/shared/", models::Capability::Read)
         .await;
 
-    // Create Bob's materialization
-    let bob_draft = json!({
-        "materializations": {
-            "bobCo/private/materialization": {
-                "endpoint": {"connector": {"image": "materialize/test:test", "config": {}}},
-                "bindings": [
-                    {
-                        "resource": {"id": "a"},
-                        "source": "aliceCo/shared/a"
-                    },
-                    {
-                        "resource": {"id": "b"},
-                        "source": "aliceCo/shared/b"
-                    },
-                    {
-                        "resource": {"id": "c"},
-                        "source": "aliceCo/shared/c"
-                    }
-                ]
+    // Create Bob's materialization, publishing it multiple times so that we can
+    // test publication history pagination.
+    for i in 0..5 {
+        let bob_draft = json!({
+            "materializations": {
+                "bobCo/private/materialization": {
+                    "endpoint": {"connector": {"image": "materialize/test:test", "config": { "publication": i}}},
+                    "bindings": [
+                        {
+                            "resource": {"id": "a"},
+                            "source": "aliceCo/shared/a"
+                        },
+                        {
+                            "resource": {"id": "b"},
+                            "source": "aliceCo/shared/b"
+                        },
+                        {
+                            "resource": {"id": "c"},
+                            "source": "aliceCo/shared/c"
+                        }
+                    ]
+                }
             }
-        }
-    });
+        });
 
-    let result = harness
-        .user_publication(
-            bob_user_id,
-            "Bob's materialization",
-            harness::draft_catalog(bob_draft),
-        )
-        .await;
-    assert_eq!(
-        result.status.r#type,
-        control_plane_api::publications::StatusType::Success
-    );
+        let result = harness
+            .user_publication(
+                bob_user_id,
+                format!("Bob's materialization v{i}"),
+                harness::draft_catalog(bob_draft),
+            )
+            .await;
+        assert_eq!(
+            result.status.r#type,
+            control_plane_api::publications::StatusType::Success
+        );
+    }
     harness.run_pending_controllers(None).await;
 
     // Insert alert history for aliceCo/shared/capture

@@ -1,0 +1,54 @@
+query LiveSpecPublicationHistory {
+    lastThree: liveSpecs(by: { names: ["bobCo/private/materialization"] }) {
+        edges {
+            node {
+                catalogName
+                userCapability
+                lastPublication {
+                    userEmail
+                    detail
+                    userFullName
+                    userAvatarUrl
+                }
+                publicationHistory(last: 3) {
+                    pageInfo {
+                        hasPreviousPage
+                        hasNextPage
+                    }
+                    edges {
+                        node {
+                            userEmail
+                            detail
+                            model
+                        }
+                    }
+                }
+            }
+        }
+    }
+    firstThree: liveSpecs(by: { names: ["bobCo/private/materialization"] }) {
+        edges {
+            node {
+                catalogName
+                userCapability
+                lastPublication {
+                    userEmail
+                    detail
+                }
+                publicationHistory(first: 3) {
+                    pageInfo {
+                        hasPreviousPage
+                        hasNextPage
+                    }
+                    edges {
+                        node {
+                            userEmail
+                            detail
+                            model
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

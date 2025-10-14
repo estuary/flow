@@ -61,7 +61,9 @@ expression: bob_result
               ],
               "endpoint": {
                 "connector": {
-                  "config": {},
+                  "config": {
+                    "publication": 4
+                  },
                   "image": "materialize/test:test"
                 }
               }
