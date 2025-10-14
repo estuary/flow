@@ -158,6 +158,38 @@ DraftCatalog {
             },
             is_touch: 0,
         },
+        DraftCollection {
+            collection: d5/python,
+            scope: test://example/catalog.yaml#/collections/d5~1python,
+            expect_pub_id: NULL,
+            model: {
+              "schema": "a-schema.json",
+              "key": [
+                "/py-key"
+              ],
+              "derive": {
+                "using": {
+                  "python": {
+                    "module": "catalog.py",
+                    "dependencies": {}
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "python-transform",
+                    "source": "src/collection",
+                    "shuffle": {
+                      "key": [
+                        "/shuffle"
+                      ]
+                    },
+                    "lambda": "python/transform.py"
+                  }
+                ]
+              }
+            },
+            is_touch: 0,
+        },
     ],
     fetches: [
         Fetch {
@@ -170,11 +202,19 @@ DraftCatalog {
         },
         Fetch {
             depth: 2,
+            resource: test://example/catalog.py,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/catalog.ts,
         },
         Fetch {
             depth: 2,
             resource: test://example/other-schema.json,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/python/transform.py,
         },
         Fetch {
             depth: 2,
@@ -218,6 +258,18 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/collections/d4~1local/schema,
             to_resource: test://example/a-schema.json,
         },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/transforms/0/lambda,
+            to_resource: test://example/python/transform.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/derive/using/python/module,
+            to_resource: test://example/catalog.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d5~1python/schema,
+            to_resource: test://example/a-schema.json,
+        },
     ],
     resources: [
         Resource {
@@ -225,6 +277,12 @@ DraftCatalog {
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: true,
+        },
+        Resource {
+            resource: test://example/catalog.py,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "a python module placeholder that's fairly \"long\", at least long enough to not be inline\n",
         },
         Resource {
             resource: test://example/catalog.ts,
@@ -236,13 +294,19 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","notAfter":"2019-03-06T09:30:02Z","notBefore":"2017-03-03T03:02:01Z","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"backfill":2,"lambda":42,"name":"do-the-thing","shuffle":"any","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"expectPubId":"00:11:22:33:44:55:66:77","journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"},"d4/local":{"derive":{"transforms":[],"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}}},"key":["/key"],"schema":"a-schema.json"}}},
+            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","notAfter":"2019-03-06T09:30:02Z","notBefore":"2017-03-03T03:02:01Z","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"backfill":2,"lambda":42,"name":"do-the-thing","shuffle":"any","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"expectPubId":"00:11:22:33:44:55:66:77","journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"},"d4/local":{"derive":{"transforms":[],"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}}},"key":["/key"],"schema":"a-schema.json"},"d5/python":{"derive":{"transforms":[{"lambda":"python/transform.py","name":"python-transform","shuffle":{"key":["/shuffle"]},"source":"src/collection"}],"using":{"python":{"module":"catalog.py"}}},"key":["/py-key"],"schema":"a-schema.json"}}},
         },
         Resource {
             resource: test://example/other-schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
+        },
+        Resource {
+            resource: test://example/python/transform.py,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "def transform(source):\n    return source\n",
         },
         Resource {
             resource: test://example/sql/migration_two.sql,
