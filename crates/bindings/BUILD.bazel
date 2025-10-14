@@ -1,0 +1,29 @@
+load("@rules_rust//rust:defs.bzl", "rust_static_library")
+
+rust_static_library(
+    name = "bindings",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        # Internal dependencies
+        "//crates/allocator",
+        "//crates/cgo",
+        "//crates/derive",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/runtime",
+        # External dependencies
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:futures",
+        "@crates_io//:prost",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+        "@crates_io//:time",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+)

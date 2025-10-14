@@ -1,0 +1,18 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "librocks-exp",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@librocksdb//:rocksdb_sys",
+    ],
+)
+
+rust_test(
+    name = "librocks-exp_lib_test",
+    crate = ":librocks-exp",
+    edition = "2024",
+)
