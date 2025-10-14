@@ -94,6 +94,7 @@ pub async fn start<L: LogHandler>(
             ::derive_sqlite::connector(connector_rx).boxed()
         }
         models::DeriveUsing::Typescript(_) => unreachable!(),
+        models::DeriveUsing::Python(_) => unreachable!(),
     };
 
     Ok((connector_tx, connector_rx))
@@ -151,6 +152,15 @@ fn extract_endpoint<'r>(
         Ok((
             models::DeriveUsing::Connector(models::ConnectorConfig {
                 image: "ghcr.io/estuary/derive-typescript:dev".to_string(),
+                config: serde_json::from_slice::<models::RawValue>(config_json)
+                    .context("parsing connector config")?,
+            }),
+            config_json,
+        ))
+    } else if connector_type == ConnectorType::Python as i32 {
+        Ok((
+            models::DeriveUsing::Connector(models::ConnectorConfig {
+                image: "ghcr.io/estuary/derive-python:dev".to_string(),
                 config: serde_json::from_slice::<models::RawValue>(config_json)
                     .context("parsing connector config")?,
             }),

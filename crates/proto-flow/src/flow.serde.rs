@@ -1448,6 +1448,7 @@ impl serde::Serialize for collection_spec::derivation::ConnectorType {
             Self::Typescript => "TYPESCRIPT",
             Self::Image => "IMAGE",
             Self::Local => "LOCAL",
+            Self::Python => "PYTHON",
         };
         serializer.serialize_str(variant)
     }
@@ -1464,6 +1465,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::ConnectorType
             "TYPESCRIPT",
             "IMAGE",
             "LOCAL",
+            "PYTHON",
         ];
 
         struct GeneratedVisitor;
@@ -1509,6 +1511,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::ConnectorType
                     "TYPESCRIPT" => Ok(collection_spec::derivation::ConnectorType::Typescript),
                     "IMAGE" => Ok(collection_spec::derivation::ConnectorType::Image),
                     "LOCAL" => Ok(collection_spec::derivation::ConnectorType::Local),
+                    "PYTHON" => Ok(collection_spec::derivation::ConnectorType::Python),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

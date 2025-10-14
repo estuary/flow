@@ -762,6 +762,21 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::DeriveUsing::Python(models::DeriveUsingPython { module }) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("using")
+                                .push_prop("python")
+                                .push_prop("module"),
+                            module,
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
             models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
                 tasks.push(
                     async move {

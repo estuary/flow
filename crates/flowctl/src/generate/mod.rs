@@ -212,9 +212,11 @@ async fn generate_missing_collection_configs(
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
-        // TypeScript and SQLite always generate their own configs.
+        // TypeScript, Python, and SQLite always generate their own configs.
         // Other connectors may as well, and they'll override those generated here.
-        models::DeriveUsing::Sqlite(_) | models::DeriveUsing::Typescript(_) => {
+        models::DeriveUsing::Sqlite(_)
+        | models::DeriveUsing::Typescript(_)
+        | models::DeriveUsing::Python(_) => {
             return Ok(Vec::new());
         }
     };

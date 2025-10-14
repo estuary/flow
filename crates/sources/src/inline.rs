@@ -193,6 +193,18 @@ fn inline_derivation(
                 resources,
             );
         }
+        models::DeriveUsing::Python(models::DeriveUsingPython { module }) => {
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("python")
+                    .push_prop("module"),
+                module,
+                imports,
+                resources,
+            );
+        }
     }
 
     for (

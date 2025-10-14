@@ -160,6 +160,10 @@ async fn get_spec_response(
                 connector_type: flow::collection_spec::derivation::ConnectorType::Typescript as i32,
                 config_json: serde_json::to_string(&config).unwrap().into(),
             },
+            models::DeriveUsing::Python(config) => derive::request::Spec {
+                connector_type: flow::collection_spec::derivation::ConnectorType::Python as i32,
+                config_json: serde_json::to_string(&config).unwrap().into(),
+            },
             models::DeriveUsing::Local(config) => derive::request::Spec {
                 connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
                 config_json: serde_json::to_string(&config).unwrap().into(),

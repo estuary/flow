@@ -98,8 +98,29 @@ test://example/catalog.yaml:
               some-local: config
         transforms: []
 
+    d5/python:
+      schema: a-schema.json
+      key: [/py-key]
+      derive:
+        using:
+          python:
+            module: catalog.py
+        transforms:
+          - name: python-transform
+            source: src/collection
+            lambda: python/transform.py
+            shuffle:
+              key: ["/shuffle"]
+
 test://example/catalog.ts: |
   a typescript module placeholder that's fairly "long", at least long enough to not be inline
+
+test://example/catalog.py: |
+  a python module placeholder that's fairly "long", at least long enough to not be inline
+
+test://example/python/transform.py: |
+  def transform(source):
+      return source
 
 test://example/sql/migration_two.sql: |
   alter table baz add column value text not null;

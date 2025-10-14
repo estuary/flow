@@ -245,6 +245,7 @@ message CollectionSpec {
       TYPESCRIPT = 2;
       IMAGE = 3;
       LOCAL = 4;
+      PYTHON = 5;
     }
     // Type of the derivation's connector.
     ConnectorType connector_type = 1;

@@ -386,6 +386,20 @@ fn indirect_derivation(
                 threshold,
             );
         }
+        models::DeriveUsing::Python(models::DeriveUsingPython { module }) => {
+            indirect_raw(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("python")
+                    .push_prop("module"),
+                module,
+                format!("{base}.py"),
+                imports,
+                resources,
+                threshold,
+            );
+        }
     }
 
     for (
