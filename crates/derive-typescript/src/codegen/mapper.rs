@@ -1,6 +1,6 @@
-use super::ast::{ASTProperty, ASTTuple, AST};
+use super::ast::{AST, ASTProperty, ASTTuple};
 use doc::shape::{ArrayShape, ObjShape, Provenance, Shape};
-use json::schema::{types, Keyword};
+use json::schema::types;
 use regex::Regex;
 use std::collections::BTreeMap;
 
@@ -18,24 +18,21 @@ impl Mapper {
         let mut top_level = BTreeMap::new();
 
         if !anchor_prefix.is_empty() {
-            let mut stack = vec![&validator.schemas()[0]];
-            while let Some(schema) = stack.pop() {
-                for kw in &schema.kw {
-                    match kw {
-                        Keyword::Anchor(anchor_uri) => {
-                            // Does this anchor meet our definition of a named schema?
-                            if let Some((_, anchor)) = anchor_uri
-                                .as_str()
-                                .split_once('#')
-                                .filter(|(_, s)| NAMED_SCHEMA_RE.is_match(s))
-                            {
-                                top_level.insert(anchor_uri.clone(), anchor.to_owned());
-                            }
+            // Iterate through the schema index to find all anchors
+            let index = validator.schema_index();
+            for (_uri, _is_dynamic, schema) in index.iter() {
+                for kw in schema.keywords.iter() {
+                    let json::schema::Keyword::Anchor { anchor } = kw else {
+                        continue;
+                    };
+                    let Some((_, name)) = anchor.split_once("#") else {
+                        continue;
+                    };
+                    if NAMED_SCHEMA_RE.is_match(name) {
+                        // Parse the full anchor URI and insert it as the key
+                        if let Ok(anchor_url) = url::Url::parse(anchor) {
+                            top_level.insert(anchor_url, name.to_owned());
                         }
-                        Keyword::Application(_, child) => {
-                            stack.push(child);
-                        }
-                        _ => (),
                     }
                 }
             }
@@ -51,18 +48,20 @@ impl Mapper {
         }
     }
 
-    // Map the schema having |url| into an abstract syntax tree.
-    pub fn map(&self, url: &url::Url) -> AST {
-        let index = self.validator.schema_index();
-        let shape = match index.fetch(url) {
-            Some(schema) => Shape::infer(schema, index),
-            None => Shape::anything(),
-        };
-        self.to_ast(&shape)
+    /// Access the root schema of this Mapper.
+    pub fn schema(&self) -> &doc::validation::Schema {
+        self.validator.schema()
     }
 
-    pub fn root(&self) -> &url::Url {
-        &self.validator.schemas()[0].curi
+    /// Access the schema index of this Mapper.
+    pub fn index(&self) -> &doc::validation::SchemaIndex<'_> {
+        self.validator.schema_index()
+    }
+
+    /// Map a schema into an abstract syntax tree.
+    pub fn map(&self, schema: &doc::validation::Schema) -> AST {
+        let shape = Shape::infer(schema, self.index());
+        self.to_ast(&shape)
     }
 
     fn to_ast(&self, shape: &Shape) -> AST {
@@ -283,29 +282,36 @@ mod test {
         let mut w = String::new();
 
         for collection in collections.iter() {
-            let m = Mapper::new(
-                collection.model.clone().unwrap().schema.unwrap().get().as_bytes(),
-                "Doc",
-            );
+            let bundle = collection
+                .model
+                .as_ref()
+                .unwrap()
+                .schema
+                .as_ref()
+                .unwrap()
+                .get()
+                .as_bytes();
+
+            let m = Mapper::new(bundle, "Doc");
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} with anchors:",
                 name = collection.collection.as_str(),
-                curi = m.root(),
+                curi = m.schema().curi(),
             )
             .unwrap();
-            m.map(m.root()).render(&mut Context::new(&mut w));
+            m.map(m.schema()).render(&mut Context::new(&mut w));
             w.push_str("\n\n");
 
-            let m = Mapper::new(collection.model.clone().unwrap().schema.unwrap().get().as_bytes(), "");
+            let m = Mapper::new(bundle, "");
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} without anchors:",
                 name = collection.collection.as_str(),
-                curi = m.root(),
+                curi = m.schema().curi(),
             )
             .unwrap();
-            m.map(m.root()).render(&mut Context::new(&mut w));
+            m.map(m.schema()).render(&mut Context::new(&mut w));
             w.push_str("\n\n");
         }
 
