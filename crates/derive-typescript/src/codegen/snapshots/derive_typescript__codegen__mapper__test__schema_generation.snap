@@ -1,11 +1,11 @@
 ---
-source: crates/derive-typescript/src/codegen/mapper.rs
+source: src/codegen/mapper.rs
 expression: w
 ---
-Schema for test/collection-anchor with CURI test://example/catalog.yaml#/collections/test~1collection-anchor/schema with anchors:
+Schema for test/collection-anchor with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-anchor/schema with anchors:
 DocOtherAnchor
 
-Schema for test/collection-anchor with CURI test://example/catalog.yaml#/collections/test~1collection-anchor/schema without anchors:
+Schema for test/collection-anchor with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-anchor/schema without anchors:
 {
     anAnchor?: {
         one: string;
@@ -35,10 +35,8 @@ Schema for test/collection-dir with CURI test://example/schema.json without anch
     str: string;
 }
 
-Schema for test/collection-ref with CURI test://example/catalog.yaml#/collections/test~1collection-ref/schema with anchors:
+Schema for test/collection-ref with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-ref/schema with anchors:
 string
 
-Schema for test/collection-ref with CURI test://example/catalog.yaml#/collections/test~1collection-ref/schema without anchors:
+Schema for test/collection-ref with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-ref/schema without anchors:
 string
-
-
