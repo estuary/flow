@@ -79,7 +79,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let app = Router::new()
         .route(
-            "/:data_plane_fqdn/.well-known/openid-configuration",
+            "/{data_plane_fqdn}/.well-known/openid-configuration",
             get(openid_configuration),
         )
         .with_state(Arc::new(state));
