@@ -158,5 +158,37 @@ DraftCatalog {
             },
             is_touch: 0,
         },
+        DraftCollection {
+            collection: d5/python,
+            scope: test://example/catalog.yaml#/collections/d5~1python,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "key": [
+                "/py-key"
+              ],
+              "derive": {
+                "using": {
+                  "python": {
+                    "module": "a python module placeholder that's fairly \"long\", at least long enough to not be inline\n",
+                    "dependencies": {}
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "python-transform",
+                    "source": "src/collection",
+                    "shuffle": {
+                      "key": [
+                        "/shuffle"
+                      ]
+                    },
+                    "lambda": "def transform(source):\n    return source\n"
+                  }
+                ]
+              }
+            },
+            is_touch: 0,
+        },
     ],
 }

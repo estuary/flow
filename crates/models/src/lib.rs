@@ -7,6 +7,7 @@ pub mod collate;
 mod collections;
 mod connector;
 mod derivation;
+mod derive_python;
 mod derive_sqlite;
 mod derive_typescript;
 pub mod discovers;
@@ -36,6 +37,7 @@ pub use connector::{
     split_image_tag,
 };
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
+pub use derive_python::DeriveUsingPython;
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
 pub use id::{Id, IdGenerator};

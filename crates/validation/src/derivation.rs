@@ -233,6 +233,10 @@ async fn walk_derivation<C: Connectors>(
             ConnectorType::Typescript as i32,
             serde_json::to_string(config).unwrap().into(),
         ),
+        models::DeriveUsing::Python(config) => (
+            ConnectorType::Python as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
     };
     // Resolve the data-plane for this task. We cannot continue without it.
     let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)

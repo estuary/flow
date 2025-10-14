@@ -2691,6 +2691,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-python"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "doc",
+ "insta",
+ "itertools 0.13.0",
+ "json",
+ "lazy_static",
+ "models",
+ "proto-flow",
+ "regex",
+ "serde",
+ "serde_json",
+ "sources",
+ "tables",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "derive-sqlite"
 version = "0.0.0"
 dependencies = [

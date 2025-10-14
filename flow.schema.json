@@ -569,6 +569,19 @@
           ]
         },
         {
+          "title": "A Python derivation.",
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "#/$defs/DeriveUsingPython"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "python"
+          ]
+        },
+        {
           "title": "A local command (development only).",
           "type": "object",
           "properties": {
@@ -581,6 +594,42 @@
             "local"
           ]
         }
+      ]
+    },
+    "DeriveUsingPython": {
+      "type": "object",
+      "properties": {
+        "dependencies": {
+          "title": "Python package dependencies.",
+          "description": "Map of package name to version specifier (e.g., {\"httpx\": \">=0.27\", \"pydantic\": \">=2.0\"}).\nThese dependencies will be included in the generated pyproject.toml.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "module": {
+          "title": "Python module implementing this derivation.",
+          "description": "Module is either a relative URL of a Python module file,\nor is an inline representation of a Python module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
+          "oneOf": [
+            {
+              "description": "A URL identifying a resource, which may be a relative local path\nwith respect to the current resource (i.e, ../path/to/flow.yaml),\nor may be an external absolute URL (i.e., http://example/flow.yaml).",
+              "type": "string",
+              "examples": [
+                "https://example/resource"
+              ],
+              "pattern": "^[^ ]+$"
+            },
+            {
+              "type": "string",
+              "contentMediaType": "text/x.python"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "module"
       ]
     },
     "DeriveUsingSqlite": {
