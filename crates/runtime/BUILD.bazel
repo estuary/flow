@@ -1,0 +1,70 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "runtime",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        # Internal dependencies
+        "//crates/assemble",
+        "//crates/async-process",
+        "//crates/connector-init",
+        "//crates/coroutines",
+        "//crates/dekaf-connector",
+        "//crates/derive-sqlite",
+        "//crates/doc",
+        "//crates/extractors",
+        "//crates/gazette",
+        "//crates/iam-auth",
+        "//crates/json",
+        "//crates/labels",
+        "//crates/locate-bin",
+        "//crates/models",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/proto-gazette",
+        "//crates/proto-grpc:proto-grpc-runtime-full",  # With all runtime features
+        "//crates/simd-doc",
+        "//crates/tables",
+        "//crates/tuple",
+        "//crates/unseal",
+        # External dependencies
+        "@crates_io//:anyhow",
+        "@crates_io//:aws-config",
+        "@crates_io//:aws-sdk-sts",
+        "@crates_io//:aws-credential-types",
+        "@crates_io//:bytes",
+        "@crates_io//:clap",
+        "@crates_io//:futures",
+        "@crates_io//:json-patch",
+        "@crates_io//:jsonwebtoken",
+        "@crates_io//:pbjson-types",
+        "@crates_io//:prost",
+        "@crates_io//:reqwest",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tempfile",
+        "@crates_io//:time",
+        "@crates_io//:tokio",
+        "@crates_io//:tonic",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:uuid",
+        "@crates_io//:xxhash-rust",
+        "@crates_io//:zeroize",
+        # Vendored RocksDB dependencies (NOT from crates_io)
+        "@librocksdb//:rocksdb_sys",
+        "@rust_rocksdb//:rocksdb",
+    ],
+)
+
+rust_test(
+    name = "runtime_lib_test",
+    crate = ":runtime",
+    edition = "2024",
+    deps = [
+        "@crates_io//:insta",
+    ],
+)

@@ -3,12 +3,13 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 load("//:rocksdb_sources.bzl", "ROCKSDB_SOURCES")
 
 # Build Snappy compression library (bundled with librocksdb-sys)
+# Must match build.rs configuration
 cc_library(
     name = "snappy",
     srcs = [
         "snappy/snappy.cc",
         "snappy/snappy-sinksource.cc",
-        "snappy/snappy-stubs-internal.cc",
+        "snappy/snappy-c.cc",  # Matches build.rs
     ],
     hdrs = [
         "snappy/snappy.h",
@@ -17,8 +18,12 @@ cc_library(
         "snappy/snappy-internal.h",
         "snappy-stubs-public.h",  # Pre-generated header
     ],
-    includes = ["."],
-    copts = ["-Wno-sign-compare"],
+    includes = [".", "snappy"],
+    copts = [
+        "-std=c++11",  # Snappy requires C++11, matches build.rs
+        "-Wno-sign-compare",
+    ],
+    defines = ["NDEBUG"],
     visibility = ["//visibility:public"],
 )
 

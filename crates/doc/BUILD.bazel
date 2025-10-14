@@ -28,7 +28,7 @@ _LIB_DEPS = [
 ]
 
 rust_library(
-    name = "doc",
+    name = "doc_no_combine",
     srcs = glob([
         "src/**/*.rs",
     ]),
@@ -37,25 +37,24 @@ rust_library(
     deps = _LIB_DEPS,
 )
 
-# Library with "combine" feature enabled
 rust_library(
-    name = "doc_combine",
+    name = "doc",
     srcs = glob([
         "src/**/*.rs",
     ]),
+    crate_features = ["combine"],
     crate_name = "doc",
     crate_root = "src/lib.rs",
     edition = "2024",
-    crate_features = ["combine"],
     deps = _LIB_DEPS + ["@crates_io//:lz4"],
 )
 
 rust_test(
     name = "doc_lib_test",
-    crate = ":doc_combine",
     size = "small",
-    edition = "2024",
+    crate = ":doc",
     data = glob(["src/**/snapshots/*.snap"]),
+    edition = "2024",
     env = {
         "INSTA_WORKSPACE_ROOT": ".",
     },
@@ -102,11 +101,11 @@ _PERF_TESTDATA = [
 
 rust_test(
     name = "redact_fuzz",
+    size = "small",
     srcs = [
         "tests/arbitrary_value/mod.rs",
         "tests/redact_fuzz.rs",
     ],
-    size = "small",
     edition = "2024",
     proc_macro_deps = _TEST_PROC_MACRO_DEPS,
     deps = [":doc"] + _TEST_DEPS,
@@ -114,11 +113,11 @@ rust_test(
 
 rust_test(
     name = "shape_fuzz",
+    size = "small",
     srcs = [
         "tests/arbitrary_value/mod.rs",
         "tests/shape_fuzz.rs",
     ],
-    size = "small",
     edition = "2024",
     proc_macro_deps = _TEST_PROC_MACRO_DEPS,
     deps = [":doc"] + _TEST_DEPS,
@@ -126,23 +125,23 @@ rust_test(
 
 rust_test(
     name = "merge_patch_fuzz",
+    size = "small",
     srcs = [
         "tests/arbitrary_value/mod.rs",
         "tests/merge_patch_fuzz.rs",
     ],
-    size = "small",
     edition = "2024",
     proc_macro_deps = _TEST_PROC_MACRO_DEPS,
-    deps = [":doc_combine"] + _TEST_DEPS,
+    deps = [":doc"] + _TEST_DEPS,
 )
 
 rust_test(
     name = "reduce_annotations_test",
+    size = "small",
     srcs = [
         "tests/arbitrary_value/mod.rs",
         "tests/reduce_annotations_test.rs",
     ],
-    size = "small",
     edition = "2024",
     proc_macro_deps = _TEST_PROC_MACRO_DEPS,
     deps = [":doc"] + _TEST_DEPS,
@@ -150,42 +149,48 @@ rust_test(
 
 rust_test(
     name = "widen_perf",
+    size = "small",
     srcs = [
         "tests/arbitrary_value/mod.rs",
         "tests/widen_perf.rs",
     ],
-    size = "small",
-    compile_data = _PERF_TESTDATA,
-    edition = "2024",
-    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
-    deps = [":doc", "//crates/allocator:allocator"] + _TEST_DEPS,
-)
-
-rust_test(
-    name = "spill_merge_fuzz",
-    srcs = [
-        "tests/arbitrary_value/mod.rs",
-        "tests/spill_merge_fuzz.rs",
-    ],
-    size = "small",
-    edition = "2024",
-    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
-    deps = [":doc_combine", "@crates_io//:thiserror"] + _TEST_DEPS,
-)
-
-rust_test(
-    name = "combiner_perf",
-    srcs = [
-        "tests/arbitrary_value/mod.rs",
-        "tests/combiner_perf.rs",
-    ],
-    size = "small",
     compile_data = _PERF_TESTDATA,
     edition = "2024",
     proc_macro_deps = _TEST_PROC_MACRO_DEPS,
     deps = [
-        ":doc_combine",
-        "//crates/allocator:allocator",
+        ":doc",
+        "//crates/allocator",
+    ] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "spill_merge_fuzz",
+    size = "small",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/spill_merge_fuzz.rs",
+    ],
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [
+        ":doc",
+        "@crates_io//:thiserror",
+    ] + _TEST_DEPS,
+)
+
+rust_test(
+    name = "combiner_perf",
+    size = "small",
+    srcs = [
+        "tests/arbitrary_value/mod.rs",
+        "tests/combiner_perf.rs",
+    ],
+    compile_data = _PERF_TESTDATA,
+    edition = "2024",
+    proc_macro_deps = _TEST_PROC_MACRO_DEPS,
+    deps = [
+        ":doc",
+        "//crates/allocator",
         "@crates_io//:tempfile",
     ] + _TEST_DEPS,
 )
