@@ -28,7 +28,7 @@ export type Document = "#,
     .unwrap();
 
     w_mapper
-        .map(w_mapper.root())
+        .map(w_mapper.schema())
         .render(&mut Context::new(&mut w));
     write!(w, ";\n\n").unwrap();
 
@@ -51,7 +51,7 @@ export type {source_name} = "#,
         .unwrap();
 
         source_mapper
-            .map(source_mapper.root())
+            .map(source_mapper.schema())
             .render(&mut Context::new(&mut w));
         write!(w, ";\n\n").unwrap();
 
@@ -179,7 +179,12 @@ export type {prefix}{anchor_name} = "#,
         )
         .unwrap();
 
-        anchor_mapper.map(anchor_url).render(&mut Context::new(w));
+        let schema = anchor_mapper
+            .index()
+            .fetch(anchor_url.as_str())
+            .expect("anchor URL must be in index")
+            .0;
+        anchor_mapper.map(schema).render(&mut Context::new(w));
         write!(w, ";\n\n").unwrap();
     }
 }
