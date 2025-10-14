@@ -173,7 +173,7 @@ This lets you choose keys independent of the collection key structure.
 
 To set custom group-by keys for your materialized bindings:
 
-1. View the [Field Selection](#field-selection-for-materializations) table for a collection.
+1. View the [Field Selection](#field-selection-for-materializations) table for a binding.
 
 2. At the top of the table, click the **Group By** button.
 
@@ -182,6 +182,7 @@ To set custom group-by keys for your materialized bindings:
 3. Select fields that you would like to use as **keys** from the dropdown list of available options.
 
    You can select multiple fields to specify an ordered array of primary keys.
+   Selected fields will be displayed as distinct chips, which you can click and drag to reorder.
 
    :::tip
    You can only select fields with a defined scalar type. Objects and other complex data types are not viable keys.
@@ -191,8 +192,7 @@ To set custom group-by keys for your materialized bindings:
 
 Key fields will be pinned to the top of the Field Selection table with a key icon.
 
-If you are editing group-by keys for an existing materialization, changes may require the materialization to be [**backfilled**](/reference/backfilling-data/#materialization-backfill).
-Affected bindings can be backfilled individually in the resource's **Advanced Options** below the Field Selection table.
+If you are editing group-by keys for an existing materialization, changes may result in the materialization being [**backfilled**](/reference/backfilling-data/#materialization-backfill).
 
 ### Usage in Specifications
 
@@ -216,8 +216,14 @@ bindings:
 
       # Recommends fields for selection up to a specified depth (in this case, 2)
       recommended: 2
+
       # Require individual fields that may not otherwise be automatically selected
-      require: ["/deeplyNestedField"]
+      require:
+        _meta/field: {}
+        deeplyNestedField: {}
+
       # Exclude individual fields that may be selected by default
-      exclude: ["/sensitiveData"]
+      exclude:
+        - sensitiveData
+        - pii
 ```
