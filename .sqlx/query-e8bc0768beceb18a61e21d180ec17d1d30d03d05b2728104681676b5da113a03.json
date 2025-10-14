@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n                ls.catalog_name,\n                inputs.with_model as \"with_model!: bool\",\n                inputs.with_built as \"with_built!: bool\",\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when inputs.with_model then ls.spec::text else null end as \"model: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when inputs.with_built then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\",\n                coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false')::boolean as \"is_disabled!: bool\",\n                ls.reads_from as \"reads_from?: Vec<String>\",\n                ls.writes_to as \"writes_to?: Vec<String>\",\n                case json_typeof(ls.spec->'source')\n                when 'object' then ls.spec->'source'->>'capture'\n                when 'string' then ls.spec->>'source'\n                else null\n                end as \"source_capture?: String\",\n                array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as \"written_by?: Vec<String>\",\n                array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and out_flows.flow_type is not null) as \"read_by?: Vec<String>\"\n            from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)\n            join live_specs ls on inputs.name = ls.catalog_name\n            left outer join live_spec_flows in_flows on in_flows.target_id = ls.id\n            left outer join live_spec_flows out_flows on out_flows.source_id = ls.id\n            left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id\n            left outer join live_specs out_flows_specs on out_flows_specs.id = out_flows.target_id\n            group by ls.id, inputs.with_model, inputs.with_built\n            ",
+  "query": "select\n                ls.catalog_name,\n                inputs.with_model as \"with_model!: bool\",\n                inputs.with_built as \"with_built!: bool\",\n                ls.id as \"live_spec_id: models::Id\",\n                ls.spec_type as \"spec_type!: models::CatalogType\",\n                case when inputs.with_model then ls.spec::text else null end as \"model: crate::TextJson<async_graphql::Value>\",\n                ls.last_build_id as \"last_build_id: models::Id\",\n                ls.last_pub_id as \"last_pub_id: models::Id\",\n                ls.data_plane_id as \"data_plane_id: models::Id\",\n                ls.created_at,\n                ls.updated_at,\n                case when inputs.with_built then ls.built_spec::text else null end as \"built_spec: crate::TextJson<async_graphql::Value>\",\n                coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false')::boolean as \"is_disabled!: bool\",\n                ls.reads_from as \"reads_from?: Vec<String>\",\n                ls.writes_to as \"writes_to?: Vec<String>\",\n                case json_typeof(ls.spec->'source')\n                when 'object' then ls.spec->'source'->>'capture'\n                when 'string' then ls.spec->>'source'\n                else null\n                end as \"source_capture?: String\",\n                array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as \"written_by?: Vec<String>\",\n                array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and out_flows.flow_type is not null) as \"read_by?: Vec<String>\"\n            from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)\n            join live_specs ls on inputs.name = ls.catalog_name\n            left outer join live_spec_flows in_flows on in_flows.target_id = ls.id\n            left outer join live_spec_flows out_flows on out_flows.source_id = ls.id\n            left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id\n            left outer join live_specs out_flows_specs on out_flows_specs.id = out_flows.target_id\n            group by ls.id, inputs.with_model, inputs.with_built\n            ",
   "describe": {
     "columns": [
       {
@@ -57,41 +57,46 @@
       },
       {
         "ordinal": 8,
+        "name": "data_plane_id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "built_spec: crate::TextJson<async_graphql::Value>",
         "type_info": "Text"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "is_disabled!: bool",
         "type_info": "Bool"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "reads_from?: Vec<String>",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "writes_to?: Vec<String>",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "source_capture?: String",
         "type_info": "Text"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "written_by?: Vec<String>",
         "type_info": {
           "Custom": {
@@ -110,7 +115,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "read_by?: Vec<String>",
         "type_info": {
           "Custom": {
@@ -161,6 +166,7 @@
       false,
       false,
       false,
+      false,
       null,
       null,
       true,
@@ -170,5 +176,5 @@
       null
     ]
   },
-  "hash": "3b9e730c56083687f87833d7de187abbe2b7d1060fa8d2e5ea6f9f807763f98b"
+  "hash": "e8bc0768beceb18a61e21d180ec17d1d30d03d05b2728104681676b5da113a03"
 }

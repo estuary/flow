@@ -1,0 +1,30 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: alice_result
+---
+{
+  "firstThree": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "bobCo/private/materialization",
+          "lastPublication": null,
+          "publicationHistory": null,
+          "userCapability": null
+        }
+      }
+    ]
+  },
+  "lastThree": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "bobCo/private/materialization",
+          "lastPublication": null,
+          "publicationHistory": null,
+          "userCapability": null
+        }
+      }
+    ]
+  }
+}

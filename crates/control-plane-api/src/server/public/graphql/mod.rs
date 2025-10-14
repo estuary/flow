@@ -6,6 +6,7 @@ pub mod id;
 mod live_spec_refs;
 mod live_specs;
 mod prefixes;
+mod publication_history;
 pub mod status;
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
@@ -169,4 +170,17 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
         </html>
         "#,
     )
+}
+
+// It's critical that we preserve the order of fields within the endpoint config
+// of task specs, or we'll invalidate sops encrypted configs. This property is
+// guaranteed by the use of `IndexMap` to represent objects inside an
+// `async_graphql::Value`. This test ensures that we'll catch it if that ever
+// changes.
+#[test]
+fn graphql_json_values_preserves_field_order() {
+    let json_str = r#"{"b": "b", "a": {"az": "az", "ab": "ab", "aZ": "aZ" }, "Z": "Z", "A": "A"}"#;
+    let parsed: async_graphql::Value = serde_json::from_str(json_str).unwrap();
+    let round_tripped = serde_json::to_string(&parsed).unwrap();
+    assert_eq!(json_str.replace(' ', ""), round_tripped);
 }
