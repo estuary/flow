@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::server::{
     App, ControlClaims,
-    public::graphql::{PgDataLoader, alerts, live_specs, status},
+    public::graphql::{PgDataLoader, alerts, live_specs, publication_history, status},
 };
 
 const DEFAULT_PAGE_SIZE: usize = 50;
@@ -115,6 +115,57 @@ impl LiveSpecRef {
             .load_one(status::StatusKey(self.catalog_name.to_string()))
             .await?;
         Ok(status)
+    }
+
+    /// Information about the most recent publication of the spec
+    async fn last_publication(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
+        if self.user_capability.is_none() {
+            return Ok(None);
+        }
+
+        let include_model = ctx.look_ahead().field("model").exists();
+        let key = publication_history::LastPublicationInfoKey {
+            catalog_name: self.catalog_name.clone(),
+            include_model,
+        };
+
+        let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
+        let pub_info = loader.load_one(key).await?;
+        Ok(pub_info)
+    }
+
+    /// The complete history of publications of this spec
+    async fn publication_history(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        first: Option<i32>,
+        before: Option<String>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<Option<publication_history::SpecHistoryConnection>> {
+        if self.user_capability.is_none() {
+            return Ok(None);
+        }
+        let include_model = ctx
+            .look_ahead()
+            .field("edges")
+            .field("node")
+            .field("model")
+            .exists();
+        let history = publication_history::fetch_spec_history_no_authz(
+            ctx,
+            self.catalog_name.clone(),
+            include_model,
+            after,
+            first,
+            before,
+            last,
+        )
+        .await?;
+        Ok(Some(history))
     }
 }
 

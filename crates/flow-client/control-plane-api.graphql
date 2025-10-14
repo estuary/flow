@@ -354,13 +354,14 @@ type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
 	catalogType: CatalogType!
-	model: JSON!
 	lastBuildId: Id!
 	lastPubId: Id!
 	createdAt: DateTime!
 	updatedAt: DateTime!
-	builtSpec: JSON!
 	isDisabled: Boolean!
+	dataPlaneId: Id!
+	model: JSON
+	builtSpec: JSON
 	readsFrom(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
 	writesTo(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
 	sourceCapture: LiveSpecRef
@@ -413,6 +414,14 @@ type LiveSpecRef {
 	Returns the status of the live spec.
 	"""
 	status: LiveSpecStatus
+	"""
+	Information about the most recent publication of the spec
+	"""
+	lastPublication: SpecPublicationHistoryItem
+	"""
+	The complete history of publications of this spec
+	"""
+	publicationHistory(after: String, first: Int, before: String, last: Int): SpecPublicationHistoryItemConnection
 }
 
 type LiveSpecRefConnection {
@@ -745,6 +754,67 @@ type SourceCaptureStatus {
 	addBindings: [Collection!]!
 }
 
+type SpecPublicationHistoryItem {
+	"""
+	The id of the publication
+	"""
+	publicationId: Id!
+	"""
+	Timestamp of the publication
+	"""
+	publishedAt: DateTime!
+	"""
+	The id of the user who created the publication
+	"""
+	userId: UUID!
+	"""
+	The email of the user who created the publication, if known
+	"""
+	userEmail: String
+	"""
+	The full name of the user who created the publication, if known
+	"""
+	userFullName: String
+	"""
+	The URL of an avatar image for the user who created the publication, if known
+	"""
+	userAvatarUrl: String
+	"""
+	Description of the publication, including any automated model updates
+	performed as part of the publication
+	"""
+	detail: String
+	"""
+	The live spec model that was published
+	"""
+	model: JSON
+}
+
+type SpecPublicationHistoryItemConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [SpecPublicationHistoryItemEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type SpecPublicationHistoryItemEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: SpecPublicationHistoryItem!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
 """
 A machine-readable summary of the status
 
@@ -831,6 +901,18 @@ enum StatusType {
 	"""
 	deprecatedBackground
 }
+
+"""
+A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
+Strings within GraphQL. UUIDs are used to assign unique identifiers to
+entities without requiring a central allocating authority.
+
+# References
+
+* [Wikipedia: Universally Unique Identifier](http://en.wikipedia.org/wiki/Universally_unique_identifier)
+* [RFC4122: A Universally Unique Identifier (UUID) URN Namespace](http://tools.ietf.org/html/rfc4122)
+"""
+scalar UUID
 
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.

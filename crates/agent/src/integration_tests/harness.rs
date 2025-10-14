@@ -345,7 +345,10 @@ impl TestHarness {
 
         sqlx::query!(
             r#"
-            with del_live_specs as (
+            with del_users as (
+                delete from auth.users where email like '%.test'
+            ),
+            del_live_specs as (
                 delete from live_specs
             ),
             del_flows as (
@@ -442,13 +445,19 @@ impl TestHarness {
     /// would in production.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
         let user_id = sqlx::types::Uuid::new_v4();
-        let email = format!("{user_id}@{tenant}.test");
+        let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
+
+        let meta = serde_json::json!({
+            "picture": format!("http://{tenant}.test/avatar"),
+            "full_name": format!("Full ({tenant}) Name"),
+        });
 
         let mut txn = self.pool.begin().await.unwrap();
         sqlx::query!(
-            r#"insert into auth.users(id, email) values ($1, $2)"#,
+            r#"insert into auth.users(id, email, raw_user_meta_data) values ($1, $2, $3)"#,
             user_id,
-            email.as_str()
+            email.as_str(),
+            meta
         )
         .execute(&mut *txn)
         .await

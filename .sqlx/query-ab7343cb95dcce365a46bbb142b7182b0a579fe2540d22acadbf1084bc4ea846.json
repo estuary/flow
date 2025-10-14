@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n                ls.catalog_name as \"catalog_name!: models::Name\",\n                ls.last_pub_id as \"publication_id!: models::Id\",\n                ps.published_at as \"published_at!: DateTime<Utc>\",\n                ps.user_id as \"user_id!: uuid::Uuid\",\n                u.email as \"user_email: String\",\n                u.raw_user_meta_data->>'picture' as \"user_avatar_url: String\",\n                u.raw_user_meta_data->>'full_name' as \"user_full_name: String\",\n                ps.detail as \"detail: String\",\n                case when args.include_model then ps.spec else null end as \"model: models::RawValue\"\n              from unnest($1::catalog_name[], $2::boolean[]) as args(name, include_model)\n              join live_specs ls on args.name = ls.catalog_name\n              join publication_specs ps on ls.id = ps.live_spec_id and ls.last_pub_id = ps.pub_id\n              left outer join auth.users u on ps.user_id = u.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: models::Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "publication_id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "published_at!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id!: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_email: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "user_avatar_url: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "user_full_name: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "detail: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "model: models::RawValue",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "catalog_name",
+                  "kind": {
+                    "Domain": "Text"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "BoolArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "ab7343cb95dcce365a46bbb142b7182b0a579fe2540d22acadbf1084bc4ea846"
+}
