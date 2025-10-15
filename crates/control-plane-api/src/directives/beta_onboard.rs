@@ -81,7 +81,11 @@ pub async fn provision_tenant(
             on conflict do nothing
         ),
         public_planes as (
-            select json_agg(data_plane_name order by id asc) as arr
+            select json_agg(
+                data_plane_name
+                order by case when data_plane_name = 'ops/dp/public/aws-us-east-1-c1' then 0 else 1 end asc,
+                id desc
+            ) as arr
             from data_planes
             where starts_with(data_plane_name, 'ops/dp/public/')
             and data_plane_name <> 'ops/dp/public/gcp-us-central1-c1'
