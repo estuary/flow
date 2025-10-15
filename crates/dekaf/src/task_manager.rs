@@ -90,6 +90,12 @@ impl TaskStateListener {
         loop {
             // Scope to force the borrow to end before awaiting
             {
+                if temp_rx.has_changed().is_err() {
+                    anyhow::bail!(
+                        "TaskManager is not running, can't trust that the task state will be updated."
+                    );
+                }
+
                 let current_value = temp_rx.borrow_and_update();
                 match &*current_value {
                     Some(Ok(state)) => match state.as_ref() {
@@ -176,8 +182,12 @@ impl TaskManager {
             let mut tasks_guard = self.tasks.lock().unwrap();
             if let Some((activity, weak_receiver)) = tasks_guard.get(task_name) {
                 if let Some(receiver) = weak_receiver.upgrade() {
-                    activity.store(true, Ordering::Relaxed);
-                    return TaskStateListener(receiver.clone());
+                    // Receiver::has_changed returns an error iff the sender has been dropped.
+                    // If it has, that means that the task manager has exited, so we need a new one.
+                    if receiver.has_changed().is_ok() {
+                        activity.store(true, Ordering::Relaxed);
+                        return TaskStateListener(receiver.clone());
+                    }
                 }
             }
 
@@ -270,6 +280,10 @@ impl TaskManager {
 
             if let Some(start) = timeout_start {
                 if start.elapsed() > TASK_TIMEOUT {
+                    // Eagerly remove our receiver from the map so that it's impossible for a new
+                    // listener to race and get a reference to it in between here and when we
+                    // break out of the loop.
+                    self.tasks.lock().unwrap().remove(&task_name);
                     let waited_for = start.elapsed();
                     tracing::info!(
                         ?waited_for,
