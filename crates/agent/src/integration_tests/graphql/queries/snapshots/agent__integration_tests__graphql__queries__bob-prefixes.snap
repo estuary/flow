@@ -7,15 +7,24 @@ expression: bob_result
     "edges": [
       {
         "cursor": "aliceCo/shared/",
-        "node": {}
+        "node": {
+          "prefix": "aliceCo/shared/",
+          "userCapability": "read"
+        }
       },
       {
         "cursor": "bobCo/",
-        "node": {}
+        "node": {
+          "prefix": "bobCo/",
+          "userCapability": "admin"
+        }
       },
       {
         "cursor": "ops/dp/public/",
-        "node": {}
+        "node": {
+          "prefix": "ops/dp/public/",
+          "userCapability": "read"
+        }
       }
     ]
   }

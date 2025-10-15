@@ -7,11 +7,17 @@ expression: alice_result
     "edges": [
       {
         "cursor": "aliceCo/",
-        "node": {}
+        "node": {
+          "prefix": "aliceCo/",
+          "userCapability": "admin"
+        }
       },
       {
         "cursor": "ops/dp/public/",
-        "node": {}
+        "node": {
+          "prefix": "ops/dp/public/",
+          "userCapability": "read"
+        }
       }
     ]
   }
