@@ -524,7 +524,21 @@ type PendingConfigUpdateStatus {
 
 scalar Prefix
 
-type PrefixConnection {
+"""
+A prefix to which the user is authorized.
+"""
+type PrefixRef {
+	"""
+	The prefix to which the user is authorized.
+	"""
+	prefix: Prefix!
+	"""
+	The capability granted to the user for this prefix.
+	"""
+	userCapability: Capability!
+}
+
+type PrefixRefConnection {
 	"""
 	Information to aid in pagination.
 	"""
@@ -532,17 +546,17 @@ type PrefixConnection {
 	"""
 	A list of edges.
 	"""
-	edges: [PrefixEdge!]!
+	edges: [PrefixRefEdge!]!
 }
 
 """
 An edge in a connection.
 """
-type PrefixEdge {
+type PrefixRefEdge {
 	"""
 	The item at the end of the edge
 	"""
-	node: Prefix!
+	node: PrefixRef!
 	"""
 	A cursor for use in pagination
 	"""
@@ -639,7 +653,7 @@ type QueryRoot {
 	prefixes.
 	"""
 	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
-	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixConnection!
+	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
 }
 
 """
