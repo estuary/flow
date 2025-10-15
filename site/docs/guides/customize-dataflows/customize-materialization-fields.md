@@ -192,7 +192,7 @@ To set custom group-by keys for your materialized bindings:
 
 Key fields will be pinned to the top of the Field Selection table with a key icon.
 
-If you are editing group-by keys for an existing materialization, changes may result in the materialization being [**backfilled**](/reference/backfilling-data/#materialization-backfill).
+If you are editing group-by keys for an existing materialization, changes may result in affected bindings being [**backfilled**](/reference/backfilling-data/#materialization-backfill).
 
 ### Usage in Specifications
 
