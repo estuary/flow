@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 /// A prefix to which the user is authorized.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
-pub struct Prefix {
+pub struct PrefixRef {
     /// The prefix to which the user is authorized.
-    pub prefix: String,
+    pub prefix: models::Prefix,
     /// The capability granted to the user for this prefix.
-    pub capability: models::Capability,
+    pub user_capability: models::Capability,
 }
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
@@ -20,7 +20,7 @@ pub struct PrefixesBy {
 
 pub type PaginatedPrefixes = connection::Connection<
     String,
-    Prefix,
+    PrefixRef,
     connection::EmptyFields,
     connection::EmptyFields,
     connection::DefaultConnectionName,
@@ -52,9 +52,9 @@ impl PrefixesQuery {
                     )
                     .filter(|grant| grant.capability >= by.min_capability)
                     .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
-                    .map(|grant| Prefix {
-                        prefix: grant.object_role.to_string(),
-                        capability: grant.capability,
+                    .map(|grant| PrefixRef {
+                        prefix: models::Prefix::new(grant.object_role),
+                        user_capability: grant.capability,
                     })
                     .collect::<Vec<_>>();
                     Ok((None, roles))
@@ -64,7 +64,7 @@ impl PrefixesQuery {
             all_roles.sort_by(|l, r| {
                 l.prefix
                     .cmp(&r.prefix)
-                    .then(l.capability.cmp(&r.capability).reverse())
+                    .then(l.user_capability.cmp(&r.user_capability).reverse())
             });
             all_roles.dedup_by(|l, r| l.prefix == r.prefix);
 
@@ -75,7 +75,7 @@ impl PrefixesQuery {
                 .into_iter()
                 .take(take)
                 .map(|prefix| {
-                    let cursor = prefix.prefix.clone();
+                    let cursor = prefix.prefix.to_string();
                     connection::Edge::new(cursor, prefix)
                 })
                 .collect();
