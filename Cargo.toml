@@ -72,7 +72,7 @@ jemallocator = { version = "0", features = ["profiling"] }
 jemalloc-ctl = "0"
 json-patch = "4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
-kafka-protocol = "0"
+kafka-protocol = "0.15"
 lazy_static = "1"
 libc = "0"
 librocksdb-sys = { version = "0", default-features = false, features = [
