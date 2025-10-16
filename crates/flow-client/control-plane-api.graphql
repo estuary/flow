@@ -187,7 +187,14 @@ Input type for returning live specs references by prefix and catalog type.
 """
 input ByPrefixAndType {
 	prefix: Prefix!
-	catalogType: CatalogType!
+	"""
+	Optionally filter by catalogType
+	"""
+	catalogType: CatalogType
+	"""
+	Optionally filter by dataPlane name
+	"""
+	dataPlaneName: Name
 }
 
 """
@@ -354,19 +361,19 @@ type LiveSpec {
 	updatedAt: DateTime!
 	builtSpec: JSON!
 	isDisabled: Boolean!
-	readsFrom(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
-	writesTo(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	readsFrom(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
+	writesTo(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
 	sourceCapture: LiveSpecRef
 	"""
 	Returns a list of live specs that write to this spec. This will always
 	be empty if this spec is a not a collection.
 	"""
-	writtenBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	writtenBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
 	"""
 	Returns a list of live specs that read from this spec. This will always
 	be empty if this spec is a not a collection.
 	"""
-	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
 }
 
 """
@@ -405,7 +412,7 @@ type LiveSpecRef {
 	"""
 	Returns the status of the live spec.
 	"""
-	status: Status
+	status: LiveSpecStatus
 }
 
 type LiveSpecRefConnection {
@@ -431,6 +438,16 @@ type LiveSpecRefEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
+}
+
+"""
+The status of a LiveSpec
+"""
+type LiveSpecStatus {
+	type: StatusSummaryType!
+	summary: String!
+	controller: Controller
+	connector: ConnectorStatus
 }
 
 input LiveSpecsBy @oneOf {
@@ -612,7 +629,7 @@ type QueryRoot {
 	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
 	"""
-	alerts(by: AlertsBy!, before: String, last: Int): AlertConnection!
+	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
 	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixConnection!
 }
 
@@ -726,16 +743,6 @@ type SourceCaptureStatus {
 	fails.
 	"""
 	addBindings: [Collection!]!
-}
-
-"""
-The status of a LiveSpec
-"""
-type Status {
-	type: StatusSummaryType!
-	summary: String!
-	controller: Controller!
-	connector: ConnectorStatus
 }
 
 """

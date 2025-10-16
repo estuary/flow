@@ -214,7 +214,9 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         (cli.api_endpoint, cli.api_key)
     };
 
+    let user_agent = format!("dekaf-{}", env!("CARGO_PKG_VERSION"));
     let client_base = flow_client::Client::new(
+        user_agent,
         cli.agent_endpoint,
         api_key,
         api_endpoint,

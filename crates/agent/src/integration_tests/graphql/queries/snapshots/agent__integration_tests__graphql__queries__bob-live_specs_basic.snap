@@ -3,7 +3,71 @@ source: crates/agent/src/integration_tests/graphql/queries/mod.rs
 expression: bob_result
 ---
 {
-  "liveSpecs": {
+  "allTypes": {
+    "edges": [
+      {
+        "cursor": "aliceCo/shared/a",
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "liveSpec": {
+            "catalogType": "collection"
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/b",
+        "node": {
+          "catalogName": "aliceCo/shared/b",
+          "liveSpec": {
+            "catalogType": "collection"
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/c",
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "liveSpec": {
+            "catalogType": "collection"
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/capture",
+        "node": {
+          "catalogName": "aliceCo/shared/capture",
+          "liveSpec": {
+            "catalogType": "capture"
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/disabled",
+        "node": {
+          "catalogName": "aliceCo/shared/disabled",
+          "liveSpec": {
+            "catalogType": "capture"
+          },
+          "userCapability": "read"
+        }
+      },
+      {
+        "cursor": "aliceCo/shared/materialize",
+        "node": {
+          "catalogName": "aliceCo/shared/materialize",
+          "liveSpec": {
+            "catalogType": "materialization"
+          },
+          "userCapability": "read"
+        }
+      }
+    ]
+  },
+  "collections": {
     "edges": [
       {
         "cursor": "aliceCo/shared/a",
@@ -17,9 +81,7 @@ expression: bob_result
                   "node": {
                     "catalogName": "aliceCo/shared/materialize",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
+                      "readBy": null,
                       "readsFrom": {
                         "edges": [
                           {
@@ -51,12 +113,8 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writesTo": {
-                        "edges": []
-                      },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writesTo": null,
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -69,9 +127,7 @@ expression: bob_result
                   "node": {
                     "catalogName": "bobCo/private/materialization",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
+                      "readBy": null,
                       "readsFrom": {
                         "edges": [
                           {
@@ -103,12 +159,8 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writesTo": {
-                        "edges": []
-                      },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writesTo": null,
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -121,18 +173,8 @@ expression: bob_result
                 "hasNextPage": false
               }
             },
-            "readsFrom": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false
-              }
-            },
-            "writesTo": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false
-              }
-            },
+            "readsFrom": null,
+            "writesTo": null,
             "writtenBy": {
               "edges": [
                 {
@@ -140,12 +182,8 @@ expression: bob_result
                   "node": {
                     "catalogName": "aliceCo/shared/capture",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
-                      "readsFrom": {
-                        "edges": []
-                      },
+                      "readBy": null,
+                      "readsFrom": null,
                       "writesTo": {
                         "edges": [
                           {
@@ -177,9 +215,7 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -208,9 +244,7 @@ expression: bob_result
                   "node": {
                     "catalogName": "aliceCo/shared/materialize",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
+                      "readBy": null,
                       "readsFrom": {
                         "edges": [
                           {
@@ -242,12 +276,8 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writesTo": {
-                        "edges": []
-                      },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writesTo": null,
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -260,9 +290,7 @@ expression: bob_result
                   "node": {
                     "catalogName": "bobCo/private/materialization",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
+                      "readBy": null,
                       "readsFrom": {
                         "edges": [
                           {
@@ -294,12 +322,8 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writesTo": {
-                        "edges": []
-                      },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writesTo": null,
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -312,18 +336,8 @@ expression: bob_result
                 "hasNextPage": false
               }
             },
-            "readsFrom": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false
-              }
-            },
-            "writesTo": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false
-              }
-            },
+            "readsFrom": null,
+            "writesTo": null,
             "writtenBy": {
               "edges": [
                 {
@@ -331,12 +345,8 @@ expression: bob_result
                   "node": {
                     "catalogName": "aliceCo/shared/capture",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
-                      "readsFrom": {
-                        "edges": []
-                      },
+                      "readBy": null,
+                      "readsFrom": null,
                       "writesTo": {
                         "edges": [
                           {
@@ -368,9 +378,7 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -399,9 +407,7 @@ expression: bob_result
                   "node": {
                     "catalogName": "aliceCo/shared/materialize",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
+                      "readBy": null,
                       "readsFrom": {
                         "edges": [
                           {
@@ -433,12 +439,8 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writesTo": {
-                        "edges": []
-                      },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writesTo": null,
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -451,9 +453,7 @@ expression: bob_result
                   "node": {
                     "catalogName": "bobCo/private/materialization",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
+                      "readBy": null,
                       "readsFrom": {
                         "edges": [
                           {
@@ -485,12 +485,8 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writesTo": {
-                        "edges": []
-                      },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writesTo": null,
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -503,18 +499,8 @@ expression: bob_result
                 "hasNextPage": false
               }
             },
-            "readsFrom": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false
-              }
-            },
-            "writesTo": {
-              "edges": [],
-              "pageInfo": {
-                "hasNextPage": false
-              }
-            },
+            "readsFrom": null,
+            "writesTo": null,
             "writtenBy": {
               "edges": [
                 {
@@ -522,12 +508,8 @@ expression: bob_result
                   "node": {
                     "catalogName": "aliceCo/shared/capture",
                     "liveSpec": {
-                      "readBy": {
-                        "edges": []
-                      },
-                      "readsFrom": {
-                        "edges": []
-                      },
+                      "readBy": null,
+                      "readsFrom": null,
                       "writesTo": {
                         "edges": [
                           {
@@ -559,9 +541,7 @@ expression: bob_result
                           }
                         ]
                       },
-                      "writtenBy": {
-                        "edges": []
-                      }
+                      "writtenBy": null
                     },
                     "status": {
                       "type": "WARNING"
@@ -579,5 +559,8 @@ expression: bob_result
         }
       }
     ]
+  },
+  "wrongDataPlane": {
+    "edges": []
   }
 }
