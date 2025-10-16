@@ -3,7 +3,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
 use kafka_protocol::{
     error::ParseResponseErrorCode,
-    messages::{self, ApiKey},
+    messages::{self, ApiKey, ApiVersionsRequest},
     protocol::{self, Decodable, Encodable, Request},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
@@ -257,7 +257,11 @@ async fn get_versions(
         messages::ApiVersionsRequest::default()
             .with_client_software_name(protocol::StrBytes::from_static_str("Dekaf"))
             .with_client_software_version(protocol::StrBytes::from_static_str("1.0")),
-        None,
+        Some(
+            messages::RequestHeader::default()
+                .with_request_api_key(ApiVersionsRequest::KEY)
+                .with_request_api_version(3),
+        ),
     )
     .await?;
     match versions.error_code.err() {
