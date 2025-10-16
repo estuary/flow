@@ -520,7 +520,19 @@ pub async fn persist_max_keys(
         *prev_max = std::mem::take(next_max);
         wb.put(max_key_key(binding), &prev_max);
 
-        let unpacked: Vec<tuple::Element> = tuple::unpack(prev_max).unwrap();
+        let unpacked: Vec<tuple::Element> = tuple::unpack(prev_max).map_err(|error| {
+            tracing::error!(
+                ?error,
+                collection_name = %binding.collection_name,
+                state_key=%binding.state_key,
+                prev_max=?prev_max,
+                "failed to unpack prev_max key tuple"
+            );
+            anyhow::anyhow!(
+                "max key deserialization error for collection: '{}'",
+                binding.collection_name
+            )
+        })?;
         tracing::debug!(state_key=%binding.state_key, ?unpacked, "persisting updated binding max-key");
     }
 
