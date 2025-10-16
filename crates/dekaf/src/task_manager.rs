@@ -185,7 +185,7 @@ impl TaskManager {
                     // Receiver::has_changed returns an error iff the sender has been dropped.
                     // If it has, that means that the task manager has exited, so we need a new one.
                     if receiver.has_changed().is_ok() {
-                        activity.store(true, Ordering::Relaxed);
+                        activity.store(true, Ordering::SeqCst);
                         return TaskStateListener(receiver.clone());
                     }
                 }
@@ -273,9 +273,9 @@ impl TaskManager {
             if Arc::strong_count(&receiver) == 1 && timeout_start.is_none() {
                 timeout_start = Some(tokio::time::Instant::now());
             }
-            if Arc::strong_count(&receiver) > 1 || activity_signal.load(Ordering::Relaxed) {
+            if Arc::strong_count(&receiver) > 1 || activity_signal.load(Ordering::SeqCst) {
                 timeout_start = None;
-                activity_signal.store(false, Ordering::Relaxed);
+                activity_signal.store(false, Ordering::SeqCst);
             }
 
             if let Some(start) = timeout_start {
@@ -287,6 +287,7 @@ impl TaskManager {
                     let waited_for = start.elapsed();
                     tracing::info!(
                         ?waited_for,
+                        strong_count = Arc::strong_count(&receiver),
                         "TaskManager hasn't had any listeners for a while, shutting down"
                     );
                     break;
@@ -395,9 +396,11 @@ impl TaskManager {
                         .map_err(SharedError::from);
                         cached_ops_stats_client = Some(stats_client_result);
 
+                        let partition_count = partitions_and_clients.len();
+
                         let _ = sender.send(Some(Ok(Arc::new(TaskState::Authorized {
                             access_token,
-                            access_token_claims,
+                            access_token_claims: access_token_claims.clone(),
                             ops_logs_journal,
                             ops_stats_journal,
                             spec,
@@ -423,6 +426,13 @@ impl TaskManager {
                                 .expect("this is guaranteed to be present")
                                 .clone(),
                         }))));
+
+                        tracing::info!(
+                            listeners=%Arc::strong_count(&receiver)-1,
+                            ?access_token_claims,
+                            partition_count,
+                            "Successful task manager run"
+                        );
 
                         Ok(())
                     }
