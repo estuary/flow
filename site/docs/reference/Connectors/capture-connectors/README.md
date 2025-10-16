@@ -164,6 +164,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - MariaDB
   - [Configuration](./MariaDB/)
   - Package - ghcr.io/estuary/source-mariadb:dev
+- Microsoft Dynamics 365 Finance and Operations
+  - [Configuration](./dynamics-365-finance-and-operations.md)
+  - Package - ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev
 - Microsoft SQL Server
   - [Configuration](./SQLServer/)
   - Package - ghcr.io/estuary/source-sqlserver:dev
