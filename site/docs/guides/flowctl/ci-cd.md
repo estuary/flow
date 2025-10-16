@@ -424,18 +424,30 @@ The `catalog publish` command will [automatically encrypt any secrets](../../con
 
 ### Choosing a Data Plane
 
-The `catalog publish` command defaults to publishing resources to the `ops/dp/public/gcp-us-central1-c2` data plane.
-You can also specify a different public data plane or your own [private or BYOC](../../private-byoc/README.md) data plane.
+`flowctl` commands, including `catalog publish`, automatically select a data plane based on your configured [storage mappings](/getting-started/installation).
+The command will default to using the first listed data plane for your primary storage bucket.
+This may be, for example, the `ops/dp/public/gcp-us-central1-c2` or `ops/dp/public/aws-us-east1-c1` data plane.
 
-You can retrieve the full name of your desired data plane from the dashboard:
+You can also specify a different public data plane or your own [private or BYOC](../../private-byoc/README.md) data plane.
+Whichever data plane you choose must be supported by the primary storage mapping for your prefix.
+
+You can check your available data planes from the dashboard:
 
 1. Log into the Estuary dashboard and navigate to the [Admin](https://dashboard.estuary.dev/admin/) page.
 
-2. Under the **Settings** tab, scroll to the **Data Planes** section.
+2. Under the **Settings** tab, scroll to the **Cloud Storage** section.
 
-3. Choose between the **Public** or **Private** data plane tabs.
+3. For your **Catalog Prefix**, find the storage row listed as **Primary**.
 
-4. Next to your desired data plane, click the **Copy** button. The full name of the data plane will be copied to your clipboard.
+4. This row provides all available data planes for that storage mapping.
+
+You can copy the full name of your desired data plane from this listing or retrieve it from the **Data Planes** section:
+
+1. On the same **Settings** page in the dashboard, scroll to the **Data Planes** section.
+
+2. Choose between the **Public** or **Private** data plane tabs.
+
+3. Next to your desired data plane, click the **Copy** button. The full name of the data plane will be copied to your clipboard.
 
 When publishing resources to a data plane besides the default, make sure to specify this data plane name in an option:
 
