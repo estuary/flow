@@ -18,7 +18,7 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 
    Make sure to select the desired data plane when configuring a connector as well.
 
-   If you wish to use a public data plane, Estuary currently offers AWS `eu-west-1` and GCP `us-central1` options.
+   If you wish to use a public data plane, Estuary offers several options across US and EU regions with AWS and GCP.
 
 3. Find the **CIDR Blocks** column in the Data Planes table. This column includes a comma-separated list of IP addresses for that data plane.
 
@@ -28,13 +28,27 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 
 While your dashboard is the best location to find accurate, up-to-date IP addresses to allowlist, you may also find the current public data plane IP addresses below.
 
-**US** (`us-central1 c1`):
+### US
 
-- **34.121.207.128**
-- **35.226.75.135**
-- **34.68.62.148**
+**AWS `us-east-1 c1`:**
 
-**Europe** (`eu-west-1 c1`):
+- `107.20.68.5/32`
+- `98.89.112.85/32`
 
-- **18.200.127.124/32**
-- **34.247.94.19/32**
+**GCP `us-central1 c2`:**
+
+- `34.121.207.128/32`
+- `34.68.62.148/32`
+- `35.226.75.135/32`
+
+**AWS `us-west-2 c1`:**
+
+- `44.242.118.196/32`
+- `44.250.84.6/32`
+
+### Europe
+
+**AWS `eu-west-1 c1`:**
+
+- `18.200.127.124/32`
+- `34.247.94.19/32`
