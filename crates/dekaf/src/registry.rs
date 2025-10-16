@@ -19,10 +19,10 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
     let schema_router = axum::Router::new()
         .route("/subjects", get(all_subjects))
         .route(
-            "/subjects/:subject/versions/latest",
+            "/subjects/{subject}/versions/latest",
             get(get_subject_latest),
         )
-        .route("/schemas/ids/:id", get(get_schema_by_id))
+        .route("/schemas/ids/{id}", get(get_schema_by_id))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
             authenticate_and_proxy,
