@@ -32,7 +32,10 @@ impl Client {
                 suffix: endpoint,
             },
             metadata,
-            http: reqwest::Client::default(),
+            // Use HTTP/1 for fetching fragments, as storage backends may have
+            // restricted HTTP/2 flow control and we may have concurrent streams
+            // with high throughput / stuffed flow control windows.
+            http: reqwest::Client::builder().http1_only().build().unwrap(),
             router,
         }
     }

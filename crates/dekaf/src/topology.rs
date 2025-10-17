@@ -438,8 +438,9 @@ impl Collection {
                     if e.inner.is_transient() {
                         continue;
                     } else {
+                        let msg = e.inner.to_string();
                         return Err(anyhow::Error::new(e.inner).context(format!(
-                            "failed to fetch write head after {} retries",
+                            "failed to fetch write head after {} retries: {msg}",
                             e.attempt
                         )));
                     }

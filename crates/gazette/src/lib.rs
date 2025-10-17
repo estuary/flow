@@ -134,6 +134,7 @@ pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
         // connection unexpectedly.
         // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
         .http2_keep_alive_interval(std::time::Duration::from_secs(301))
+        .initial_connection_window_size(i32::MAX as u32)
         .tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
