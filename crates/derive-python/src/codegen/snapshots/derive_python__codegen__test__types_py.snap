@@ -1,0 +1,100 @@
+---
+source: crates/derive-python/src/codegen/mod.rs
+expression: types_output
+---
+from abc import ABC, abstractmethod
+import typing
+import pydantic
+
+
+# Generated for published documents of derived collection patterns/sums
+class Document(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    Count: typing.Optional[int] = None
+    Key: str
+    Sum: int
+
+
+
+# Generated for read documents of sourced collection patterns/ints
+class SourceFromIntsIntValue(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    Int: int
+    Key: str
+
+SourceFromInts: typing.TypeAlias = "SourceFromIntsIntValue"
+
+
+# Generated for read documents of sourced collection patterns/strings
+class SourceProcessStrings(pydantic.BaseModel):
+    class Metadata(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(extra='allow')
+
+
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    id: str
+    metadata: typing.Optional["Metadata"] = None
+    text: str
+
+
+
+# Protocol message types (minimal with extra fields allowed)
+class Open(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+    state: typing.Any = None
+
+
+class StartCommit(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+    runtime_checkpoint: typing.Any = None
+
+
+class ConnectorState(pydantic.BaseModel):
+    updated_json: str
+    merge_patch: bool = False
+
+
+class StartedCommit(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+    state: typing.Optional[ConnectorState] = None
+
+
+class ReadFromInts(pydantic.BaseModel):
+    doc: SourceFromInts
+
+
+class ReadProcessStrings(pydantic.BaseModel):
+    doc: SourceProcessStrings
+
+
+class IDerivation(ABC):
+    """Abstract base class for derivation implementations."""
+
+    def __init__(self, open: Open):
+        """Initialize the derivation with an Open message."""
+        pass
+
+    @abstractmethod
+    async def from_ints(self, read: ReadFromInts) -> list[Document]:
+        """Transform method for 'fromInts' source."""
+        ...
+
+    @abstractmethod
+    async def process_strings(self, read: ReadProcessStrings) -> list[Document]:
+        """Transform method for 'process-strings' source."""
+        ...
+
+    async def flush(self) -> list[Document]:
+        """Flush any buffered documents. Override to implement pipelining."""
+        return []
+
+    def start_commit(self, start_commit: StartCommit) -> StartedCommit:
+        """Return state updates to persist. Override to implement stateful derivations."""
+        return StartedCommit()
+
+    async def reset(self):
+        """Reset internal state for testing. Override if needed."""
+        pass

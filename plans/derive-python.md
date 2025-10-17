@@ -669,4 +669,61 @@ The subprocess must be able to import generated types:
 - All sources tests pass with updated snapshots
 - Entire workspace compiles successfully
 
-**Next:** Phase 2 (Code Generation)
+### Phase 2: Code Generation ✅ COMPLETE (2025-10-16)
+
+- Created `crates/derive-python/src/codegen/mod.rs` with public API functions
+- Implemented `types_py()` to generate:
+  - Import statements (abc, typing, pydantic)
+  - `Document` model from collection write schema
+  - `Source{Transform}` models from source collections (PascalCase)
+  - Protocol types: `Open`, `StartCommit`, `ConnectorState`, `StartedCommit`
+  - `Read{Transform}` wrapper classes with `.doc` field
+  - `IDerivation` abstract base class with:
+    - `__init__(self, open: Open)` constructor
+    - `@abstractmethod` decorated transform methods (snake_case names)
+    - Default `flush()`, `start_commit()`, `reset()` implementations
+- Created `crates/derive-python/src/codegen/main.py.template`:
+  - PEP 723 dependencies block (pydantic>=2.0, python>=3.14)
+  - Async main loop reading stdin and processing protocol messages
+  - Dispatches to transform/flush/startCommit/reset methods
+  - Emits responses to stdout as JSON
+  - Uses `asyncio.run(main())` for proper async execution
+
+### Phase 3: Validation Logic ✅ COMPLETE (2025-10-16)
+
+- Implemented `validate()` function with complete validation pipeline:
+  - Creates temp directory with proper `flow_generated/python` structure
+  - Writes generated types with full package hierarchy
+  - Generates all `__init__.py` files for parent directories
+  - Writes user module and main.py runtime wrapper
+  - Runs Python syntax check via `python3 -m py_compile`
+  - Runs type checking via `pyright` with proper PYTHONPATH
+  - Rewrites error paths to map temp dirs to project paths
+- Implemented `rewrite_python_stderr()` for user-friendly error messages
+- Early return for stub generation (file URLs without validation)
+- Returns `Validated` response with `read_only` flags and `generated_files`
+- All tests pass, release build successful
+
+### Phase 4: Runtime Execution ✅ COMPLETE (2025-10-16)
+
+- Implemented complete Open handler in `run()` function:
+  - Extracts collection and derivation from Open message
+  - Parses config and transforms with proper error context
+  - Creates temp directory with full package structure
+  - Writes all generated files (types, module, main.py)
+  - Spawns subprocess via `uv run --python 3.14 --isolated main.py`
+  - Sets PYTHONPATH environment variable for imports
+  - Configures stdin/stdout/stderr piping
+- Implemented stdin/stdout streaming:
+  - Spawns thread to forward Open message + remaining stdin to subprocess
+  - Uses `std::io::copy()` for efficient streaming (buffered and unbuffered)
+  - Forwards subprocess stdout back to Flow runtime
+- Process lifecycle management:
+  - Waits for stdin thread completion
+  - Waits for subprocess exit
+  - Propagates exit status with descriptive errors
+  - stderr inherits for debugging visibility
+- Added constants: `MAIN_NAME`, `MODULE_NAME`, `GENERATED_PREFIX`
+- All tests pass, release build successful
+
+**Next:** Phase 5 (Testing & Examples)
