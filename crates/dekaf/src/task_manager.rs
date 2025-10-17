@@ -262,7 +262,7 @@ impl TaskManager {
 
         let mut cached_dekaf_auth: Option<DekafTaskAuth> = None;
 
-        let mut timeout_start = None;
+        // let mut timeout_start = None;
 
         loop {
             // No more receivers except us, time to shut down this task loop.
@@ -270,29 +270,31 @@ impl TaskManager {
             // This is to provide a grace period for any new receivers to be created
             // before we shut down the task loop and cause any new sessions to have to
             // block while the new task loop fetches its first state.
-            if Arc::strong_count(&receiver) == 1 && timeout_start.is_none() {
-                timeout_start = Some(tokio::time::Instant::now());
-            }
-            if Arc::strong_count(&receiver) > 1 || activity_signal.load(Ordering::SeqCst) {
-                timeout_start = None;
-                activity_signal.store(false, Ordering::SeqCst);
-            }
 
-            if let Some(start) = timeout_start {
-                if start.elapsed() > TASK_TIMEOUT {
-                    // Eagerly remove our receiver from the map so that it's impossible for a new
-                    // listener to race and get a reference to it in between here and when we
-                    // break out of the loop.
-                    self.tasks.lock().unwrap().remove(&task_name);
-                    let waited_for = start.elapsed();
-                    tracing::info!(
-                        ?waited_for,
-                        strong_count = Arc::strong_count(&receiver),
-                        "TaskManager hasn't had any listeners for a while, shutting down"
-                    );
-                    break;
-                }
-            }
+            // Temporarily disable the timeout logic
+            // if Arc::strong_count(&receiver) == 1 && timeout_start.is_none() {
+            //     timeout_start = Some(tokio::time::Instant::now());
+            // }
+            // if Arc::strong_count(&receiver) > 1 || activity_signal.load(Ordering::SeqCst) {
+            //     timeout_start = None;
+            //     activity_signal.store(false, Ordering::SeqCst);
+            // }
+
+            // if let Some(start) = timeout_start {
+            //     if start.elapsed() > TASK_TIMEOUT {
+            //         // Eagerly remove our receiver from the map so that it's impossible for a new
+            //         // listener to race and get a reference to it in between here and when we
+            //         // break out of the loop.
+            //         self.tasks.lock().unwrap().remove(&task_name);
+            //         let waited_for = start.elapsed();
+            //         tracing::info!(
+            //             ?waited_for,
+            //             strong_count = Arc::strong_count(&receiver),
+            //             "TaskManager hasn't had any listeners for a while, shutting down"
+            //         );
+            //         break;
+            //     }
+            // }
 
             let mut has_been_migrated = false;
 
