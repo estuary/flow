@@ -850,9 +850,33 @@ impl Session {
                 let (read, batch) = (&mut pending.handle).await??;
 
                 let batch = match batch {
-                    BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
-                    BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
-                    BatchResult::TimeoutNoData | BatchResult::Suspended => None,
+                    BatchResult::TargetExceededBeforeTimeout(b) => {
+                        tracing::debug!(
+                            topic = topic_request.topic.as_str(),
+                            partition = partition_request.partition,
+                            offset = pending.offset,
+                            "read reached target before timeout",
+                        );
+                        Some(b)
+                    }
+                    BatchResult::TimeoutExceededBeforeTarget(b) => {
+                        tracing::debug!(
+                            topic = topic_request.topic.as_str(),
+                            partition = partition_request.partition,
+                            offset = pending.offset,
+                            "read reached timeout before target",
+                        );
+                        Some(b)
+                    }
+                    BatchResult::TimeoutNoData | BatchResult::Suspended => {
+                        tracing::debug!(
+                            topic = topic_request.topic.as_str(),
+                            partition = partition_request.partition,
+                            offset = pending.offset,
+                            "read reached timeout with no data",
+                        );
+                        None
+                    }
                 };
 
                 let mut partition_data = PartitionData::default()
@@ -893,6 +917,12 @@ impl Session {
                     }
                 }
 
+                tracing::info!(
+                    topic = topic_request.topic.as_str(),
+                    partition = partition_request.partition,
+                    "completed partition fetch",
+                );
+
                 partition_responses.push(partition_data);
             }
 
@@ -902,6 +932,12 @@ impl Session {
                     .with_partitions(partition_responses),
             );
         }
+
+        tracing::debug!(
+            session_id = session_id,
+            topics = topic_responses.len(),
+            "completed fetch response",
+        );
 
         Ok(messages::FetchResponse::default()
             .with_session_id(session_id)
