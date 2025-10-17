@@ -1,0 +1,69 @@
+import asyncio
+import sys
+
+from MODULE_PATH import (Request, Response)
+from MODULE_NAME import Derivation
+
+
+async def main() -> None:
+    """Main event loop for Python derivation runtime."""
+
+    # Read and parse Open message
+    open_line = sys.stdin.readline()
+    if not open_line:
+        return  # Clean EOF
+
+    request = Request.model_validate_json(open_line)
+    if not request.open:
+        print("Error: Expected open message", file=sys.stderr)
+        sys.exit(1)
+
+    # Instantiate user's Derivation class
+    derivation = Derivation(request.open)
+
+    # Build array of transform methods
+    transforms = [TRANSFORMS]
+
+    # Emit opened response
+    print(Response(opened=Response.Opened()).model_dump_json(by_alias=True), flush=True)
+
+    # Main protocol loop
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+
+        request = Request.model_validate_json(line)
+
+        if request.read:
+            async for doc in transforms[request.read.transform](request.read):
+                response = Response(published=Response.Published(doc=doc))
+                print(response.model_dump_json(by_alias=True), flush=False)
+
+        elif request.flush:
+            async for doc in derivation.flush():
+                response = Response(published=Response.Published(doc=doc))
+                print(response.model_dump_json(by_alias=True), flush=False)
+
+            print(Response(flushed=Response.Flushed()).model_dump_json(by_alias=True), flush=True)
+
+        elif request.start_commit:
+            started_commit = derivation.start_commit(request.start_commit)
+            response = Response(startedCommit=started_commit)
+            print(response.model_dump_json(by_alias=True), flush=True)
+
+        elif request.reset:
+            await derivation.reset()
+
+        else:
+            raise RuntimeError(f"Unknown message: {request}")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Fatal error: {e}", file=sys.stderr)
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)

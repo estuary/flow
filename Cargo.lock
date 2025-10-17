@@ -2695,6 +2695,7 @@ name = "derive-python"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "doc",
  "insta",
  "itertools 0.13.0",

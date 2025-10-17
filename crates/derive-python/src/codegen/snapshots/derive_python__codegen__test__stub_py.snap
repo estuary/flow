@@ -1,0 +1,19 @@
+---
+source: crates/derive-python/src/codegen/mod.rs
+expression: stub_output
+---
+"""Derivation implementation for patterns/sums."""
+from collections.abc import AsyncIterator
+from patterns.sums import IDerivation, Document, Request
+
+# Implementation for derivation patterns/sums.
+class Derivation(IDerivation):
+    async def from_ints(self, read: Request.ReadFromInts) -> AsyncIterator[Document]:
+        raise NotImplementedError("from_ints not implemented")
+        if False:
+            yield  # Mark as a generator.
+
+    async def process_strings(self, read: Request.ReadProcessStrings) -> AsyncIterator[Document]:
+        raise NotImplementedError("process_strings not implemented")
+        if False:
+            yield  # Mark as a generator.

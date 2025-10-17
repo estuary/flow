@@ -193,7 +193,7 @@ fn inline_derivation(
                 resources,
             );
         }
-        models::DeriveUsing::Python(models::DeriveUsingPython { module }) => {
+        models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
             inline_config(
                 Scope::new(scope)
                     .push_prop("derive")
