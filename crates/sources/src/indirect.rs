@@ -386,7 +386,7 @@ fn indirect_derivation(
                 threshold,
             );
         }
-        models::DeriveUsing::Python(models::DeriveUsingPython { module }) => {
+        models::DeriveUsing::Python(models::DeriveUsingPython { module, .. }) => {
             indirect_raw(
                 Scope::new(scope)
                     .push_prop("derive")

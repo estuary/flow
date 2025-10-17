@@ -1,0 +1,49 @@
+---
+source: crates/derive-python/src/codegen/mod.rs
+expression: results
+---
+[
+    (
+        "patterns/sums",
+        "/tmp/test",
+        [
+            (
+                "/tmp/test/flow_generated/python/patterns/__init__.py",
+                "",
+            ),
+        ],
+    ),
+    (
+        "a/b/c/d",
+        "/project",
+        [
+            (
+                "/project/flow_generated/python/a/__init__.py",
+                "",
+            ),
+            (
+                "/project/flow_generated/python/a/b/__init__.py",
+                "",
+            ),
+            (
+                "/project/flow_generated/python/a/b/c/__init__.py",
+                "",
+            ),
+        ],
+    ),
+    (
+        "simple",
+        "/tmp",
+        [],
+    ),
+    (
+        "dir/file",
+        "/root",
+        [
+            (
+                "/root/flow_generated/python/dir/__init__.py",
+                "",
+            ),
+        ],
+    ),
+]

@@ -1,0 +1,137 @@
+---
+source: crates/derive-python/src/codegen/mod.rs
+expression: types_output
+---
+from abc import ABC, abstractmethod
+import typing
+import collections.abc
+import pydantic
+
+
+# Generated for published documents of derived collection patterns/sums
+class Document(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    Count: typing.Optional[int] = None
+    Key: str
+    Sum: int
+
+
+
+# Generated for read documents of sourced collection patterns/ints
+class SourceFromIntsIntValue(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    Int: int
+    Key: str
+
+SourceFromInts: typing.TypeAlias = "SourceFromIntsIntValue"
+
+
+# Generated for read documents of sourced collection patterns/strings
+class SourceProcessStrings(pydantic.BaseModel):
+    class Metadata(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(extra='allow')
+
+
+    model_config = pydantic.ConfigDict(extra='allow')
+
+    id: str
+    metadata: typing.Optional["Metadata"] = None
+    text: str
+
+
+
+class Request(pydantic.BaseModel):
+
+    class Open(pydantic.BaseModel):
+        state: typing.Any = None
+
+    class Flush(pydantic.BaseModel):
+        pass
+
+    class Reset(pydantic.BaseModel):
+        pass
+
+    class StartCommit(pydantic.BaseModel):
+        runtime_checkpoint: typing.Any = pydantic.Field(default=None, alias='runtimeCheckpoint')
+
+    open: typing.Optional[Open] = None
+    flush: typing.Optional[Flush] = None
+    reset: typing.Optional[Reset] = None
+    start_commit: typing.Optional[StartCommit] = pydantic.Field(default=None, alias='startCommit')
+
+
+    class ReadFromInts(pydantic.BaseModel):
+        doc: SourceFromInts
+        transform: typing.Literal[0]
+
+
+    class ReadProcessStrings(pydantic.BaseModel):
+        doc: SourceProcessStrings
+        transform: typing.Literal[1]
+
+    read : typing.Annotated[ReadFromInts | ReadProcessStrings, pydantic.Field(discriminator='transform')] | None = None
+
+    @pydantic.model_validator(mode='before')
+    @classmethod
+    def inject_default_transform(cls, data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        if 'read' in data and 'transform' not in data['read']:
+            data['read']['transform'] = 0 # Make implicit default explicit
+        return data
+
+
+class Response(pydantic.BaseModel):
+    class Opened(pydantic.BaseModel):
+        pass
+
+    class Published(pydantic.BaseModel):
+        doc: Document
+
+    class Flushed(pydantic.BaseModel):
+        pass
+
+    class StartedCommit(pydantic.BaseModel):
+
+        class State(pydantic.BaseModel):
+            updated: typing.Any
+            merge_patch: bool = False
+
+        state: typing.Optional[State] = None
+
+    opened: typing.Optional[Opened] = None
+    published: typing.Optional[Published] = None
+    flushed: typing.Optional[Flushed] = None
+    started_commit: typing.Optional[StartedCommit] = pydantic.Field(default=None, alias='startedCommit')
+
+class IDerivation(ABC):
+    """Abstract base class for derivation implementations."""
+
+    def __init__(self, open: Request.Open):
+        """Initialize the derivation with an Open message."""
+        pass
+
+    @abstractmethod
+    async def from_ints(self, read: Request.ReadFromInts) -> collections.abc.AsyncIterator[Document]:
+        """Transform method for 'fromInts' source."""
+        if False:
+            yield  # Mark as a generator.
+
+    @abstractmethod
+    async def process_strings(self, read: Request.ReadProcessStrings) -> collections.abc.AsyncIterator[Document]:
+        """Transform method for 'process-strings' source."""
+        if False:
+            yield  # Mark as a generator.
+
+    async def flush(self) -> collections.abc.AsyncIterator[Document]:
+        """Flush any buffered documents. Override to implement pipelining."""
+        if False:
+            yield  # Mark as a generator.
+
+    def start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit:
+        """Return state updates to persist. Override to implement stateful derivations."""
+        return Response.StartedCommit()
+
+    async def reset(self):
+        """Reset internal state for testing. Override if needed."""
+        pass
