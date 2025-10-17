@@ -1,5 +1,5 @@
 [![CI](https://github.com/estuary/flow/workflows/CI/badge.svg)](https://github.com/estuary/flow/actions)
-[![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) | **[Docs home](https://docs.estuary.dev/)** | **[Free account](https://go.estuary.dev/sign-up)** | **[Data platform comparison reference](https://docs.estuary.dev/getting-started/comparisons)** | **[Email list](https://www.estuary.dev/newsletter-signup/)**
+[![Slack](https://img.shields.io/badge/slack-@estuary-blue.svg?logo=slack)](https://go.estuary.dev/slack) | **[Docs home](https://docs.estuary.dev/)** | **[Free account](https://go.estuary.dev/sign-up)** | **[Data platform comparison reference](https://docs.estuary.dev/getting-started/comparisons)** | **[Contact us](https://www.estuary.dev/contact-us/)**
 
 <p align="center">
     <img src ="site/static/img/estuary-new.png"
@@ -36,7 +36,7 @@ Have questions? We'd love to hear from you:
 
 ---
 
-![Workflow Overview](site/docs/concepts/at-a-glance.png)
+![Workflow Overview](site/docs/concepts/concept-images/at-a-glance.png)
 
 ## Using Flow
 
@@ -45,7 +45,7 @@ Together, the two interfaces comprise Flow's unified platform.
 You can switch seamlessly between them as you build and refine your pipelines, and collaborate with a wider breadth of data stakeholders.
 
 * The UI-based web application is at **[dashboard.estuary.dev](https://dashboard.estuary.dev)**.
-* The **flowctl CLI** can be downloaded per [these instructions](https://docs.estuary.dev/getting-started/installation/#get-started-with-the-flow-cli).
+* Install the **flowctl CLI** using [these instructions](https://docs.estuary.dev/guides/get-started-with-flowctl/).
 
 ➡️ **Sign up for a free Flow account [here](https://go.estuary.dev/sign-up).**
 
@@ -56,16 +56,18 @@ You can switch seamlessly between them as you build and refine your pipelines, a
 -   📖 [Flow documentation](https://docs.estuary.dev/)
 
 -   🧐 **Examples and tutorials**
-    - [Documentation tutorials](https://docs.estuary.dev/getting-started/tutorials/)
-    - Blog & GitHub tutorials
-       - [Continuous materialized view in Postgres](https://www.estuary.dev/how-to-create-a-real-time-materialized-view-in-postgresql/)
-       - [Kafka to Hasura GraphQL pipeline](https://www.estuary.dev/how-to-connect-kafka-to-hasura-graphql/)
-       - [Flow transformations at http endpoints](https://github.com/estuary/flow-cf-workers-example)
-    - Many [examples/](examples/) are available in this repo, covering a range of use cases and techniques.
+    - [Blog tutorials](https://estuary.dev/blog/tutorial/)
+    - Docs tutorials
+       - [Create a Basic Dataflow](https://docs.estuary.dev/guides/create-dataflow/)
+       - [PostgreSQL CDC Streaming to Snowflake](https://docs.estuary.dev/getting-started/tutorials/postgresql_cdc_to_snowflake/)
+       - [Real-time CDC with MongoDB](https://docs.estuary.dev/getting-started/tutorials/real_time_cdc_with_mongodb/)
+    - GitHub examples
+        - See our [example projects](https://github.com/estuary/examples) and demos
+        - Many [examples/](examples/) in this repo cover derivations, reductions, and other `flow.yaml` examples
 
 ## Support
 
-The best (and fastest) way to get support from the Estuary team is to [join the community on Slack](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ).
+The best (and fastest) way to get support from the Estuary team is to [join the community on Slack](https://go.estuary.dev/slack).
 
 You can also [email us](mailto:support@estuary.dev).
 
