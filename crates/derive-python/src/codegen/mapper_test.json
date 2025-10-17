@@ -1,0 +1,472 @@
+{
+  "test://example/catalog.yaml": {
+    "collections": {
+      "test/collection-dir": {
+        "schema": "test://example/schema.json",
+        "key": []
+      },
+      "test/collection-ref": {
+        "schema": "test://example/schema.json#/properties/str",
+        "key": []
+      },
+      "test/collection-anchor": {
+        "schema": "test://example/schema.json#OtherAnchor",
+        "key": []
+      },
+      "test/edge-cases": {
+        "schema": "test://example/edge-cases.json",
+        "key": []
+      }
+    }
+  },
+  "test://example/dir/other.schema.json": {
+    "enum": [
+      "hello",
+      42
+    ]
+  },
+  "test://example/schema.json": {
+    "type": "object",
+    "properties": {
+      "int": {
+        "type": "integer"
+      },
+      "str": {
+        "type": "string"
+      },
+      "anAnchor": {
+        "$ref": "#AnAnchor"
+      },
+      "other": {
+        "$ref": "dir/other.schema.json"
+      },
+      "lğmöm": {
+        "type": "array",
+        "items": [
+          {
+            "type": "integer"
+          },
+          {
+            "const": true
+          }
+        ],
+        "additionalItems": {
+          "const": "extra"
+        },
+        "minItems": 4,
+        "maxItems": 10
+      }
+    },
+    "required": [
+      "int",
+      "str"
+    ],
+    "$defs": {
+      "anAnchor": {
+        "$anchor": "AnAnchor",
+        "type": [
+          "object",
+          "array"
+        ],
+        "properties": {
+          "one": {
+            "type": "string"
+          },
+          "two": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "one"
+        ],
+        "items": {
+          "const": "array!"
+        }
+      },
+      "otherAnchor": {
+        "$anchor": "OtherAnchor",
+        "type": "object",
+        "properties": {
+          "anAnchor": {
+            "$ref": "#AnAnchor"
+          },
+          "three": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "three"
+        ]
+      }
+    }
+  },
+  "test://example/edge-cases.json": {
+    "type": "object",
+    "properties": {
+      "additionalPropsAllowed": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "patternProps": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          }
+        },
+        "patternProperties": {
+          "^field_": {
+            "type": "string"
+          },
+          "^const_": {
+            "const": 42
+          },
+          "^obj_": {
+            "type": "object",
+            "properties": {
+              "patternObj": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "nestedObject": {
+        "type": "object",
+        "properties": {
+          "outer": {
+            "type": "string"
+          },
+          "inner": {
+            "type": "object",
+            "properties": {
+              "deep": {
+                "type": "boolean"
+              },
+              "deeper": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "value"
+                ]
+              }
+            },
+            "required": [
+              "deep"
+            ]
+          }
+        },
+        "required": [
+          "outer"
+        ]
+      },
+      "objectInUnion": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "a"
+              },
+              "data": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "b"
+              },
+              "count": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "type",
+              "count"
+            ]
+          }
+        ]
+      },
+      "objectInList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "pythonKeywords": {
+        "type": "object",
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "def": {
+            "type": "integer"
+          },
+          "return": {
+            "type": "boolean"
+          },
+          "for": {
+            "type": "string"
+          },
+          "if": {
+            "type": "string"
+          }
+        }
+      },
+      "invalidIdentifiers": {
+        "type": "object",
+        "properties": {
+          "my-field": {
+            "type": "string"
+          },
+          "123start": {
+            "type": "integer"
+          },
+          "has space": {
+            "type": "boolean"
+          },
+          "dot.name": {
+            "type": "string"
+          },
+          "@special": {
+            "type": "number"
+          }
+        }
+      },
+      "constValue": {
+        "const": "fixed-value"
+      },
+      "singleEnum": {
+        "enum": [
+          "only-one"
+        ]
+      },
+      "complexEnum": {
+        "enum": [
+          "option-A",
+          "option-B",
+          "option-C",
+          42,
+          3.14159
+        ]
+      },
+      "enumWithObject": {
+        "enum": [
+          42,
+          {
+            "foo": "bar"
+          }
+        ]
+      },
+      "emptyObject": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "arrayOfObjects": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "nested": {
+              "type": "object",
+              "properties": {
+                "flag": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "mixedUnion": {
+        "type": [
+          "string",
+          "number",
+          "object"
+        ],
+        "properties": {
+          "when_object": {
+            "type": "string"
+          }
+        }
+      },
+      "requiredAndOptional": {
+        "type": "object",
+        "properties": {
+          "required1": {
+            "type": "string"
+          },
+          "required2": {
+            "type": "integer"
+          },
+          "optional1": {
+            "type": "boolean"
+          },
+          "optional2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "required1",
+          "required2"
+        ]
+      },
+      "withTitle": {
+        "title": "A field with a title",
+        "type": "string"
+      },
+      "withDescription": {
+        "description": "A field with a description explaining its purpose",
+        "type": "integer"
+      },
+      "withBoth": {
+        "title": "Title and Description",
+        "description": "This field has both a title and a description for comprehensive documentation",
+        "type": "boolean"
+      },
+      "objectWithDocs": {
+        "title": "Documented Object",
+        "description": "An object with comprehensive documentation",
+        "type": "object",
+        "properties": {
+          "field1": {
+            "title": "First Field",
+            "type": "string"
+          },
+          "field2": {
+            "description": "Second field with only description",
+            "type": "integer"
+          },
+          "nested": {
+            "title": "Nested Object",
+            "description": "A nested object with its own documentation",
+            "type": "object",
+            "properties": {
+              "deepField": {
+                "title": "Deep Field",
+                "description": "A field deep in the hierarchy",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "field1"
+        ]
+      },
+      "unionWithDocs": {
+        "title": "Documented Union",
+        "description": "A union type with documentation",
+        "oneOf": [
+          {
+            "title": "String Variant",
+            "type": "string"
+          },
+          {
+            "title": "Number Variant",
+            "type": "number"
+          }
+        ]
+      },
+      "anyType": {
+        "description": "Field that accepts any value"
+      },
+      "anyTypeExplicit": true,
+      "never": false,
+      "withoutType": {
+        "properties": {
+          "nested": {
+            "type": "integer"
+          }
+        }
+      },
+      "tuple1": {
+        "type": "array",
+        "description": "Tuple using only prefixItems",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          }
+        ],
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "tuple2": {
+        "type": "array",
+        "description": "Tuple using only items",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "tuple3": {
+        "type": "array",
+        "description": "Tuple using mix of prefixItems and items",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ],
+        "items": {
+          "type": "boolean"
+        },
+        "minItems": 4,
+        "maxItems": 4
+      },
+      "tuple4": {
+        "type": "array",
+        "description": "Tuple with incomplete prefixItems",
+        "prefixItems": [
+          {
+            "type": "string"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "required": []
+  }
+}

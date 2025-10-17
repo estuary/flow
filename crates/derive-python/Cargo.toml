@@ -28,4 +28,5 @@ models = { path = "../models" }
 sources = { path = "../sources" }
 tables = { path = "../tables" }
 
+bytes = { workspace = true }
 insta = { workspace = true }
