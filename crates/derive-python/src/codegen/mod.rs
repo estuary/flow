@@ -58,46 +58,95 @@ import pydantic
     // Generate protocol message types
     write!(
         w,
-        r#"# Protocol message types (minimal with extra fields allowed)
-class Open(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
-    state: typing.Any = None
+        r#"class Request(pydantic.BaseModel):
 
+    class Open(pydantic.BaseModel):
+        state: typing.Any = None
 
-class StartCommit(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
-    runtime_checkpoint: typing.Any = None
+    class Flush(pydantic.BaseModel):
+        pass
 
+    class Reset(pydantic.BaseModel):
+        pass
 
-class ConnectorState(pydantic.BaseModel):
-    updated_json: str
-    merge_patch: bool = False
+    class StartCommit(pydantic.BaseModel):
+        runtime_checkpoint: typing.Any = pydantic.Field(default=None, alias='runtimeCheckpoint')
 
-
-class StartedCommit(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
-    state: typing.Optional[ConnectorState] = None
-
+    open: typing.Optional[Open] = None
+    flush: typing.Optional[Flush] = None
+    reset: typing.Optional[Reset] = None
+    start_commit: typing.Optional[StartCommit] = pydantic.Field(default=None, alias='startCommit')
 
 "#
     )
     .unwrap();
 
-    // Generate Read{Transform} wrapper classes
-    for (name, _, _) in transforms {
-        let class_name = format!("Read{}", to_pascal_case(name));
-        let source_name = format!("Source{}", to_pascal_case(name));
+    // Generate Read{Transform} classes for each transform.
+    for (idx, (name, _, _)) in transforms.iter().enumerate() {
+        let name = to_pascal_case(name);
 
         write!(
             w,
-            r#"class {class_name}(pydantic.BaseModel):
-    doc: {source_name}
-
+            r#"
+    class Read{name}(pydantic.BaseModel):
+        doc: Source{name}
+        transform: typing.Literal[{idx}]
 
 "#,
         )
         .unwrap();
     }
+
+    // Generate discriminated union over all Read{Transform} types.
+    write!(
+        w,
+        "    read : typing.Optional[typing.Annotated[\n        typing.Union[\n"
+    )
+    .unwrap();
+    for (name, _, _) in transforms {
+        let name = to_pascal_case(name);
+        writeln!(w, "            Read{name},").unwrap();
+    }
+    write!(
+        w,
+        r#"        ],
+        pydantic.Field(discriminator='transform')
+    ]] = None
+
+    @pydantic.model_validator(mode='before')
+    @classmethod
+    def inject_default_transform(cls, data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        if 'read' in data and 'transform' not in data['read']:
+            data['read']['transform'] = 0 # Make implicit default explicit
+        return data
+
+
+class Response(pydantic.BaseModel):
+    class Opened(pydantic.BaseModel):
+        pass
+
+    class Published(pydantic.BaseModel):
+        doc: Document
+
+    class Flushed(pydantic.BaseModel):
+        pass
+
+    class StartedCommit(pydantic.BaseModel):
+
+        class State(pydantic.BaseModel):
+            updated: typing.Any
+            merge_patch: bool = False
+
+        state: typing.Optional[State] = None
+
+    opened: typing.Optional[Opened] = None
+    published: typing.Optional[Published] = None
+    flushed: typing.Optional[Flushed] = None
+    started_commit: typing.Optional[StartedCommit] = pydantic.Field(default=None, alias='startedCommit')
+
+"#
+    )
+    .unwrap();
 
     // Generate IDerivation base class
     write!(
@@ -105,7 +154,7 @@ class StartedCommit(pydantic.BaseModel):
         r#"class IDerivation(ABC):
     """Abstract base class for derivation implementations."""
 
-    def __init__(self, open: Open):
+    def __init__(self, open: Request.Open):
         """Initialize the derivation with an Open message."""
         pass
 
@@ -116,12 +165,12 @@ class StartedCommit(pydantic.BaseModel):
     // Generate abstract transform methods
     for (name, _, _) in transforms {
         let method_name = to_snake_case(name);
-        let class_name = format!("Read{}", to_pascal_case(name));
+        let class_name = to_pascal_case(name);
 
         write!(
             w,
             r#"    @abstractmethod
-    async def {method_name}(self, read: {class_name}) -> list[Document]:
+    async def {method_name}(self, read: Request.Read{class_name}) -> list[Document]:
         """Transform method for '{name}' source."""
         ...
 
@@ -137,9 +186,9 @@ class StartedCommit(pydantic.BaseModel):
         """Flush any buffered documents. Override to implement pipelining."""
         return []
 
-    def start_commit(self, start_commit: StartCommit) -> StartedCommit:
+    def start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit:
         """Return state updates to persist. Override to implement stateful derivations."""
-        return StartedCommit()
+        return Response.StartedCommit()
 
     async def reset(self):
         """Reset internal state for testing. Override if needed."""
@@ -163,31 +212,14 @@ pub fn main_py(
         .iter()
         .map(|(name, _, _)| {
             let method_name = to_snake_case(name);
-            format!("    derivation.{method_name},")
+            format!("derivation.{method_name}")
         })
-        .join("\n");
-
-    // Generate Read class imports
-    let read_imports = transforms
-        .iter()
-        .map(|(name, _, _)| format!("Read{}", to_pascal_case(name)))
-        .join(",\n    ");
-
-    // Generate read_classes array
-    let read_classes = transforms
-        .iter()
-        .map(|(name, _, _)| {
-            let class_name = format!("Read{}", to_pascal_case(name));
-            format!("    {},", class_name)
-        })
-        .join("\n");
+        .join(", ");
 
     let module_path = module_path_parts(&collection.name).join(".");
 
     template
         .replace("TRANSFORMS", &transform_methods)
-        .replace("READ_IMPORTS", &read_imports)
-        .replace("READ_CLASSES", &read_classes)
         .replace("MODULE_PATH", &module_path)
         .replace("MODULE_NAME", module_name)
 }

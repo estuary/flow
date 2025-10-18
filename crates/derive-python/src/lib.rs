@@ -230,6 +230,10 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         format!("{project_root}/{GENERATED_PREFIX}/py.typed"),
         String::new(),
     );
+    generated_files.insert(
+        format!("{project_root}/{MAIN_NAME}"),
+        codegen::main_py(collection, &transforms, "module"),
+    );
 
     // Do we need to generate a module stub?
     // If module is a file path (no whitespace), generate a stub at that path

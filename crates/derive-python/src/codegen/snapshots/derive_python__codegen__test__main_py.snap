@@ -3,25 +3,13 @@ source: crates/derive-python/src/codegen/mod.rs
 expression: output
 ---
 import asyncio
-import json
 import sys
 
-# Import generated types (collection name will be injected)
-from patterns.sums import (
-    IDerivation,
-    Document,
-    Open,
-    StartCommit,
-    StartedCommit,
-    ReadFromInts,
-    ReadProcessStrings,
-)
-
-# Import user implementation
+from patterns.sums import (Request, Response)
 from my_module import Derivation
 
 
-async def main():
+async def main() -> None:
     """Main event loop for Python derivation runtime."""
 
     # Read and parse Open message
@@ -29,101 +17,53 @@ async def main():
     if not open_line:
         return  # Clean EOF
 
-    open_msg = json.loads(open_line)
-    open_request = open_msg.get("open", {})
+    request = Request.model_validate_json(open_line)
+    if not request.open:
+        print("Error: Expected open message", file=sys.stderr)
+        sys.exit(1)
 
     # Instantiate user's Derivation class
-    derivation = Derivation(Open(**open_request))
+    derivation = Derivation(request.open)
 
-    # Build array of transform methods and their Read classes
-    transforms = [    derivation.from_ints,
-    derivation.process_strings,]
-
-    # Read wrapper classes for each transform
-    read_classes = [    ReadFromInts,
-    ReadProcessStrings,]
+    # Build array of transform methods
+    transforms = [derivation.from_ints, derivation.process_strings]
 
     # Emit opened response
-    print(json.dumps({"opened": {}}), flush=True)
+    print(Response(opened=Response.Opened()).model_dump_json(by_alias=True), flush=True)
 
     # Main protocol loop
     for line in sys.stdin:
         if not line.strip():
             continue
 
-        msg = json.loads(line)
+        request = Request.model_validate_json(line)
 
-        if "read" in msg:
-            # Read request: call transform and emit published documents
-            read_msg = msg["read"]
-            # Transform index defaults to 0 if not present
-            transform_index = read_msg.get("transform", 0)
-            doc_json = read_msg["doc"]
+        if request.read:
+            docs = await transforms[request.read.transform](request.read)
 
-            # Validate transform index
-            if transform_index < 0 or transform_index >= len(transforms):
-                print(
-                    f"Error: Invalid transform index {transform_index}", file=sys.stderr
-                )
-                sys.exit(1)
+            for doc in docs:
+                response = Response(published=Response.Published(doc=doc))
+                print(response.model_dump_json(by_alias=True), flush=False)
 
-            # Call the appropriate transform method
-            transform_method = transforms[transform_index]
-            read_class = read_classes[transform_index]
+        elif request.flush:
+            docs = await derivation.flush()
 
-            # Instantiate the Read wrapper with proper validation
-            read_obj = read_class(doc=doc_json)
+            for doc in docs:
+                response = Response(published=Response.Published(doc=doc))
+                print(response.model_dump_json(by_alias=True), flush=False)
 
-            # Call transform and get results
-            results = await transform_method(read_obj)
+            print(Response(flushed=Response.Flushed()).model_dump_json(by_alias=True), flush=True)
 
-            # Emit published documents
-            for doc in results:
-                if isinstance(doc, Document):
-                    doc_dict = doc.model_dump()
-                else:
-                    doc_dict = doc
+        elif request.start_commit:
+            started_commit = derivation.start_commit(request.start_commit)
+            response = Response(startedCommit=started_commit)
+            print(response.model_dump_json(by_alias=True), flush=True)
 
-                print(
-                    json.dumps({"published": {"doc": doc_dict}}),
-                    flush=True,
-                )
-
-        elif "flush" in msg:
-            # Flush request: call flush() and emit results
-            results = await derivation.flush()
-
-            for doc in results:
-                if isinstance(doc, Document):
-                    doc_dict = doc.model_dump()
-                else:
-                    doc_dict = doc
-
-                print(
-                    json.dumps({"published": {"doc": doc_dict}}),
-                    flush=True,
-                )
-
-            # Emit flushed response
-            print(json.dumps({"flushed": {}}), flush=True)
-
-        elif "startCommit" in msg:
-            # StartCommit request: call start_commit() and emit response
-            start_commit_msg = msg["startCommit"]
-            result = derivation.start_commit(StartCommit(**start_commit_msg))
-
-            response = {"startedCommit": {}}
-            if result.state:
-                response["startedCommit"]["state"] = result.state.model_dump()
-
-            print(json.dumps(response), flush=True)
-
-        elif "reset" in msg:
-            # Reset request: call reset() (testing only)
+        elif request.reset:
             await derivation.reset()
 
         else:
-            print(f"Unknown message: {msg}", file=sys.stderr)
+            raise RuntimeError(f"Unknown message: {request}")
 
 
 if __name__ == "__main__":

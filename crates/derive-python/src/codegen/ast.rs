@@ -124,7 +124,7 @@ impl Class {
 
                 // For optional fields, add None as first argument
                 if !is_required {
-                    ctx.into.push_str("None, ");
+                    ctx.into.push_str("default=None, ");
                 }
                 ctx.into.push_str(&format!("alias=\"\"\"{alias}\"\"\""));
                 ctx.into.push(')');

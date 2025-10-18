@@ -114,11 +114,11 @@ class Document(pydantic.BaseModel):
     class InvalidIdentifiers(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
 
-        m_123start: typing.Optional[int] = pydantic.Field(None, alias="""123start""")
-        m_special: typing.Optional[typing.Union[int, float]] = pydantic.Field(None, alias="""@special""")
-        dot_name: typing.Optional[str] = pydantic.Field(None, alias="""dot.name""")
-        has_space: typing.Optional[bool] = pydantic.Field(None, alias="""has space""")
-        my_field: typing.Optional[str] = pydantic.Field(None, alias="""my-field""")
+        m_123start: typing.Optional[int] = pydantic.Field(default=None, alias="""123start""")
+        m_special: typing.Optional[typing.Union[int, float]] = pydantic.Field(default=None, alias="""@special""")
+        dot_name: typing.Optional[str] = pydantic.Field(default=None, alias="""dot.name""")
+        has_space: typing.Optional[bool] = pydantic.Field(default=None, alias="""has space""")
+        my_field: typing.Optional[str] = pydantic.Field(default=None, alias="""my-field""")
 
     class MixedUnionObject(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
@@ -185,11 +185,11 @@ class Document(pydantic.BaseModel):
     class PythonKeywords(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
 
-        class_: typing.Optional[str] = pydantic.Field(None, alias="""class""")
-        def_: typing.Optional[int] = pydantic.Field(None, alias="""def""")
-        for_: typing.Optional[str] = pydantic.Field(None, alias="""for""")
-        if_: typing.Optional[str] = pydantic.Field(None, alias="""if""")
-        return_: typing.Optional[bool] = pydantic.Field(None, alias="""return""")
+        class_: typing.Optional[str] = pydantic.Field(default=None, alias="""class""")
+        def_: typing.Optional[int] = pydantic.Field(default=None, alias="""def""")
+        for_: typing.Optional[str] = pydantic.Field(default=None, alias="""for""")
+        if_: typing.Optional[str] = pydantic.Field(default=None, alias="""if""")
+        return_: typing.Optional[bool] = pydantic.Field(default=None, alias="""return""")
 
     class RequiredAndOptional(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
@@ -275,11 +275,11 @@ class Document(pydantic.BaseModel):
     class InvalidIdentifiers(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
 
-        m_123start: typing.Optional[int] = pydantic.Field(None, alias="""123start""")
-        m_special: typing.Optional[typing.Union[int, float]] = pydantic.Field(None, alias="""@special""")
-        dot_name: typing.Optional[str] = pydantic.Field(None, alias="""dot.name""")
-        has_space: typing.Optional[bool] = pydantic.Field(None, alias="""has space""")
-        my_field: typing.Optional[str] = pydantic.Field(None, alias="""my-field""")
+        m_123start: typing.Optional[int] = pydantic.Field(default=None, alias="""123start""")
+        m_special: typing.Optional[typing.Union[int, float]] = pydantic.Field(default=None, alias="""@special""")
+        dot_name: typing.Optional[str] = pydantic.Field(default=None, alias="""dot.name""")
+        has_space: typing.Optional[bool] = pydantic.Field(default=None, alias="""has space""")
+        my_field: typing.Optional[str] = pydantic.Field(default=None, alias="""my-field""")
 
     class MixedUnionObject(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
@@ -346,11 +346,11 @@ class Document(pydantic.BaseModel):
     class PythonKeywords(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')
 
-        class_: typing.Optional[str] = pydantic.Field(None, alias="""class""")
-        def_: typing.Optional[int] = pydantic.Field(None, alias="""def""")
-        for_: typing.Optional[str] = pydantic.Field(None, alias="""for""")
-        if_: typing.Optional[str] = pydantic.Field(None, alias="""if""")
-        return_: typing.Optional[bool] = pydantic.Field(None, alias="""return""")
+        class_: typing.Optional[str] = pydantic.Field(default=None, alias="""class""")
+        def_: typing.Optional[int] = pydantic.Field(default=None, alias="""def""")
+        for_: typing.Optional[str] = pydantic.Field(default=None, alias="""for""")
+        if_: typing.Optional[str] = pydantic.Field(default=None, alias="""if""")
+        return_: typing.Optional[bool] = pydantic.Field(default=None, alias="""return""")
 
     class RequiredAndOptional(pydantic.BaseModel):
         model_config = pydantic.ConfigDict(extra='allow')

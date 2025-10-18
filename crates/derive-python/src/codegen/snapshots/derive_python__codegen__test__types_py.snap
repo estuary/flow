@@ -41,49 +41,88 @@ class SourceProcessStrings(pydantic.BaseModel):
 
 
 
-# Protocol message types (minimal with extra fields allowed)
-class Open(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
-    state: typing.Any = None
+class Request(pydantic.BaseModel):
+
+    class Open(pydantic.BaseModel):
+        state: typing.Any = None
+
+    class Flush(pydantic.BaseModel):
+        pass
+
+    class Reset(pydantic.BaseModel):
+        pass
+
+    class StartCommit(pydantic.BaseModel):
+        runtime_checkpoint: typing.Any = pydantic.Field(default=None, alias='runtimeCheckpoint')
+
+    open: typing.Optional[Open] = None
+    flush: typing.Optional[Flush] = None
+    reset: typing.Optional[Reset] = None
+    start_commit: typing.Optional[StartCommit] = pydantic.Field(default=None, alias='startCommit')
 
 
-class StartCommit(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
-    runtime_checkpoint: typing.Any = None
+    class ReadFromInts(pydantic.BaseModel):
+        doc: SourceFromInts
+        transform: typing.Literal[0]
 
 
-class ConnectorState(pydantic.BaseModel):
-    updated_json: str
-    merge_patch: bool = False
+    class ReadProcessStrings(pydantic.BaseModel):
+        doc: SourceProcessStrings
+        transform: typing.Literal[1]
+
+    read : typing.Optional[typing.Annotated[
+        typing.Union[
+            ReadFromInts,
+            ReadProcessStrings,
+        ],
+        pydantic.Field(discriminator='transform')
+    ]] = None
+
+    @pydantic.model_validator(mode='before')
+    @classmethod
+    def inject_default_transform(cls, data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        if 'read' in data and 'transform' not in data['read']:
+            data['read']['transform'] = 0 # Make implicit default explicit
+        return data
 
 
-class StartedCommit(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
-    state: typing.Optional[ConnectorState] = None
+class Response(pydantic.BaseModel):
+    class Opened(pydantic.BaseModel):
+        pass
 
+    class Published(pydantic.BaseModel):
+        doc: Document
 
-class ReadFromInts(pydantic.BaseModel):
-    doc: SourceFromInts
+    class Flushed(pydantic.BaseModel):
+        pass
 
+    class StartedCommit(pydantic.BaseModel):
 
-class ReadProcessStrings(pydantic.BaseModel):
-    doc: SourceProcessStrings
+        class State(pydantic.BaseModel):
+            updated: typing.Any
+            merge_patch: bool = False
 
+        state: typing.Optional[State] = None
+
+    opened: typing.Optional[Opened] = None
+    published: typing.Optional[Published] = None
+    flushed: typing.Optional[Flushed] = None
+    started_commit: typing.Optional[StartedCommit] = pydantic.Field(default=None, alias='startedCommit')
 
 class IDerivation(ABC):
     """Abstract base class for derivation implementations."""
 
-    def __init__(self, open: Open):
+    def __init__(self, open: Request.Open):
         """Initialize the derivation with an Open message."""
         pass
 
     @abstractmethod
-    async def from_ints(self, read: ReadFromInts) -> list[Document]:
+    async def from_ints(self, read: Request.ReadFromInts) -> list[Document]:
         """Transform method for 'fromInts' source."""
         ...
 
     @abstractmethod
-    async def process_strings(self, read: ReadProcessStrings) -> list[Document]:
+    async def process_strings(self, read: Request.ReadProcessStrings) -> list[Document]:
         """Transform method for 'process-strings' source."""
         ...
 
@@ -91,9 +130,9 @@ class IDerivation(ABC):
         """Flush any buffered documents. Override to implement pipelining."""
         return []
 
-    def start_commit(self, start_commit: StartCommit) -> StartedCommit:
+    def start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit:
         """Return state updates to persist. Override to implement stateful derivations."""
-        return StartedCommit()
+        return Response.StartedCommit()
 
     async def reset(self):
         """Reset internal state for testing. Override if needed."""
