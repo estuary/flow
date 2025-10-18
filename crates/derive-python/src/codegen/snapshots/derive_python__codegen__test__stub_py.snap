@@ -4,7 +4,7 @@ expression: stub_output
 ---
 """Derivation implementation for patterns/sums."""
 
-from patterns.sums import IDerivation, Document, Open, SourceFromInts, SourceProcessStrings, ReadFromInts, ReadProcessStrings
+from patterns.sums import IDerivation, Document, ReadFromInts, ReadProcessStrings
 
 
 # Implementation for derivation patterns/sums.

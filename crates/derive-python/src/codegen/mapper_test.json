@@ -404,7 +404,68 @@
         "description": "Field that accepts any value"
       },
       "anyTypeExplicit": true,
-      "never": false
+      "never": false,
+      "withoutType": {
+        "properties": {
+          "nested": {
+            "type": "integer"
+          }
+        }
+      },
+      "tuple1": {
+        "type": "array",
+        "description": "Tuple using only prefixItems",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          }
+        ],
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "tuple2": {
+        "type": "array",
+        "description": "Tuple using only items",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "tuple3": {
+        "type": "array",
+        "description": "Tuple using mix of prefixItems and items",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ],
+        "items": {
+          "type": "boolean"
+        },
+        "minItems": 4,
+        "maxItems": 4
+      },
+      "tuple4": {
+        "type": "array",
+        "description": "Tuple with incomplete prefixItems",
+        "prefixItems": [
+          {
+            "type": "string"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      }
     },
     "required": []
   }

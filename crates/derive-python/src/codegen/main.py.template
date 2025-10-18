@@ -49,7 +49,8 @@ async def main():
         if "read" in msg:
             # Read request: call transform and emit published documents
             read_msg = msg["read"]
-            transform_index = read_msg["transform"]
+            # Transform index defaults to 0 if not present
+            transform_index = read_msg.get("transform", 0)
             doc_json = read_msg["doc"]
 
             # Validate transform index
@@ -77,7 +78,7 @@ async def main():
                     doc_dict = doc
 
                 print(
-                    json.dumps({"published": {"docJson": json.dumps(doc_dict)}}),
+                    json.dumps({"published": {"doc": doc_dict}}),
                     flush=True,
                 )
 
@@ -92,7 +93,7 @@ async def main():
                     doc_dict = doc
 
                 print(
-                    json.dumps({"published": {"docJson": json.dumps(doc_dict)}}),
+                    json.dumps({"published": {"doc": doc_dict}}),
                     flush=True,
                 )
 

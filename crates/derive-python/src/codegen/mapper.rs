@@ -188,19 +188,19 @@ impl Mapper {
         // Note: Unlike TypeScript, we do NOT merge declared property types here.
         // TypeScript requires index signatures to accommodate all property types,
         // but Pydantic's __pydantic_extra__ only validates *extra* fields, not declared ones.
-        let mut additional = Shape::nothing();
+        let mut merged = Shape::nothing();
 
         if let Some(additional_properties) = additional_properties {
-            additional = Shape::union(additional, additional_properties.as_ref().clone());
+            merged = Shape::union(merged, additional_properties.as_ref().clone());
         } else {
-            additional = Shape::anything(); // Unconstrained when omitted.
+            merged = Shape::anything(); // Unconstrained when omitted.
         }
         for prop in pattern_properties {
-            additional = Shape::union(additional, prop.shape.clone());
+            merged = Shape::union(merged, prop.shape.clone());
         }
 
-        let additional = if additional.type_ != types::INVALID {
-            Some(self.to_ast(&additional, "PydanticExtra", &mut nested))
+        let additional = if merged.type_ != types::INVALID {
+            Some(self.to_ast(&merged, "PydanticExtra", &mut nested))
         } else {
             None
         };
@@ -232,26 +232,44 @@ impl Mapper {
         } = arr;
 
         // Is this a fixed-length tuple?
-        if tuple.len() == *min_items as usize && Some(tuple.len() as u32) == *max_items {
-            let items = tuple
-                .iter()
-                .enumerate()
-                .map(|(i, l)| self.to_ast(l, &format!("{type_name}Tuple{i}"), classes))
+        if let Some(max_items) = max_items
+            && *max_items == *min_items
+            // Limit to explicit tuples, or reasonably small numbers of items.
+            && (tuple.len() == *min_items as usize || *max_items <= 10)
+        {
+            let items = (0..*max_items)
+                .map(|i| {
+                    let item_shape = tuple
+                        .get(i as usize)
+                        .or(additional_items.as_ref().map(|s| s.as_ref()));
+
+                    self.to_ast(
+                        item_shape.unwrap_or(&Shape::anything()),
+                        &format!("{type_name}Tuple{i}"),
+                        classes,
+                    )
+                })
                 .collect::<Vec<_>>();
 
-            AST::Tuple { items }
-        } else {
-            let mut merged = Shape::nothing();
-            for item in tuple {
-                merged = Shape::union(merged, item.clone());
-            }
-            if let Some(additional) = additional_items {
-                merged = Shape::union(merged, additional.as_ref().clone());
-            }
+            return AST::Tuple { items };
+        }
 
-            AST::List {
-                of: Box::new(self.to_ast(&merged, &format!("{type_name}Item"), classes)),
-            }
+        // Determine the type for additional items by merging "prefixItems"
+        // and "items" keywords.
+        let mut merged = Shape::nothing();
+
+        if let Some(additional_items) = additional_items {
+            merged = Shape::union(merged, additional_items.as_ref().clone());
+        } else {
+            merged = Shape::anything(); // Unconstrained when omitted.
+        }
+
+        for item in tuple {
+            merged = Shape::union(merged, item.clone());
+        }
+
+        AST::List {
+            of: Box::new(self.to_ast(&merged, &format!("{type_name}Item"), classes)),
         }
     }
 

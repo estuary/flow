@@ -199,6 +199,11 @@ class Document(pydantic.BaseModel):
         required1: str
         required2: int
 
+    class WithoutTypeObject(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(extra='allow')
+
+        nested: typing.Optional[int] = None
+
     model_config = pydantic.ConfigDict(extra='allow')
 
     additionalPropsAllowed: typing.Optional["AdditionalPropsAllowed"] = None
@@ -222,6 +227,14 @@ class Document(pydantic.BaseModel):
     pythonKeywords: typing.Optional["PythonKeywords"] = None
     requiredAndOptional: typing.Optional["RequiredAndOptional"] = None
     singleEnum: typing.Optional[typing.Literal["only-one"]] = None
+    tuple1: typing.Optional[tuple[str, int, bool]] = None
+    """Tuple using only prefixItems"""
+    tuple2: typing.Optional[tuple[typing.Union[int, float], typing.Union[int, float]]] = None
+    """Tuple using only items"""
+    tuple3: typing.Optional[tuple[str, int, bool, bool]] = None
+    """Tuple using mix of prefixItems and items"""
+    tuple4: typing.Optional[tuple[str, typing.Any]] = None
+    """Tuple with incomplete prefixItems"""
     unionWithDocs: typing.Optional[typing.Union[int, float, str]] = None
     """Documented Union A union type with documentation"""
     withBoth: typing.Optional[bool] = None
@@ -230,6 +243,7 @@ class Document(pydantic.BaseModel):
     """A field with a description explaining its purpose"""
     withTitle: typing.Optional[str] = None
     """A field with a title"""
+    withoutType: typing.Optional[typing.Union["WithoutTypeObject", list[typing.Any], bool, int, float, str, None]] = None
 
 
 
@@ -346,6 +360,11 @@ class Document(pydantic.BaseModel):
         required1: str
         required2: int
 
+    class WithoutTypeObject(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(extra='allow')
+
+        nested: typing.Optional[int] = None
+
     model_config = pydantic.ConfigDict(extra='allow')
 
     additionalPropsAllowed: typing.Optional["AdditionalPropsAllowed"] = None
@@ -369,6 +388,14 @@ class Document(pydantic.BaseModel):
     pythonKeywords: typing.Optional["PythonKeywords"] = None
     requiredAndOptional: typing.Optional["RequiredAndOptional"] = None
     singleEnum: typing.Optional[typing.Literal["only-one"]] = None
+    tuple1: typing.Optional[tuple[str, int, bool]] = None
+    """Tuple using only prefixItems"""
+    tuple2: typing.Optional[tuple[typing.Union[int, float], typing.Union[int, float]]] = None
+    """Tuple using only items"""
+    tuple3: typing.Optional[tuple[str, int, bool, bool]] = None
+    """Tuple using mix of prefixItems and items"""
+    tuple4: typing.Optional[tuple[str, typing.Any]] = None
+    """Tuple with incomplete prefixItems"""
     unionWithDocs: typing.Optional[typing.Union[int, float, str]] = None
     """Documented Union A union type with documentation"""
     withBoth: typing.Optional[bool] = None
@@ -377,3 +404,4 @@ class Document(pydantic.BaseModel):
     """A field with a description explaining its purpose"""
     withTitle: typing.Optional[str] = None
     """A field with a title"""
+    withoutType: typing.Optional[typing.Union["WithoutTypeObject", list[typing.Any], bool, int, float, str, None]] = None

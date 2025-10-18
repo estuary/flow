@@ -237,11 +237,6 @@ pub fn stub_py(
     )
     .unwrap();
 
-    let transform_sources = transforms
-        .iter()
-        .map(|(name, _, _)| format!("Source{}", to_pascal_case(name)))
-        .join(", ");
-
     let read_classes = transforms
         .iter()
         .map(|(name, _, _)| format!("Read{}", to_pascal_case(name)))
@@ -251,7 +246,7 @@ pub fn stub_py(
 
     writeln!(
         w,
-        "from {module_path} import IDerivation, Document, Open, {transform_sources}, {read_classes}"
+        "from {module_path} import IDerivation, Document, {read_classes}"
     )
     .unwrap();
 

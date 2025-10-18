@@ -107,49 +107,27 @@ pub fn run() -> anyhow::Result<()> {
         "wrote generated files to temp directory"
     );
 
-    // Spawn Python subprocess via uv
     let mut child = std::process::Command::new("uv")
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
         .current_dir(temp.path())
         .env("PYTHONPATH", gen_dir.to_str().unwrap())
         .args(["run", "--isolated", MAIN_NAME])
-        .spawn()
-        .context("Failed to spawn uv. Please ensure uv is installed: curl -LsSf https://astral.sh/uv/install.sh | sh")?;
+        .spawn()?;
 
-    // Take ownership of child's stdin and stdout
+    // Forward `open` and the remainder of stdin to the program.
     let mut child_stdin = child.stdin.take().unwrap();
-    let mut child_stdout = child.stdout.take().unwrap();
-
-    // Spawn thread to forward Open message and remaining stdin to child
-    let stdin_thread = std::thread::spawn(move || -> anyhow::Result<()> {
-        // Forward the Open message first
-        child_stdin.write_all(&serde_json::to_vec(&open)?)?;
-        child_stdin.write_all(b"\n")?;
-
-        // Forward the rest of stdin (buffered and unbuffered portions)
-        std::io::copy(&mut bin.buffer(), &mut child_stdin)?;
-        std::io::copy(&mut bin.into_inner(), &mut child_stdin)?;
-
-        Ok(())
+    let _ = std::thread::spawn(move || {
+        let _ = child_stdin.write_all(&serde_json::to_vec(&open).unwrap());
+        let _ = child_stdin.write_all("\n".as_bytes());
+        let _ = std::io::copy(&mut bin.buffer(), &mut child_stdin);
+        let _ = std::io::copy(&mut bin.into_inner(), &mut child_stdin);
     });
 
-    // Stream child's stdout to our stdout
-    std::io::copy(&mut child_stdout, &mut stdout)?;
-
-    // Wait for stdin thread to complete
-    if let Err(e) = stdin_thread.join() {
-        tracing::error!(?e, "stdin forwarding thread panicked");
-    }
-
-    // Wait for child process to exit
     let status = child.wait()?;
     if !status.success() {
-        anyhow::bail!("Python derivation failed with status: {status:?}");
+        anyhow::bail!("python failed with status: {status:?}");
     }
 
-    tracing::info!("Python derivation completed successfully");
     Ok(())
 }
 
@@ -304,7 +282,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
     let type_check = std::process::Command::new("uv")
         .current_dir(temp.path())
         .env("PYTHONPATH", gen_dir.to_str().unwrap())
-        .args(["run", "pyright", "module.py"])
+        .args(["run", "pyright", MODULE_NAME, MAIN_NAME])
         .output()?;
 
     if !type_check.status.success() {
