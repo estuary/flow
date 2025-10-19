@@ -3,6 +3,7 @@ target/
 .build/
 .build-ci/
 
+!target/x86_64-unknown-linux-musl/release/derive-python
 !target/x86_64-unknown-linux-musl/release/derive-typescript
 
 # Typical IDE stuff.
