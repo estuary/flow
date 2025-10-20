@@ -1,16 +1,15 @@
 mod delete;
+mod list;
 mod publish;
 mod pull_specs;
 mod status;
 mod test;
 
+use self::list::{List, do_list};
 use crate::{
     api_exec, api_exec_paginated,
     output::{CliOutput, JsonCell, to_table_row},
 };
-use anyhow::Context;
-use futures::stream::{FuturesUnordered, StreamExt};
-use itertools::Itertools;
 use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
@@ -98,135 +97,64 @@ pub struct NameSelector {
     /// Select catalog items under the given prefix
     ///
     /// Selects all items whose name begins with the prefix.
-    /// Can be provided multiple times to select items under multiple
-    /// prefixes.
     #[clap(long, conflicts_with = "name")]
     pub prefix: Vec<String>,
 }
 
 /// Common selection criteria based on the type of catalog item.
 #[derive(Default, Debug, Clone, clap::Args)]
+#[group(multiple = false)]
 pub struct SpecTypeSelector {
     /// Whether to include captures in the selection
     ///
     /// If true, or if no value was given, then captures will
     /// be included. You can also use `--captures=false` to exclude
     /// captures.
-    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
-    pub captures: Option<bool>,
+    #[clap(long)]
+    pub captures: bool,
     /// Whether to include collections in the selection
     ///
     /// If true, or if no value was given, then collections will
     /// be included. You can also use `--collections=false` to exclude
     /// collections.
-    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
-    pub collections: Option<bool>,
+    #[clap(long)]
+    pub collections: bool,
     /// Whether to include materializations in the selection
     ///
     /// If true, or if no value was given, then materializations will
     /// be included. You can also use `--materializations=false` to exclude
     /// materializations.
-    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
-    pub materializations: Option<bool>,
+    #[clap(long)]
+    pub materializations: bool,
     /// Whether to include tests in the selection
     ///
     /// If true, or if no value was given, then tests will
     /// be included. You can also use `--tests=false` to exclude
     /// tests.
-    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
-    pub tests: Option<bool>,
+    #[clap(long)]
+    pub tests: bool,
 }
 
 impl SpecTypeSelector {
-    /// Adds postgrest query parameters based on the arugments provided to filter specs based on the `spec_type` column.
-    pub fn add_spec_type_filters(&self, mut builder: postgrest::Builder) -> postgrest::Builder {
-        let all = &[
-            (CatalogType::Capture.as_ref(), self.captures),
-            (CatalogType::Collection.as_ref(), self.collections),
-            (CatalogType::Materialization.as_ref(), self.materializations),
-            (CatalogType::Test.as_ref(), self.tests),
+    pub fn get_single_type_selection(&self) -> Option<models::CatalogType> {
+        let all = [
+            (models::CatalogType::Capture, self.captures),
+            (models::CatalogType::Collection, self.collections),
+            (models::CatalogType::Materialization, self.materializations),
+            (models::CatalogType::Test, self.tests),
         ];
-
-        // If any of the types were explicitly included, then we'll add
-        // an `or.` that only includes items for each explicitly included type.
-        if self.has_any_include_types() {
-            let expr = all
-                .iter()
-                .filter(|(_, inc)| inc.unwrap_or(false))
-                .map(|(ty, _)| format!("spec_type.eq.{ty}"))
-                .join(",");
-            builder = builder.or(expr);
-        } else {
-            // If no types were explicitly included, then we can just filter out the types we _don't_ want.
-            for (ty, _) in all.iter().filter(|(_, inc)| *inc == Some(false)) {
-                builder = builder.neq("spec_type", ty);
-            }
-            // We need to use `IS NOT NULL` to filter out deleted specs, rather than using `neq`.
-            // Postgrest implicitly applies AND logic for these.
-            builder = builder.not("is", "spec_type", "null");
-        }
-        builder
-    }
-
-    fn has_any_include_types(&self) -> bool {
-        self.captures == Some(true)
-            || self.collections == Some(true)
-            || self.materializations == Some(true)
-            || self.tests == Some(true)
+        all.into_iter()
+            .find(|(_, selected)| *selected)
+            .map(|(ty, _)| ty)
     }
 }
 
 /// Common selection criteria based on the data plane name.
 #[derive(Default, Debug, Clone, clap::Args)]
 pub struct DataPlaneSelector {
-    /// Select a spec by data plane name. May be provided multiple times.
+    /// Selects only specs assigned to the given data plane.
     #[clap(long)]
-    pub data_plane_name: Vec<String>,
-}
-
-impl DataPlaneSelector {
-    /// Adds postgrest query parameters to filter specs based on the `data_plane_id` column.
-    pub async fn add_data_plane_filters(
-        &self,
-        client: &crate::Client,
-        mut builder: postgrest::Builder,
-    ) -> anyhow::Result<postgrest::Builder> {
-        if self.data_plane_name.is_empty() {
-            return Ok(builder);
-        }
-
-        #[derive(Deserialize, Serialize)]
-        struct Row {
-            id: String,
-        }
-
-        let data_planes: Vec<Row> = api_exec(
-            client
-                .from("data_planes")
-                .in_("data_plane_name", &self.data_plane_name)
-                .select("id"),
-        )
-        .await?;
-
-        let data_plane_ids: Vec<String> = data_planes.into_iter().map(|r| r.id).collect();
-        builder = builder.in_("data_plane_id", data_plane_ids);
-
-        Ok(builder)
-    }
-}
-
-#[derive(Default, Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
-pub struct List {
-    /// Include "Reads From" / "Writes To" columns in the output.
-    #[clap(short = 'f', long)]
-    pub flows: bool,
-    #[clap(flatten)]
-    pub name_selector: NameSelector,
-    #[clap(flatten)]
-    pub type_selector: SpecTypeSelector,
-    #[clap(flatten)]
-    pub data_plane_selector: DataPlaneSelector,
+    pub data_plane_name: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -270,253 +198,6 @@ impl Catalog {
             Command::Status(status) => status::do_controller_status(ctx, status).await,
         }
     }
-}
-
-/// Fetches `LiveSpecRow`s from the `live_specs_ext` view.
-/// This may make multiple requests as necessary.
-///
-/// # Panics
-/// If the name_selector `name` and `prefix` are both non-empty.
-pub async fn fetch_live_specs<T>(
-    client: &crate::Client,
-    list: &List,
-    columns: Vec<&'static str>,
-) -> anyhow::Result<Vec<T>>
-where
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
-{
-    // When fetching by name or prefix, we break the requested names into chunks
-    // and send a separate request for each. This is to avoid overflowing the
-    // URL length limit in postgREST.
-    const BATCH_SIZE: usize = 25;
-
-    if !list.name_selector.name.is_empty() && !list.name_selector.prefix.is_empty() {
-        panic!("cannot specify both 'name' and 'prefix' for filtering live specs");
-    }
-
-    let builder = client.from("live_specs_ext").select(columns.join(","));
-    let builder = list.type_selector.add_spec_type_filters(builder);
-    let builder = list
-        .data_plane_selector
-        .add_data_plane_filters(client, builder)
-        .await?;
-
-    // Drive the actual request(s) based on the name selector, since the arguments there may
-    // necessitate multiple requests.
-    if !list.name_selector.name.is_empty() {
-        let mut stream = list
-            .name_selector
-            .name
-            .chunks(BATCH_SIZE)
-            .map(|batch| {
-                // These weird extra scopes are to convince the borrow checker
-                // that we're moving the cloned builder into the async block,
-                // not the original builder. And also to clarify that we're not
-                // moving `batch` into the async block.
-                let builder = builder.clone().in_("catalog_name", batch);
-                async move {
-                    // No need for pagination because we're paginating the inputs.
-                    api_exec::<Vec<T>>(builder).await
-                }
-            })
-            .collect::<FuturesUnordered<_>>();
-        let mut rows = Vec::with_capacity(list.name_selector.name.len());
-        while let Some(result) = stream.next().await {
-            rows.extend(result.context("executing live_specs_ext fetch")?);
-        }
-        Ok(rows)
-    } else if !list.name_selector.prefix.is_empty() {
-        let mut stream = list
-            .name_selector
-            .prefix
-            .chunks(BATCH_SIZE)
-            .map(|batch| async {
-                let conditions = batch
-                    .iter()
-                    .map(|prefix| format!("catalog_name.like.\"{prefix}%\""))
-                    .join(",");
-                // We need to paginate the results, since prefixes can match many rows.
-                api_exec_paginated::<T>(builder.clone().or(conditions)).await
-            })
-            .collect::<FuturesUnordered<_>>();
-
-        let mut rows = Vec::with_capacity(list.name_selector.name.len());
-        while let Some(result) = stream.next().await {
-            rows.extend(result.context("executing live_specs_ext fetch")?);
-        }
-        Ok(rows)
-    } else {
-        // For anything else, just execute a single request and paginate the results.
-        api_exec_paginated::<T>(builder).await
-    }
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-pub struct LiveSpecRow {
-    pub catalog_name: String,
-    pub id: models::Id,
-    pub updated_at: crate::Timestamp,
-    pub spec_type: CatalogType,
-    pub data_plane_id: models::Id,
-    pub last_pub_id: models::Id,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_pub_user_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_pub_user_full_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_pub_user_id: Option<uuid::Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reads_from: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub writes_to: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub spec: Option<RawValue>,
-}
-
-impl crate::output::CliOutput for LiveSpecRow {
-    type TableAlt = bool;
-    type CellValue = String;
-
-    fn table_headers(flows: Self::TableAlt) -> Vec<&'static str> {
-        let mut headers = vec![
-            "ID",
-            "Name",
-            "Type",
-            "Updated",
-            "Updated By",
-            "Data Plane ID",
-        ];
-        if flows {
-            headers.push("Reads From");
-            headers.push("Writes To");
-        }
-        headers
-    }
-
-    fn into_table_row(self, flows: Self::TableAlt) -> Vec<Self::CellValue> {
-        let mut out = vec![
-            self.id.to_string(),
-            self.catalog_name,
-            self.spec_type.to_string(),
-            self.updated_at.to_string(),
-            crate::format_user(
-                self.last_pub_user_email,
-                self.last_pub_user_full_name,
-                self.last_pub_user_id,
-            ),
-            self.data_plane_id.to_string(),
-        ];
-        if flows {
-            out.push(self.reads_from.iter().flatten().join("\n"));
-            out.push(self.writes_to.iter().flatten().join("\n"));
-        }
-        out
-    }
-}
-
-/// Trait that's common to database rows of catalog specs, which can be turned into a bundled catalog.
-pub trait SpecRow {
-    fn catalog_name(&self) -> &str;
-    fn spec_type(&self) -> CatalogType;
-    fn spec(&self) -> Option<&RawValue>;
-    fn expect_pub_id(&self) -> Option<models::Id>;
-}
-
-impl SpecRow for LiveSpecRow {
-    fn catalog_name(&self) -> &str {
-        &self.catalog_name
-    }
-    fn spec_type(&self) -> CatalogType {
-        self.spec_type
-    }
-    fn spec(&self) -> Option<&RawValue> {
-        self.spec.as_ref()
-    }
-    fn expect_pub_id(&self) -> Option<models::Id> {
-        Some(self.last_pub_id)
-    }
-}
-
-/// Collects an iterator of `SpecRow`s into a `tables::DraftCatalog`.
-pub fn collect_specs(
-    rows: impl IntoIterator<Item = impl SpecRow>,
-) -> anyhow::Result<tables::DraftCatalog> {
-    let mut catalog = tables::DraftCatalog::default();
-
-    fn parse<T: serde::de::DeserializeOwned>(
-        model: Option<&RawValue>,
-    ) -> anyhow::Result<Option<T>> {
-        if let Some(model) = model {
-            Ok(Some(serde_json::from_str::<T>(model.get())?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    for row in rows {
-        let scope = url::Url::parse(&format!("flow://control/{}", row.catalog_name())).unwrap();
-
-        match row.spec_type() {
-            CatalogType::Capture => {
-                catalog.captures.insert_row(
-                    models::Capture::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    parse::<models::CaptureDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-            CatalogType::Collection => {
-                catalog.collections.insert_row(
-                    models::Collection::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    parse::<models::CollectionDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-            CatalogType::Materialization => {
-                catalog.materializations.insert_row(
-                    models::Materialization::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    parse::<models::MaterializationDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-            CatalogType::Test => {
-                catalog.tests.insert_row(
-                    models::Test::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    parse::<models::TestDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-        }
-    }
-    Ok(catalog)
-}
-
-async fn do_list(ctx: &mut crate::CliContext, list_args: &List) -> anyhow::Result<()> {
-    let mut columns = vec![
-        "catalog_name",
-        "id",
-        "last_pub_id",
-        "last_pub_user_email",
-        "last_pub_user_full_name",
-        "last_pub_user_id",
-        "spec_type",
-        "updated_at",
-        "data_plane_id",
-    ];
-    if list_args.flows {
-        columns.push("reads_from");
-        columns.push("writes_to");
-    }
-    let rows = fetch_live_specs::<LiveSpecRow>(&ctx.client, list_args, columns).await?;
-
-    ctx.write_all(rows, list_args.flows)
 }
 
 async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> anyhow::Result<()> {

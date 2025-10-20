@@ -1,8 +1,5 @@
 use crate::CliContext;
-use crate::catalog::{
-    DataPlaneSelector, List, LiveSpecRow, NameSelector, SpecTypeSelector, collect_specs,
-    fetch_live_specs,
-};
+use crate::catalog::{DataPlaneSelector, List, NameSelector, SpecTypeSelector, list};
 use crate::local_specs;
 
 /// Arguments for the pull-specs subcommand
@@ -26,27 +23,16 @@ pub struct PullSpecs {
 }
 
 pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Result<()> {
-    // Retrieve identified live specifications.
-    let live_specs = fetch_live_specs::<LiveSpecRow>(
-        &ctx.client,
-        &List {
-            flows: false,
+    let live_specs = list::fetch_live_specs(
+        ctx,
+        List {
+            include_flows: false,
+            include_models: true,
             name_selector: args.name_selector.clone(),
             type_selector: args.type_selector.clone(),
             data_plane_selector: args.data_plane_selector.clone(),
+            include_last_publication: false,
         },
-        vec![
-            "catalog_name",
-            "id",
-            "updated_at",
-            "last_pub_id",
-            "last_pub_user_email",
-            "last_pub_user_full_name",
-            "last_pub_user_id",
-            "spec_type",
-            "spec",
-            "data_plane_id",
-        ],
     )
     .await?;
     tracing::debug!(count = live_specs.len(), "successfully fetched live specs");
@@ -56,7 +42,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
 
     let count = local_specs::extend_from_catalog(
         &mut sources,
-        collect_specs(live_specs)?,
+        list::into_draft(live_specs)?,
         local_specs::pick_policy(args.overwrite, args.flat),
     );
     let sources = local_specs::indirect_and_write_resources(sources)?;
