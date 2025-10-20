@@ -84,6 +84,22 @@ pub enum Capability {
     Admin = 30,
 }
 
+impl AsRef<str> for Capability {
+    fn as_ref(&self) -> &str {
+        match self {
+            Capability::Read => "read",
+            Capability::Write => "write",
+            Capability::Admin => "admin",
+        }
+    }
+}
+
+impl std::fmt::Display for Capability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
 impl Catalog {
     /// Build a root JSON schema for the Catalog model.
     pub fn root_json_schema() -> schemars::Schema {

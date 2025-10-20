@@ -66,30 +66,18 @@ pub async fn do_delete(
         dangerous_auto_approve,
     }: &Delete,
 ) -> anyhow::Result<()> {
-    let list_args = catalog::List {
-        flows: false,
+    let list_args = catalog::list::List {
+        include_flows: false,
+        include_models: false,
         name_selector: name_selector.clone().into(),
         type_selector: type_selector.clone(),
         data_plane_selector: data_plane_selector.clone(),
+        include_last_publication: true,
     };
 
-    let specs = catalog::fetch_live_specs::<catalog::LiveSpecRow>(
-        &ctx.client,
-        &list_args,
-        vec![
-            "id",
-            "catalog_name",
-            "spec_type",
-            "updated_at",
-            "last_pub_id",
-            "last_pub_user_email",
-            "last_pub_user_id",
-            "last_pub_user_full_name",
-            "data_plane_id",
-        ],
-    )
-    .await
-    .context("fetching live specs")?;
+    let specs = catalog::list::fetch_live_specs(ctx, list_args)
+        .await
+        .context("fetching live specs")?;
 
     if specs.is_empty() {
         anyhow::bail!("no specs found matching given selector");
@@ -117,10 +105,14 @@ pub async fn do_delete(
         .into_iter()
         .map(|spec| DraftSpec {
             draft_id: draft.id.clone(),
-            catalog_name: spec.catalog_name.clone(),
+            catalog_name: spec.catalog_name.to_string(),
             spec_type: serde_json::Value::Null,
             spec: serde_json::Value::Null,
-            expect_pub_id: spec.last_pub_id,
+            expect_pub_id: spec
+                .live_spec
+                .as_ref()
+                .map(|ls| ls.last_pub_id)
+                .unwrap_or(models::Id::zero()),
         })
         .collect::<Vec<DraftSpec>>();
 

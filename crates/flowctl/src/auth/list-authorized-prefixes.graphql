@@ -1,0 +1,26 @@
+fragment SelectAuthorizedPrefix on PrefixRef {
+    prefix
+    userCapability
+}
+
+query ListAuthorizedPrefixes(
+    $min_capability: Capability!
+    $after: String
+    $first: Int!
+) {
+    prefixes(
+        by: { minCapability: $min_capability }
+        after: $after
+        first: $first
+    ) {
+        pageInfo {
+            endCursor
+        }
+        edges {
+            cursor
+            node {
+                ...SelectAuthorizedPrefix
+            }
+        }
+    }
+}

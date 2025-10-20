@@ -1,3 +1,4 @@
+pub mod list;
 mod roles;
 
 use anyhow::Context;
