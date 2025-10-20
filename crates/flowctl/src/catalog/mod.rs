@@ -1,4 +1,5 @@
 mod delete;
+mod history;
 mod list;
 mod publish;
 mod pull_specs;
@@ -7,7 +8,7 @@ mod test;
 
 use self::list::{List, do_list};
 use crate::{
-    api_exec, api_exec_paginated,
+    api_exec,
     output::{CliOutput, JsonCell, to_table_row},
 };
 use models::{CatalogType, RawValue};
@@ -55,7 +56,7 @@ pub enum Command {
     /// History of a catalog specification.
     ///
     /// Print all historical publications of catalog specifications.
-    History(History),
+    History(history::History),
     /// Add a catalog specification to your current draft.
     ///
     /// A copy of the current specification is added to your draft.
@@ -159,14 +160,6 @@ pub struct DataPlaneSelector {
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
-pub struct History {
-    /// Catalog name or prefix to retrieve history for.
-    #[clap(long)]
-    pub name: String,
-}
-
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
 pub struct Draft {
     /// Catalog name to add to your draft.
     #[clap(long)]
@@ -193,79 +186,11 @@ impl Catalog {
             Command::PullSpecs(pull) => pull_specs::do_pull_specs(ctx, pull).await,
             Command::Publish(publish) => publish::do_publish(ctx, publish).await,
             Command::Test(source) => test::do_test(ctx, source).await,
-            Command::History(history) => do_history(ctx, history).await,
+            Command::History(history) => history::do_history(ctx, history).await,
             Command::Draft(draft) => do_draft(ctx, draft).await,
             Command::Status(status) => status::do_controller_status(ctx, status).await,
         }
     }
-}
-
-async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> anyhow::Result<()> {
-    #[derive(Deserialize, Serialize)]
-    struct Row {
-        catalog_name: String,
-        detail: Option<String>,
-        last_pub_id: String,
-        pub_id: String,
-        published_at: crate::Timestamp,
-        spec_type: Option<String>,
-        user_email: Option<String>,
-        user_full_name: Option<String>,
-        user_id: Option<uuid::Uuid>,
-    }
-
-    impl crate::output::CliOutput for Row {
-        type TableAlt = ();
-        type CellValue = String;
-
-        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
-            vec![
-                "Name",
-                "Type",
-                "Publication ID",
-                "Published",
-                "Published By",
-                "Details",
-            ]
-        }
-
-        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-            vec![
-                self.catalog_name,
-                self.spec_type.unwrap_or_default(),
-                if self.pub_id == self.last_pub_id {
-                    format!("{}\n(current)", self.pub_id)
-                } else {
-                    self.pub_id
-                },
-                self.published_at.to_string(),
-                crate::format_user(self.user_email, self.user_full_name, self.user_id),
-                self.detail.unwrap_or_default(),
-            ]
-        }
-    }
-    let rows: Vec<Row> = api_exec_paginated(
-        ctx.client
-            .from("publication_specs_ext")
-            .like("catalog_name", format!("{name}%"))
-            .select(
-                vec![
-                    "catalog_name",
-                    "detail",
-                    "last_pub_id",
-                    "pub_id",
-                    "published_at",
-                    "spec_type",
-                    "user_email",
-                    "user_full_name",
-                    "user_id",
-                ]
-                .join(","),
-            ),
-    )
-    .await?;
-
-    ctx.write_all(rows, ())
 }
 
 async fn do_draft(
