@@ -11,6 +11,9 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v2
@@ -25,25 +28,21 @@ jobs:
       - run: sudo apt install -y musl-tools
 
       - name: Login to GitHub container registry
-        # TODO(johnny): Uncomment once merged.
-        # if: ${{ github.ref == 'refs/heads/master' }}
+        if: ${{ github.ref == 'refs/heads/master' }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            crates/derive-typescript
 
       - name: build `derive-typescript`
-        run: cd crates/derive-typescript && cargo build --target x86_64-unknown-linux-musl --release
+        run: cargo build -p derive-typescript --target x86_64-unknown-linux-musl --release
 
       - name: test `derive-typescript`
-        run: cd crates/derive-typescript && cargo test --target x86_64-unknown-linux-musl --release
+        run: cargo test -p derive-typescript --target x86_64-unknown-linux-musl --release
 
       - name: package docker image
-        run: docker build -t ghcr.io/estuary/derive-typescript:dev crates/derive-typescript/
+        run: docker build -t ghcr.io/estuary/derive-typescript:dev -f crates/derive-typescript/Dockerfile .
 
       - name: push docker image
         if: ${{ github.ref == 'refs/heads/master' }}

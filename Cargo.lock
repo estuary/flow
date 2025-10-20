@@ -2717,6 +2717,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-typescript"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "doc",
+ "insta",
+ "itertools 0.13.0",
+ "json",
+ "lazy_static",
+ "models",
+ "proto-flow",
+ "regex",
+ "serde",
+ "serde_json",
+ "sources",
+ "tables",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "derive_arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
