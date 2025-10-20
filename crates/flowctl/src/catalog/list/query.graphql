@@ -1,0 +1,71 @@
+fragment SelectConnection on LiveSpecRefConnection {
+    edges {
+        node {
+            catalogName
+        }
+    }
+}
+
+fragment SelectLiveSpec on LiveSpec {
+    isDisabled
+    dataPlaneId
+    lastPubId
+    liveSpecId
+    catalogType
+    updatedAt
+    model @include(if: $include_models)
+    readsFrom @include(if: $include_flows) {
+        ...SelectConnection
+    }
+    writesTo @include(if: $include_flows) {
+        ...SelectConnection
+    }
+    readBy @include(if: $include_flows) {
+        ...SelectConnection
+    }
+    writtenBy @include(if: $include_flows) {
+        ...SelectConnection
+    }
+}
+
+fragment SelectStatus on LiveSpecStatus {
+    type
+    summary
+}
+
+fragment SelectRef on LiveSpecRef {
+    catalogName
+    userCapability
+    lastPublication @include(if: $include_last_publication) {
+        userEmail
+        userId
+        userFullName
+    }
+    liveSpec {
+        ...SelectLiveSpec
+    }
+    status {
+        ...SelectStatus
+    }
+}
+
+query ListLiveSpecsQuery(
+    $by: LiveSpecsBy!
+    $after: String
+    $first: Int
+    $include_models: Boolean!
+    $include_flows: Boolean!
+    $include_last_publication: Boolean!
+) {
+    liveSpecs(by: $by, after: $after, first: $first) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                ...SelectRef
+            }
+        }
+    }
+}

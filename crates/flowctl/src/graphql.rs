@@ -41,13 +41,23 @@
 //! the derive will expect that your module has a `DateTime` type defined. This module should define types for all
 //! the scalars in our graphql schema. That way you can just `use crate::graphql::*`, and your response should have
 //! all the correct scalar types defined.
+
 #[allow(unused)]
 pub use models::{
     Capability, Capture, CatalogType, Collection, Id, Materialization, Name, Prefix, Test,
 };
+
+/// Used for all timestamps throughout the schema
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 
-pub type JSONObject = serde_json::Map<String, serde_json::Value>;
+/// Used for types that the schema describes as opaque JSON objects
+pub type JSONObject = models::RawValue;
+
+/// Used for types that the schema describes as opaque JSON values
+pub type JSON = models::RawValue;
+
+/// Used for user ids
+pub type UUID = uuid::Uuid;
 
 const GRAPHQL_PATH: &str = "/api/graphql";
 
