@@ -8,9 +8,9 @@ name = "derive-typescript"
 path = "src/main.rs"
 
 [dependencies]
-doc = { git = "https://github.com/estuary/flow", branch = "master" }
-json = { git = "https://github.com/estuary/flow", branch = "master" }
-proto-flow = { git = "https://github.com/estuary/flow", branch = "master" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+proto-flow = { path = "../proto-flow" }
 
 anyhow = "1"
 itertools = "0"
@@ -29,8 +29,8 @@ tracing-subscriber = { version = "0", features = [
 url = "2"
 
 [dev-dependencies]
-models = { git = "https://github.com/estuary/flow", branch = "master" }
-sources = { git = "https://github.com/estuary/flow", branch = "master" }
-tables = { git = "https://github.com/estuary/flow", branch = "master" }
+models = { path = "../models" }
+sources = { path = "../sources" }
+tables = { path = "../tables" }
 
 insta = "1"
