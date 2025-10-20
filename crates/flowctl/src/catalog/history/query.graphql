@@ -1,0 +1,44 @@
+query PublicationHistoryQuery(
+    $catalog_name: Name!
+    $include_models: Boolean!
+    $after: String
+    $first: Int!
+) {
+    liveSpecs(by: { names: [$catalog_name] }) {
+        edges {
+            node {
+                catalogName
+                liveSpec {
+                    createdAt
+                    lastPubId
+                    updatedAt
+                    catalogType
+                }
+                publicationHistory(after: $after, first: $first) {
+                    edges {
+                        node {
+                            ...SelectPublication
+                        }
+                    }
+                    pageInfo {
+                        endCursor
+                        hasNextPage
+                        hasPreviousPage
+                        startCursor
+                    }
+                }
+            }
+        }
+    }
+}
+
+fragment SelectPublication on SpecPublicationHistoryItem {
+    detail
+    model @include(if: $include_models)
+    publicationId
+    publishedAt
+    userAvatarUrl
+    userEmail
+    userFullName
+    userId
+}
