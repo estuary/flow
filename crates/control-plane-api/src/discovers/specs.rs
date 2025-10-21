@@ -330,9 +330,24 @@ pub fn merge_collections(
         } else if let Some(initial_read_schema) = initializes_read_schema(&connector_schema) {
             // Migrate singular `schema` into separate read & write schemas.
             draft_model.write_schema = draft_model.schema.take();
-            draft_model.read_schema = Some(models::Schema::new(models::RawValue::from_value(
-                &initial_read_schema,
-            )));
+            let mut read_schema =
+                models::Schema::new(models::RawValue::from_value(&initial_read_schema));
+            // In practice, this check will probably always return true. But
+            // having it here ensures that we won't mistakenly add the
+            // placeholder inferred schema in case a connector provides an
+            // explicit read schema that doesn't reference the inferred schema.
+            if read_schema.references_inferred_schema() {
+                read_schema = read_schema
+                    .add_defs(&[models::schemas::AddDef {
+                        id: models::Schema::REF_INFERRED_SCHEMA_URL,
+                        schema: models::Schema::inferred_schema_placeholder(),
+                        overwrite: true,
+                    }])
+                    .with_context(|| {
+                        format!("adding inferred schema placeholder to collection: '{collection}'")
+                    })?;
+            }
+            draft_model.read_schema = Some(read_schema);
             modified = true;
             &mut draft_model.write_schema
         } else {
@@ -728,7 +743,7 @@ mod tests {
                 expect_pub_id: "0000000000000000",
                 model: {
                   "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
-                  "readSchema": {"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
+                  "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
                   "key": [
                     "/key"
                   ]
@@ -741,7 +756,7 @@ mod tests {
                 expect_pub_id: "0000000000000000",
                 model: {
                   "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
-                  "readSchema": {"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
+                  "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
                   "key": [
                     "/key"
                   ]
