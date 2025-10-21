@@ -63,6 +63,11 @@ pub async fn fetch_live_specs(
         .await?;
 
         let prefixes = filter_default_prefixes(role_list, DEFAULT_PREFIX_LIMIT)?;
+        if prefixes.is_empty() {
+            anyhow::bail!(
+                "the current user does not have access to any catalog prefixes, please ask your tenant administrator for help"
+            );
+        }
         tracing::debug!(
             ?prefixes,
             "no --prefix argument provided, determined prefix automatically"
