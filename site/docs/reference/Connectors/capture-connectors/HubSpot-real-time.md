@@ -9,12 +9,15 @@ It is available for use in the Flow web application. For local development or op
 The connector automatically discovers bindings for the following HubSpot resources:
 
 * [Companies](https://developers.hubspot.com/docs/api/crm/companies)
+* [Contact List Memberships](https://developers.hubspot.com/docs/api-reference/crm-lists-v3/guide#manage-list-membership)
+* [Contact Lists](https://developers.hubspot.com/docs/api-reference/crm-lists-v3/guide)
 * [Contacts](https://developers.hubspot.com/docs/api/crm/contacts)
 * [Custom Objects](https://developers.hubspot.com/docs/api/crm/crm-custom-objects)
 * [Deal Pipelines](https://developers.hubspot.com/beta-docs/guides/api/crm/pipelines)
 * [Deals](https://developers.hubspot.com/docs/api/crm/deals)
-* [Engagements](https://developers.hubspot.com/docs/api/crm/engagements)
 * [Email Events](https://developers.hubspot.com/docs/methods/email/get_events)
+* [Engagements](https://developers.hubspot.com/docs/api/crm/engagements)
+* [Feedback Submissions](https://developers.hubspot.com/docs/api/crm/feedback-submissions)
 * [Form Submissions](https://developers.hubspot.com/docs/reference/api/marketing/forms/v1)
 * [Forms](https://developers.hubspot.com/docs/reference/api/marketing/forms/v3)
 * [Line Items](https://developers.hubspot.com/beta-docs/guides/api/crm/objects/line-items)
