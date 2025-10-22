@@ -144,7 +144,7 @@ where
 
             // Should we exit?
             exit = &mut exit => {
-                tracing::warn!("connector exited with unconsumed input stream remainder");
+                tracing::debug!("connector exited with unconsumed input stream remainder");
                 return exit;
             }
 
