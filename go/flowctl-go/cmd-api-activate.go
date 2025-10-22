@@ -78,11 +78,13 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		return err
 	}
 
-	// Post-process shards to set logs and stats journals to `local` for this testing context.
+	// Post-process shards to set logs and stats journals to `local` for this testing context,
+	// and to zero a minTxnDuration.
 	for _, shard := range shards {
 		if shard.Upsert != nil {
 			shard.Upsert.LabelSet.SetValue(labels.LogsJournal, "local")
 			shard.Upsert.LabelSet.SetValue(labels.StatsJournal, "local")
+			shard.Upsert.MinTxnDuration = 0
 		}
 	}
 

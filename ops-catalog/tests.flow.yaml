@@ -10,7 +10,7 @@ tests:
       - ingest:
           collection: ops/tasks/BASE_NAME/logs
           documents:
-            - shard: &shard
+            - shard: &eventsShard
                 name: a/b/c
                 kind: capture
                 keyBegin: "00000000"
@@ -21,18 +21,18 @@ tests:
               message: "not an event: missing eventTarget"
               fields:
                 eventType: "missingEventTarget"
-            - shard: *shard
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.02Z"
               level: info
               message: "not an event: no fields"
-            - shard: *shard
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.03Z"
               level: info
               message: "not an event: wrong eventType"
               fields:
                 eventType: { "wrong": "type" }
                 eventTarget: "a/b/c"
-            - shard: *shard
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.04Z"
               level: info
               message: "not an event: wrong error type"
@@ -40,14 +40,14 @@ tests:
                 eventType: "eventA"
                 eventTarget: "a/b/c"
                 error: { "wrong": "type" }
-            - shard: *shard
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.05Z"
               level: info
               message: "an eventA happened"
               fields:
                 eventType: "eventA"
                 eventTarget: "a/b/c"
-            - shard: *shard
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.06Z"
               level: info
               message: "an eventB happened"
@@ -58,12 +58,7 @@ tests:
       - verify:
           collection: ops/rollups/L1/BASE_NAME/events
           documents:
-            - shard: &shard
-                name: a/b/c
-                kind: capture
-                keyBegin: "00000000"
-                rClockBegin: "00000000"
-                build: "0000000000000000"
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.06Z"
               level: info
               message: "an eventB happened"
@@ -71,7 +66,7 @@ tests:
                 eventType: "eventB"
                 eventTarget: "a/b/bb"
                 error: "oh no"
-            - shard: *shard
+            - shard: *eventsShard
               ts: "2025-01-02T03:04:05.05Z"
               level: info
               message: "an eventA happened"
@@ -91,7 +86,7 @@ tests:
                 keyBegin: "aabbccdd"
                 rClockBegin: "00112233"
               ts: "2022-04-03T02:02:03.45678Z"
-              capture: &captureTaskStats1
+              capture:
                 tenant/test/collection:
                   right: { docsTotal: 1, bytesTotal: 15 }
                   out: { docsTotal: 2, bytesTotal: 20 }
@@ -108,7 +103,7 @@ tests:
                 keyBegin: "aabbccdd"
                 rClockBegin: "00112233"
               ts: "2022-04-03T03:02:03.45678Z"
-              capture: &captureTaskStats2
+              capture:
                 tenant/test/collection:
                   right: { docsTotal: 3, bytesTotal: 35 }
                   out: { docsTotal: 4, bytesTotal: 45 }
@@ -168,7 +163,7 @@ tests:
           collection: ops/tasks/BASE_NAME/logs
           documents:
             # Logs of the capture task
-            - shard: &shard
+            - shard: &statsShard
                 kind: capture
                 name: tenant/test/cap
                 keyBegin: "aabbccdd"
@@ -177,19 +172,19 @@ tests:
               level: warn
               message: whoops
             - {
-                shard: *shard,
+                shard: *statsShard,
                 ts: "2022-04-03T02:02:04Z",
                 level: error,
                 message: ouch,
               }
             - {
-                shard: *shard,
+                shard: *statsShard,
                 ts: "2022-04-03T02:02:05Z",
                 level: error,
                 message: shard failed,
               }
             - {
-                shard: *shard,
+                shard: *statsShard,
                 ts: "2022-04-03T02:02:06Z",
                 level: warn,
                 # Message is deliberately omitted.
@@ -199,7 +194,7 @@ tests:
           collection:
             name: ops/rollups/L1/BASE_NAME/catalog-stats
 
-          documents: &docs # Capture task
+          documents: &catalogStatsDocs # Capture task
             - catalogName: tenant/
               grain: daily
               statsSummary:
@@ -858,7 +853,7 @@ tests:
       - verify:
           # L2 derivation passed through docs as-is.
           collection: ops.us-central1.v1/catalog-stats-L2
-          documents: *docs
+          documents: *catalogStatsDocs
 
   doNotPublish/tests/interval-rollup:
     steps:
@@ -866,7 +861,7 @@ tests:
           description: Two documents representing intervals of elapsed time, one hour apart.
           collection: ops/tasks/BASE_NAME/stats
           documents:
-            - shard: &shard
+            - shard: &intervalRollupShard
                 kind: capture
                 name: tenant/task
                 keyBegin: "0000aaaa"
@@ -875,7 +870,7 @@ tests:
               interval:
                 uptimeSeconds: 300
                 usageRate: 1.5
-            - shard: *shard
+            - shard: *intervalRollupShard
               ts: "2022-04-03T03:01:00Z"
               interval:
                 uptimeSeconds: 600
@@ -885,7 +880,7 @@ tests:
           description: Expect we rolled-up a usageSeconds aggregate, as well as uptimeSeconds.
           collection:
             name: ops/rollups/L1/BASE_NAME/catalog-stats
-          documents: &docs
+          documents: &intervalRollupDocs
             - catalogName: tenant/
               grain: daily
               ts: "2022-04-03T00:00:00.000Z"
@@ -946,14 +941,14 @@ tests:
       - verify:
           # L2 derivation passed through docs as-is.
           collection: ops.us-central1.v1/catalog-stats-L2
-          documents: *docs
+          documents: *intervalRollupDocs
 
   doNotPublish/tests/inferred-schemas:
     steps:
       - ingest:
           collection: ops/tasks/BASE_NAME/logs
           documents:
-            - shard: &shard
+            - shard: &inferredSchemasShard
                 kind: capture
                 name: tenant/test/cap
                 keyBegin: "aabbccdd"
@@ -968,7 +963,7 @@ tests:
                   minimum: 32
                   maximum: 42
 
-            - shard: *shard
+            - shard: *inferredSchemasShard
               ts: "2022-04-03T02:02:04Z"
               level: info
               message: inferred schema updated
@@ -979,7 +974,7 @@ tests:
                   minimum: 42
                   maximum: 52
 
-            - shard: *shard
+            - shard: *inferredSchemasShard
               ts: "2022-04-03T02:02:05Z"
               level: info
               message: inferred schema updated
