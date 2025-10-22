@@ -14,6 +14,8 @@ The following data resources are supported through the Looker API:
 * [lookml_model_explores](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/LookmlModel/lookml_model_explore)
 * [lookml_models](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/LookmlModel/all_lookml_models)
 * [roles](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/Role/all_roles)
+* [user_attribute_values](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/User/user_attribute_user_values)
+* [user_attributes](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/UserAttribute/all_user_attributes)
 * [user_credentials_embed](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/User/all_user_credentials_embeds)
 * [user_roles](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/User/user_roles)
 * [users](https://cloud.google.com/looker/docs/reference/looker-api/latest/methods/User/all_users)
