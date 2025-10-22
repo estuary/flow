@@ -32,6 +32,8 @@ The following data resources are supported through the Shopify API:
    * Product Metafields
 * [Smart Collections](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/collections)
    * Smart Collection Metafields
+* [Subscription Contracts](https://shopify.dev/docs/api/admin-graphql/2025-04/queries/subscriptioncontracts)
+
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
@@ -58,6 +60,7 @@ If authenticating with an access token, ensure the following permissions are gra
 * `read_payment_terms`
 * `read_products`
 * `read_publications`
+* `read_own_subscription_contracts`
 
 ### Bulk Query Operation Limitations
 
