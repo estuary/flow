@@ -6,3 +6,4 @@ import:
   - temp-sensors/flow.yaml
   - derive-patterns/flow.yaml
   - reduction-types/flow.yaml
+  - ../ops-catalog/tests.flow.yaml
