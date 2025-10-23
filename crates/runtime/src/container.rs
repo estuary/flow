@@ -54,6 +54,8 @@ pub async fn start(
     task_type: ops::TaskType,
     plane: crate::Plane,
 ) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)> {
+    validate_connector_image(image, plane)?;
+
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
     //  * Docker for Mac restricts file shares to /User, /tmp, and a couple others.
@@ -277,6 +279,21 @@ pub async fn start(
             _process: process,
         },
     ))
+}
+
+/// Validates that a connector image is allowed to run in this data-plane.
+fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
+    if matches!(plane, crate::Plane::Public) {
+        if !image.starts_with("ghcr.io/estuary/") {
+            anyhow::bail!(
+                "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
+            );
+        }
+        if image.starts_with("ghcr.io/estuary/derive-python:") {
+            anyhow::bail!("Python derivations may only run in private data-planes");
+        }
+    }
+    Ok(())
 }
 
 /// Performs a basic validation of logs that represent events, to restrict
@@ -815,6 +832,35 @@ mod test {
             source: ParseBoolError,
         }
         "###);
+    }
+
+    #[test]
+    fn test_validate_connector_image_public_plane() {
+        let validate = |img| super::validate_connector_image(img, crate::Plane::Public);
+
+        // Allowed: estuary connectors (except derive-python)
+        assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
+        assert!(validate("ghcr.io/estuary/materialize-postgres:v1").is_ok());
+
+        // Blocked: derive-python
+        assert!(validate("ghcr.io/estuary/derive-python:latest").is_err());
+
+        // Blocked: non-estuary images
+        assert!(validate("alpine").is_err());
+        assert!(validate("docker.io/estuary/source-postgres:v1").is_err());
+    }
+
+    #[test]
+    fn test_validate_connector_image_private_and_local() {
+        for plane in [crate::Plane::Private, crate::Plane::Local] {
+            let validate = |img| super::validate_connector_image(img, plane);
+
+            // All images allowed in private/local planes
+            assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
+            assert!(validate("ghcr.io/estuary/derive-python:latest").is_ok());
+            assert!(validate("alpine").is_ok());
+            assert!(validate("docker.io/custom/connector:v1").is_ok());
+        }
     }
 
     #[test]
