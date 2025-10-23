@@ -1,4 +1,3 @@
-# Imports only all the collections, so we don't have to repeat the import list for each environment.
 import:
   - stock-stats/flow.yaml
   - citi-bike/flow.yaml

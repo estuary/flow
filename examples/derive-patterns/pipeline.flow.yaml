@@ -1,0 +1,62 @@
+import:
+  - inputs.flow.yaml
+
+collections:
+  patterns/pipeline:
+    schema:
+      type: object
+      properties:
+        Key: { type: string }
+        Doubled: { type: integer }
+      required: [Key, Doubled]
+    key: [/Key, /Doubled]
+
+    derive:
+      using:
+        python: { module: pipeline.flow.py }
+      transforms:
+        - name: fromInts
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+
+tests:
+  patterns/test/pipeline:
+    steps:
+      - ingest:
+          collection: patterns/ints
+          documents:
+            # Ingest 15 documents to exercise bounded concurrency (limit is 10)
+            - { Key: doc01, Int: 1 }
+            - { Key: doc02, Int: 2 }
+            - { Key: doc03, Int: 3 }
+            - { Key: doc04, Int: 4 }
+            - { Key: doc05, Int: 5 }
+            - { Key: doc06, Int: 6 }
+            - { Key: doc07, Int: 7 }
+            - { Key: doc08, Int: 8 }
+            - { Key: doc09, Int: 9 }
+            - { Key: doc10, Int: 10 }
+            - { Key: doc11, Int: 11 }
+            - { Key: doc12, Int: 12 }
+            - { Key: doc13, Int: 13 }
+            - { Key: doc14, Int: 14 }
+            - { Key: doc15, Int: 15 }
+      - verify:
+          description: Bounded async pipelining doubles each integer
+          collection: patterns/pipeline
+          documents:
+            - { Key: doc01, Doubled: 2 }
+            - { Key: doc02, Doubled: 4 }
+            - { Key: doc03, Doubled: 6 }
+            - { Key: doc04, Doubled: 8 }
+            - { Key: doc05, Doubled: 10 }
+            - { Key: doc06, Doubled: 12 }
+            - { Key: doc07, Doubled: 14 }
+            - { Key: doc08, Doubled: 16 }
+            - { Key: doc09, Doubled: 18 }
+            - { Key: doc10, Doubled: 20 }
+            - { Key: doc11, Doubled: 22 }
+            - { Key: doc12, Doubled: 24 }
+            - { Key: doc13, Doubled: 26 }
+            - { Key: doc14, Doubled: 28 }
+            - { Key: doc15, Doubled: 30 }
