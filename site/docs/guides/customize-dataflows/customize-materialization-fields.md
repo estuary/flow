@@ -165,3 +165,65 @@ Every included field will be mapped to a table column or equivalent in the endpo
 8. Click **Save and Publish**.
 
 The named, included fields will be reflected in the endpoint system.
+
+### Group-By Keys
+
+In addition to selecting fields to materialize, you can also specify which of those fields should be used as group-by keys.
+This lets you choose keys independent of the collection key structure.
+
+To set custom group-by keys for your materialized bindings:
+
+1. View the [Field Selection](#field-selection-for-materializations) table for a binding.
+
+2. At the top of the table, click the **Group By** button.
+
+   This will open a modal where you can configure your keys.
+
+3. Select fields that you would like to use as **keys** from the dropdown list of available options.
+
+   You can select multiple fields to specify an ordered array of primary keys.
+   Selected fields will be displayed as distinct chips, which you can click and drag to reorder.
+
+   :::tip
+   You can only select fields with a defined scalar type. Objects and other complex data types are not viable keys.
+   :::
+
+4. Click **Apply**.
+
+Key fields will be pinned to the top of the Field Selection table with a key icon.
+
+If you are editing group-by keys for an existing materialization, changes may result in affected bindings being [**backfilled**](/reference/backfilling-data/#materialization-backfill).
+
+### Usage in Specifications
+
+You can define selected fields and group-by keys directly in your [materialization's specification](/concepts/materialization/#specification) file rather than through the UI.
+
+If you are configuring your connector using the **Advanced Specification Editor** or through local `flow.yaml` files, you will need to update the `fields` stanza for your binding.
+
+Field selection and group-by stanzas are used as follows:
+
+```yaml
+bindings:
+  - source: acmeCo/example/collection
+    resource: { table: example_table }
+
+    # Modify the binding's 'fields' stanza
+    fields:
+      # Add a 'groupBy' array to define custom collection keys
+      groupBy:
+        - id
+        - secondKey
+
+      # Recommends fields for selection up to a specified depth (in this case, 2)
+      recommended: 2
+
+      # Require individual fields that may not otherwise be automatically selected
+      require:
+        _meta/field: {}
+        deeplyNestedField: {}
+
+      # Exclude individual fields that may be selected by default
+      exclude:
+        - sensitiveData
+        - pii
+```
