@@ -151,6 +151,7 @@ pub struct Publisher {
     db: sqlx::PgPool,
     builder: std::sync::Arc<Box<dyn builds::Builder>>,
     skip_tests: bool,
+    skip_connector_table_check: bool,
 }
 
 pub struct UncommittedBuild {
@@ -238,6 +239,7 @@ impl Publisher {
             db: pool,
             builder: std::sync::Arc::new(builder),
             skip_tests: false,
+            skip_connector_table_check: false,
         }
     }
 
@@ -245,6 +247,13 @@ impl Publisher {
     /// testing scenarios, where we may not be able to run temp data planes.
     pub fn with_skip_all_tests(mut self) -> Self {
         self.skip_tests = true;
+        self
+    }
+
+    /// Skip checking that connector images exist in the connectors table.
+    /// By default, connector images are verified against the connectors table.
+    pub fn with_skip_connector_table_check(mut self) -> Self {
+        self.skip_connector_table_check = true;
         self
     }
 
@@ -360,9 +369,13 @@ impl Publisher {
         // calling `build_catalog` in order to prevent the user from running arbitrary images
         // during the build process. Note that this check will need replaced with a more general
         // authorization check once we start supporting user-provided images.
-        let forbidden_images = specs::check_connector_images(&draft, &self.db)
-            .await
-            .context("checking connector images")?;
+        let forbidden_images = if self.skip_connector_table_check {
+            tables::Errors::default()
+        } else {
+            specs::check_connector_images(&draft, &self.db)
+                .await
+                .context("checking connector images")?
+        };
         let forbidden_source_capture = specs::check_source_capture_annotations(&draft, &self.db)
             .await
             .context("checking source capture")?;

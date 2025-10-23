@@ -47,6 +47,16 @@ struct Args {
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
+    /// Skip checking that connector images exist in the connectors table during publication.
+    // TODO(johnny): This flag is temporary, while we release data-plane enforcement
+    // of connector restrictions. Once released, we should remove this flag and remove
+    // all enforcement within the agent.
+    #[clap(
+        long = "skip-connector-table-check",
+        default_value = "false",
+        env = "SKIP_CONNECTOR_TABLE_CHECK"
+    )]
+    skip_connector_table_check: bool,
     /// Origin to allow in CORS contexts. May be specified multiple times.
     #[clap(long = "allow-origin")]
     allow_origin: Vec<String>,
@@ -227,7 +237,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let id_gen_shard = rand::rng().random_range(1u16..1024u16);
     let id_gen = models::IdGenerator::new(id_gen_shard);
     let builder = control_plane_api::publications::builds::new_builder(connectors);
-    let publisher = Publisher::new(
+    let mut publisher = Publisher::new(
         &bindir,
         &args.builds_root,
         &args.connector_network,
@@ -236,6 +246,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         id_gen.clone(),
         builder,
     );
+    if args.skip_connector_table_check {
+        publisher = publisher.with_skip_connector_table_check();
+    }
 
     let decrypted_hmac_keys = Arc::new(RwLock::new(HashMap::new()));
 
