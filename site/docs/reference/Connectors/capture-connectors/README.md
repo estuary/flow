@@ -308,6 +308,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Harvest
   - [Configuration](./harvest.md)
   - Package - ghcr.io/estuary/source-harvest:dev
+- Incident.io
+  - [Configuration](./incident-io.md)
+  - Package - ghcr.io/estuary/source-incident-io:dev
 - Instagram
   - [Configuration](./instagram.md)
   - Package - ghcr.io/estuary/source-instagram:dev
