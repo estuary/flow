@@ -223,8 +223,7 @@ mod test {
                 "spec": {
                     "connectorType": "IMAGE",
                     "config": {
-                        // TODO(johnny): Revert back to `:dev` once https://github.com/estuary/connectors/pull/3133 merges.
-                        "image": "ghcr.io/estuary/source-http-ingest:a9e22d3",
+                        "image": "ghcr.io/estuary/source-http-ingest:dev",
                         "config": {},
                     }
                 }
@@ -233,7 +232,7 @@ mod test {
         };
 
         let runtime = Runtime::new(
-            true,
+            crate::Plane::Local,
             "default".to_string(),
             ops::tracing_log_handler,
             None,
