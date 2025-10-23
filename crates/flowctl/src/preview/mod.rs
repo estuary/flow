@@ -96,7 +96,7 @@ impl Preview {
             local_specs::load_and_validate_full(&ctx.client, source.as_str(), &network).await?;
 
         let runtime = runtime::Runtime::new(
-            true, // Allow local.
+            runtime::Plane::Local,
             network.clone(),
             ops::tracing_log_handler,
             None,

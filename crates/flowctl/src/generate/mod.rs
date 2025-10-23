@@ -156,7 +156,7 @@ async fn generate_missing_capture_configs(
         resource_config_schema_json,
         ..
     } = runtime::Runtime::new(
-        true,          // All local.
+        runtime::Plane::Local,
         String::new(), // Default network.
         ops::tracing_log_handler,
         None,
@@ -238,7 +238,7 @@ async fn generate_missing_collection_configs(
         resource_config_schema_json,
         ..
     } = runtime::Runtime::new(
-        true,          // All local.
+        runtime::Plane::Local,
         String::new(), // Default network.
         ops::tracing_log_handler,
         None,
@@ -319,7 +319,7 @@ async fn generate_missing_materialization_configs(
         resource_config_schema_json,
         ..
     } = runtime::Runtime::new(
-        true,          // All local.
+        runtime::Plane::Local,
         String::new(), // Default network.
         ops::tracing_log_handler,
         None,

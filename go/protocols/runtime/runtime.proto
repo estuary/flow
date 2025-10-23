@@ -14,12 +14,23 @@ option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
+// Plane describes the type of data plane in which the runtime is operating.
+enum Plane {
+  // A public data-plane. Lowest level of trust due to its multi-tenancy.
+  PUBLIC = 0;
+  // A private data-plane. Higher level of trust due to its tenant isolation.
+  PRIVATE = 1;
+  // A local stack or CLI context. Highest level of trust as we're running
+  // on a developer or user's machine, not a production context.
+  LOCAL = 2;
+}
+
 message TaskServiceConfig {
   int32 log_file_fd = 1;
   string task_name = 2;
   string uds_path = 3;
   string container_network = 4;
-  bool   allow_local = 5;
+  Plane  plane = 6;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.

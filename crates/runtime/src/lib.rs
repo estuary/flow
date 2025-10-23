@@ -16,6 +16,7 @@ mod tokio_context;
 mod unary;
 pub mod uuid;
 
+pub use ::proto_flow::runtime::Plane; // Re-export.
 pub use container::flow_runtime_protocol;
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
@@ -137,7 +138,7 @@ impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
 /// Runtime implements the various services that constitute the Flow Runtime.
 #[derive(Clone)]
 pub struct Runtime<L: LogHandler> {
-    allow_local: bool,
+    plane: Plane,
     container_network: String,
     log_handler: L,
     set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
@@ -146,20 +147,20 @@ pub struct Runtime<L: LogHandler> {
 
 impl<L: LogHandler> Runtime<L> {
     /// Build a new Runtime.
-    /// * `allow_local`: Whether local connectors are permitted by this Runtime.
+    /// * `plane`: the type of data plane in which this Runtime is operating.
     /// * `container_network`: the Docker container network used for connector containers.
     /// * `log_handler`: handler to which connector logs are dispatched.
     /// * `set_log_level`: callback for adjusting the log level implied by runtime requests.
     /// * `task_name`: name which is used to label any started connector containers.
     pub fn new(
-        allow_local: bool,
+        plane: Plane,
         container_network: String,
         log_handler: L,
         set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
     ) -> Self {
         Self {
-            allow_local,
+            plane,
             container_network,
             log_handler,
             set_log_level,
