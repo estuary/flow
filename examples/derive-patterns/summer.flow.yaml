@@ -3,7 +3,7 @@ import:
 
 collections:
   patterns/sums-reductions:
-    schema: &schema
+    schema: &schemaWithReduce
       type: object
       properties:
         Key: { type: string }
@@ -14,10 +14,21 @@ collections:
       reduce: { strategy: merge }
     key: [/Key]
 
-
     derive:
       using:
         typescript: { module: summer.flow.ts }
+      transforms:
+        - name: fromInts
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+
+  patterns/sums-python:
+    schema: *schemaWithReduce
+    key: [/Key]
+
+    derive:
+      using:
+        python: { module: summer.flow.py }
       transforms:
         - name: fromInts
           source: { name: patterns/ints }
@@ -33,7 +44,6 @@ collections:
           type: integer
       required: [Key]
     key: [/Key]
-
 
     derive:
       using:
@@ -59,22 +69,27 @@ collections:
             WHERE key = $Key;
 tests:
   patterns/test/sums:
-    - ingest:
-        collection: patterns/ints
-        documents:
-          - { Key: key, Int: -3 }
-          - { Key: key, Int: 5 }
-    - ingest:
-        collection: patterns/ints
-        documents: [{ Key: key, Int: 10 }]
-    - verify:
-        # "verify" steps fully reduce documents of the collection.
-        # Under the hood, these are multiple delta updates.
-        description: Expect we can do sums during materialization
-        collection: patterns/sums-reductions
-        documents: [{ Key: key, Sum: 12 }]
-    - verify:
-        # These are multiple snapshots, of which "verify" takes the last.
-        description: Expect we can do sums within registers
-        collection: patterns/sums-stateful
-        documents: [{ Key: key, Sum: 12 }]
+    steps:
+      - ingest:
+          collection: patterns/ints
+          documents:
+            - { Key: key, Int: -3 }
+            - { Key: key, Int: 5 }
+      - ingest:
+          collection: patterns/ints
+          documents: [{ Key: key, Int: 10 }]
+      - verify:
+          # "verify" steps evaluate fully reduced documents of the collection.
+          # Under the hood, these are built from multiple published updates.
+          description: Expect we can do sums via reduce annotations
+          collection: patterns/sums-reductions
+          documents: [{ Key: key, Sum: 12 }]
+      - verify:
+          description: The same data flow, this time in Python
+          collection: patterns/sums-python
+          documents: [{ Key: key, Sum: 12 }]
+      - verify:
+          # These are multiple snapshots, of which "verify" takes the last.
+          description: Expect we can do sums within registers
+          collection: patterns/sums-stateful
+          documents: [{ Key: key, Sum: 12 }]

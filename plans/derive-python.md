@@ -621,6 +621,10 @@ The subprocess must be able to import generated types:
 9. ✅ Pyright type checking validates user code during Validate phase
 10. ✅ Error messages are clear and actionable
 
+## Implementation Complete
+
+All phases (1-6) are complete as of 2025-10-22. The derive-python connector is fully functional.
+
 ## References
 
 - `crates/derive-typescript/` - Primary reference for connector structure
@@ -726,4 +730,34 @@ The subprocess must be able to import generated types:
 - Added constants: `MAIN_NAME`, `MODULE_NAME`, `GENERATED_PREFIX`
 - All tests pass, release build successful
 
-**Next:** Phase 5 (Testing & Examples)
+### Phase 5: Testing & Examples ✅ COMPLETE (2025-10-22)
+
+- Created three comprehensive Python examples in `examples/derive-patterns/`
+  1. **summer.flow.py** - Basic transformation pattern
+     - Simple synchronous transform mapping integers to sums
+     - Demonstrates async generator pattern and Pydantic types
+     - Uses reduce annotations for runtime aggregation
+     - Test: Verifies correct summation (12 = -3 + 5 + 10)
+
+  2. **pipeline.flow.py** - Bounded async concurrency
+     - Maintains up to 10 concurrent async tasks
+     - Streams results as tasks complete (no unbounded buffering)
+     - Shows production pattern for parallel API calls with rate limiting
+     - Test: 15 documents to exercise bounded concurrency limit
+
+  3. **stateful.flow.py** - Persistent state management
+     - Maintains per-key counters and running sums across transactions
+     - Uses `merge_patch=True` to persist only touched keys (performance optimization)
+     - Demonstrates state recovery after task restarts
+     - Uses Pydantic models for type-safe state serialization
+     - Test: Multi-transaction test verifying state persistence
+- Integrated into catalog test suite
+
+### Phase 6: Docker Image ✅ COMPLETE (2025-10-20)
+
+- Created `crates/derive-python/Dockerfile`:
+  - Based on `ghcr.io/astral-sh/uv:python3.14-trixie-slim`
+- Created `.github/workflows/derive-python.yaml`:
+  - Triggers on push/PR to master affecting `crates/derive-python/**`
+  - Builds with musl target for static linking
+- Docker image successfully builds and runs in catalog tests

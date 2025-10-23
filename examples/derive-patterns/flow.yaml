@@ -4,4 +4,6 @@ import:
   - join-one-sided.flow.yaml
   - join-outer.flow.yaml
   - summer.flow.yaml
+  - pipeline.flow.yaml
+  - stateful.flow.yaml
   - entity-attribute-values.flow.yaml

@@ -1,0 +1,53 @@
+import:
+  - inputs.flow.yaml
+
+collections:
+  patterns/stateful:
+    schema:
+      type: object
+      properties:
+        Key: { type: string }
+        Count:
+          type: integer
+          description: Per-key count of documents seen
+        Sum:
+          type: integer
+          description: Per-key running sum of Int values
+      required: [Key, Count, Sum]
+    key: [/Key]
+
+    derive:
+      using:
+        python: { module: stateful.flow.py }
+      transforms:
+        - name: fromInts
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+
+tests:
+  patterns/test/stateful:
+    steps:
+      - ingest:
+          collection: patterns/ints
+          documents:
+            - { Key: a, Int: 1 }
+            - { Key: b, Int: 2 }
+            - { Key: a, Int: 3 }
+      - verify:
+          description: State accumulates during first transaction
+          collection: patterns/stateful
+          documents:
+            - { Key: a, Count: 2, Sum: 4 }
+            - { Key: b, Count: 1, Sum: 2 }
+
+      - ingest:
+          collection: patterns/ints
+          documents:
+            - { Key: b, Int: 4 }
+            - { Key: a, Int: 5 }
+      - verify:
+          description: And the second
+          collection: patterns/stateful
+          documents:
+            - { Key: a, Count: 3, Sum: 9 }
+            - { Key: b, Count: 2, Sum: 6 }
