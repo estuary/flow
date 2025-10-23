@@ -35,6 +35,8 @@ By deploying your data, network, and compute within your own private cloud, you 
 
 * **Data sharing:** Private deployments enable secure and controlled data sharing, allowing for collaboration on data collections without compromising data integrity or confidentiality.
 
+* **Python derivations:** Derivations using [Python](/concepts/derivations/#python) as the transformation language are currently only available in private or BYOC deployments.
+
 ## Using Connectors with Private Data Planes
 
 Once your private deployment is set up, it's straightforward to use it for any of Estuary's data connectors. When creating the connector, simply choose your private data plane in the **Capture Details** section.
