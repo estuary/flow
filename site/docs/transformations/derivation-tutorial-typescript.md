@@ -115,7 +115,7 @@ The Flow consists of just one collection, which is what you define here, called 
 
 Let’s go over this in a bit more detail.
 
-First of all, the collection needs a schema. The schema of the incoming data (also called the [“write” schema](https://docs.estuary.dev/concepts/schemas/#write-and-read-schemas)) is already defined by the demo, you only have to define the schema of the documents the transformation will output, which is the “read” schema.
+First of all, the collection needs a schema. The schema of the incoming data is already attached to the `source: demo/wikipedia/recentchange-sampled` collection we're using in this demo, you only have to define the schema of the documents the transformation will output.
 
 Let’s define what the final documents will look like.
 
@@ -173,7 +173,7 @@ derive:
 
 Here you configure the name of the Typescript file that will contain the code for the actual transformation (don’t worry about the file not existing yet!) and give a name to the transformation. 
 
-The `source: demo/wikipedia/recentchange-sampled` property lets Flow know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any available compute.
+The `source: demo/wikipedia/recentchange-sampled` property lets Flow know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any scaled-out instance of the derivation.
 
 Alright, the configuration required for the derivation is in place, all that’s left is to write some TypeScript!
 

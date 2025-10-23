@@ -25,9 +25,10 @@ A derivation consists of three primary elements:
   as they become available and writes the resulting documents into the derived collection.
 * An [internal task state](#internal-state) which enables aggregations, joins, and windowing.
 
-Today, Flow enables you to write derivations using either
-[SQLite](#sqlite) or [TypeScript](#typescript).
-Additional language support is in the works.
+Flow enables you to write derivations using
+[SQLite](#sqlite), [TypeScript](#typescript), or [Python](#python).
+Today, Python derivations are restricted to private and BYOC data planes.
+We intend to lift this restriction in the future.
 
 :::note
 If you would like a a more hands-on approach to learn derivations, check out [this](../getting-started/tutorials/derivations_acmebank.md) tutorial!
@@ -71,6 +72,20 @@ collections:
           # a stub can be generated using `flowctl generate`.
           module: acmeModule.ts
 
+        # Derivation is using the Python connector.
+        # Optional, type: object
+        python:
+          # Python module implementing this derivation,
+          # as inline Python or a relative file reference.
+          # If a referenced file does not exist
+          # a stub can be generated using `flowctl generate`.
+          module: acmeModule.flow.py
+          # Additional Python package dependencies.
+          # Optional, type: object mapping package names to version specifiers
+          dependencies:
+            requests: ">=2.31.0"
+            pandas: ">=2.0"
+
       # The array of transformations that build this derived collection.
       transform:
         # Unique name of the transformation, containing only Unicode
@@ -101,8 +116,8 @@ collections:
           # Lambda of this transform, with a meaning which depends
           # on the derivation connector:
           # * SQLite derivation lambdas are blocks of SQL code.
-          # * TypeScript does not use `lambda`, as implementations
-          #   are provided by the derivation's TypeScript module.
+          # * TypeScript and Python do not use `lambda`, as implementations
+          #   are provided by the derivation's module.
           # Lambdas can be either inline or a relative file reference.
           lambda: SELECT $foo, $bar;
           # Delay applied to sourced documents before being processed
@@ -129,7 +144,7 @@ Flow derivations are built around a plug-able [connectors](../#connectors) archi
 Derivation connectors encapsulate the details of _how_ documents are transformed,
 and integrate with Flow's runtime through a common protocol.
 
-At present, Flow supports transformations in SQL using [SQLite](#sqlite), and [TypeScript](#typescript).
+At present, Flow supports transformations in SQL using [SQLite](#sqlite), [TypeScript](#typescript), and [Python](#python).
 
 ## SQLite
 
@@ -366,6 +381,103 @@ persisting and recovering internal state of the connector.
 
 Consult the generated implementation and feel free to reach out to support
 if you'd like more information on building stateful TypeScript derivations.
+
+## Python
+
+Flow's Python derivation connector transforms your source documents
+by executing async methods of a Python class which you implement.
+Python derivations are executed using [uv](https://docs.astral.sh/uv/),
+a fast Python package manager, and let you take advantage of the extensive
+Python ecosystem while maintaining strong type safety through Pydantic models.
+
+Python derivations are strongly typed:
+Flow maps the JSON schemas of your source and output collections
+into corresponding Pydantic models,
+which are validated at publish time using [pyright](https://github.com/microsoft/pyright)
+in strict mode and provide excellent IDE support with autocomplete.
+
+### Modules
+
+The bulk of a Python derivation lives in its associated module,
+which is a Python source file that exports the class that implements your derivation.
+
+Each derivation also has an accompanying, generated types module.
+Type modules are managed by Flow and are purely advisory:
+they're generated to improve your development experience,
+but any changes you make are ignored.
+
+The `flowctl generate --source path/to/my/derivation.flow.yaml` CLI command
+will generate type modules under paths like
+`flow_generated/python/acmeCo/my_derivation/__init__.py`,
+along with `pyproject.toml` and `pyrightconfig.json` for IDE integration.
+
+These generated files work seamlessly with Python IDEs and language servers
+to provide type checking, autocomplete, and inline documentation as you write your derivations.
+
+### Dependencies
+
+You can specify additional Python packages in your derivation configuration:
+
+```yaml
+derive:
+  using:
+    python:
+      module: my_derivation.flow.py
+      dependencies:
+        requests: ">=2.31.0"
+        pandas: ">=2.0"
+        httpx: ">=0.27.0"
+```
+
+The `pydantic` (>=2.0) and `pyright` (>=1.1) packages are automatically included
+as required dependencies. Flow uses `uv` to install and manage all dependencies
+efficiently during both validation and execution.
+
+### Async Patterns
+
+Python derivations use async generators to process documents efficiently.
+Each transform method must be an async generator that yields output documents:
+
+```python
+async def from_orders(self, read: Request.ReadFromOrders) -> AsyncIterator[Document]:
+    # Process the input document
+    result = await some_async_operation(read.doc)
+
+    # Yield one or more output documents
+    yield Document(
+        key=read.doc.key,
+        processed_value=result
+    )
+```
+
+This async design allows you to efficiently perform I/O operations like API calls,
+database queries, or HTTP requests while processing documents.
+For managing concurrent operations with bounded parallelism,
+see the [pipeline pattern example](https://github.com/estuary/flow/blob/master/examples/derive-patterns/pipeline.flow.py).
+
+### State
+
+Python derivations support persistent state management through lifecycle methods:
+
+* **`__init__(self, open: Request.Open)`**: Initialize and load persisted state
+  from previous transactions via `open.state`
+* **`start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit`**:
+  Return state updates to persist at the end of each transaction
+* **`reset(self)`**: Reset state between catalog tests
+
+State is serialized as JSON and persists across task restarts, enabling
+stateful transformations like running aggregations, joins, and windowed computations.
+
+The `start_commit` method supports JSON merge patch semantics through `merge_patch=True`,
+allowing you to efficiently update only the portions of state that changed
+during a transaction rather than replacing the entire state.
+
+For a complete example of stateful derivations, see the
+[stateful pattern example](https://github.com/estuary/flow/blob/master/examples/derive-patterns/stateful.flow.py).
+
+[See more derivation patterns in the examples directory](
+  https://github.com/estuary/flow/tree/master/examples/derive-patterns
+)
 
 ## Transformations
 
