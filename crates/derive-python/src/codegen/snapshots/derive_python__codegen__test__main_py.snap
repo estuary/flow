@@ -4,26 +4,34 @@ expression: output
 ---
 import asyncio
 import sys
+import typing
 
 from patterns.sums import (Request, Response)
 from my_module import Derivation
 
 
+async def stdin_requests() -> typing.AsyncGenerator[Request, None]:
+    loop = asyncio.get_event_loop()
+    reader = asyncio.StreamReader(limit=1 << 27)  # 128 MiB.
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+
+    while line := await reader.readline():
+        yield Request.model_validate_json(line)
+
+
 async def main() -> None:
     """Main event loop for Python derivation runtime."""
 
-    # Read and parse Open message
-    open_line = sys.stdin.readline()
-    if not open_line:
-        return  # Clean EOF
+    requests = stdin_requests()
+    open = await requests.__anext__()
 
-    request = Request.model_validate_json(open_line)
-    if not request.open:
+    if not open.open:
         print("Error: Expected open message", file=sys.stderr)
         sys.exit(1)
 
     # Instantiate user's Derivation class
-    derivation = Derivation(request.open)
+    derivation = Derivation(open.open)
 
     # Build array of transform methods
     transforms = [derivation.from_ints, derivation.process_strings]
@@ -32,12 +40,7 @@ async def main() -> None:
     print(Response(opened=Response.Opened()).model_dump_json(by_alias=True), flush=True)
 
     # Main protocol loop
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-
-        request = Request.model_validate_json(line)
-
+    async for request in requests:
         if request.read:
             async for doc in transforms[request.read.transform](request.read):
                 response = Response(published=Response.Published(doc=doc))

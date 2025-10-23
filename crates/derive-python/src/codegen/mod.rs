@@ -62,7 +62,7 @@ import pydantic
         r#"class Request(pydantic.BaseModel):
 
     class Open(pydantic.BaseModel):
-        state: typing.Any = None
+        state: dict[str, typing.Any]
 
     class Flush(pydantic.BaseModel):
         pass
@@ -135,7 +135,7 @@ class Response(pydantic.BaseModel):
     class StartedCommit(pydantic.BaseModel):
 
         class State(pydantic.BaseModel):
-            updated: typing.Any
+            updated: dict[str, typing.Any]
             merge_patch: bool = False
 
         state: typing.Optional[State] = None
