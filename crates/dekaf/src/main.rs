@@ -444,6 +444,7 @@ async fn serve(
                     .await?;
 
                     () = w.write_all(&mut out).await?;
+                    w.flush().await?;
                     out.clear();
                 }
                 _ = tokio::time::sleep(idle_timeout) => {
