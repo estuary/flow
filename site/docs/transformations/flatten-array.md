@@ -7,7 +7,7 @@ slug: /guides/flatten-array/
 This guide will show you how to flatten an array field in a collection by creating a TypeScript derivation in Estuary Flow.
 
 :::note
-We'll be using TypeScript for our derivation in this guide. Check out our other guides if you're interested in [using SQL for transformations](/guides/derivation_tutorial_sql).
+We'll be using TypeScript for our derivation in this guide. Check out our other guides if you're interested in using [SQL](/guides/derivation_tutorial_sql) or [Python](/guides/transform_data_using_python) for transformations.
 :::
 
 The collection we'll be working with (`user_content`) contains a field called `tags`, which is an array of objects. Each object in the array has a name and a value. We'll be flattening this array into a new collection, with two separate fields: `tag_name` and `tag_value`.
