@@ -196,6 +196,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--consumer.host", "localhost",
 		"--consumer.watch-delay", "0ms", // Speed test execution.
 		"--etcd.address", etcdAddr,
+		"--flow.allow-local", "true",
 		"--flow.builds-root", buildsRoot,
 		"--flow.control-api", "http://agent.flow.localhost:8675",
 		"--flow.dashboard", "http://dashboard.flow.localhost:3000",
