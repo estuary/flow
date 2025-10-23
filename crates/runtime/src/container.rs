@@ -52,7 +52,7 @@ pub async fn start(
     network: &str,
     task_name: &str,
     task_type: ops::TaskType,
-    publish_ports: bool,
+    plane: crate::Plane,
 ) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)> {
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
@@ -133,7 +133,9 @@ pub async fn start(
         format!("--label=task-type={}", task_type.as_str_name()),
     ];
 
-    if publish_ports {
+    // When running locally, we publish ports so that connectors are accessible
+    // on the host from Windows and MacOS (e.x. Docker Desktop).
+    if matches!(plane, crate::Plane::Local) {
         // Bind a random port, and then check what port was given to us.
         let l = tokio::net::TcpListener::bind("0.0.0.0:0")
             .await
@@ -652,7 +654,7 @@ mod test {
             "",
             "a-task-name",
             proto_flow::ops::TaskType::Capture,
-            true,
+            crate::Plane::Local,
         )
         .await
         .unwrap();
@@ -713,7 +715,7 @@ mod test {
             "",
             "a-task-name",
             proto_flow::ops::TaskType::Capture,
-            true,
+            crate::Plane::Local,
         )
         .await
         else {

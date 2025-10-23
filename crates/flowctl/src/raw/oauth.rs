@@ -109,7 +109,7 @@ pub async fn do_oauth(
     });
 
     let spec_response = runtime::Runtime::new(
-        true, // All local.
+        runtime::Plane::Local,
         network.clone(),
         ops::tracing_log_handler,
         None,

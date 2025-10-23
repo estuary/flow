@@ -48,15 +48,13 @@ impl JobStatus {
 pub struct TagExecutor {
     connector_network: String,
     logs_tx: logs::Tx,
-    allow_local: bool,
 }
 
 impl TagExecutor {
-    pub fn new(connector_network: &str, logs_tx: &logs::Tx, allow_local: bool) -> Self {
+    pub fn new(connector_network: &str, logs_tx: &logs::Tx) -> Self {
         Self {
             connector_network: connector_network.to_string(),
             logs_tx: logs_tx.clone(),
-            allow_local,
         }
     }
 }
@@ -168,7 +166,7 @@ impl TagExecutor {
             logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
 
         let runtime = Runtime::new(
-            self.allow_local,
+            runtime::Plane::Public,
             self.connector_network.clone(),
             log_handler,
             None, // no need to change log level

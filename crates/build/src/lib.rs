@@ -109,7 +109,7 @@ pub async fn local(
     ::sources::inline_draft_catalog(&mut draft);
 
     let runtime = runtime::Runtime::new(
-        true, // Allow local connectors.
+        runtime::Plane::Local,
         connector_network.to_string(),
         log_handler,
         None,

@@ -17,7 +17,7 @@ impl TaskService {
             task_name,
             uds_path,
             container_network,
-            allow_local,
+            plane,
         } = config;
 
         if !std::path::Path::new(&uds_path).is_absolute() {
@@ -40,7 +40,7 @@ impl TaskService {
 
         // Instantiate selected task service definitions.
         let runtime = Runtime::new(
-            allow_local,
+            crate::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
             container_network,
             log_handler,
             Some(tokio_context.set_log_level_fn()),

@@ -59,12 +59,14 @@ pub async fn start<L: LogHandler>(
                 start_rpc,
                 &runtime.task_name,
                 ops::TaskType::Materialization,
-                runtime.allow_local,
+                runtime.plane,
             )
             .await?
             .boxed()
         }
-        models::MaterializationEndpoint::Local(_) if !runtime.allow_local => {
+        models::MaterializationEndpoint::Local(_)
+            if !matches!(runtime.plane, crate::Plane::Local) =>
+        {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
             )

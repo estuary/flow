@@ -80,10 +80,10 @@ func newTaskBase[TaskSpec pf.Task](
 
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{
-			AllowLocal:       host.config.Flow.AllowLocal,
 			ContainerNetwork: host.config.Flow.Network,
 			TaskName:         term.labels.TaskName,
 			UdsPath:          path.Join(recorder.Dir(), "socket"),
+			Plane:            host.config.Plane(),
 		},
 		opsPublisher.PublishLog,
 	)
