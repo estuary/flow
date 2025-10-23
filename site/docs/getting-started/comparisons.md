@@ -34,7 +34,7 @@ Estuary supports batch use cases with configurable sync schedules while also sup
 Because of Estuary's unique technical capabilities, a single connector can often handle both real-time streams and batch jobs of specific data collections going to the same destination.
 
 Many batch-based systems are also ELT by default, saving the transformation step until after data is loaded into the destination system.
-Estuary provides a [dbt Cloud](/guides/dbt-integration) integration option for ELT workflows and also allows users to create SQL or TypeScript [transformations](/guides/flowctl/create-derivation) that get applied before data reaches the destination.
+Estuary provides a [dbt Cloud](/guides/dbt-integration) integration option for ELT workflows and also allows users to create SQL, TypeScript, or Python [transformations](/guides/flowctl/create-derivation) that get applied before data reaches the destination.
 This can increase efficiency when materializing transformed data to multiple different destinations, as well as saving on compute and storage costs with destination systems.
 
 ### Streaming Solutions (Confluent, Debezium)

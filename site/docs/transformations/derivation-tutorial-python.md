@@ -6,6 +6,9 @@ slug: /guides/transform_data_using_python/
 
 This guide will teach you how to write and publish a simple Python derivation using async functions and Pydantic models.
 
+:::tip
+Python derivations can only be deployed to [private or BYOC data planes](/private-byoc).
+:::
 
 ## Introduction<a id="introduction"></a>
 
@@ -180,7 +183,7 @@ Now that you have both `flow.yaml` and `wiki-edit-events.schema.yaml` created, y
 
 ## Generating types<a id="generating-types"></a>
 
-The next step is to use `flowctl` to generate Python type stubs you can use as aid when writing the transformation code.
+The next step is to use `flowctl` to generate Python type stubs you can use as an aid when writing the transformation code.
 
 Execute the following command:
 
