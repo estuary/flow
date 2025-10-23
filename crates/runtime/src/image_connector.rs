@@ -21,7 +21,7 @@ pub async fn serve<Request, Response, StartRpc, Attach, L: crate::LogHandler>(
     start_rpc: StartRpc,      // Begins RPC over a started container channel.
     task_name: &str,          // Name of this task, used to label container.
     task_type: ops::TaskType, // Type of this task, for labeling container.
-    publish_ports: bool,      // Whether to expose container ports. Must be true on mac/windoze.
+    plane: crate::Plane,      // Data-plane context in which the connector is running.
 ) -> anyhow::Result<
     impl Stream<Item = anyhow::Result<Response>> + Send + use<Request, Response, StartRpc, Attach, L>,
 >
@@ -40,7 +40,7 @@ where
         &network,
         &task_name,
         task_type,
-        publish_ports,
+        plane,
     )
     .await?;
 

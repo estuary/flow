@@ -9,8 +9,8 @@ pub struct TaskServiceConfig {
     pub uds_path: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub container_network: ::prost::alloc::string::String,
-    #[prost(bool, tag = "5")]
-    pub allow_local: bool,
+    #[prost(enumeration = "Plane", tag = "6")]
+    pub plane: i32,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,
@@ -418,4 +418,38 @@ pub struct ConnectorProxyResponse {
     /// All messages following the first are logs.
     #[prost(message, optional, tag = "3")]
     pub log: ::core::option::Option<super::ops::Log>,
+}
+/// Plane describes the type of data plane in which the runtime is operating.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Plane {
+    /// A public data-plane. Lowest level of trust due to its multi-tenancy.
+    Public = 0,
+    /// A private data-plane. Higher level of trust due to its tenant isolation.
+    Private = 1,
+    /// A local stack or CLI context. Highest level of trust as we're running
+    /// on a developer or user's machine, not a production context.
+    Local = 2,
+}
+impl Plane {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Public => "PUBLIC",
+            Self::Private => "PRIVATE",
+            Self::Local => "LOCAL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PUBLIC" => Some(Self::Public),
+            "PRIVATE" => Some(Self::Private),
+            "LOCAL" => Some(Self::Local),
+            _ => None,
+        }
+    }
 }

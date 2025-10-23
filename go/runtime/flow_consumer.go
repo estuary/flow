@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,28 @@ func (c *FlowConsumerConfig) Execute(args []string) error {
 		App:          app,
 		WrapListener: app.tap.Wrap,
 	}.Execute(args)
+}
+
+// Plane returns the data-plane context in which this FlowConsumerConfig is running.
+func (c *FlowConsumerConfig) Plane() pr.Plane {
+	// AllowLocal flag is only passed in allowed local contexts.
+	if c.Flow.AllowLocal {
+		return pr.Plane_LOCAL
+	}
+
+	// Determine if we're running in a public or private data-plane.
+	// Today, we don't pass the data-plane name as a command-line argument,
+	// so this is a hack, but a sound one. We're leveraging the fact that private
+	// plans ALWAYS have an obfuscated FQDN built from a hex-encoded hash,
+	// while public planes ALWAYS have a human-readable FQDN which encodes its hyphen
+	// separated provider, region, and cluster number.
+	// * `aws-eu-west-1-c1.dp.estuary-data.com` is public
+	// * `f7002c61f85f2b5e.dp.estuary-data.com` is private
+
+	if m, _ := regexp.Match("^[0-9a-f]{16}\\.", []byte(c.Flow.DataPlaneFQDN)); m {
+		return pr.Plane_PRIVATE
+	}
+	return pr.Plane_PUBLIC
 }
 
 // FlowConsumer implements the Estuary Flow Consumer.

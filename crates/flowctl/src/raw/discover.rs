@@ -92,7 +92,7 @@ pub async fn do_discover(
     });
 
     let capture::response::Discovered { bindings } = runtime::Runtime::new(
-        true, // All local.
+        runtime::Plane::Local,
         network.clone(),
         ops::tracing_log_handler,
         None,

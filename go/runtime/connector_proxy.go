@@ -47,10 +47,10 @@ func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnector
 
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{
-			AllowLocal:       s.host.config.Flow.AllowLocal,
 			ContainerNetwork: s.host.config.Flow.Network,
 			TaskName:         id,
 			UdsPath:          path.Join(os.TempDir(), id),
+			Plane:            s.host.config.Plane(),
 		},
 		func(log ops.Log) {
 			_ = stream.Send(&pr.ConnectorProxyResponse{Log: &log})

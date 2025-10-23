@@ -93,7 +93,7 @@ async fn get_spec_response(
     draft: &DraftCatalog,
 ) -> anyhow::Result<String> {
     let runtime = runtime::Runtime::new(
-        true, // Allow local.
+        runtime::Plane::Local,
         network.to_string(),
         ops::tracing_log_handler,
         None,

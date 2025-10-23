@@ -41,9 +41,6 @@ struct Args {
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
-    /// Allow local connectors. True for local stacks, and false otherwise.
-    #[clap(long = "allow-local")]
-    allow_local: bool,
     /// The port to listen on for API requests.
     #[clap(long, default_value = "8080", env = "API_PORT")]
     api_port: u16,
@@ -257,8 +254,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         decrypted_hmac_keys,
         args.auto_discover_probability,
     );
-    let connector_tags_executor =
-        agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);
+    let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
 
     // Share-able future which completes when the agent should exit.
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
