@@ -121,6 +121,9 @@ In the future, other open-source materialization connectors from third parties c
   * [Configuration](./Rockset.md)
   * Package — ghcr.io/estuary/materialize-rockset:dev
 * SingleStore
+  * [Configuration](./MySQL/singlestore-mysql.md)
+  * Package - ghcr.io/estuary/materialize-singlestore:dev
+* SingleStore (Dekaf)
   * [Configuration](./Dekaf/singlestore.md)
 * Slack
   * [Configuration](./slack.md)
