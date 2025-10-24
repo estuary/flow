@@ -20,12 +20,14 @@ The connector automatically discovers bindings for the following HubSpot resourc
 * [Feedback Submissions](https://developers.hubspot.com/docs/api/crm/feedback-submissions)
 * [Form Submissions](https://developers.hubspot.com/docs/reference/api/marketing/forms/v1)
 * [Forms](https://developers.hubspot.com/docs/reference/api/marketing/forms/v3)
+* [Goals](https://developers.hubspot.com/docs/api-reference/crm-goal-targets-v3/guide)
 * [Line Items](https://developers.hubspot.com/beta-docs/guides/api/crm/objects/line-items)
 * [Marketing Emails](https://developers.hubspot.com/docs/api-reference/marketing-marketing-emails-v3/marketing-emails/get-marketing-v3-emails-)
 * [Owners](https://developers.hubspot.com/beta-docs/reference/api/crm/owners/v2)
 * [Products](https://developers.hubspot.com/beta-docs/guides/api/crm/objects/products)
 * [Properties](https://developers.hubspot.com/docs/api/crm/properties)
 * [Tickets](https://developers.hubspot.com/docs/api/crm/tickets)
+* [Workflows](https://developers.hubspot.com/docs/api-reference/legacy/create-manage-workflows-v3/get-automation-v3-workflows)
 
 ## Prerequisites
 
