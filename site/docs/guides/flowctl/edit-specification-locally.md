@@ -3,7 +3,7 @@ sidebar_position: 1
 ---
 import Mermaid from '@theme/Mermaid';
 
-# Edit a Flow specification locally
+# Edit a Flow Specification Locally
 
 The [Flow web application](../../concepts/web-app.md) is designed to make the most common Flow tasks quick and easy.
 With the app, you're able to create, monitor, and manage captures, materializations, and more.

@@ -3,6 +3,12 @@
 
 Bring Your Own Cloud (BYOC) deployments are similar to [private deployments](../private-deployments.md) while allowing users even more control over their data. With this deployment option, you create and own the data plane that Estuary deploys to.
 
+You will need to create a separate account or subscription in your cloud provider and region of choice for this data plane.
+Estuary will require access to manage resources within the account, including resource creation and destruction, updates, patches, and scaling inside your VPC.
+While you retain ownership over your resources, your BYOC deployment therefore comes with complete data plane management.
+
+You can connect this account and your main account using PrivateLink or an equivalent service.
+
 ![Estuary BYOC Deployment Architecture](../images/byoc-deployment-architecture.png)
 
 :::tip
