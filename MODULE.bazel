@@ -24,6 +24,10 @@ bazel_dep(name = "rules_proto", version = "7.1.0")
 # Available versions: https://registry.bazel.build/modules/cxx.rs
 bazel_dep(name = "cxx.rs", version = "1.0.186")
 
+# platforms - Platform definitions (needed for conditional compilation)
+# Available versions: https://registry.bazel.build/modules/platforms
+bazel_dep(name = "platforms", version = "1.0.0")
+
 ###############################################################################
 # Rust toolchain configuration
 ###############################################################################

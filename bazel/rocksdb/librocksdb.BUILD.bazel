@@ -16,6 +16,7 @@ cc_library(
         "snappy/snappy-sinksource.h",
         "snappy/snappy-stubs-internal.h",
         "snappy/snappy-internal.h",
+        "snappy/snappy-c.h",
         "snappy-stubs-public.h",  # Pre-generated header
     ],
     includes = [".", "snappy"],
@@ -42,13 +43,20 @@ cc_library(
     ],
     defines = [
         "NDEBUG",
-        "OS_LINUX",
         "ROCKSDB_PLATFORM_POSIX",
         "ROCKSDB_LIB_IO_POSIX",
-        "ROCKSDB_SCHED_GETCPU_PRESENT",
         "ROCKSDB_SUPPORT_THREAD_LOCAL",
         "SNAPPY",  # Enable snappy compression
-    ],
+    ] + select({
+        "@platforms//os:macos": [
+            "OS_MACOSX",
+        ],
+        "//conditions:default": [
+            # Linux and other POSIX systems
+            "OS_LINUX",
+            "ROCKSDB_SCHED_GETCPU_PRESENT",
+        ],
+    }),
     copts = [
         "-std=c++17",
         "-Wsign-compare",
@@ -60,12 +68,30 @@ cc_library(
         "-Wno-missing-field-initializers",
         "-Wno-strict-aliasing",
         "-Wno-invalid-offsetof",
-        # x86_64 optimizations (assume x86_64 for now)
-        "-msse2",
-        "-msse4.1",
-        "-msse4.2",
-    ],
-    linkopts = ["-lstdc++"],
+    ] + select({
+        "@platforms//cpu:x86_64": [
+            # x86_64 optimizations
+            "-msse2",
+            "-msse4.1",
+            "-msse4.2",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        "@platforms//os:macos": [
+            # macOS 10.13+ required for aligned allocation
+            "-mmacosx-version-min=10.13",
+        ],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "@platforms//os:macos": [
+            "-lc++",
+            "-mmacosx-version-min=10.13",
+        ],
+        "//conditions:default": [
+            "-lstdc++",
+        ],
+    }),
     deps = [":snappy"],
     visibility = ["//visibility:public"],
 )
