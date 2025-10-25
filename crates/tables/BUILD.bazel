@@ -28,6 +28,7 @@ rust_library(
 
 rust_test(
     name = "tables_lib_test",
+    size = "small",
     crate = ":tables",
     edition = "2024",
     env = {

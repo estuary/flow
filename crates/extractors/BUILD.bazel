@@ -16,6 +16,7 @@ rust_library(
 
 rust_test(
     name = "extractors_lib_test",
+    size = "small",
     crate = ":extractors",
     edition = "2024",
     env = {

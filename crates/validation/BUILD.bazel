@@ -41,6 +41,7 @@ rust_library(
 
 rust_test(
     name = "validation_lib_test",
+    size = "small",
     crate = ":validation",
     data = glob([
         "src/**/snapshots/*.snap",

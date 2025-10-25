@@ -33,6 +33,7 @@ rust_library(
 
 rust_test(
     name = "assemble_lib_test",
+    size = "small",
     crate = ":assemble",
     edition = "2024",
     data = glob(["src/**/snapshots/*.snap"]),

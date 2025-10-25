@@ -10,6 +10,7 @@ rust_library(
 
 rust_test(
     name = "proto-build_lib_test",
+    size = "small",
     crate = ":proto-build",
     edition = "2024",
 )

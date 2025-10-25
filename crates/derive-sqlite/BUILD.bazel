@@ -30,6 +30,7 @@ rust_library(
 
 rust_test(
     name = "derive-sqlite_lib_test",
+    size = "small",
     crate = ":derive-sqlite",
     edition = "2024",
     data = glob(["src/**/snapshots/*.snap"]),

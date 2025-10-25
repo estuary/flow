@@ -24,6 +24,7 @@ rust_library(
 
 rust_test(
     name = "avro_lib_test",
+    size = "small",
     crate = ":avro",
     data = glob(["src/snapshots/*.snap"]),
     edition = "2024",

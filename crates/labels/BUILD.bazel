@@ -19,6 +19,7 @@ rust_library(
 
 rust_test(
     name = "labels_lib_test",
+    size = "small",
     crate = ":labels",
     edition = "2024",
     env = {

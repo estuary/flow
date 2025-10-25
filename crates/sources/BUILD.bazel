@@ -35,6 +35,7 @@ rust_library(
 
 rust_test(
     name = "sources_lib_test",
+    size = "small",
     crate = ":sources",
     edition = "2024",
     data = glob(["src/**/snapshots/*.snap", "tests/**/snapshots/*.snap"]),

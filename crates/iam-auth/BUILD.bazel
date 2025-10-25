@@ -24,6 +24,7 @@ rust_library(
 
 rust_test(
     name = "iam-auth_lib_test",
+    size = "small",
     crate = ":iam-auth",
     edition = "2024",
     env = {

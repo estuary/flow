@@ -13,6 +13,7 @@ rust_library(
 
 rust_test(
     name = "librocks-exp_lib_test",
+    size = "small",
     crate = ":librocks-exp",
     edition = "2024",
 )

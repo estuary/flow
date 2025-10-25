@@ -62,6 +62,7 @@ rust_library(
 
 rust_test(
     name = "runtime_lib_test",
+    size = "small",
     crate = ":runtime",
     edition = "2024",
     deps = [

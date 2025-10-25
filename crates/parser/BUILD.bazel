@@ -69,6 +69,7 @@ rust_binary(
 
 rust_test(
     name = "parser_lib_test",
+    size = "small",
     compile_data = ["tests/examples/w3c-extended-log"],
     crate = ":parser",
     data = glob([
@@ -95,6 +96,7 @@ _INTEGRATION_TEST_DEPS = [
 
 rust_test(
     name = "csv_error_absorption_test",
+    size = "small",
     srcs = [
         "tests/csv_error_absorption_test.rs",
         "tests/testutil.rs",
@@ -108,6 +110,7 @@ rust_test(
 
 rust_test(
     name = "happy_path_test",
+    size = "small",
     srcs = [
         "tests/happy_path_test.rs",
         "tests/testutil.rs",
@@ -122,6 +125,7 @@ rust_test(
 
 rust_test(
     name = "sanitize_test",
+    size = "small",
     srcs = [
         "tests/sanitize_test.rs",
         "tests/testutil.rs",

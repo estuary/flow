@@ -62,6 +62,7 @@ rust_binary(
 
 rust_test(
     name = "connector-init_lib_test",
+    size = "small",
     crate = ":connector-init",
     edition = "2024",
     env = {

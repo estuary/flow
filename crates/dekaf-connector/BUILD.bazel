@@ -22,6 +22,7 @@ rust_library(
 
 rust_test(
     name = "dekaf-connector_lib_test",
+    size = "small",
     crate = ":dekaf-connector",
     edition = "2024",
     env = {
