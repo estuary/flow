@@ -44,7 +44,12 @@ rust.toolchain(
     ],
     # Treat warnings as errors for all Rust code
     # Third-party crates override this with --cap-lints=allow in their individual targets
-    extra_rustc_flags = ["-Dwarnings"],
+    # Use lld linker instead of deprecated gold linker
+    extra_rustc_flags = [
+        "-Dwarnings",
+        "-C",
+        "link-arg=-fuse-ld=lld",
+    ],
     versions = ["1.90.0"],
 )
 use_repo(rust, "rust_toolchains")
@@ -64,6 +69,18 @@ crate.from_cargo(
     cargo_lockfile = "//:Cargo.lock",
     # Point to workspace Cargo.toml to handle workspace inheritance properly
     manifests = ["//:Cargo.toml"],
+)
+
+# Configure rdkafka-sys to use GNU ld instead of lld for C library build
+# librdkafka's version script has an issue with lld (exports undefined test symbol)
+# Use BFD linker for this crate's build script only
+crate.annotation(
+    crate = "rdkafka-sys",
+    version = "4.9.0+2.10.0",
+    build_script_env = {
+        # Override linker to use bfd instead of lld for librdkafka C build
+        "LDFLAGS": "-fuse-ld=bfd",
+    },
 )
 
 # Make the crates_io repository available

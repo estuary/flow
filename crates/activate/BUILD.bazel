@@ -31,10 +31,16 @@ rust_test(
     data = glob([
         "src/**/snapshots/*.snap",
         "src/**/*.yaml",
-    ]),
+    ]) + [
+        "//:ops-catalog/data-plane-template.flow.yaml",
+    ],
     env = {
         "INSTA_WORKSPACE_ROOT": ".",
     },
+    tags = [
+        "local",
+        "requires-connector",
+    ],
     deps = [
         "//crates/build",
         "//crates/doc",

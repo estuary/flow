@@ -55,6 +55,12 @@ rust_test(
     size = "small",
     edition = "2024",
     crate = ":derive-python",
+    data = glob([
+        "src/**/snapshots/*.snap",
+    ]),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
     deps = [
         "//crates/models",
         "//crates/sources",
