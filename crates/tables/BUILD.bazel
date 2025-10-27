@@ -34,7 +34,7 @@ rust_test(
     crate = ":tables",
     edition = "2024",
     env = {
-        "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
+        "INSTA_WORKSPACE_ROOT": ".",
     },
     data = ["//:Cargo.toml"],
     deps = [

@@ -112,6 +112,13 @@ mod test {
 
     #[tokio::test]
     async fn test_fixtures() {
+        // Configure test age key for SOPS decryption
+        // This is a test-only key used with accompanying fixtures - safe to embed in code.
+        const TEST_AGE_KEY: &str = "AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU";
+        unsafe {
+            std::env::set_var("SOPS_AGE_KEY", TEST_AGE_KEY);
+        }
+
         let configs: Vec<Box<models::RawValue>> = vec![
             serde_json::from_slice(include_bytes!("testdata/empty-input.json")).unwrap(),
             serde_json::from_slice(include_bytes!("testdata/hyphen-suffix.json")).unwrap(),

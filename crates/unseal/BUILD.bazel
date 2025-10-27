@@ -25,19 +25,20 @@ rust_library(
     ],
 )
 
-# Test disabled: requires ambient credentials (GCP application default credentials)
-# and external binaries (sops, jq) which are not available in Bazel sandbox.
-# Run via cargo test instead: cargo test --release --locked -p unseal
-#
-# rust_test(
-#     name = "unseal_lib_test",
-#     crate = ":unseal",
-#     edition = "2024",
-#     env = {
-#         "INSTA_WORKSPACE_ROOT": "$(execpath //:Cargo.toml)",
-#     },
-#     data = ["//:Cargo.toml"],
-#     deps = [
-#         "@crates_io//:insta",
-#     ],
-# )
+# Test requires external binaries (sops, jq) from the host system.
+# Uses age encryption with test key embedded in test code (no cloud credentials needed).
+# Marked as `local = True` to run outside sandbox with access to host binaries.
+rust_test(
+    name = "unseal_lib_test",
+    crate = ":unseal",
+    edition = "2024",
+    size = "small",
+    local = True,
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    data = ["//:Cargo.toml"],
+    deps = [
+        "@crates_io//:insta",
+    ],
+)
