@@ -117,5 +117,5 @@ The default is to use standard updates.
 
 ## Reserved words
 
-SingleStore uses MySQL, which has a list of reserved words that must be quoted in order to be used as an identifier.
-You can find all the reserved words in the official [MySQL documentation](https://dev.mysql.com/doc/refman/8.0/en/keywords.html).
+SingleStore has a list of reserved words that must be quoted in order to be used as an identifier.
+You can find all the reserved words in the official [SingleStore documentation](https://docs.singlestore.com/db/v9.0/reference/sql-reference/restricted-keywords/list-of-restricted-keywords/).
