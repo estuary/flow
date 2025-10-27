@@ -15,6 +15,7 @@ rust_library(
         "requires-network",
     ],
     deps = [
+        "//supabase:db_ready",
         "@crates_io//:anyhow",
         "@crates_io//:async-stripe",
         "@crates_io//:chrono",

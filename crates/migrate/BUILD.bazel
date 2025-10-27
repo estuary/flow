@@ -15,6 +15,7 @@ rust_library(
         "requires-network",
     ],
     deps = [
+        "//supabase:db_ready",
         "//crates/activate",
         "//crates/assemble",
         "//crates/gazette",
