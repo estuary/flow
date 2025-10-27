@@ -2,29 +2,4 @@
 source: crates/agent/src/integration_tests/graphql/queries/mod.rs
 expression: alice_result
 ---
-{
-  "firstThree": {
-    "edges": [
-      {
-        "node": {
-          "catalogName": "bobCo/private/materialization",
-          "lastPublication": null,
-          "publicationHistory": null,
-          "userCapability": null
-        }
-      }
-    ]
-  },
-  "lastThree": {
-    "edges": [
-      {
-        "node": {
-          "catalogName": "bobCo/private/materialization",
-          "lastPublication": null,
-          "publicationHistory": null,
-          "userCapability": null
-        }
-      }
-    ]
-  }
-}
+"GraphQL query failed with error: GraphQL errors: [ServerError { message: \"status: 401 Unauthorized, error: user is not authorized to bobCo/private/materialization\", locations: [Pos(2:5)], path: [Field(\"lastThree\")], extensions: None }]"

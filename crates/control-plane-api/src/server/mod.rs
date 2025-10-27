@@ -93,7 +93,7 @@ impl App {
         claims: &ControlClaims,
         prefixes: Vec<String>,
         capability: models::Capability,
-    ) -> Result<Vec<String>, crate::server::error::ApiError> {
+    ) -> Result<Vec<String>, ApiError> {
         let started = chrono::Utc::now();
         loop {
             match Snapshot::evaluate(&self.snapshot, started, |snapshot: &Snapshot| {

@@ -322,14 +322,12 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
 
     let mut vars = Vec::new();
     for prefix in list.name_selector.prefix.iter() {
-        let by = list_live_specs_query::LiveSpecsBy::PrefixAndType(
-            list_live_specs_query::ByPrefixAndType {
-                prefix: models::Prefix::new(prefix),
-                catalog_type,
-                data_plane_name: data_plane_name.clone(),
-            },
-        );
-        vars.push(by);
+        vars.push(list_live_specs_query::LiveSpecsBy {
+            names: None,
+            prefix: Some(models::Prefix::new(prefix)),
+            catalog_type,
+            data_plane_name: data_plane_name.clone(),
+        });
     }
     if !list.name_selector.name.is_empty() {
         let names = list
@@ -337,8 +335,13 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
             .name
             .iter()
             .map(|n| models::Name::new(n.as_str()))
-            .collect();
-        vars.push(list_live_specs_query::LiveSpecsBy::Names(names));
+            .collect::<Vec<_>>();
+        vars.push(list_live_specs_query::LiveSpecsBy {
+            names: Some(names),
+            prefix: None,
+            catalog_type,
+            data_plane_name: data_plane_name.clone(),
+        });
     }
     vars
 }

@@ -14,35 +14,11 @@ expression: bob_result
           },
           "userCapability": "read"
         }
-      },
-      {
-        "node": {
-          "catalogName": "aliceCo/shared/does-not-exist",
-          "liveSpec": null,
-          "userCapability": "read"
-        }
-      },
-      {
-        "node": {
-          "catalogName": "bobCo/private/materialization",
-          "liveSpec": {
-            "catalogType": "materialization",
-            "isDisabled": false
-          },
-          "userCapability": "admin"
-        }
       }
     ]
   },
   "multiReverse": {
     "edges": [
-      {
-        "node": {
-          "catalogName": "aliceCo/private/capture",
-          "liveSpec": null,
-          "userCapability": null
-        }
-      },
       {
         "node": {
           "catalogName": "aliceCo/shared/a",
