@@ -13,5 +13,4 @@ site
 # Ignore directories for now that we're not building with Bazel yet
 examples
 tests
-supabase
 edge-functions

@@ -5,65 +5,38 @@ set -o nounset
 
 ROOT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/../
 
+# Run all SQL tests by invoking run_single_test.sh for each test file.
+# This approach ensures each test runs in its own isolated transaction.
 
-function psql_input() {
+# Find all test files
+test_files=("${ROOT_DIR}"/supabase/tests/*.test.sql)
 
-  cat<<EOF
--- Turn off echo and keep things quiet.
-\unset ECHO
-\set QUIET 1
+echo "Running ${#test_files[@]} test files..."
 
--- Format the output for nice TAP.
-\pset format unaligned
-\pset tuples_only true
-\pset pager off
+failed_tests=()
 
-begin;
-create extension pgtap;
-create schema tests;
+for test_file in "${test_files[@]}"; do
+  test_name=$(basename "$test_file")
+  echo "Running: $test_name"
 
-EOF
-
-  if [ "$1" -eq 1 ]; then
-    cat<<EOF
-create function tests.shutdown_exit_on_error()
-returns void as \$\$ begin
-  ASSERT num_failed() = 0;
-end
-\$\$ language plpgsql;
-EOF
+  if ! "${ROOT_DIR}/supabase/run_single_test.sh" "$test_file"; then
+    failed_tests+=("$test_name")
+    echo "FAILED: $test_name"
+  else
+    echo "PASSED: $test_name"
   fi
+  echo ""
+done
 
-  cat "${ROOT_DIR}"/supabase/tests/*.test.sql
-
-  cat<<EOF
-
-
-\set QUIET 0
-select * from runtests('tests'::name);
-\set QUIET 1
-
-drop extension pgtap;
-rollback;
-EOF
-
-}
-
-# Cause `psql` to return a non-zero exit code when there's a test failure
-# by injecting a shutdown function that checks pgTAP for any errors and
-# raises an exception if there is one. Combined with `ON_ERROR_STOP`, this
-# will cause `psql` to error.
-psql_input 1 | psql --set ON_ERROR_STOP=1 postgres://postgres:postgres@localhost:5432/postgres
-
-test_exit_code=$?
-
-# Normally when pgTAP detects a test failure, it records the failure and prints
-# it nicely so you can see what happened. By throwing an exception above, we
-# pre-empt that pretty printing in order to detect the failure. Now, if there is
-# a failure, let's re-run the tests without the exception to get the pretty output.
-if [ $test_exit_code -ne 0 ]; then
-  echo "There was a test failure, re-running to show meaningful output";
-  psql_input 0 | psql --set ON_ERROR_STOP=1 postgres://postgres:postgres@localhost:5432/postgres;
-  # Lastly, make sure to indicate that there was a failure so we can fail the CI run.
+# Report results
+echo "========================================"
+if [ ${#failed_tests[@]} -eq 0 ]; then
+  echo "All ${#test_files[@]} tests passed!"
+  exit 0
+else
+  echo "Failed tests (${#failed_tests[@]}/${#test_files[@]}):"
+  for test in "${failed_tests[@]}"; do
+    echo "  - $test"
+  done
   exit 1
 fi

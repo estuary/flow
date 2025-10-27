@@ -1,0 +1,303 @@
+# Supabase SQL tests using pgTAP
+# Each test runs independently against the local development database
+# with shared helpers loaded first to ensure isolation
+
+sh_test(
+    name = "alerts_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/alerts.test.sql"],
+    data = [
+        "tests/alerts.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "auth_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/auth.test.sql"],
+    data = [
+        "tests/auth.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "auto_discovers_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/auto_discovers.test.sql"],
+    data = [
+        "tests/auto_discovers.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "billing_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/billing.test.sql"],
+    data = [
+        "tests/billing.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "catalog_types_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/catalog-types.test.sql"],
+    data = [
+        "tests/catalog-types.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "combined_grants_ext_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/combined_grants_ext.test.sql"],
+    data = [
+        "tests/combined_grants_ext.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "delete_old_rows_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/delete_old_rows.test.sql"],
+    data = [
+        "tests/delete_old_rows.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "directives_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/directives.test.sql"],
+    data = [
+        "tests/directives.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "draft_collections_eligible_for_deletion_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/draft_collections_eligible_for_deletion.test.sql"],
+    data = [
+        "tests/draft_collections_eligible_for_deletion.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "flowid_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/flowid.test.sql"],
+    data = [
+        "tests/flowid.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "free_trial_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/free-trial.test.sql"],
+    data = [
+        "tests/free-trial.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "inferred_schemas_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/inferred_schemas.test.sql"],
+    data = [
+        "tests/inferred_schemas.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "json_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/json.test.sql"],
+    data = [
+        "tests/json.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "live_specs_ext_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/live_specs_ext.test.sql"],
+    data = [
+        "tests/live_specs_ext.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "performance_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/performance.test.sql"],
+    data = [
+        "tests/performance.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "prune_unchanged_draft_specs_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/prune_unchanged_draft_specs.test.sql"],
+    data = [
+        "tests/prune_unchanged_draft_specs.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "refresh_tokens_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/refresh_tokens.test.sql"],
+    data = [
+        "tests/refresh_tokens.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "registered_avro_schemas_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/registered_avro_schemas.test.sql"],
+    data = [
+        "tests/registered_avro_schemas.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "stats_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/stats.test.sql"],
+    data = [
+        "tests/stats.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
+
+sh_test(
+    name = "tenants_test",
+    size = "small",
+    srcs = ["run_single_test.sh"],
+    args = ["tests/tenants.test.sql"],
+    data = [
+        "tests/tenants.test.sql",
+        "tests/helpers.sql",
+    ],
+    tags = [
+        "local",
+        "requires-db",
+    ],
+)
