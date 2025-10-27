@@ -1,5 +1,7 @@
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
+exports_files(["control-plane-api.graphql"])
+
 rust_library(
     name = "flow-client",
     srcs = glob(["src/**/*.rs"]),
