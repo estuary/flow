@@ -14,12 +14,7 @@ fragment Select on LiveSpecRefConnection {
 
 query LiveSpecsCollectionConnectionsForward {
     liveSpecs(
-        by: {
-            prefixAndType: {
-                prefix: "aliceCo/shared/"
-                catalogType: collection
-            }
-        }
+        by: { prefix: "aliceCo/shared/", catalogType: collection }
         first: 1
     ) {
         edges {

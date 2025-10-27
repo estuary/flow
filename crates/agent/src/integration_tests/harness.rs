@@ -1399,10 +1399,15 @@ impl TestHarness {
             self.publisher.clone(),
         ));
         {
-            let snapshot =
+            let mut snapshot =
                 control_plane_api::server::snapshot::try_fetch(&self.pool, &mut Default::default())
                     .await
                     .expect("failed to fetch Snapshot");
+            // Push forward the `taken` time of the snapshot to ensure that it's
+            // always considered "fresh" when evaluating authorizations.
+            // Otherwise, we might delay when testing API handlers and the user
+            // is unauthorized to a particular resource.
+            snapshot.taken = chrono::Utc::now() + chrono::Duration::minutes(20);
             let mut lock = app.snapshot().write().unwrap();
             *lock = snapshot;
         }

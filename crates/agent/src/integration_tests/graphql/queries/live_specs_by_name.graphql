@@ -15,32 +15,28 @@ query LiveSpecsByName {
     multiForward: liveSpecs(
         by: {
             names: [
-                "aliceCo/shared/a"
-                "bobCo/private/materialization"
                 "aliceCo/shared/b"
+                "aliceCo/shared/a"
                 "aliceCo/shared/does-not-exist"
                 "aliceCo/shared/c"
-                "aliceCo/private/capture"
             ]
         }
         after: "aliceCo/shared/b"
-        first: 10
+        first: 3
     ) {
         ...Select
     }
     multiReverse: liveSpecs(
         by: {
             names: [
-                "aliceCo/shared/a"
-                "bobCo/private/materialization"
-                "aliceCo/shared/b"
-                "aliceCo/shared/does-not-exist"
                 "aliceCo/shared/c"
-                "aliceCo/private/capture"
+                "aliceCo/shared/does-not-exist"
+                "aliceCo/shared/a"
+                "aliceCo/shared/b"
             ]
         }
         before: "aliceCo/shared/b"
-        last: 10
+        last: 3
     ) {
         ...Select
     }
