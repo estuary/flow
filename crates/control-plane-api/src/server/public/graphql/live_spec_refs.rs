@@ -12,20 +12,17 @@ use crate::server::{
 
 const DEFAULT_PAGE_SIZE: usize = 50;
 
-/// Input type for returning live specs references by prefix and catalog type.
+/// Input type for querying live specs.
 #[derive(Debug, Clone, async_graphql::InputObject)]
-pub struct ByPrefixAndType {
-    pub prefix: models::Prefix,
+pub struct LiveSpecsBy {
+    /// Fetch live specs by name. Required if `prefix` is empty
+    pub names: Option<Vec<models::Name>>,
+    /// Fetch live specs by prefix. Required if `names` is empty
+    pub prefix: Option<models::Prefix>,
     /// Optionally filter by catalogType
     pub catalog_type: Option<models::CatalogType>,
     /// Optionally filter by dataPlane name
     pub data_plane_name: Option<models::Name>,
-}
-
-#[derive(Debug, Clone, async_graphql::OneofObject)]
-pub enum LiveSpecsBy {
-    PrefixAndType(ByPrefixAndType),
-    Names(Vec<models::Name>),
 }
 
 /// Represents a reference from one live spec to another.
@@ -284,147 +281,128 @@ impl LiveSpecsQuery {
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        match by {
-            LiveSpecsBy::PrefixAndType(by_prefix) => {
-                fetch_live_specs_by_prefix(ctx, by_prefix, after, before, first, last).await
-            }
-            LiveSpecsBy::Names(by_name) => {
-                fetch_live_specs_by_name(ctx, by_name, after, before, first, last).await
-            }
+        let LiveSpecsBy {
+            names,
+            prefix,
+            catalog_type,
+            data_plane_name: data_plane,
+        } = by;
+        let app = ctx.data::<Arc<App>>()?;
+        let claims = ctx.data::<ControlClaims>()?;
+
+        let names = names.unwrap_or_default();
+
+        let mut verify_names = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
+        verify_names.extend(prefix.iter().map(|p| p.to_string()));
+        if verify_names.is_empty() {
+            return Err(async_graphql::Error::new(
+                "must provide at least one of `names` or `prefix`",
+            ));
         }
+        // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
+        let _ = app
+            .verify_user_authorization(claims, verify_names, models::Capability::Read)
+            .await?;
+
+        let pg_pool = app.pg_pool.clone();
+        let (names, has_prev, has_next) =
+            connection::query_with::<String, _, _, _, async_graphql::Error>(
+                after,
+                before,
+                first,
+                last,
+                |after, before, first, last| async move {
+                    let db = pg_pool;
+                    let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
+                    if limit == 0 {
+                        return Ok((Vec::new(), false, false));
+                    }
+
+                    let result = if before.is_some() || last.is_some() {
+                        let names = fetch_live_specs_names_before(
+                            &db,
+                            names,
+                            prefix,
+                            catalog_type,
+                            data_plane.as_deref(),
+                            before.as_deref(),
+                            limit as i64,
+                        )
+                        .await
+                        .map_err(async_graphql::Error::from)?;
+                        // There is a previous page if there were enough names to fill this page.
+                        let has_prev = names.len() == limit;
+                        // There is implicitly a next page if this request provided a before cursor.
+                        (names, has_prev, before.is_some())
+                    } else {
+                        // Default to forward pagination unless before or last is specified
+                        let names = fetch_live_specs_names_after(
+                            &db,
+                            names,
+                            prefix,
+                            catalog_type,
+                            data_plane.as_deref(),
+                            after.as_deref(),
+                            limit as i64,
+                        )
+                        .await
+                        .map_err(async_graphql::Error::from)?;
+                        // There is implicitly a previous page if this request provided an after cursor.
+                        // There is a next page if there were enough names to fill this page.
+                        let has_next = names.len() == limit;
+                        (names, after.is_some(), has_next)
+                    };
+
+                    async_graphql::Result::Ok(result)
+                },
+            )
+            .await?;
+
+        // We already know that the user at least has read capability to the prefix,
+        // but it's possible that they may have a greater capability to specific
+        // sub-prefixes, so resolve those here.
+        let edges = app.attach_user_capabilities(claims, names, |name, user_capability| {
+            Some(connection::Edge::new(
+                name.clone(),
+                LiveSpecRef {
+                    catalog_name: models::Name::new(name),
+                    user_capability,
+                },
+            ))
+        });
+
+        let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
+        conn.edges = edges;
+        async_graphql::Result::<PaginatedLiveSpecsRefs>::Ok(conn)
     }
-}
-
-async fn fetch_live_specs_by_name(
-    ctx: &Context<'_>,
-    by_names: Vec<models::Name>,
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-    let mut names: Vec<String> = by_names.into_iter().map(|n| n.into()).collect();
-    // Sort the names, so that we can paginate the results by liexicographic
-    // order, just like we do for fetching by prefix.
-    names.sort();
-
-    // We essentially just lookup the users capability to each spec that they've
-    // requested. There's no verification of whether the live spec exists
-    // unless/until the query resolves some sub-field on the `LiveSpecRef`.
-    // There's also no error if the user does not have access to the given
-    // names. We rely on our existing auth checks in `LiveSpecRef` resolver
-    // functions. This allows clients to easily check which specific names the
-    // user does not have access to by querying the user capability, just like
-    // it does for `readsFrom` and `writesTo`
-    paginate_live_specs_refs(ctx, None, names, after, before, first, last).await
-}
-
-async fn fetch_live_specs_by_prefix(
-    ctx: &Context<'_>,
-    by: ByPrefixAndType,
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-    let ByPrefixAndType {
-        prefix,
-        catalog_type,
-        data_plane_name: data_plane,
-    } = by;
-    let app = ctx.data::<Arc<App>>()?;
-    let claims = ctx.data::<ControlClaims>()?;
-
-    let _ = app
-        .verify_user_authorization(claims, vec![prefix.to_string()], models::Capability::Read)
-        .await?;
-
-    let pg_pool = app.pg_pool.clone();
-    let (names, has_prev, has_next) =
-        connection::query_with::<String, _, _, _, async_graphql::Error>(
-            after,
-            before,
-            first,
-            last,
-            |after, before, first, last| async move {
-                let db = pg_pool;
-                let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
-
-                let result = if before.is_some() || last.is_some() {
-                    let names = fetch_live_specs_names_before(
-                        &db,
-                        prefix.as_str(),
-                        catalog_type,
-                        data_plane.as_deref(),
-                        before.as_deref(),
-                        limit as i64,
-                    )
-                    .await
-                    .map_err(async_graphql::Error::from)?;
-                    // There is a previous page if there were enough names to fill this page.
-                    let has_prev = names.len() == limit;
-                    // There is implicitly a next page if this request provided a before cursor.
-                    (names, has_prev, before.is_some())
-                } else {
-                    // Default to forward pagination unless before or last is specified
-                    let names = fetch_live_specs_names_after(
-                        &db,
-                        prefix.as_str(),
-                        catalog_type,
-                        data_plane.as_deref(),
-                        after.as_deref(),
-                        limit as i64,
-                    )
-                    .await
-                    .map_err(async_graphql::Error::from)?;
-                    // There is implicitly a previous page if this request provided an after cursor.
-                    // There is a next page if there were enough names to fill this page.
-                    let has_next = names.len() == limit;
-                    (names, after.is_some(), has_next)
-                };
-
-                async_graphql::Result::Ok(result)
-            },
-        )
-        .await?;
-
-    // We already know that the user at least has read capability to the prefix,
-    // but it's possible that they may have a greater capability to specific
-    // sub-prefixes, so resolve those here.
-    let edges = app.attach_user_capabilities(claims, names, |name, user_capability| {
-        Some(connection::Edge::new(
-            name.clone(),
-            LiveSpecRef {
-                catalog_name: models::Name::new(name),
-                user_capability,
-            },
-        ))
-    });
-
-    let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
-    conn.edges = edges;
-    async_graphql::Result::<PaginatedLiveSpecsRefs>::Ok(conn)
 }
 
 async fn fetch_live_specs_names_after(
     db: &sqlx::PgPool,
-    prefix: &str,
+    names: Vec<models::Name>,
+    prefix: Option<models::Prefix>,
     catalog_type: Option<models::CatalogType>,
     data_plane: Option<&str>,
     after: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<String>> {
+    assert!(
+        !names.is_empty() || prefix.is_some(),
+        "must have name or prefix predicate when querying live specs"
+    );
     let names = sqlx::query_scalar!(
         r#"select ls.catalog_name as "name!: String"
         from live_specs ls
         left outer join data_planes dp on ls.data_plane_id = dp.id
-        where starts_with(ls.catalog_name, $1)
-        and case when $4::catalog_name is null then true else ls.catalog_name > $4::catalog_name end
-        and coalesce($2::catalog_spec_type, ls.spec_type) = ls.spec_type
-        and case when $3::text is null then true else $3::text = dp.data_plane_name end
+        where (coalesce(array_length($1::catalog_name[], 1), 0) = 0 or ls.catalog_name = any($1::catalog_name[]))
+        and ($2::text is null or ls.catalog_name::text ^@ $2::text)
+        and ($3::catalog_spec_type is null or ls.spec_type = $3::catalog_spec_type)
+        and ($4::text is null or $4::text = dp.data_plane_name)
+        and ($5::catalog_name is null or ls.catalog_name > $5::catalog_name)
         order by ls.catalog_name asc
-        limit $5"#,
-        prefix as &str,
+        limit $6"#,
+        names as Vec<models::Name>,
+        prefix as Option<models::Prefix>,
         catalog_type as Option<models::CatalogType>,
         data_plane as Option<&str>,
         after as Option<&str>,
@@ -440,23 +418,30 @@ async fn fetch_live_specs_names_after(
 /// https://relay.dev/graphql/connections.htm#sec-Edge-order
 async fn fetch_live_specs_names_before(
     db: &sqlx::PgPool,
-    prefix: &str,
+    names: Vec<models::Name>,
+    prefix: Option<models::Prefix>,
     catalog_type: Option<models::CatalogType>,
     data_plane: Option<&str>,
     before: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<String>> {
+    assert!(
+        !names.is_empty() || prefix.is_some(),
+        "must have name or prefix predicate when querying live specs"
+    );
     let mut names = sqlx::query_scalar!(
         r#"select ls.catalog_name as "name!: String"
         from live_specs ls
         left outer join data_planes dp on ls.data_plane_id = dp.id
-        where starts_with(ls.catalog_name, $1)
-        and case when $4::catalog_name is null then true else ls.catalog_name < $4::catalog_name end
-        and coalesce($2::catalog_spec_type, ls.spec_type) = ls.spec_type
-        and case when $3::text is null then true else $3::text = dp.data_plane_name end
+        where (coalesce(array_length($1::catalog_name[], 1), 0) = 0 or ls.catalog_name = any($1::catalog_name[]))
+        and ($2::text is null or ls.catalog_name::text ^@ $2::text)
+        and ($3::catalog_spec_type is null or ls.spec_type = $3::catalog_spec_type)
+        and ($4::text is null or $4::text = dp.data_plane_name)
+        and ($5::catalog_name is null or ls.catalog_name < $5::catalog_name)
         order by ls.catalog_name desc
-        limit $5"#,
-        prefix as &str,
+        limit $6"#,
+        names as Vec<models::Name>,
+        prefix as Option<models::Prefix>,
         catalog_type as Option<models::CatalogType>,
         data_plane as Option<&str>,
         before as Option<&str>,

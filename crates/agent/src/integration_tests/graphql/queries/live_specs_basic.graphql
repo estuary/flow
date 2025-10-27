@@ -68,12 +68,7 @@ fragment ConnectedFields on LiveSpecRefConnection {
 
 query LiveSpecsBasic {
     collections: liveSpecs(
-        by: {
-            prefixAndType: {
-                prefix: "aliceCo/shared/"
-                catalogType: collection
-            }
-        }
+        by: { prefix: "aliceCo/shared/", catalogType: collection }
     ) {
         edges {
             cursor
@@ -98,12 +93,7 @@ query LiveSpecsBasic {
         }
     }
     allTypes: liveSpecs(
-        by: {
-            prefixAndType: {
-                prefix: "aliceCo/shared/"
-                dataPlaneName: "ops/dp/public/test"
-            }
-        }
+        by: { prefix: "aliceCo/shared/", dataPlaneName: "ops/dp/public/test" }
     ) {
         edges {
             cursor
@@ -118,10 +108,8 @@ query LiveSpecsBasic {
     }
     wrongDataPlane: liveSpecs(
         by: {
-            prefixAndType: {
-                prefix: "aliceCo/shared/"
-                dataPlaneName: "ops/dp/public/does/not/exist"
-            }
+            prefix: "aliceCo/shared/"
+            dataPlaneName: "ops/dp/public/does/not/exist"
         }
     ) {
         edges {

@@ -1,0 +1,9 @@
+query LiveSpecsExpectFail {
+    liveSpecs(by: { catalogType: capture }) {
+        edges {
+            node {
+                catalogName
+            }
+        }
+    }
+}

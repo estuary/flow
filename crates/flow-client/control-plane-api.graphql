@@ -183,21 +183,6 @@ type AutoDiscoverStatus {
 }
 
 """
-Input type for returning live specs references by prefix and catalog type.
-"""
-input ByPrefixAndType {
-	prefix: Prefix!
-	"""
-	Optionally filter by catalogType
-	"""
-	catalogType: CatalogType
-	"""
-	Optionally filter by dataPlane name
-	"""
-	dataPlaneName: Name
-}
-
-"""
 Capability within the Estuary role-based access control (RBAC) authorization system.
 """
 enum Capability {
@@ -459,9 +444,26 @@ type LiveSpecStatus {
 	connector: ConnectorStatus
 }
 
-input LiveSpecsBy @oneOf {
-	prefixAndType: ByPrefixAndType
+"""
+Input type for querying live specs.
+"""
+input LiveSpecsBy {
+	"""
+	Fetch live specs by name. Required if `prefix` is empty
+	"""
 	names: [Name!]
+	"""
+	Fetch live specs by prefix. Required if `names` is empty
+	"""
+	prefix: Prefix
+	"""
+	Optionally filter by catalogType
+	"""
+	catalogType: CatalogType
+	"""
+	Optionally filter by dataPlane name
+	"""
+	dataPlaneName: Name
 }
 
 """
@@ -932,10 +934,6 @@ scalar UUID
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
-"""
-Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
-"""
-directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

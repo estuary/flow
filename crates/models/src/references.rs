@@ -150,6 +150,12 @@ macro_rules! string_reference_types {
                 <String as sqlx::Type<sqlx::Postgres>>::type_info()
             }
         }
+        #[cfg(feature = "sqlx-support")]
+        impl sqlx::postgres::PgHasArrayType for $Wrapper {
+            fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+                sqlx::postgres::PgTypeInfo::with_name("_catalog_name")
+            }
+        }
 
         string_reference_types! {
             $($rest)*

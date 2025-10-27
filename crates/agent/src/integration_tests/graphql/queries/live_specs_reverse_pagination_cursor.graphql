@@ -3,12 +3,7 @@
 # page will actually be empty.
 query LiveSpecsPaginationCursor {
     beforeC: liveSpecs(
-        by: {
-            prefixAndType: {
-                prefix: "aliceCo/shared/"
-                catalogType: collection
-            }
-        }
+        by: { prefix: "aliceCo/shared/", catalogType: collection }
         before: "aliceCo/shared/c"
         last: 2
     ) {
@@ -25,12 +20,7 @@ query LiveSpecsPaginationCursor {
         }
     }
     last2: liveSpecs(
-        by: {
-            prefixAndType: {
-                prefix: "aliceCo/shared/"
-                catalogType: collection
-            }
-        }
+        by: { prefix: "aliceCo/shared/", catalogType: collection }
         last: 2
     ) {
         pageInfo {

@@ -2,19 +2,4 @@
 source: crates/agent/src/integration_tests/graphql/queries/mod.rs
 expression: alice_result
 ---
-{
-  "liveSpecs": {
-    "edges": [
-      {
-        "node": {
-          "activeAlerts": null,
-          "alertHistory": null,
-          "catalogName": "bobCo/private/materialization",
-          "liveSpec": null,
-          "status": null,
-          "userCapability": null
-        }
-      }
-    ]
-  }
-}
+"GraphQL query failed with error: GraphQL errors: [ServerError { message: \"status: 401 Unauthorized, error: user is not authorized to bobCo/private/materialization\", locations: [Pos(5:5)], path: [Field(\"liveSpecs\")], extensions: None }]"

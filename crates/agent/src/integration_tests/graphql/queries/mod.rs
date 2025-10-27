@@ -41,12 +41,14 @@ async fn test_graphql_queries() {
             .and_then(|s| s.to_str())
             .expect("Failed to get file stem");
 
+        tracing::info!(query = %query_path.display(), "executing query as Alice");
         // Execute query as Alice
         let alice_result: Value = harness
             .execute_graphql_query(alice_user_id, &query_content, &empty_vars)
             .await
             .unwrap_or_else(|e| format!("GraphQL query failed with error: {}", e).into());
 
+        tracing::info!(query = %query_path.display(), "executing query as Bob");
         // Execute query as Bob
         let bob_result: Value = harness
             .execute_graphql_query(bob_user_id, &query_content, &empty_vars)
