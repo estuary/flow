@@ -1,0 +1,48 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "activate",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/assemble",
+        "//crates/gazette",
+        "//crates/labels",
+        "//crates/models",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/proto-gazette",
+        "@crates_io//:anyhow",
+        "@crates_io//:futures",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tokio",
+        "@crates_io//:tracing",
+    ],
+)
+
+rust_test(
+    name = "activate_lib_tests",
+    size = "small",
+    edition = "2024",
+    crate = ":activate",
+    data = glob([
+        "src/**/snapshots/*.snap",
+        "src/**/*.yaml",
+    ]),
+    env = {
+        "INSTA_WORKSPACE_ROOT": ".",
+    },
+    deps = [
+        "//crates/build",
+        "//crates/doc",
+        "//crates/extractors",
+        "//crates/tables",
+        "//crates/test-support",
+        "@crates_io//:insta",
+        "@crates_io//:serde_json",
+        "@crates_io//:url",
+    ],
+)

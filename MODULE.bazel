@@ -37,7 +37,11 @@ bazel_dep(name = "platforms", version = "1.0.0")
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2024",
-    extra_target_triples = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"],
+    extra_target_triples = [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+        "wasm32-unknown-unknown",
+    ],
     # Treat warnings as errors for all Rust code
     # Third-party crates override this with --cap-lints=allow in their individual targets
     extra_rustc_flags = ["-Dwarnings"],

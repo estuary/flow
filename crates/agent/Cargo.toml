@@ -81,5 +81,6 @@ assemble = { path = "../assemble" }
 insta = { workspace = true }
 md5 = { workspace = true }
 serial_test = { workspace = true }
+test-support = { path = "../test-support" }
 tokio = { workspace = true }
 uuid = { workspace = true }

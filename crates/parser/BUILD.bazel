@@ -83,12 +83,14 @@ rust_test(
         "RUST_BACKTRACE": "1",
     },
     deps = [
+        "//crates/test-support",
         "@crates_io//:insta",
     ],
 )
 
 _INTEGRATION_TEST_DEPS = [
     ":parser",
+    "//crates/test-support",
     "@crates_io//:assert_cmd",
     "@crates_io//:serde_json",
     "@crates_io//:tempfile",

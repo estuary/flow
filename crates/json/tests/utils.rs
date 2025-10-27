@@ -87,9 +87,7 @@ pub fn run_draft12_format_test(
 }
 
 fn read_json_file(target: &[&str]) -> serde_json::Value {
-    let root_dir = &std::env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_owned());
-
-    let mut path = std::path::PathBuf::from(root_dir);
+    let mut path = test_support::test_resource_path!("");
     path.extend(target.iter());
 
     let file = std::fs::File::open(path).unwrap();
@@ -135,16 +133,14 @@ where
 }
 
 fn run_file_test(target: &[&str], expected_failures: &[(&str, &str, serde_json::Value)]) {
-    let test_root = &std::env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_owned());
-
     let url = url::Url::parse("http://localhost:1234").unwrap();
 
-    let mut fixtures = std::path::PathBuf::from(test_root);
+    let mut fixtures = test_support::test_resource_path!("");
     fixtures.extend(["..", "json", "tests", "schema-fixtures"].iter());
     let mut catalog: Vec<Schema<schema::CoreAnnotation>> =
         read_json_schemas(fixtures, url.clone()).collect();
 
-    let mut fixtures = std::path::PathBuf::from(test_root);
+    let mut fixtures = test_support::test_resource_path!("");
     fixtures.extend(["..", "json", "tests", "official", "remotes"].iter());
     catalog.extend(read_json_schemas(fixtures, url.clone()));
 

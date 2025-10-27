@@ -1,0 +1,56 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_binary")
+
+rust_library(
+    name = "schemalate",
+    srcs = glob(["src/**/*.rs"], exclude=["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc",
+        "//crates/flow_cli_common",
+        "//crates/json",
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:clap",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:prost",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+        "@crates_io//:tracing",
+        "@crates_io//:url",
+    ],
+)
+
+rust_binary(
+    name = "flow-schemalate",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "FLOW_VERSION": "0.0.0-dev",
+    },
+    deps = [
+        ":schemalate",
+        "//crates/doc",
+        "//crates/flow_cli_common",
+        "//crates/json",
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:clap",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:prost",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:thiserror",
+        "@crates_io//:tracing",
+        "@crates_io//:url",
+    ],
+)

@@ -13,21 +13,7 @@ use tempfile::TempDir;
 
 /// Resolve a test file path that works in both Cargo and Bazel contexts.
 pub fn path(rel: impl AsRef<Path>) -> PathBuf {
-    let cargo_manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let cargo_workspace = cargo_manifest.parent().unwrap().parent().unwrap();
-
-    // Bazel: detect test execution context and compute relative path.
-    if let (Ok(bazel_srcdir), Ok(bazel_ws)) = (
-        std::env::var("TEST_SRCDIR"),
-        std::env::var("TEST_WORKSPACE"),
-    ) {
-        PathBuf::from(bazel_srcdir)
-            .join(bazel_ws)
-            .join(cargo_manifest.strip_prefix(cargo_workspace).unwrap())
-            .join(rel)
-    } else {
-        cargo_manifest.join(rel)
-    }
+    test_support::test_resource_path!(rel.as_ref())
 }
 
 pub fn input_for_file(rel_path: impl AsRef<Path>) -> Input {

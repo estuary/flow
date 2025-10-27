@@ -1,0 +1,69 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_binary")
+
+rust_library(
+    name = "billing-integrations",
+    srcs = glob(["src/**/*.rs"], exclude=["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    tags = [
+        "no-remote-exec",
+        "requires-db",
+        "requires-network",
+    ],
+    deps = [
+        "@crates_io//:anyhow",
+        "@crates_io//:async-stripe",
+        "@crates_io//:chrono",
+        "@crates_io//:clap",
+        "@crates_io//:comfy-table",
+        "@crates_io//:futures",
+        "@crates_io//:indicatif",
+        "@crates_io//:itertools",
+        "@crates_io//:num-format",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:sqlx",
+        "@crates_io//:tokio",
+        "@crates_io//:tokio-util",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+)
+
+rust_binary(
+    name = "billing-integrations-bin",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    tags = [
+        "no-remote-exec",
+        "requires-db",
+        "requires-network",
+    ],
+    deps = [
+        ":billing-integrations",
+        "@crates_io//:anyhow",
+        "@crates_io//:async-stripe",
+        "@crates_io//:chrono",
+        "@crates_io//:clap",
+        "@crates_io//:comfy-table",
+        "@crates_io//:futures",
+        "@crates_io//:indicatif",
+        "@crates_io//:itertools",
+        "@crates_io//:num-format",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:sqlx",
+        "@crates_io//:tokio",
+        "@crates_io//:tokio-util",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+)

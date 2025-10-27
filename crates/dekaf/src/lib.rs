@@ -625,6 +625,7 @@ fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> 
     TopicName::from(StrBytes::from_utf8(Bytes::from(decrypted)).unwrap())
 }
 
+#[allow(deprecated)]
 fn create_crypto(secret: String, nonce: String) -> (Aes256SivAead, aes_siv::Nonce) {
     let mut key = secret.as_bytes().to_vec();
     key.resize(Aes256SivAead::key_size(), 0);
@@ -634,9 +635,9 @@ fn create_crypto(secret: String, nonce: String) -> (Aes256SivAead, aes_siv::Nonc
     nonce.resize(16, 0);
 
     let cipher = Aes256SivAead::new_from_slice(&key[..]).unwrap();
-    let nonce = aes_siv::Nonce::from_slice(&nonce[..]);
+    let nonce = aes_siv::Nonce::clone_from_slice(&nonce[..]);
 
-    return (cipher, *nonce);
+    return (cipher, nonce);
 }
 
 /// Convert a topic name to a name that is compatible with Kafka's

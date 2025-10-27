@@ -1,0 +1,63 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_binary")
+
+rust_library(
+    name = "oidc-discovery-server",
+    srcs = glob(["src/**/*.rs"], exclude=["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    tags = [
+        "no-remote-exec",
+        "requires-db",
+        "requires-network",
+    ],
+    deps = [
+        "//crates/models",
+        "//crates/ops",
+        "@crates_io//:anyhow",
+        "@crates_io//:axum",
+        "@crates_io//:clap",
+        "@crates_io//:reqwest",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:sqlx",
+        "@crates_io//:tokio",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:url",
+    ],
+)
+
+rust_binary(
+    name = "oidc-discovery-server-bin",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    tags = [
+        "no-remote-exec",
+        "requires-db",
+        "requires-network",
+    ],
+    deps = [
+        ":oidc-discovery-server",
+        "//crates/models",
+        "//crates/ops",
+        "@crates_io//:anyhow",
+        "@crates_io//:axum",
+        "@crates_io//:clap",
+        "@crates_io//:reqwest",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:sqlx",
+        "@crates_io//:tokio",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:url",
+    ],
+)

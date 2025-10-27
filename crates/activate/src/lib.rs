@@ -957,7 +957,8 @@ mod test {
 
     #[tokio::test]
     async fn fixture_subtests() {
-        let source = build::arg_source_to_url("./src/test.flow.yaml", false).unwrap();
+        let test_file = test_support::test_resource_path!("src/test.flow.yaml");
+        let source = build::arg_source_to_url(test_file.to_str().unwrap(), false).unwrap();
 
         let build::Output { built, .. } = managed_build(source).await.into_result().unwrap();
 

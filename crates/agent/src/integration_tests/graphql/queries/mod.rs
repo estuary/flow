@@ -1,7 +1,6 @@
 use super::common_setup;
 use serde_json::Value;
 use std::fs;
-use std::path::Path;
 
 #[tokio::test]
 #[serial_test::serial]
@@ -9,8 +8,7 @@ async fn test_graphql_queries() {
     let (mut harness, alice_user_id, bob_user_id) = common_setup().await;
 
     // Get the directory containing our query files
-    let queries_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/integration_tests/graphql/queries");
+    let queries_dir = test_support::test_resource_path!("src/integration_tests/graphql/queries");
 
     // Read all .graphql files in the queries directory
     let entries = fs::read_dir(&queries_dir)

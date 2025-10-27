@@ -1,0 +1,61 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "automations",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    tags = [
+        "no-remote-exec",
+        "requires-db",
+        "requires-network",
+    ],
+    deps = [
+        "//crates/coroutines",
+        "//crates/models",
+        "@crates_io//:anyhow",
+        "@crates_io//:futures",
+        "@crates_io//:rand",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:sqlx",
+        "@crates_io//:tokio",
+        "@crates_io//:tracing",
+    ],
+)
+
+rust_test(
+    name = "test_fibonacci",
+    size = "small",
+    edition = "2024",
+    crate_root = "tests/test_fibonacci.rs",
+    srcs = glob(["tests/**/*.rs"]),
+    rustc_env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    env = {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+    },
+    tags = [
+        "no-remote-exec",
+        "requires-db",
+        "requires-network",
+    ],
+    deps = [
+        ":automations",
+        "//crates/models",
+        "@crates_io//:anyhow",
+        "@crates_io//:futures",
+        "@crates_io//:rand",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:sqlx",
+        "@crates_io//:tokio",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+    ],
+)

@@ -1,0 +1,30 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "build",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/assemble",
+        "//crates/json",
+        "//crates/models",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/runtime",
+        "//crates/sources",
+        "//crates/tables",
+        "//crates/validation",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:futures",
+        "@crates_io//:rand",
+        "@crates_io//:reqwest",
+        "@crates_io//:rusqlite",
+        "@crates_io//:tokio",
+        "@crates_io//:tonic",
+        "@crates_io//:tracing",
+        "@crates_io//:url",
+    ],
+)

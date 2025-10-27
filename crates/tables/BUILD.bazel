@@ -6,6 +6,7 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2024",
     visibility = ["//visibility:public"],
+    crate_features = ["persist"],
     deps = [
         "//crates/doc",
         "//crates/json",
@@ -17,6 +18,7 @@ rust_library(
         "@crates_io//:itertools",
         "@crates_io//:pathfinding",
         "@crates_io//:prost",
+        "@crates_io//:rusqlite",
         "@crates_io//:serde",
         "@crates_io//:serde_json",
         "@crates_io//:superslice",

@@ -28,6 +28,7 @@ uuid = { workspace = true }
 criterion = { workspace = true }
 glob = { workspace = true }
 insta = { workspace = true }
+test-support = { path = "../test-support" }
 
 [[bench]]
 name = "github_events"

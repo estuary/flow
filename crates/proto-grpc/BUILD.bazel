@@ -92,6 +92,28 @@ rust_library(
     ],
 )
 
+rust_library(
+    name = "proto-grpc-runtime-client",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    crate_name = "proto_grpc",
+    crate_features = [
+        "runtime_client",
+        "capture_client",
+        "derive_client",
+        "materialize_client",
+    ],
+    deps = [
+        "//crates/proto-flow:proto-flow",
+        "//crates/proto-gazette:proto-gazette",
+        "@crates_io//:tonic",
+        "@crates_io//:tonic-prost",
+    ],
+)
+
 # Convenience aliases for common feature combinations
 
 alias(

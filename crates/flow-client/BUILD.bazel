@@ -1,0 +1,33 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "flow-client",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    compile_data = ["control-plane-api.graphql"],
+    deps = [
+        "//crates/gazette",
+        "//crates/models",
+        "//crates/ops",
+        "//crates/proto-flow",
+        "//crates/proto-gazette",
+        "@crates_io//:anyhow",
+        "@crates_io//:base64",
+        "@crates_io//:chrono",
+        "@crates_io//:futures",
+        "@crates_io//:jsonwebtoken",
+        "@crates_io//:lazy_static",
+        "@crates_io//:page-turner",
+        "@crates_io//:postgrest",
+        "@crates_io//:reqwest",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:time",
+        "@crates_io//:tokio",
+        "@crates_io//:tonic",
+        "@crates_io//:tracing",
+        "@crates_io//:url",
+    ],
+)

@@ -167,63 +167,18 @@ async fn ready_tasks_iter(
         .await
         .unwrap();
 
-    let dequeued = sqlx::query_as!(
-        DequeuedTask,
-        r#"
-        WITH picked AS (
-            SELECT task_id
-            FROM internal.tasks
-            WHERE
-                task_type = ANY($1) AND
-                wake_at   < NOW() AND
-                heartbeat < NOW() - $2::INTERVAL
-            ORDER BY wake_at DESC
-            LIMIT $3
-            FOR UPDATE SKIP LOCKED
-        )
-        UPDATE internal.tasks
-        SET heartbeat = NOW()
-        WHERE task_id in (SELECT task_id FROM picked)
-        RETURNING
-            task_id as "id: models::Id",
-            task_type as "type_: TaskType",
-            parent_id as "parent_id: models::Id",
-            inbox as "inbox: Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>",
-            inner_state as "state: SqlJson<BoxedRaw>",
-            heartbeat::TEXT as "last_heartbeat!";
-        "#,
-        &task_types as &[i16],
-        heartbeat_timeout as std::time::Duration,
-        permits.num_permits() as i64,
-    )
-    .fetch_all(pool)
-    .await;
+    let dequeued = dequeue_tasks(&mut permits, pool, executors, task_types, heartbeat_timeout).await;
 
-    let dequeued = match dequeued {
-        Ok(dequeued) => {
-            tracing::debug!(dequeued = dequeued.len(), "completed task dequeue");
-            dequeued
+    let ready = match dequeued {
+        Ok(ready) => {
+            tracing::debug!(dequeued = ready.len(), "completed task dequeue");
+            ready
         }
         Err(err) => {
             () = co.yield_(Err(err)).await;
             Vec::new() // We'll sleep as if it were idle, then retry.
         }
     };
-
-    let ready = dequeued
-        .into_iter()
-        .map(|task| {
-            let Ok(index) = task_types.binary_search(&task.type_.0) else {
-                panic!("polled {:?} with unexpected {:?}", task.id, task.type_);
-            };
-            ReadyTask {
-                task,
-                executor: executors.0[index].clone(),
-                permit: permits.split(1).unwrap(),
-                pool: pool.clone(),
-            }
-        })
-        .collect();
 
     () = co.yield_(Ok(ready)).await;
 

@@ -32,6 +32,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tables",
+ "test-support",
  "tokio",
  "tracing",
  "url",
@@ -148,6 +149,7 @@ dependencies = [
  "sqlx",
  "tables",
  "tempfile",
+ "test-support",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
@@ -4378,6 +4380,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "test-support",
  "thiserror 2.0.17",
  "time",
  "url",
@@ -5416,6 +5419,7 @@ dependencies = [
  "serde_json",
  "strum 0.27.2",
  "tempfile",
+ "test-support",
  "thiserror 2.0.17",
  "time",
  "tracing",
@@ -7923,6 +7927,10 @@ name = "termtree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+
+[[package]]
+name = "test-support"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

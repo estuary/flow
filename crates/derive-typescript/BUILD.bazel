@@ -1,0 +1,64 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_binary", "rust_test")
+
+rust_library(
+    name = "derive-typescript",
+    srcs = glob(["src/**/*.rs"], exclude=["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    compile_data = glob(["src/**/*.template", "src/**/*.json"]),
+    deps = [
+        "//crates/doc",
+        "//crates/json",
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tempfile",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:url",
+    ],
+)
+
+rust_binary(
+    name = "derive-typescript-bin",
+    srcs = ["src/main.rs"],
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    rustc_env = {
+        "FLOW_VERSION": "0.0.0-dev",
+    },
+    deps = [
+        ":derive-typescript",
+        "//crates/doc",
+        "//crates/json",
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:itertools",
+        "@crates_io//:lazy_static",
+        "@crates_io//:regex",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:tempfile",
+        "@crates_io//:tracing",
+        "@crates_io//:tracing-subscriber",
+        "@crates_io//:url",
+    ],
+)
+
+rust_test(
+    name = "derive-typescript_lib_tests",
+    size = "small",
+    edition = "2024",
+    crate = ":derive-typescript",
+    deps = [
+        "//crates/models",
+        "//crates/sources",
+        "//crates/tables",
+        "@crates_io//:insta",
+    ],
+)

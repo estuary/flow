@@ -29,6 +29,7 @@ build = { path = "../build" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
 tables = { path = "../tables" }
+test-support = { path = "../test-support" }
 
 insta = { workspace = true }
 serde_json = { workspace = true }

@@ -41,6 +41,7 @@ rust_test(
         "INSTA_WORKSPACE_ROOT": ".",
     },
     deps = [
+        "//crates/test-support",
         "@crates_io//:insta",
         "@crates_io//:glob",
     ],
@@ -48,6 +49,7 @@ rust_test(
 
 _SCHEMA_TEST_DEPS = [
     ":json",
+    "//crates/test-support",
     "@crates_io//:glob",
     "@crates_io//:itertools",
     "@crates_io//:serde_json",

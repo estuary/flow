@@ -6,4 +6,6 @@
 exports_files([
     "Cargo.toml",
     "Cargo.lock",
+    "ops-catalog/data-plane-template.bundle.json",
+    "ops-catalog/reporting-L2-template.bundle.json",
 ])
