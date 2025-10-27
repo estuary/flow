@@ -15,7 +15,7 @@ Active and historical notifications include the type of alert, when it was fired
 
 ## Data Movement Alerts
 
-A user can select an interval for tracking zero data movement for a specific capture or materialization. From the connector details page, select the `Alerts` tab. Under the `Notification Settings` card, select a time interval from the dropdown labeled `Interval`. There is no need to save, but you must also have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on `CLICK HERE`.
+A user can select an interval for tracking zero data movement for a specific capture or materialization. On the capture or materialization details page, select the `Alerts` tab. Under the `Notification Settings` card, select a time interval from the dropdown labeled `Interval`. There is no need to save, but you must also have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on `CLICK HERE`.
 
 If your task does not receive any new documents with the selected timeframe, an email will be sent to any email addresses that are subscribed to this tenant.
 
