@@ -4,6 +4,8 @@
 This connector materializes Flow collections as Kafka-compatible messages that a SingleStore Kafka consumer can read. [SingleStore](https://www.singlestore.com/) is a distributed SQL database designed for data-intensive applications,
 offering high performance for both transactional and analytical workloads.
 
+Estuary also provides a [direct materialization with SingleStore](../MySQL/singlestore-mysql.md).
+
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -37,9 +39,9 @@ Once the connector is created, note the full materialization name, such as `YOUR
             CONFIG '{
                 "security.protocol":"SASL_SSL",
                 "sasl.mechanism":"PLAIN",
-                "sasl.username":"{YOUR/MATERIALIZATION/NAME}",
+                "sasl.username":"Your/Materialization/Name",
                 "broker.address.family": "v4",
-                "schema.registry.username": "{YOUR/MATERIALIZATION/NAME}",
+                "schema.registry.username": "Your/Materialization/Name",
                 "fetch.wait.max.ms": "2000"
             }'
             CREDENTIALS '{
