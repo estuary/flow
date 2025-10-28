@@ -1,5 +1,21 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
+_CARGO_DEPS = [
+    "@crates_io//:anyhow",
+    "@crates_io//:bytes",
+    "@crates_io//:futures",
+    "@crates_io//:itertools",
+    "@crates_io//:lazy_static",
+    "@crates_io//:regex",
+    "@crates_io//:serde",
+    "@crates_io//:serde_json",
+    "@crates_io//:strsim",
+    "@crates_io//:superslice",
+    "@crates_io//:thiserror",
+    "@crates_io//:url",
+    "@crates_io//:xxhash-rust",
+]
+
 rust_library(
     name = "validation",
     srcs = glob(
@@ -22,21 +38,33 @@ rust_library(
         "//crates/models",
         "//crates/proto-flow",
         "//crates/tables",
-        "@crates_io//:anyhow",
-        "@crates_io//:bytes",
-        "@crates_io//:futures",
-        "@crates_io//:itertools",
-        "@crates_io//:lazy_static",
-        "@crates_io//:regex",
-        "@crates_io//:serde",
-        "@crates_io//:serde_json",
-        "@crates_io//:strsim",
-        "@crates_io//:superslice",
-        "@crates_io//:thiserror",
-        "@crates_io//:tracing",
-        "@crates_io//:url",
-        "@crates_io//:xxhash-rust",
-    ],
+    ] + _CARGO_DEPS,
+)
+
+rust_library(
+    name = "validation-wasm",
+    srcs = glob(
+        include = ["src/**/*.rs"],
+        exclude = [],
+    ),
+    compile_data = glob([
+        "src/**/*.yaml",
+        "src/**/*.snap",
+    ]),
+    crate_name = "validation",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/assemble:assemble-wasm",
+        "//crates/doc:doc-wasm",
+        "//crates/extractors:extractors-wasm",
+        "//crates/json",
+        "//crates/labels:labels-wasm",
+        "//crates/models:models-wasm",
+        "//crates/proto-flow",
+        "//crates/tables:tables-wasm",
+    ] + _CARGO_DEPS,
 )
 
 rust_test(

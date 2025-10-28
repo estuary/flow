@@ -193,7 +193,7 @@ zeroize = "1"
 unicode-bom = "2"
 unicode-normalization = "0"
 url = { version = "2", features = ["serde"] }
-uuid = { version = "1", features = ["serde", "v4"] }
+uuid = { version = "1", features = ["serde"] }
 validator = { version = "0", features = ["derive"] }
 quickcheck = "1"
 quickcheck_macros = "1"

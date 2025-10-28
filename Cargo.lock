@@ -503,7 +503,6 @@ dependencies = [
  "tables",
  "thiserror 2.0.17",
  "time",
- "tracing",
  "url",
 ]
 
@@ -8703,7 +8702,6 @@ dependencies = [
  "superslice",
  "tables",
  "thiserror 2.0.17",
- "tracing",
  "url",
  "xxhash-rust",
 ]

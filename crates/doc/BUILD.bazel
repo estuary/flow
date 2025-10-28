@@ -2,11 +2,7 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# Shared library dependencies
-_LIB_DEPS = [
-    "//crates/json:json",
-    "//crates/proto-gazette:proto-gazette",
-    "//crates/tuple:tuple",
+_CARGO_DEPS = [
     "@crates_io//:base64",
     "@crates_io//:bigdecimal",
     "@crates_io//:bumpalo",
@@ -19,23 +15,12 @@ _LIB_DEPS = [
     "@crates_io//:serde",
     "@crates_io//:serde_json",
     "@crates_io//:sha2",
-    "@crates_io//:tempfile",
     "@crates_io//:thiserror",
     "@crates_io//:time",
     "@crates_io//:tracing",
     "@crates_io//:url",
     "@crates_io//:uuid",
 ]
-
-rust_library(
-    name = "doc_no_combine",
-    srcs = glob([
-        "src/**/*.rs",
-    ]),
-    crate_root = "src/lib.rs",
-    edition = "2024",
-    deps = _LIB_DEPS,
-)
 
 rust_library(
     name = "doc",
@@ -46,7 +31,30 @@ rust_library(
     crate_name = "doc",
     crate_root = "src/lib.rs",
     edition = "2024",
-    deps = _LIB_DEPS + ["@crates_io//:lz4"],
+    deps = [
+        "//crates/json",
+        "//crates/proto-gazette",
+        "//crates/tuple",
+        # Additional cargo crates behind `combine` feature.
+        "@crates_io//:lz4",
+        "@crates_io//:tempfile",
+    ] + _CARGO_DEPS,
+)
+
+rust_library(
+    name = "doc-wasm",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_name = "doc",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = [
+        "//crates/json",
+        "//crates/proto-gazette",
+        "//crates/tuple",
+    ] + _CARGO_DEPS,
+
 )
 
 rust_test(

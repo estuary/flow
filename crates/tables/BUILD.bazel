@@ -28,6 +28,35 @@ rust_library(
     ],
 )
 
+rust_library(
+    name = "tables-wasm",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "tables",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    crate_features = [],  # No persist feature
+    deps = [
+        "//crates/doc:doc-wasm",
+        "//crates/json",
+        "//crates/labels:labels-wasm",
+        "//crates/models:models-wasm",
+        "//crates/proto-flow",
+        "@crates_io//:anyhow",
+        "@crates_io//:bytes",
+        "@crates_io//:itertools",
+        "@crates_io//:pathfinding",
+        "@crates_io//:prost",
+        # No rusqlite dependency
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:superslice",
+        "@crates_io//:url",
+        "@crates_io//:uuid",
+        "@crates_io//:xxhash-rust",
+    ],
+)
+
 rust_test(
     name = "tables_lib_test",
     size = "small",

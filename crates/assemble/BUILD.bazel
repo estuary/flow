@@ -1,5 +1,21 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
+_CARGO_DEPS = [
+    "@crates_io//:bytes",
+    "@crates_io//:fxhash",
+    "@crates_io//:itertools",
+    "@crates_io//:lazy_static",
+    "@crates_io//:pbjson-types",
+    "@crates_io//:percent-encoding",
+    "@crates_io//:regex",
+    "@crates_io//:serde",
+    "@crates_io//:serde_json",
+    "@crates_io//:superslice",
+    "@crates_io//:thiserror",
+    "@crates_io//:time",
+    "@crates_io//:url",
+]
+
 rust_library(
     name = "assemble",
     srcs = glob(["src/**/*.rs"]),
@@ -14,21 +30,25 @@ rust_library(
         "//crates/proto-flow",
         "//crates/proto-gazette",
         "//crates/tables",
-        "@crates_io//:bytes",
-        "@crates_io//:fxhash",
-        "@crates_io//:itertools",
-        "@crates_io//:lazy_static",
-        "@crates_io//:pbjson-types",
-        "@crates_io//:percent-encoding",
-        "@crates_io//:regex",
-        "@crates_io//:serde",
-        "@crates_io//:serde_json",
-        "@crates_io//:superslice",
-        "@crates_io//:thiserror",
-        "@crates_io//:time",
-        "@crates_io//:tracing",
-        "@crates_io//:url",
-    ],
+    ] + _CARGO_DEPS,
+)
+
+rust_library(
+    name = "assemble-wasm",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "assemble",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc:doc-wasm",
+        "//crates/json",
+        "//crates/labels:labels-wasm",
+        "//crates/models:models-wasm",
+        "//crates/proto-flow",
+        "//crates/proto-gazette",
+        "//crates/tables:tables-wasm",
+    ] + _CARGO_DEPS,
 )
 
 rust_test(

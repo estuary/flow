@@ -1,4 +1,5 @@
 "Blaze module for Estuary Flow"
+
 module(
     name = "flow",
     version = "0.6.0",
@@ -10,15 +11,11 @@ module(
 
 # rules_rust - Bazel rules for building Rust code
 # Available versions: https://registry.bazel.build/modules/rules_rust
-bazel_dep(name = "rules_rust", version = "0.66.0")
+bazel_dep(name = "rules_rust", version = "0.67.0")
 
 # rules_cc - Bazel rules for C/C++
 # Available versions: https://registry.bazel.build/modules/rules_cc
-bazel_dep(name = "rules_cc", version = "0.2.9")
-
-# rules_proto - Bazel rules for Protocol Buffers
-# Available versions: https://registry.bazel.build/modules/rules_proto
-bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "rules_cc", version = "0.2.12")
 
 # cxx.rs - Safe interop between Rust and C++
 # Available versions: https://registry.bazel.build/modules/cxx.rs
@@ -44,16 +41,14 @@ rust.toolchain(
     ],
     # Treat warnings as errors for all Rust code
     # Third-party crates override this with --cap-lints=allow in their individual targets
-    # Use lld linker instead of deprecated gold linker
     extra_rustc_flags = [
         "-Dwarnings",
-        "-C",
-        "link-arg=-fuse-ld=lld",
     ],
     versions = ["1.90.0"],
 )
 use_repo(rust, "rust_toolchains")
 register_toolchains("@rust_toolchains//:all")
+register_toolchains("@rules_rust//rust/private/dummy_cc_toolchain:dummy_cc_wasm32_toolchain")
 
 ###############################################################################
 # Cargo dependencies (crates from crates.io)
@@ -81,6 +76,45 @@ crate.annotation(
         # Override linker to use bfd instead of lld for librdkafka C build
         "LDFLAGS": "-fuse-ld=bfd",
     },
+)
+
+# Configure getrandom to enable JS features for WASM targets
+# The getrandom crate requires these features to work with wasm32-unknown-unknown
+# We also need to manually add wasm-bindgen and js-sys dependencies for wasm32 targets
+# because crate_universe doesn't properly handle optional + target-specific + feature-gated deps
+crate.annotation(
+    crate = "getrandom",
+    version = "0.2.16",
+    crate_features = ["js"],
+    deps = [
+        "@crates_io__js-sys-0.3.81//:js_sys",
+        "@crates_io__wasm-bindgen-0.2.104//:wasm_bindgen",
+    ],
+)
+
+# Configure getrandom 0.3.x to enable wasm_js feature for WASM targets
+# Version 0.3.x uses "wasm_js" instead of "js" feature flag
+crate.annotation(
+    crate = "getrandom",
+    version = "0.3.4",
+    crate_features = ["wasm_js"],
+    deps = [
+        "@crates_io__js-sys-0.3.81//:js_sys",
+        "@crates_io__wasm-bindgen-0.2.104//:wasm_bindgen",
+    ],
+)
+
+# Configure uuid to enable js feature for WASM targets
+# The uuid crate requires a randomness source for wasm32-unknown-unknown
+# Using "js" feature which relies on wasm-bindgen + js-sys (already available)
+crate.annotation(
+    crate = "uuid",
+    version = "1.18.1",
+    crate_features = ["js"],
+    deps = [
+        "@crates_io__wasm-bindgen-0.2.104//:wasm_bindgen",
+        "@crates_io__js-sys-0.3.81//:js_sys",
+    ],
 )
 
 # Make the crates_io repository available

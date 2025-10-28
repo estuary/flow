@@ -1,5 +1,11 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
+_CARGO_DEPS = [
+    "@crates_io//:percent-encoding",
+    "@crates_io//:serde_json",
+    "@crates_io//:thiserror",
+]
+
 rust_library(
     name = "labels",
     srcs = glob(["src/**/*.rs"]),
@@ -11,10 +17,22 @@ rust_library(
         "//crates/json",
         "//crates/proto-flow",
         "//crates/proto-gazette",
-        "@crates_io//:percent-encoding",
-        "@crates_io//:serde_json",
-        "@crates_io//:thiserror",
-    ],
+    ] + _CARGO_DEPS,
+)
+
+rust_library(
+    name = "labels-wasm",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "labels",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc:doc-wasm",
+        "//crates/json",
+        "//crates/proto-flow",
+        "//crates/proto-gazette",
+    ] + _CARGO_DEPS,
 )
 
 rust_test(

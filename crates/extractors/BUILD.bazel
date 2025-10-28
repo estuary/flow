@@ -1,5 +1,10 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
+_CARGO_DEPS = [
+    "@crates_io//:serde_json",
+    "@crates_io//:thiserror",
+]
+
 rust_library(
     name = "extractors",
     srcs = glob(["src/**/*.rs"]),
@@ -9,9 +14,20 @@ rust_library(
     deps = [
         "//crates/doc",
         "//crates/proto-flow",
-        "@crates_io//:serde_json",
-        "@crates_io//:thiserror",
-    ],
+    ] + _CARGO_DEPS,
+)
+
+rust_library(
+    name = "extractors-wasm",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "extractors",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//crates/doc:doc-wasm",
+        "//crates/proto-flow",
+    ] + _CARGO_DEPS,
 )
 
 rust_test(

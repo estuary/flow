@@ -1,61 +1,24 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library", "rust_test")
 
-rust_library(
+rust_shared_library(
     name = "flow-web",
     srcs = glob(["src/**/*.rs"]),
-    crate_root = "src/lib.rs",
-    edition = "2021",
-    visibility = ["//visibility:public"],
+    edition = "2024",
     crate_features = ["console_error_panic_hook"],
-    rustc_flags = [
-        "--cfg=web_sys_unstable_apis",
-    ],
     deps = [
-        "//crates/doc",
+        "//crates/doc:doc-wasm",
         "//crates/json",
-        "//crates/models",
+        "//crates/models:models-wasm",
         "//crates/proto-flow",
-        "//crates/tables",
-        "//crates/validation",
+        "//crates/tables:tables-wasm",
+        "//crates/validation:validation-wasm",
         "@crates_io//:console_error_panic_hook",
         "@crates_io//:serde",
-        "@crates_io//:serde_json",
         "@crates_io//:serde-wasm-bindgen",
+        "@crates_io//:serde_json",
         "@crates_io//:thiserror",
         "@crates_io//:url",
         "@crates_io//:wasm-bindgen",
     ],
-)
-
-# WASM target library would go here
-# TODO: Add wasm32-unknown-unknown target once rules_rust supports it better
-
-rust_test(
-    name = "flow-web_lib_tests",
-    size = "small",
-    edition = "2021",
-    crate = ":flow-web",
-)
-
-rust_test(
-    name = "web_test",
-    srcs = ["tests/web.rs"],
-    size = "small",
-    edition = "2021",
-    deps = [
-        ":flow-web",
-        "//crates/doc",
-        "//crates/json",
-        "//crates/models",
-        "//crates/proto-flow",
-        "//crates/tables",
-        "//crates/validation",
-        "@crates_io//:serde",
-        "@crates_io//:serde_json",
-        "@crates_io//:serde-wasm-bindgen",
-        "@crates_io//:thiserror",
-        "@crates_io//:url",
-        "@crates_io//:wasm-bindgen",
-        "@crates_io//:wasm-bindgen-test",
-    ],
+    platform = "@rules_rust//rust/platform:wasm",
 )
