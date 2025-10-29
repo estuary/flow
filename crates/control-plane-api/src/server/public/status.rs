@@ -36,10 +36,12 @@ pub(crate) async fn handle_get_status(
         connected,
     }): Query<StatusQuery>,
 ) -> Result<Json<Vec<StatusResponse>>, ApiError> {
-    // Any requested names must be directly authorized
+    // Any requested names must be directly authorized. Passing `None` for
+    // `req_started_at` here, so we'll block until the next snapshot refresh if
+    // the user is unauthorized to the prefix.
     let name = state
         .0
-        .verify_user_authorization(&claims, name, models::Capability::Read)
+        .verify_user_authorization(&claims, None, name, models::Capability::Read)
         .await?;
 
     let mut require_names = name.iter().map(|s| s.as_str()).collect::<BTreeSet<_>>();

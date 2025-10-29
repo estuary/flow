@@ -94,7 +94,7 @@ impl LiveSpecRef {
         if self.user_capability.is_none() {
             return Ok(None);
         }
-        alerts::live_spec_alert_history(ctx, &self.catalog_name, before, last)
+        alerts::live_spec_alert_history_no_authz(ctx, &self.catalog_name, before, last)
             .await
             .map(|c| Some(c))
     }
@@ -276,6 +276,7 @@ impl LiveSpecsQuery {
         &self,
         ctx: &Context<'_>,
         by: LiveSpecsBy,
+        started_at: Option<chrono::DateTime<chrono::Utc>>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
@@ -301,7 +302,12 @@ impl LiveSpecsQuery {
         }
         // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
         let _ = app
-            .verify_user_authorization(claims, verify_names, models::Capability::Read)
+            .verify_user_authorization_graphql(
+                claims,
+                started_at,
+                verify_names,
+                models::Capability::Read,
+            )
             .await?;
 
         let pg_pool = app.pg_pool.clone();

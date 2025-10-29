@@ -10,6 +10,7 @@ use crate::{
     controlplane::{ConnectorSpec, ControlPlane, PGControlPlane},
     discovers,
 };
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use control_plane_api::server;
 use control_plane_api::{
@@ -1350,10 +1351,11 @@ impl TestHarness {
         let app = self.control_plane_app.as_ref().unwrap();
 
         // Create control claims for the user
+        let req_start = chrono::Utc::now();
         let claims = models::authorizations::ControlClaims {
             sub: user_id,
-            iat: chrono::Utc::now().timestamp() as u64,
-            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as u64,
+            iat: req_start.timestamp() as u64,
+            exp: (req_start + chrono::Duration::hours(1)).timestamp() as u64,
             role: "authenticated".to_string(),
             email: Some(format!("user-{user_id}@example.com")),
         };
@@ -1371,12 +1373,41 @@ impl TestHarness {
                 tokio::spawn,
             ));
 
-        // Execute the query
-        let response = schema.execute(request).await;
+        // Execute the query using a pretty short timeout. This is necessary because the
+        // server will try to wait for a Snapshot refresh when an authZ check fails, but
+        // snapshots are never automatically refreshed during integration tests.
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(1), schema.execute(request))
+                .await
+                .context("graphql query timed out (note: authorization failures could be a common cause of this if the query omitted a startedAt parameter)")?;
 
         // Check for errors
         if !response.errors.is_empty() {
-            return Err(anyhow::anyhow!("GraphQL errors: {:?}", response.errors));
+            let mut errors = response.errors;
+            // If any errors include the `retryAfter` extension, then assert
+            // that the value is in the near future and then set it to a const
+            // that works for snapshots.
+            for err in errors.iter_mut() {
+                if let Some(ext) = err.extensions.as_mut()
+                    && ext.get("retryAfter").is_some()
+                {
+                    let prev = ext.get("retryAfter").unwrap().clone().into_json().unwrap();
+                    let retry_after: chrono::DateTime<chrono::Utc> =
+                        serde_json::from_value(prev).expect("retryAfter must be a UTC timestamp");
+                    assert!(
+                        retry_after > req_start,
+                        "expected error retryAfter to be greater than {req_start}, actual: {retry_after}"
+                    );
+                    let diff = retry_after - req_start;
+                    assert!(
+                        diff.num_seconds() <= 30,
+                        "expected retryAfter to be at most 30s in the future, got: {retry_after}"
+                    );
+
+                    ext.set("retryAfter", "const-retryAfter-for-tests");
+                }
+            }
+            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
         }
 
         // Deserialize the data
@@ -1399,15 +1430,10 @@ impl TestHarness {
             self.publisher.clone(),
         ));
         {
-            let mut snapshot =
+            let snapshot =
                 control_plane_api::server::snapshot::try_fetch(&self.pool, &mut Default::default())
                     .await
                     .expect("failed to fetch Snapshot");
-            // Push forward the `taken` time of the snapshot to ensure that it's
-            // always considered "fresh" when evaluating authorizations.
-            // Otherwise, we might delay when testing API handlers and the user
-            // is unauthorized to a particular resource.
-            snapshot.taken = chrono::Utc::now() + chrono::Duration::minutes(20);
             let mut lock = app.snapshot().write().unwrap();
             *lock = snapshot;
         }
