@@ -133,7 +133,7 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
               import 'graphiql/setup-workers/esm.sh';
 
               const fetcher = createGraphiQLFetcher({
-                url: 'http://localhost:8675/api/graphql',
+                url: '/api/graphql',
               });
               const plugins = [HISTORY_PLUGIN, explorerPlugin()];
 
