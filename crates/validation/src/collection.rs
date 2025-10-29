@@ -401,6 +401,15 @@ fn walk_collection_schema(
         {
             continue;
         }
+        // Relax errors about `block` redact locations that are required to exist,
+        // if (and only if) this is a read schema using inference.
+        if matches!(
+            err,
+            doc::shape::inspections::Error::BlockRedactionMustExist(_)
+        ) && model.references_inferred_schema()
+        {
+            continue;
+        }
         Error::from(err).push(scope, errors);
     }
 

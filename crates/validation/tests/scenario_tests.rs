@@ -1564,6 +1564,89 @@ driver:
 }
 
 #[test]
+fn test_collection_inferred_schema_impossible_type() {
+    // An impossible type of the write schema raises an error.
+    let outcome = common::run_errors(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        properties:
+          changingType: false
+        required: [key, changingType]
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome, @r###"
+    [
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1foobar/writeSchema,
+            error: '/changingType' must exist, but is constrained to always be invalid,
+        },
+    ]
+    "###);
+
+    // We allow an impossible type (changingType) of a read schema
+    // using schema inference.
+    let outcome = common::run_errors(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      readSchema:
+        allOf:
+          - $ref: flow://write-schema # Was: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome, @"[]");
+}
+
+#[test]
+fn test_collection_inferred_schema_add_blocking() {
+    // A redact annotation on a required write schema property raises an error.
+    let outcome = common::run_errors(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        properties:
+          changingType:
+            redact: { strategy: block }
+        required: [key, changingType]
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome, @r###"
+    [
+        Error {
+            scope: test://example/catalog.yaml#/collections/testing~1foobar/writeSchema,
+            error: `block` redact strategy cannot be applied at '/changingType' because it must exist,
+        },
+    ]
+    "###);
+
+    // We allow a redact annotation on a required read schema property,
+    // where schema inference is in use.
+    let outcome = common::run_errors(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        properties:
+          changingType:
+            redact: { strategy: block }
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome, @"[]");
+}
+
+#[test]
 fn test_capture_too_many_bindings() {
     let bindings_count = validation::MAX_BINDINGS + 1;
 
