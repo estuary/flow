@@ -103,8 +103,8 @@ The options supported currently are:
   operations performed by the connector.
 - **keyword**: Fields with `type: string` will have `keyword` index mappings
   created for them only they are part of the key. Set the `keyword` field
-  configuration on non-key fields to have them created as `keyword` mappings
-  also, instead of `text`.
+  configuration on non-key string or integer fields to have them created as
+  `keyword` instead of their native mapping.
 
 An example JSON configuration for this field configurations is shown below:
 
@@ -121,7 +121,7 @@ An example JSON configuration for this field configurations is shown below:
           "myKey": {
             "routing": true
           },
-          "stringField": {
+          "stringOrIntegerField": {
             "keyword": true
           }
         },
