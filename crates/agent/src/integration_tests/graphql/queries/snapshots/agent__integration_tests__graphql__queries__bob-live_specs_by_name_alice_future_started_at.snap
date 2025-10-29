@@ -1,0 +1,5 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+"GraphQL query failed with error: GraphQL errors: [ServerError { message: \"user was provisionally unauthorized to one or more requested resources, but the request can be retried\", locations: [Pos(6:5)], path: [Field(\"liveSpecs\")], extensions: Some(ErrorExtensionValues({\"retryAfter\": String(\"const-retryAfter-for-tests\")})) }]"

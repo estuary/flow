@@ -45,6 +45,12 @@ pub struct ApiError {
     #[schemars(schema_with = "error_serde::schema")]
     #[source]
     pub error: anyhow::Error,
+
+    /// Certain requests may fail due to authorization failures, but
+    /// can be retried after a time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "models::option_datetime_schema")]
+    pub retry_after: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 mod status_serde {
@@ -101,14 +107,21 @@ mod error_serde {
 
 impl ApiError {
     pub fn unauthorized(prefix: &str) -> ApiError {
-        ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            anyhow::anyhow!("user is not authorized to {prefix}"),
-        )
+        ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            error: anyhow::anyhow!("user is not authorized to {prefix}"),
+            retry_after: None,
+        }
     }
 
-    pub fn new(status: StatusCode, error: anyhow::Error) -> ApiError {
-        ApiError { status, error }
+    pub fn retry_authz_failure(retry_after: chrono::DateTime<chrono::Utc>) -> ApiError {
+        ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            error: anyhow::anyhow!(
+                "user was provisionally unauthorized to one or more requested resources, but the request can be retried"
+            ),
+            retry_after: Some(retry_after),
+        }
     }
 
     fn status_for(err: &anyhow::Error) -> StatusCode {
@@ -129,12 +142,26 @@ impl ApiError {
     }
 }
 
+impl async_graphql::ErrorExtensions for ApiError {
+    fn extend(&self) -> async_graphql::Error {
+        let err = async_graphql::Error::new(format!("{:#}", self.error));
+        if let Some(retry_after) = self.retry_after {
+            err.extend_with(|_, ee| {
+                ee.set("retryAfter", retry_after.to_rfc3339());
+            })
+        } else {
+            err
+        }
+    }
+}
+
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> ApiError {
         tracing::error!(?error, "API responding with database error");
         ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             error: anyhow::anyhow!("database error, please retry the request"),
+            retry_after: None,
         }
     }
 }
@@ -142,7 +169,11 @@ impl From<sqlx::Error> for ApiError {
 impl From<anyhow::Error> for ApiError {
     fn from(error: anyhow::Error) -> Self {
         let status = Self::status_for(&error);
-        ApiError { status, error }
+        ApiError {
+            status,
+            error,
+            retry_after: None,
+        }
     }
 }
 
@@ -151,6 +182,7 @@ impl From<Rejection> for ApiError {
         ApiError {
             status: StatusCode::BAD_REQUEST,
             error: anyhow::Error::from(value).context("Input validation error"),
+            retry_after: None,
         }
     }
 }
