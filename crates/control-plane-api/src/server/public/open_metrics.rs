@@ -19,9 +19,11 @@ pub async fn handle_get_metrics(
                 .with_status(StatusCode::BAD_REQUEST),
         );
     }
+    // Passing `None` for `req_started_at` here, so we'll block until the next
+    // snapshot refresh if the user is unauthorized to the prefix.
     let prefixes = state
         .0
-        .verify_user_authorization(&claims, vec![prefix], models::Capability::Read)
+        .verify_user_authorization(&claims, None, vec![prefix], models::Capability::Read)
         .await?;
 
     let pg_pool = state.pg_pool.clone();

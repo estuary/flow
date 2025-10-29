@@ -88,36 +88,73 @@ impl App {
     // with automatic Into conversions into lower const capabilities.
     // The intended purpose of the proposed VerifiedClaims struct is to wire it
     // through APIs such that we cannot possibly forget to verify authorizations.
+    // Note: graphql resolvers should instead use `verify_user_authorization_graphql`.
+    /// Verifies that the authenticated user identified by `claims` has at least
+    /// `capability` to each of the given `prefixes_or_names`. This function may
+    /// block until the next snapshot refresh if `req_started_at` is `None` and
+    /// the user does not have the required capability. If `req_started_at` is
+    /// `Some`, then this function will never block. It will either return a
+    /// terminal error if `req_started_at` is earlier than the time of the last
+    /// snapshot refresh, or it will return a retryable error if it's later.
+    /// This is to account for the fact that new role grants could have been
+    /// added after the last snapshot refresh, which permit what we otherwise
+    /// would reject.
     pub async fn verify_user_authorization(
         &self,
         claims: &ControlClaims,
-        prefixes: Vec<String>,
+        req_started_at: Option<chrono::DateTime<chrono::Utc>>,
+        prefixes_or_names: Vec<String>,
         capability: models::Capability,
     ) -> Result<Vec<String>, ApiError> {
-        let started = chrono::Utc::now();
+        let is_blocking = req_started_at.is_none();
         loop {
-            match Snapshot::evaluate(&self.snapshot, started, |snapshot: &Snapshot| {
-                for prefix in &prefixes {
-                    if !tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        claims.sub,
-                        prefix,
-                        capability,
-                    ) {
-                        return Err(ApiError::unauthorized(prefix));
+            match Snapshot::evaluate(
+                &self.snapshot,
+                req_started_at.unwrap_or(chrono::Utc::now()),
+                |snapshot: &Snapshot| {
+                    for prefix in &prefixes_or_names {
+                        if !tables::UserGrant::is_authorized(
+                            &snapshot.role_grants,
+                            &snapshot.user_grants,
+                            claims.sub,
+                            prefix,
+                            capability,
+                        ) {
+                            return Err(ApiError::unauthorized(prefix.as_str()));
+                        }
                     }
-                }
-                Ok((None, ()))
-            }) {
-                Ok((_exp, ())) => return Ok(prefixes),
-                Err(Ok(backoff)) => {
+                    Ok((None, ()))
+                },
+            ) {
+                Ok((_exp, ())) => return Ok(prefixes_or_names),
+                Err(Ok(backoff)) if is_blocking => {
                     tracing::debug!(?backoff, "waiting before retrying authZ check");
                     () = tokio::time::sleep(backoff).await;
+                }
+                Err(Ok(backoff)) => {
+                    return Err(ApiError::retry_authz_failure(chrono::Utc::now() + backoff));
                 }
                 Err(Err(err)) => return Err(err),
             }
         }
+    }
+
+    /// Verifies tha the user has at least `capability` to each of the
+    /// `prefixes_or_names`. This ensures that the error extensions will include
+    /// a `retryAt` timestamp when appropriate, so that clients can retry the
+    /// request after the snapshot is refreshed.
+    pub async fn verify_user_authorization_graphql(
+        &self,
+        claims: &ControlClaims,
+        req_started_at: Option<chrono::DateTime<chrono::Utc>>,
+        prefixes_or_names: Vec<String>,
+        capability: models::Capability,
+    ) -> async_graphql::Result<Vec<String>> {
+        use async_graphql::ResultExt;
+
+        self.verify_user_authorization(claims, req_started_at, prefixes_or_names, capability)
+            .await
+            .extend()
     }
 
     /// Looks up the user's authorization grants for each item in

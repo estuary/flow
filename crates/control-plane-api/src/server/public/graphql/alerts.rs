@@ -29,12 +29,13 @@ impl AlertsQuery {
         &self,
         ctx: &Context<'_>,
         by: AlertsBy,
+        started_at: Option<chrono::DateTime<chrono::Utc>>,
         before: Option<String>,
         last: Option<i32>,
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlerts> {
-        fetch_alert_history_by_prefix(ctx, by, before, last, after, first).await
+        fetch_alert_history_by_prefix(ctx, by, started_at, before, last, after, first).await
     }
 }
 
@@ -179,6 +180,7 @@ const DEFAULT_PAGE_SIZE: usize = 20;
 async fn fetch_alert_history_by_prefix(
     ctx: &Context<'_>,
     by: AlertsBy,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
     before: Option<String>,
     last: Option<i32>,
     after: Option<String>,
@@ -189,13 +191,13 @@ async fn fetch_alert_history_by_prefix(
 
     // Verify user authorization
     let _ = app
-        .verify_user_authorization(
+        .verify_user_authorization_graphql(
             claims,
+            started_at,
             vec![by.prefix.to_string()],
             models::Capability::Read,
         )
-        .await
-        .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
+        .await?;
 
     connection::query_with::<PaginatedAlertsCursor, _, _, _, _>(
         after,
@@ -363,25 +365,15 @@ async fn fetch_alerts_by_prefix_after(
 /// Queries the history of alert for a single given live spec.
 /// Note that this currently only returns alerts that are resolved, though
 /// we could allow this to return active alerts as well if we wanted.
-pub async fn live_spec_alert_history(
+/// Note: Authorization checks must be performed by the caller.
+/// This function does not perform any authorization checks.
+pub async fn live_spec_alert_history_no_authz(
     ctx: &Context<'_>,
     catalog_name: &str,
     before_date: Option<String>,
     limit: i32,
 ) -> async_graphql::Result<PaginatedAlerts> {
     let app = ctx.data::<Arc<App>>()?;
-    let claims = ctx.data::<ControlClaims>()?;
-
-    // Verify user authorization
-    let _ = app
-        .verify_user_authorization(
-            claims,
-            vec![catalog_name.to_string()],
-            models::Capability::Read,
-        )
-        .await
-        .map_err(|e| async_graphql::Error::new(format!("Authorization failed: {}", e)))?;
-
     connection::query(
         None,
         before_date,

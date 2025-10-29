@@ -1,8 +1,11 @@
 # Queries Bob's materialization by name.
 # For Bob, this is expected to just return the materialization.
-# For Alice, this is expected to return null for the liveSpec.
+# For Alice, this is expected to return an authZ error.
 query LiveSpecsByNameBob {
-    liveSpecs(by: { names: ["bobCo/private/materialization"] }) {
+    liveSpecs(
+        by: { names: ["bobCo/private/materialization"] }
+        startedAt: "2025-10-01T01:01:01Z"
+    ) {
         edges {
             node {
                 catalogName

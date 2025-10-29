@@ -649,12 +649,12 @@ type QueryRoot {
 	words, this capability represents the _minimum_ capability that the user
 	has for the given spec.
 	"""
-	liveSpecs(by: LiveSpecsBy!, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	liveSpecs(by: LiveSpecsBy!, startedAt: DateTime, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 	"""
 	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
 	"""
-	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
+	alerts(by: AlertsBy!, startedAt: DateTime, before: String, last: Int, after: String, first: Int): AlertConnection!
 	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
 }
 
