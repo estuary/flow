@@ -22,3 +22,110 @@ rust_shared_library(
     ],
     platform = "@rules_rust//rust/platform:wasm",
 )
+
+# Run wasm-bindgen first to extract custom sections and generate JavaScript bindings
+# Requires wasm-bindgen-cli to be installed locally (cargo install wasm-bindgen-cli)
+genrule(
+    name = "flow-web-bindgen-unopt",
+    srcs = [":flow-web"],
+    outs = [
+        "flow_web_unopt.js",
+        "flow_web_unopt.d.ts",
+        "flow_web_unopt_bg.js",
+        "flow_web_unopt_bg.wasm",
+        "flow_web_unopt_bg.wasm.d.ts",
+    ],
+    cmd = """
+        /home/johnny.linux/.cargo/bin/wasm-bindgen $(location :flow-web) \
+            --out-dir $(@D) \
+            --out-name flow_web_unopt \
+            --target bundler \
+            --typescript
+    """,
+    tags = ["local"],
+)
+
+# Optimize the wasm-bindgen output WASM with wasm-opt
+# This runs after wasm-bindgen has processed the custom sections
+genrule(
+    name = "flow-web-bindgen",
+    srcs = [":flow-web-bindgen-unopt"],
+    outs = [
+        "flow_web.js",
+        "flow_web.d.ts",
+        "flow_web_bg.js",
+        "flow_web_bg.wasm",
+        "flow_web_bg.wasm.d.ts",
+    ],
+    cmd = """
+        # Find the unopt files from the input
+        UNOPT_FILES=($(locations :flow-web-bindgen-unopt))
+
+        # Find the directory containing the unopt files
+        UNOPT_DIR=$$(dirname $${UNOPT_FILES[0]})
+
+        # Copy and fix imports in JS entry point
+        sed 's/flow_web_unopt_bg/flow_web_bg/g' $$UNOPT_DIR/flow_web_unopt.js > $(@D)/flow_web.js
+
+        # Copy TypeScript definitions and background JS
+        cp $$UNOPT_DIR/flow_web_unopt.d.ts $(@D)/flow_web.d.ts
+        cp $$UNOPT_DIR/flow_web_unopt_bg.js $(@D)/flow_web_bg.js
+        cp $$UNOPT_DIR/flow_web_unopt_bg.wasm.d.ts $(@D)/flow_web_bg.wasm.d.ts
+
+        # Optimize the WASM binary with wasm-opt
+        /home/johnny.linux/.cargo/bin/wasm-opt $$UNOPT_DIR/flow_web_unopt_bg.wasm \
+            -Oz \
+            --strip-debug \
+            -o $(@D)/flow_web_bg.wasm
+    """,
+    tags = ["local"],
+)
+
+# Generate package.json for NPM module
+genrule(
+    name = "flow-web-package-json",
+    outs = ["package.json"],
+    cmd = """
+        cat > $@ <<'EOF'
+{
+  "name": "@estuary/flow-web",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "Estuary Flow WebAssembly bindings for web applications",
+  "main": "./flow_web.js",
+  "types": "./flow_web.d.ts",
+  "exports": {
+    ".": {
+      "types": "./flow_web.d.ts",
+      "import": "./flow_web.js"
+    }
+  },
+  "files": [
+    "flow_web.js",
+    "flow_web.d.ts",
+    "flow_web_bg.js",
+    "flow_web_bg.wasm",
+    "flow_web_bg.wasm.d.ts"
+  ],
+  "sideEffects": [
+    "./flow_web.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/estuary/flow"
+  },
+  "license": "BSL"
+}
+EOF
+    """,
+)
+
+# Bundle all files needed for the NPM package
+filegroup(
+    name = "flow-web-npm",
+    srcs = [
+        ":flow-web-bindgen",
+        ":flow-web-package-json",
+    ],
+    visibility = ["//visibility:public"],
+)
