@@ -107,31 +107,29 @@ impl App {
         capability: models::Capability,
     ) -> Result<Vec<String>, ApiError> {
         let is_blocking = req_started_at.is_none();
+        let started_at = req_started_at.unwrap_or(chrono::Utc::now());
         loop {
-            match Snapshot::evaluate(
-                &self.snapshot,
-                req_started_at.unwrap_or(chrono::Utc::now()),
-                |snapshot: &Snapshot| {
-                    for prefix in &prefixes_or_names {
-                        if !tables::UserGrant::is_authorized(
-                            &snapshot.role_grants,
-                            &snapshot.user_grants,
-                            claims.sub,
-                            prefix,
-                            capability,
-                        ) {
-                            return Err(ApiError::unauthorized(prefix.as_str()));
-                        }
+            match Snapshot::evaluate(&self.snapshot, started_at, |snapshot: &Snapshot| {
+                for prefix in &prefixes_or_names {
+                    if !tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        claims.sub,
+                        prefix,
+                        capability,
+                    ) {
+                        return Err(ApiError::unauthorized(prefix.as_str()));
                     }
-                    Ok((None, ()))
-                },
-            ) {
+                }
+                Ok((None, ()))
+            }) {
                 Ok((_exp, ())) => return Ok(prefixes_or_names),
                 Err(Ok(backoff)) if is_blocking => {
                     tracing::debug!(?backoff, "waiting before retrying authZ check");
                     () = tokio::time::sleep(backoff).await;
                 }
                 Err(Ok(backoff)) => {
+                    // Don't use `req_started_at` when computing the retry time, as that value comes from the client.
                     return Err(ApiError::retry_authz_failure(chrono::Utc::now() + backoff));
                 }
                 Err(Err(err)) => return Err(err),
