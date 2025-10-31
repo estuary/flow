@@ -1,0 +1,7 @@
+# Package for Bazel build rules and extensions
+
+# Export .bzl files so they can be loaded from MODULE.bazel
+exports_files([
+    "system_library.bzl",
+    "system_library_extension.bzl",
+])

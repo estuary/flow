@@ -76,7 +76,6 @@ lazy_static = "1"
 libc = "0"
 librocksdb-sys = { version = "0", default-features = false, features = [
     "bindgen-runtime",
-    "snappy",
 ] }
 lz4 = "1"
 lz4_flex = "0"
@@ -111,7 +110,6 @@ reqwest = { version = "0", default-features = false, features = [
 rocksdb = { version = "0", default-features = false, features = [
     "bindgen-runtime",
     "rtti",
-    "snappy",
 ] }
 rkyv = { version = "0" }
 rsasl = { version = "2", default-features = false, features = [

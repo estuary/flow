@@ -7,7 +7,7 @@ rust_library(
     edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
-        "@librocksdb//:rocksdb_sys",
+        "@crates_io//:librocksdb-sys",
     ],
 )
 

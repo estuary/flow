@@ -29,6 +29,7 @@ rust_library(
         "@crates_io//:futures",
         "@crates_io//:itertools",
         "@crates_io//:prost",
+        "@crates_io//:rocksdb",
         "@crates_io//:serde",
         "@crates_io//:serde_json",
         "@crates_io//:tempfile",
@@ -36,7 +37,6 @@ rust_library(
         "@crates_io//:tracing",
         "@crates_io//:url",
         "@crates_io//:uuid",
-        "@rust_rocksdb//:rocksdb",
     ],
 )
 

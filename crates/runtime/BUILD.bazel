@@ -33,8 +33,8 @@ rust_library(
         # External dependencies
         "@crates_io//:anyhow",
         "@crates_io//:aws-config",
-        "@crates_io//:aws-sdk-sts",
         "@crates_io//:aws-credential-types",
+        "@crates_io//:aws-sdk-sts",
         "@crates_io//:bytes",
         "@crates_io//:clap",
         "@crates_io//:futures",
@@ -43,6 +43,8 @@ rust_library(
         "@crates_io//:pbjson-types",
         "@crates_io//:prost",
         "@crates_io//:reqwest",
+        "@crates_io//:rocksdb",
+        "@crates_io//:librocksdb-sys",
         "@crates_io//:serde",
         "@crates_io//:serde_json",
         "@crates_io//:tempfile",
@@ -54,9 +56,6 @@ rust_library(
         "@crates_io//:uuid",
         "@crates_io//:xxhash-rust",
         "@crates_io//:zeroize",
-        # Vendored RocksDB dependencies (NOT from crates_io)
-        "@librocksdb//:rocksdb_sys",
-        "@rust_rocksdb//:rocksdb",
     ],
 )
 

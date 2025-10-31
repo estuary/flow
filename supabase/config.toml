@@ -25,6 +25,22 @@ major_version = 15
 # Port to use for Supabase Studio.
 port = 5433
 
+[storage]
+# The storage backend is used for storing large objects like images and videos.
+enabled = false
+
+[realtime]
+# Realtime is used for subscribing to changes in your database.
+enabled = false
+
+[analytics]
+# Analytics is used for tracking usage and performance metrics.
+enabled = false
+
+[edge_runtime]
+# Edge Runtime is used for running Deno-based edge functions.
+enabled = false
+
 # Email testing server. Emails sent with the local dev setup are not actually sent - rather, they
 # are monitored, and you can view the emails that would have been sent from the web interface.
 [inbucket]
