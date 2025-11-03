@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Update apt package lists"
+#MISE sources=["."]
+
+sudo apt-get update

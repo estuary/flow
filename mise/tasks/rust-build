@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build the json crate with Rust tools"
+
+cargo build --locked

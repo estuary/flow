@@ -3,11 +3,31 @@
 set -o pipefail
 set -o nounset
 
-ROOT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/../
+# Usage: run_single_test.sh <test_file.sql>
+# Example: run_single_test.sh tests/alerts.test.sql
 
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 <test_file.sql>"
+  exit 1
+fi
+
+# Get the directory of this script (where the script is located)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+TEST_FILE="$1"
+
+# If the test file is not found with the relative path, try relative to script directory
+if [ ! -f "$TEST_FILE" ]; then
+  TEST_FILE="${SCRIPT_DIR}/$1"
+fi
+
+if [ ! -f "$TEST_FILE" ]; then
+  echo "Test file not found: $1"
+  echo "Tried: $1 and ${SCRIPT_DIR}/$1"
+  exit 1
+fi
 
 function psql_input() {
-
   cat<<EOF
 -- Turn off echo and keep things quiet.
 \unset ECHO
@@ -34,7 +54,11 @@ end
 EOF
   fi
 
-  cat "${ROOT_DIR}"/supabase/tests/*.test.sql
+  # Load helpers first
+  cat "${SCRIPT_DIR}/tests/helpers.sql"
+
+  # Then load the test file
+  cat "$TEST_FILE"
 
   cat<<EOF
 

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#MISE description="Generate Go protobuf bindings"
+set -euo pipefail
+
+# Proto files to generate
+PROTO_FILES=(
+  "./go/protocols/capture/capture.proto"
+  "./go/protocols/derive/derive.proto"
+  "./go/protocols/flow/flow.proto"
+  "./go/protocols/materialize/materialize.proto"
+  "./go/protocols/ops/ops.proto"
+  "./go/protocols/runtime/runtime.proto"
+)
+
+# Modules needed for protoc include paths
+PROTOC_MODULES=(
+  "google.golang.org/protobuf"
+  "github.com/gogo/protobuf"
+  "go.gazette.dev/core"
+)
+
+# Build protoc include flags by resolving each module path
+INCLUDE_FLAGS="-I ."
+for module in "${PROTOC_MODULES[@]}"; do
+  MODULE_PATH=$(go list -f '{{ .Dir }}' -m "$module")
+  INCLUDE_FLAGS="$INCLUDE_FLAGS -I$MODULE_PATH"
+done
+
+# Generate each .pb.go file
+for proto_file in "${PROTO_FILES[@]}"; do
+  echo "Generating $(basename "$proto_file" .proto).pb.go..."
+  protoc $INCLUDE_FLAGS \
+    --gogo_out=paths=source_relative,Mgoogle/protobuf/any.proto=github.com/gogo/protobuf/types,Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types,plugins=grpc:. \
+    "$proto_file"
+done
+
+echo "✓ All Go protobuf files generated successfully"

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Ensures supabase is started"
+#MISE depends=[]
+#MISE sources=["."]
+
+supabase start

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Prepare a Lima VM to run Claude Code"
+#USAGE arg "<name>" help="The name of the VM into which Claude Code is installed"
+
+VM_NAME="${usage_name}"
+
+# Detect host OS
+if [[ "$(uname)" == "Darwin" ]]; then
+    HOST_OS="mac"
+elif [[ "$(uname)" == "Linux" ]]; then
+    HOST_OS="linux"
+else
+    echo "Error: Unsupported host OS: $(uname)"; exit 1
+fi
+
+# Ensure Claude Code is installed within the VM.
+if limactl shell "${VM_NAME}" command -v claude >/dev/null 2>&1; then
+    echo "Claude Code is already installed in VM: ${VM_NAME}"
+else
+    echo "Installing Claude Code in VM: ${VM_NAME}..."
+    limactl shell "${VM_NAME}" bash -c "curl -fsSL https://claude.ai/install.sh | bash"
+fi
+
+echo "Syncing credentials from host to VM..."
+
+# Ensure .claude directory exists in VM
+limactl shell "${VM_NAME}" mkdir -p /${VM_NAME}/.claude
+
+# Extract and copy credentials based on host OS
+if [[ "${HOST_OS}" == "mac" ]]; then
+    # Extract from macOS Keychain and pipe directly to VM
+    if ! security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | \
+         limactl shell "${VM_NAME}" bash -c "cat > /${VM_NAME}/.claude/.credentials.json"; then
+        echo "Error: Could not find Claude Code credentials in macOS Keychain"
+        echo "Please ensure you are logged in to Claude Code on the host"
+        exit 1
+    fi
+elif [[ "${HOST_OS}" == "linux" ]]; then
+    # Copy directly from Linux filesystem
+    if [[ ! -f ~/.claude/.credentials.json ]]; then
+        echo "Error: Could not find Claude Code credentials at ~/.claude/.credentials.json"
+        echo "Please ensure you are logged in to Claude Code on the host"
+        exit 1
+    fi
+    limactl copy ~/.claude/.credentials.json "${VM_NAME}:/${VM_NAME}/.claude/.credentials.json"
+fi
+
+limactl copy ~/.claude.json "${VM_NAME}:/${VM_NAME}/.claude.json"
+limactl shell "${VM_NAME}" chmod 700 /${VM_NAME}/.claude
+limactl shell "${VM_NAME}" chmod 600 /${VM_NAME}/.claude/.credentials.json
+
+echo ""
+echo "Claude Code installed and configured successfully in VM: ${VM_NAME}"
+echo "You can now run: limactl shell ${VM_NAME} claude"
+echo ""

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE hide=true
+
+# This script runs after mise installation to configure bash activation and tooling.
+mise run bootstrap:apt-packages-ci-base
+
+# Configure gcc-14/g++-14 as system default compilers using update-alternatives.
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+
+mise install
+
+# Enable podman socket for Docker API compatibility.
+systemctl --user enable --now podman.socket
+# Allow current user to read systemd journals.
+# This also allows `podman logs` / `docker logs` to work.
+sudo usermod -aG systemd-journal ${USER}
+# Silence warning from `podman-docker` when using the `docker` compatibility shim.
+sudo touch /etc/containers/nodocker
+
+cat >> "${HOME}/.bashrc" << 'EOF'
+# Activate mise, making its tools available within shells.
+eval "$(${HOME}/.local/bin/mise activate bash)"
+
+# Alternative CARGO_TARGET_DIR to avoid using shared mounts
+export CARGO_TARGET_DIR="${HOME}/cargo-target"
+
+# Podman socket path for Docker API compatibility
+export DOCKER_HOST="unix://${XDG_RUNTIME_DIR}/podman/podman.sock"
+EOF
