@@ -24,7 +24,7 @@ The connector automatically discovers bindings for the Braintree resources liste
 * [Transactions](https://developer.paypal.com/braintree/docs/reference/response/transaction/python)
 
 :::tip
-All incremental streams except Transactions only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, periodic backfills are required. These backfills can be scheduled with the `schedule` resource config setting. By default, these streams backfill at 20:00 UTC every Friday.
+All incremental streams except Disputes and Transactions only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, periodic backfills are required. These backfills can be scheduled with the `schedule` resource config setting. By default, these streams backfill at 20:00 UTC every Friday.
 :::
 
 ## Prerequisites
@@ -100,7 +100,6 @@ captures:
       - resource:
           name: disputes
           interval: PT5M
-          schedule: "0 20 * * 5"
         target: ${PREFIX}/disputes
       - resource:
           name: merchant_accounts
