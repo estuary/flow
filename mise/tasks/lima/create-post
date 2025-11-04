@@ -5,28 +5,55 @@ set -euo pipefail
 
 # This script runs after mise installation to configure bash activation and tooling.
 mise run bootstrap:apt-packages-ci-base
-
-# Configure gcc-14/g++-14 as system default compilers using update-alternatives.
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
-
 mise install
 
-# Enable podman socket for Docker API compatibility.
-systemctl --user enable --now podman.socket
-# Allow current user to read systemd journals.
-# This also allows `podman logs` / `docker logs` to work.
-sudo usermod -aG systemd-journal ${USER}
+# Configure rootful (system) podman instead of rootless.
+# This better mirrors production environments where containers run as root.
+
+# Create a `podman` group with access to the podman socket.
+sudo groupadd podman 2> /dev/null || true
+
+# Configure podman socket to be accessible by the podman group.
+# Security note: This gives users in the podman group effective root access,
+# equivalent to Docker's security model where docker group members have root.
+# This is acceptable in isolated dev VMs where users already have sudo access.
+sudo mkdir -p /etc/systemd/system/podman.socket.d
+sudo tee /etc/systemd/system/podman.socket.d/override.conf > /dev/null << 'INNER_EOF'
+[Socket]
+SocketMode=0660
+SocketGroup=podman
+INNER_EOF
+
+# Configure podman to allow non-root users in the podman group to use rootful podman.
+sudo mkdir -p /etc/containers/containers.conf.d
+sudo tee /etc/containers/containers.conf.d/rootful.conf > /dev/null << 'INNER_EOF'
+[engine]
+# Allow users in the podman group to use the system podman socket
+cgroup_manager = "systemd"
+events_logger = "journald"
+INNER_EOF
+
 # Silence warning from `podman-docker` when using the `docker` compatibility shim.
 sudo touch /etc/containers/nodocker
 
-cat >> "${HOME}/.bashrc" << 'EOF'
-# Activate mise, making its tools available within shells.
-eval "$(${HOME}/.local/bin/mise activate bash)"
+# Restart system-wide podman socket to apply configuration.
+sudo systemctl daemon-reload
+sudo systemctl restart podman.socket
 
+# Grant the user access to the podman group and systemd journals.
+sudo usermod -aG podman ${USER}
+sudo usermod -aG systemd-journal ${USER}
+
+cat >> "${HOME}/.bashrc" << 'EOF'
 # Alternative CARGO_TARGET_DIR to avoid using shared mounts
 export CARGO_TARGET_DIR="${HOME}/cargo-target"
 
-# Podman socket path for Docker API compatibility
-export DOCKER_HOST="unix://${XDG_RUNTIME_DIR}/podman/podman.sock"
+# Podman socket path (rootful/system socket)
+# CONTAINER_HOST: Used by native podman / podman-docker CLI
+# DOCKER_HOST: Used by native Docker API clients (e.x. supabase)
+export CONTAINER_HOST="unix:///run/podman/podman.sock"
+export    DOCKER_HOST="unix:///run/podman/podman.sock"
+
+# Activate mise, making its tools available within shells.
+eval "$(${HOME}/.local/bin/mise activate bash)"
 EOF

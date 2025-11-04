@@ -2,26 +2,21 @@
 set -euo pipefail
 
 #MISE description="Downloads, compiles, and installs RocksDB static library"
-#MISE depends=["bootstrap:apt-packages-ci-base"]
+#MISE depends=["bootstrap:apt-packages-ci-extra"]
 #MISE sources=["."]
-#MISE outputs=[".build/rocksdb/lib/librocksdb.a"]
+#MISE outputs=["{{ env.HOME }}/rocksdb/lib/librocksdb.a"]
 
-BUILD_DIR=".build/rocksdb"
-TEMP_DIR=$(mktemp -d)
-
-cleanup() {
-  rm -rf "${TEMP_DIR}"
-}
-trap cleanup EXIT
+BUILD_DIR="${HOME}/rocksdb"
+mkdir -p "${BUILD_DIR}"
 
 ROCKSDB_URL="https://github.com/facebook/rocksdb/archive/refs/tags/v${ROCKSDB_VERSION}.tar.gz"
 
 echo "==> Downloading RocksDB v${ROCKSDB_VERSION}..."
-curl -L "${ROCKSDB_URL}" -o "${TEMP_DIR}/rocksdb.tar.gz"
+curl -L "${ROCKSDB_URL}" -o "${BUILD_DIR}/rocksdb.tar.gz"
 
 echo "==> Extracting RocksDB source..."
-tar -xzf "${TEMP_DIR}/rocksdb.tar.gz" -C "${TEMP_DIR}"
-ROCKSDB_SRC="${TEMP_DIR}/rocksdb-${ROCKSDB_VERSION}"
+tar -xzf "${BUILD_DIR}/rocksdb.tar.gz" -C "${BUILD_DIR}"
+ROCKSDB_SRC="${BUILD_DIR}/rocksdb-${ROCKSDB_VERSION}"
 
 cd "${ROCKSDB_SRC}"
 

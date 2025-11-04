@@ -142,6 +142,8 @@ rm -f "${TEMP_CONFIG}"
 
 # Start the VM.
 limactl start "${VM_NAME}"
+# Reconnect the SSH session to reload groups.
+limactl shell --reconnect "${VM_NAME}" -- true
 
 echo ""
 echo "VM created successfully!"

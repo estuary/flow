@@ -439,7 +439,7 @@ async fn inspect_container_network(
             // dual-stack port bindings (either `::1` or `0.0.0.0`).
             // `docker` will always emit a non-empty IP.
             let host_ip = if host_ip.is_empty() {
-                "::1".to_string()
+                "127.0.0.1".to_string()
             } else {
                 host_ip
             };

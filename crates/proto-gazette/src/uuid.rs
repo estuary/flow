@@ -83,7 +83,7 @@ impl Clock {
     #[inline]
     pub fn to_unix(&self) -> (u64, u32) {
         // Each tick is 100ns relative to unix epoch.
-        let ticks = (self.0 >> 4) - G1582NS100;
+        let ticks = (self.0 >> 4).saturating_sub(G1582NS100);
         let seconds = ticks / 10_000_000;
         // We also include the four counter bits as increments of 4 nanoseconds each.
         let nanos = (ticks % 10_000_000) * 100 + ((self.0 & 0xf) << 2);
@@ -266,7 +266,7 @@ mod test {
             Error::UUIDParse(s, _) if s == "not-a-uuid"
         ));
 
-        let err = parse(::uuid::Uuid::new_v4()).unwrap_err();
+        let err = parse(::uuid::Uuid::nil()).unwrap_err();
         assert!(matches!(err, Error::UUIDNotV1(_)));
     }
 }

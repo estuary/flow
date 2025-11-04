@@ -32,6 +32,7 @@ limactl shell "${VM_NAME}" mkdir -p /${VM_NAME}/.claude
 if [[ "${HOST_OS}" == "mac" ]]; then
     # Extract from macOS Keychain and pipe directly to VM
     if ! security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | \
+         jq -c 'del(.claudeAiOauth.refreshToken)' | \
          limactl shell "${VM_NAME}" bash -c "cat > /${VM_NAME}/.claude/.credentials.json"; then
         echo "Error: Could not find Claude Code credentials in macOS Keychain"
         echo "Please ensure you are logged in to Claude Code on the host"
@@ -39,12 +40,13 @@ if [[ "${HOST_OS}" == "mac" ]]; then
     fi
 elif [[ "${HOST_OS}" == "linux" ]]; then
     # Copy directly from Linux filesystem
-    if [[ ! -f ~/.claude/.credentials.json ]]; then
+    if ! cat ~/.claude/.credentials.json | \
+         jq -c 'del(.claudeAiOauth.refreshToken)' | \
+         limactl shell "${VM_NAME}" bash -c "cat > /${VM_NAME}/.claude/.credentials.json"; then
         echo "Error: Could not find Claude Code credentials at ~/.claude/.credentials.json"
         echo "Please ensure you are logged in to Claude Code on the host"
         exit 1
     fi
-    limactl copy ~/.claude/.credentials.json "${VM_NAME}:/${VM_NAME}/.claude/.credentials.json"
 fi
 
 limactl copy ~/.claude.json "${VM_NAME}:/${VM_NAME}/.claude.json"

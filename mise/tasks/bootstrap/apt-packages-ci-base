@@ -12,8 +12,6 @@ set -euo pipefail
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential \
   ca-certificates \
-  g++-14 \
-  gcc-14 \
   git-lfs \
   jq \
   libclang-dev \
