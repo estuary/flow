@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use control_plane_api::publications::PublicationResult;
 use models::{AnySpec, ModelDef, status::publications::PublicationStatus};
 
 use crate::ControlPlane;
@@ -81,7 +82,7 @@ impl Dependencies {
         control_plane: &C,
         pub_status: &mut PublicationStatus,
         handle_deleted: DF,
-    ) -> anyhow::Result<bool>
+    ) -> anyhow::Result<Option<PublicationResult>>
     where
         C: ControlPlane,
         DF: FnOnce(&BTreeSet<String>) -> anyhow::Result<(String, M)>,
@@ -101,10 +102,10 @@ impl Dependencies {
             let failures = super::last_pub_failed(pub_status, "")
                 .map(|(_, count)| count)
                 .unwrap_or(1);
-            pub_result.with_retry(backoff_publication_failure(failures))?;
-            Ok(true)
+            let success_result = pub_result.with_retry(backoff_publication_failure(failures))?;
+            Ok(Some(success_result))
         } else {
-            Ok(false)
+            Ok(None)
         }
     }
 

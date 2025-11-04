@@ -133,9 +133,30 @@ pub struct TestHarness {
     control_plane_app: Option<Arc<control_plane_api::server::App>>,
 }
 
-impl TestHarness {
+pub struct HarnessBuilder {
+    test_name: String,
+    inferred_schema_cooldown: chrono::Duration,
+}
+
+impl HarnessBuilder {
+    pub fn new(test_name: impl Into<String>) -> HarnessBuilder {
+        HarnessBuilder {
+            test_name: test_name.into(),
+            inferred_schema_cooldown: chrono::Duration::seconds(0),
+        }
+    }
+
+    pub fn with_inferred_schema_cooldown(mut self, cooldown: chrono::Duration) -> Self {
+        self.inferred_schema_cooldown = cooldown;
+        self
+    }
+
     /// Initializes a new harness, and clears out all existing data in the database.
-    pub async fn init(test_name: &str) -> Self {
+    pub async fn build(self) -> TestHarness {
+        let HarnessBuilder {
+            test_name,
+            inferred_schema_cooldown,
+        } = self;
         // Setup tracing so we can see logs
         let subscriber = tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -188,6 +209,7 @@ impl TestHarness {
             logs_tx.clone(),
             std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             1.0, // auto_discover_probability
+            inferred_schema_cooldown,
         ));
 
         let controller_exec =
@@ -195,8 +217,8 @@ impl TestHarness {
         let directive_exec =
             crate::directives::DirectiveHandler::new("support@estuary.test".to_string(), &logs_tx);
 
-        let mut harness = Self {
-            test_name: test_name.to_string(),
+        let mut harness = TestHarness {
+            test_name,
             pool,
             publisher,
             builds_root,
@@ -210,6 +232,13 @@ impl TestHarness {
         harness.setup_test_connectors().await;
 
         harness
+    }
+}
+
+impl TestHarness {
+    /// Initializes a new harness, and clears out all existing data in the database.
+    pub async fn init(test_name: &str) -> Self {
+        HarnessBuilder::new(test_name).build().await
     }
 
     async fn setup_test_connectors(&mut self) {
@@ -1667,6 +1696,10 @@ pub fn get_collection_generation_id(state: &ControllerState) -> models::Id {
 impl ControlPlane for TestControlPlane {
     fn can_auto_discover(&self) -> bool {
         self.auto_discover_enabled
+    }
+
+    fn inferred_schema_update_cooldown(&self) -> chrono::Duration {
+        self.inner.inferred_schema_update_cooldown()
     }
 
     #[tracing::instrument(level = "debug", err, skip(self))]

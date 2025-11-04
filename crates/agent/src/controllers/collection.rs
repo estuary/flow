@@ -6,11 +6,9 @@ use super::{
 };
 use crate::controllers::{activation, publication_status};
 use anyhow::Context;
+use control_plane_api::publications::PublicationResult;
 use itertools::Itertools;
-use models::status::{
-    collection::{CollectionStatus, InferredSchemaStatus},
-    publications::PublicationStatus,
-};
+use models::status::collection::CollectionStatus;
 
 pub async fn update<C: ControlPlane>(
     status: &mut CollectionStatus,
@@ -26,7 +24,6 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    // TODO(phil): remove `inferred_schema` status
     let CollectionStatus {
         inferred_schema: _,
         publications,
@@ -47,11 +44,14 @@ pub async fn update<C: ControlPlane>(
 
     // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
     // bypassed for some reason.
-    let inferred_schema_next = if uses_inferred_schema(model) {
-        Some(NextRun::after_minutes(240))
-    } else {
-        None
-    };
+    let inferred_schema_next = status.inferred_schema.as_ref().map(|inferred| {
+        if let Some(next) = inferred.next_update_after {
+            NextRun::after(next)
+        } else {
+            // Keep an infrequent periodic check, just in case our notification mechanism fails
+            NextRun::after_minutes(300)
+        }
+    });
     coalesce_results(
         state.failures,
         [
@@ -84,39 +84,65 @@ async fn maybe_publish<C: ControlPlane>(
 ) -> anyhow::Result<bool> {
     // We don't care whether derivation shards are disabled, because the collection is
     // still usable as a regular collection in that case.
+
+    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+    if let Some(success_result) = dependencies
+        .update(state, control_plane, &mut status.publications, |deleted| {
+            handle_deleted_dependencies(model.clone(), deleted)
+        })
+        .await?
+    {
+        inferred_schema_updated_successfully(status, state, success_result);
+        return Ok(true);
+    }
+
+    if let Some(success_result) =
+        periodic::update_periodic_publish(state, &mut status.publications, control_plane).await?
+    {
+        inferred_schema_updated_successfully(status, state, success_result);
+        return Ok(true);
+    }
+
+    // Inferred schema
     let uses_inferred_schema = uses_inferred_schema(model);
     if uses_inferred_schema {
-        let inferred_schema_status = status.inferred_schema.get_or_insert_with(Default::default);
-        if update_inferred_schema(
-            inferred_schema_status,
-            state,
-            control_plane,
-            model,
-            &mut status.publications,
-        )
-        .await?
-        {
+        if update_inferred_schema(status, state, control_plane, model).await? {
             return Ok(true);
         }
     } else {
         status.inferred_schema = None;
     };
 
-    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
-    if dependencies
-        .update(state, control_plane, &mut status.publications, |deleted| {
-            handle_deleted_dependencies(model.clone(), deleted)
-        })
-        .await?
-    {
-        return Ok(true);
-    }
-
-    if periodic::update_periodic_publish(state, &mut status.publications, control_plane).await? {
-        return Ok(true);
-    }
-
     Ok(false)
+}
+
+fn inferred_schema_updated_successfully(
+    status: &mut CollectionStatus,
+    state: &ControllerState,
+    pub_result: PublicationResult,
+) {
+    assert!(
+        pub_result.status.is_success(),
+        "publication result must be successful to update inferred schema status"
+    );
+
+    let inferred_schema_status = status.inferred_schema.get_or_insert_default();
+    // Any pending inferred schema update has been handled by the just-committed publication.
+    inferred_schema_status.next_md5.take();
+    inferred_schema_status.next_update_after.take();
+
+    // We intentionally ignore the collection generation id here. The controller
+    // is only responsible for publishing whenever the md5 changes, and we leave
+    // it up to `validation` to decide whether a given inferred schema version
+    // matches the generation id.
+    if let Some(inferred) = pub_result
+        .live
+        .inferred_schemas
+        .get_by_key(&models::Collection::new(state.catalog_name.as_str()))
+    {
+        inferred_schema_status.schema_last_updated = Some(pub_result.completed_at);
+        inferred_schema_status.schema_md5 = Some(inferred.md5.clone());
+    }
 }
 
 /// Disables transforms that source from deleted collections.
@@ -144,12 +170,14 @@ fn handle_deleted_dependencies(
 }
 
 pub async fn update_inferred_schema<C: ControlPlane>(
-    status: &mut InferredSchemaStatus,
+    collection_status: &mut CollectionStatus,
     state: &ControllerState,
     control_plane: &C,
     collection_def: &models::CollectionDef,
-    publication_status: &mut PublicationStatus,
 ) -> anyhow::Result<bool> {
+    let inferred_schema_status = collection_status
+        .inferred_schema
+        .get_or_insert_with(Default::default);
     let collection_name = models::Collection::new(&state.catalog_name);
 
     let maybe_inferred_schema = control_plane
@@ -157,19 +185,32 @@ pub async fn update_inferred_schema<C: ControlPlane>(
         .await
         .context("fetching inferred schema")?;
 
-    if let Some(inferred_schema) = maybe_inferred_schema {
-        let mut pending_pub = PendingPublication::new();
-        let tables::InferredSchema {
-            collection_name,
-            schema: _, // we let the publications handler set the inferred schema
-            md5,
-        } = inferred_schema;
+    if let Some(tables::InferredSchema {
+        collection_name,
+        schema: _, // we let the publications handler set the inferred schema
+        md5,
+    }) = maybe_inferred_schema
+    {
+        if inferred_schema_status.schema_md5.as_ref() != Some(&md5) {
+            // Do we need to wait for a cooloff after the last update?
+            let cooldown = control_plane.inferred_schema_update_cooldown();
+            if let Some(last_updated) = inferred_schema_status.schema_last_updated
+                && (last_updated + cooldown) > control_plane.current_time()
+            {
+                let next_update_after = last_updated + cooldown;
+                tracing::info!(%next_update_after, ?cooldown, next_md5 = %md5, "awaiting cooldown before inferred schema update");
+                inferred_schema_status.next_md5 = Some(md5);
+                inferred_schema_status.next_update_after = Some(next_update_after);
+                return Ok(false);
+            }
 
-        if status.schema_md5.as_ref() != Some(&md5) {
+            let mut pending_pub = PendingPublication::new();
             tracing::info!(
                 %collection_name,
-                prev_md5 = ?status.schema_md5,
+                prev_md5 = ?inferred_schema_status.schema_md5,
                 new_md5 = ?md5,
+                ?cooldown,
+                last_updated = ?inferred_schema_status.schema_last_updated,
                 "updating inferred schema"
             );
             let draft = pending_pub.start_spec_update(state, "updating inferred schema");
@@ -192,12 +233,10 @@ pub async fn update_inferred_schema<C: ControlPlane>(
             // Important that we only update the status fields if the publication suceeded.
             // Note we use the default retry and backoff for these errors.
             let successful_result = pending_pub
-                .finish(state, publication_status, control_plane)
+                .finish(state, &mut collection_status.publications, control_plane)
                 .await?
                 .error_for_status()?;
-
-            status.schema_md5 = Some(md5);
-            status.schema_last_updated = Some(successful_result.started_at);
+            inferred_schema_updated_successfully(collection_status, state, successful_result);
             return Ok(true);
         }
     } else {

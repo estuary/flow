@@ -35,4 +35,18 @@ pub struct InferredSchemaStatus {
     /// on the next controller run, which would update the hash but not actually modify the schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_md5: Option<String>,
+
+    /// The md5 of the inferred schema that will next be applied. If this is
+    /// present, it indicates that the controller is waiting on a cooldown
+    /// period before publishing this inferred schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_md5: Option<String>,
+
+    /// The time of the next scheduled inferred schema update. If this is
+    /// present, it indicates that the controller is waiting on a cooldown
+    /// period before publishing the inferred schema, and represents the
+    /// approximate time of the next update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "crate::datetime_schema")]
+    pub next_update_after: Option<DateTime<Utc>>,
 }

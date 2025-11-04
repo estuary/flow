@@ -108,6 +108,12 @@ fragment SelectStatus on LiveSpecStatus {
                 }
             }
         }
+        inferredSchema {
+            schemaLastUpdated
+            schemaMd5
+            nextMd5
+            nextUpdateAfter
+        }
     }
 }
 
