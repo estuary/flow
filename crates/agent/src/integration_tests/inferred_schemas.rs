@@ -1,5 +1,5 @@
 use super::harness::{
-    TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema,
+    HarnessBuilder, TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema,
 };
 use crate::{controllers::ControllerState, integration_tests::harness::InjectBuildError};
 use chrono::{DateTime, Utc};
@@ -7,8 +7,106 @@ use serde_json::json;
 
 #[tokio::test]
 #[serial_test::serial]
+async fn test_inferred_schema_updates_no_cooldown() {
+    let mut harness = HarnessBuilder::new("test_inferred_schema_updates")
+        .build()
+        .await;
+
+    // Setup tenant and create initial publication with inferred schema placeholder
+    let user_id = harness.setup_tenant("wabbits").await;
+
+    let draft = draft_catalog(json!({
+        "collections": {
+            "wabbits/inferred-collection": {
+                "writeSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    },
+                },
+                "readSchema": {
+                    "allOf": [
+                        {"$ref": "flow://write-schema"},
+                        {"$ref": "flow://inferred-schema"}
+                    ]
+                },
+                "key": ["/id"],
+            }
+        },
+        "captures": {
+            "wabbits/inferred_capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": {
+                            "id": "inferred"
+                        },
+                        "target": "wabbits/inferred-collection"
+                    }
+                ]
+            }
+        },
+    }));
+
+    // Initial publication
+    let result = harness
+        .user_publication(user_id, "initial publication", draft)
+        .await;
+    assert!(result.status.is_success());
+
+    harness.run_pending_controllers(None).await;
+
+    let collection_state = harness
+        .get_controller_state("wabbits/inferred-collection")
+        .await;
+
+    assert_uses_placholder_inferred_schema(&collection_state);
+    // Expect the inferred schema status starts out empty
+    let schema_status = collection_state
+        .current_status
+        .unwrap_collection()
+        .inferred_schema
+        .as_ref()
+        .expect("inferred schema status must be present");
+    assert!(
+        schema_status.schema_last_updated.is_none(),
+        "schema_last_updated should start out as None"
+    );
+    assert!(schema_status.schema_md5.is_none());
+    assert!(schema_status.next_md5.is_none());
+    assert!(schema_status.next_update_after.is_none());
+
+    let mut last_update_time = collection_state.live_spec_updated_at;
+    let generation_id = get_collection_generation_id(&collection_state);
+
+    for i in 0..5 {
+        tracing::info!(%i, "starting inferred schema test iteration");
+        let next_schema = mock_inferred_schema("wabbits/inferred-collection", generation_id, i + 1);
+        let next_schema_md5 = next_schema.md5.clone();
+        harness.upsert_inferred_schema(next_schema).await;
+
+        let state = harness
+            .run_pending_controller("wabbits/inferred-collection")
+            .await;
+
+        assert_inferred_schema_present_with(&state, generation_id, i);
+        assert_inferred_schema_status_completed(&state, &next_schema_md5, last_update_time);
+        last_update_time = state.live_spec_updated_at;
+    }
+}
+
+#[tokio::test]
+#[serial_test::serial]
 async fn test_inferred_schema_updates() {
-    let mut harness = TestHarness::init("test_inferred_schema_updates").await;
+    let mut harness = HarnessBuilder::new("test_inferred_schema_updates")
+        .with_inferred_schema_cooldown(chrono::Duration::minutes(5))
+        .build()
+        .await;
 
     // Setup tenant and create initial publication with inferred schema placeholder
     let user_id = harness.setup_tenant("frogs").await;
@@ -75,7 +173,6 @@ async fn test_inferred_schema_updates() {
 
     harness.run_pending_controllers(None).await;
 
-    // Get the collection's generation ID
     let collection_state = harness
         .get_controller_state("frogs/inferred-collection")
         .await;
@@ -93,6 +190,8 @@ async fn test_inferred_schema_updates() {
         "schema_last_updated should start out as None"
     );
     assert!(schema_status.schema_md5.is_none());
+    assert!(schema_status.next_md5.is_none());
+    assert!(schema_status.next_update_after.is_none());
 
     // First inferred schema update
     let generation_id = get_collection_generation_id(&collection_state);
@@ -107,12 +206,35 @@ async fn test_inferred_schema_updates() {
         .await;
 
     assert_inferred_schema_present_with(&collection_state, generation_id, 0);
-    assert_inferred_schema_status(&collection_state, &schema_v1_md5, last_update_time);
+    assert_inferred_schema_status_completed(&collection_state, &schema_v1_md5, last_update_time);
 
-    // Second inferred schema update with simulated publication failure
+    tracing::info!("first inferred schema update done");
+
+    // Second inferred schema will need to wait for the cooldown, and then will run into some publication failures
     let schema_v2 = mock_inferred_schema("frogs/inferred-collection", generation_id, 2);
     let schema_v2_md5 = schema_v2.md5.clone();
     harness.upsert_inferred_schema(schema_v2).await;
+
+    let next_state = harness
+        .run_pending_controller("frogs/inferred-collection")
+        .await;
+    assert_eq!(
+        collection_state.live_spec_updated_at, next_state.live_spec_updated_at,
+        "live spec should not have been published"
+    );
+
+    // Expect the next_run time to be determined by the inferred schema cooloff
+    let next_run_time = harness
+        .assert_controller_pending("frogs/inferred-collection")
+        .await;
+    let next_run_diff = next_run_time - chrono::Utc::now();
+    assert!(next_run_diff > chrono::Duration::minutes(4));
+    assert!(next_run_diff < chrono::Duration::minutes(6));
+
+    assert_inferred_schema_status_pending(&next_state, &schema_v1_md5, &schema_v2_md5);
+
+    // Simulate the passage of time to allow the inferred schema publication to proceed
+    push_back_inferred_last_updated_timestamp(&mut harness, "frogs/inferred-collection").await;
 
     // Fail the next publication
     harness.control_plane().fail_next_build(
@@ -132,11 +254,13 @@ async fn test_inferred_schema_updates() {
     // Expect the previous version of the inferred schema to still be present.
     assert_inferred_schema_present_with(&collection_state, generation_id, 0);
     // And the status still shows the outdated md5
-    assert_inferred_schema_status(&collection_state, &schema_v1_md5, last_update_time);
+    assert_inferred_schema_status_pending(&next_state, &schema_v1_md5, &schema_v2_md5);
+
     let next_run = harness
         .assert_controller_pending("frogs/inferred-collection")
         .await;
     assert_within_minutes(next_run, 3);
+    push_back_inferred_last_updated_timestamp(&mut harness, "frogs/inferred-collection").await;
 
     // Simulate multiple publication failures to test exponential backoff
     for attempt in 2..=4 {
@@ -166,6 +290,7 @@ async fn test_inferred_schema_updates() {
             _ => unreachable!(),
         };
         assert_within_minutes(next_run, expect_max_delay_minutes);
+        assert_inferred_schema_status_pending(&collection_state, &schema_v1_md5, &schema_v2_md5);
     }
     let last_update_time = harness
         .get_controller_state("frogs/inferred-collection")
@@ -181,10 +306,39 @@ async fn test_inferred_schema_updates() {
     assert_eq!(collection_state.failures, 0);
 
     assert_inferred_schema_present_with(&collection_state, generation_id, 1);
-    assert_inferred_schema_status(&collection_state, &schema_v2_md5, last_update_time);
+    assert_inferred_schema_status_completed(&collection_state, &schema_v2_md5, last_update_time);
 }
 
-fn assert_inferred_schema_status(
+fn assert_inferred_schema_status_pending(
+    state: &ControllerState,
+    expect_current_md5: &str,
+    expect_next_md5: &str,
+) {
+    let schema_status = state
+        .current_status
+        .unwrap_collection()
+        .inferred_schema
+        .as_ref()
+        .expect("inferred schema status must be present");
+    assert_eq!(
+        Some(expect_current_md5),
+        schema_status.schema_md5.as_deref(),
+        "expected inferred schema status to have unchanged schema_md5 '{expect_current_md5}', but was {:?}",
+        schema_status.schema_md5
+    );
+    assert!(
+        schema_status.next_update_after.is_some(),
+        "expected next_update_at to be Some for pending inferred schema update"
+    );
+    assert_eq!(
+        Some(expect_next_md5),
+        schema_status.next_md5.as_deref(),
+        "expected next_md5: '{expect_next_md5}', got: {:?}",
+        schema_status.next_md5
+    );
+}
+
+fn assert_inferred_schema_status_completed(
     state: &ControllerState,
     expect_md5: &str,
     expect_updated_after: DateTime<Utc>,
@@ -203,6 +357,16 @@ fn assert_inferred_schema_status(
         schema_status.schema_last_updated
     );
     assert_eq!(Some(expect_md5), schema_status.schema_md5.as_deref());
+    assert!(
+        schema_status.next_md5.is_none(),
+        "expected no pending update, but next_md5 was {:?}",
+        schema_status.next_md5
+    );
+    assert!(
+        schema_status.next_update_after.is_none(),
+        "expected no pending update, but next_update_at was {:?}",
+        schema_status.next_update_after
+    );
 }
 
 fn assert_inferred_schema_present_with(
@@ -228,6 +392,24 @@ fn assert_inferred_schema_present_with(
             .is_some(),
         "expected schema to contain property 'p{max_property_num}', in: {actual}"
     );
+}
+
+async fn push_back_inferred_last_updated_timestamp(harness: &mut TestHarness, catalog_name: &str) {
+    let new_ts = (chrono::Utc::now() - chrono::Duration::minutes(6)).to_rfc3339();
+
+    tracing::debug!(%catalog_name, %new_ts, "overriding inferred_schema.schema_last_updated");
+    sqlx::query!(
+        r#"update controller_jobs set
+        status = jsonb_set(status::jsonb, '{inferred_schema, schema_last_updated}', to_jsonb($2::text))::json
+        where live_spec_id = (select id from live_specs where catalog_name = $1)
+        and status->'inferred_schema'->>'schema_last_updated' is not null
+        returning 1 as "must_exist: bool";"#,
+        catalog_name,
+        new_ts,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to override schema_last_updated time");
 }
 
 fn assert_uses_placholder_inferred_schema(state: &ControllerState) {

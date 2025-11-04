@@ -7,6 +7,7 @@
 //! already records the last update time of each spec.
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use control_plane_api::publications::PublicationResult;
 use models::{ModelDef, status::publications::PublicationStatus};
 
 use crate::ControlPlane;
@@ -63,20 +64,20 @@ pub async fn update_periodic_publish<C: ControlPlane>(
     state: &ControllerState,
     pub_status: &mut PublicationStatus,
     control_plane: &C,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<PublicationResult>> {
     let mut pending = start_periodic_publish_update(state, control_plane)?;
     if !pending.has_pending() {
-        return Ok(false);
+        return Ok(None);
     }
 
     let pub_result = pending
         .finish(state, pub_status, control_plane)
         .await
         .context("executing periodic publication")?;
-    pub_result
+    let success_result = pub_result
         .error_for_status()
         .with_retry(NextRun::after_minutes(180))?;
-    Ok(true)
+    Ok(Some(success_result))
 }
 
 /// Starts the update and returns a `PendingPublication`. If no publication is

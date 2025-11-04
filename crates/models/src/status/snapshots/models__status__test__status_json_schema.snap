@@ -408,6 +408,20 @@ expression: schema
     "InferredSchemaStatus": {
       "description": "Status of the inferred schema",
       "properties": {
+        "next_md5": {
+          "description": "The md5 of the inferred schema that will next be applied. If this is\npresent, it indicates that the controller is waiting on a cooldown\nperiod before publishing this inferred schema.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "next_update_after": {
+          "description": "The time of the next scheduled inferred schema update. If this is\npresent, it indicates that the controller is waiting on a cooldown\nperiod before publishing the inferred schema, and represents the\napproximate time of the next update.",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        },
         "schema_last_updated": {
           "description": "The time at which the inferred schema was last published. This will only\nbe present if the inferred schema was published at least once.",
           "format": "date-time",

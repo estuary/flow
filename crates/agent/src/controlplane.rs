@@ -61,6 +61,10 @@ pub trait ControlPlane: Send + Sync {
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
+    /// Returns the cooldown period required after a successful inferred
+    /// schema update before another update can be attempted.
+    fn inferred_schema_update_cooldown(&self) -> chrono::Duration;
+
     /// Returns whether an auto-discover is allowed to happen at this time.
     fn can_auto_discover(&self) -> bool;
 
@@ -204,6 +208,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub logs_tx: logs::Tx,
     pub decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
     pub auto_discover_probability: f64,
+    pub inferred_schema_update_cooldown: chrono::Duration,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -216,6 +221,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         logs_tx: logs::Tx,
         decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
         auto_discover_probability: f64,
+        inferred_schema_update_cooldown: chrono::Duration,
     ) -> Self {
         Self {
             pool,
@@ -226,6 +232,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             logs_tx,
             decrypted_hmac_keys,
             auto_discover_probability,
+            inferred_schema_update_cooldown,
         }
     }
 
@@ -297,6 +304,10 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             return false;
         }
         rand::random::<f64>() < self.auto_discover_probability
+    }
+
+    fn inferred_schema_update_cooldown(&self) -> chrono::Duration {
+        self.inferred_schema_update_cooldown
     }
 
     #[tracing::instrument(level = "debug", err, skip(self))]

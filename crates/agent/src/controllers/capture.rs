@@ -123,15 +123,17 @@ pub async fn update<C: ControlPlane>(
             Ok((detail, draft_capture))
         })
         .await;
-    if dependencies_published.as_ref().ok() == Some(&true) {
+    if dependencies_published.as_ref().is_ok_and(|r| r.is_some()) {
         return Ok(Some(NextRun::immediately()));
     }
     let dependencies_result = dependencies_published.map(|_| None);
     let periodic_published =
         periodic::update_periodic_publish(state, publications, control_plane).await;
-    if periodic_published.as_ref().ok() == Some(&true) {
+    if periodic_published.as_ref().is_ok_and(|r| r.is_some()) {
         return Ok(Some(NextRun::immediately()));
     }
+    // We know we have _not_ just published, so determine the next desired periodic publish time based on the
+    // updated_at timestamp of the live spec.
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
     let activate_result =
