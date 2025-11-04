@@ -165,8 +165,11 @@ impl TagExecutor {
         let log_handler =
             logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
 
+        // We always pass `Local` here because we need the runtime to publish
+        // the container ports so we can connect directly to it. This is safe
+        // only because we control which images can appear in `connectors`.
         let runtime = Runtime::new(
-            runtime::Plane::Public,
+            runtime::Plane::Local,
             self.connector_network.clone(),
             log_handler,
             None, // no need to change log level
