@@ -185,6 +185,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - MySQL Batch
   - [Configuration](./MySQL/mysql-batch.md)
   - Package - ghcr.io/estuary/source-mysql-batch:dev
+- Navan
+  - [Configuration](./navan.md)
+  - Package - ghcr.io/estuary/source-navan:dev
 - NetSuite
   - [Configuration](./netsuite-suiteanalytics.md)
   - Package - ghcr.io/estuary/source-netsuite:dev
