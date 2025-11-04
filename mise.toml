@@ -17,9 +17,14 @@ rust = { version = "1.91", targets = "wasm32-unknown-unknown,x86_64-unknown-linu
 # Environment variables
 [env]
 
+# Place cargo targets outside of the repo in a shared directory under $HOME.
+# This allows for limited re-use across projects, but more importantly:
+# it provides a stable home for built targets outside of the workspace root
+# that's typically shared with VMs and incuring virtiofs overhead.
+CARGO_TARGET_DIR="{{ env.HOME }}/cargo-target"
+
 # Treat all warnings as errors, and link using the `mold` linker (faster).
 RUSTFLAGS = "-D warnings -C link-arg=-fuse-ld=mold"
-
 # NOTE: when building musl targets use:
 # RUSTFLAGS="-D warnings -C linker-flavor=ld.lld"
 
@@ -68,7 +73,7 @@ CGO_CPPFLAGS = """
 # pre-resolved by libraries appearing earlier in the link order.
 CGO_LDFLAGS = """
 -fuse-ld=mold \
--L {{ get_env(name='CARGO_TARGET_DIR', default='target') }}/debug \
+-L {{ env.CARGO_TARGET_DIR }}/debug \
 -L {{ env.ROCKSDB_LIB_DIR }} \
 -lc \
 -lbindings \

@@ -18,20 +18,20 @@ sudo groupadd podman 2> /dev/null || true
 # equivalent to Docker's security model where docker group members have root.
 # This is acceptable in isolated dev VMs where users already have sudo access.
 sudo mkdir -p /etc/systemd/system/podman.socket.d
-sudo tee /etc/systemd/system/podman.socket.d/override.conf > /dev/null << 'INNER_EOF'
+sudo tee /etc/systemd/system/podman.socket.d/override.conf > /dev/null << 'EOF'
 [Socket]
 SocketMode=0660
 SocketGroup=podman
-INNER_EOF
+EOF
 
 # Configure podman to allow non-root users in the podman group to use rootful podman.
 sudo mkdir -p /etc/containers/containers.conf.d
-sudo tee /etc/containers/containers.conf.d/rootful.conf > /dev/null << 'INNER_EOF'
+sudo tee /etc/containers/containers.conf.d/rootful.conf > /dev/null << 'EOF'
 [engine]
 # Allow users in the podman group to use the system podman socket
 cgroup_manager = "systemd"
 events_logger = "journald"
-INNER_EOF
+EOF
 
 # Silence warning from `podman-docker` when using the `docker` compatibility shim.
 sudo touch /etc/containers/nodocker
@@ -44,16 +44,18 @@ sudo systemctl restart podman.socket
 sudo usermod -aG podman ${USER}
 sudo usermod -aG systemd-journal ${USER}
 
+# Add additional .bashrc configuration if not already present.
+if ! grep -q "CONTAINER_HOST.*podman.sock" "${HOME}/.bashrc"; then
 cat >> "${HOME}/.bashrc" << 'EOF'
-# Alternative CARGO_TARGET_DIR to avoid using shared mounts
-export CARGO_TARGET_DIR="${HOME}/cargo-target"
-
 # Podman socket path (rootful/system socket)
 # CONTAINER_HOST: Used by native podman / podman-docker CLI
 # DOCKER_HOST: Used by native Docker API clients (e.x. supabase)
 export CONTAINER_HOST="unix:///run/podman/podman.sock"
 export    DOCKER_HOST="unix:///run/podman/podman.sock"
 
-# Activate mise, making its tools available within shells.
-eval "$(${HOME}/.local/bin/mise activate bash)"
+# Source mise hooks for directory activation and CLI completion.
+source <(${HOME}/.local/bin/mise activate bash)
+source <(${HOME}/.local/bin/mise completion bash --include-bash-completion-lib)
+
 EOF
+fi
