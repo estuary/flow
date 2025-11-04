@@ -315,6 +315,19 @@ type InferredSchemaStatus {
 	on the next controller run, which would update the hash but not actually modify the schema.
 	"""
 	schemaMd5: String
+	"""
+	The md5 of the inferred schema that will next be applied. If this is
+	present, it indicates that the controller is waiting on a cooldown
+	period before publishing this inferred schema.
+	"""
+	nextMd5: String
+	"""
+	The time of the next scheduled inferred schema update. If this is
+	present, it indicates that the controller is waiting on a cooldown
+	period before publishing the inferred schema, and represents the
+	approximate time of the next update.
+	"""
+	nextUpdateAfter: DateTime
 }
 
 """

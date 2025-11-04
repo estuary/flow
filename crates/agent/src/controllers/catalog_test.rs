@@ -20,13 +20,17 @@ pub async fn update<C: ControlPlane>(
             error_on_deleted_dependencies,
         )
         .await?
+        .is_some()
     {
         // We've successfully published against the latest versions of the dependencies
         status.passing = true;
         return Ok(Some(NextRun::immediately()));
     }
 
-    if periodic::update_periodic_publish(state, &mut status.publications, control_plane).await? {
+    if periodic::update_periodic_publish(state, &mut status.publications, control_plane)
+        .await?
+        .is_some()
+    {
         // We've successfully published against the latest versions of the dependencies
         status.passing = true;
         return Ok(Some(NextRun::immediately()));

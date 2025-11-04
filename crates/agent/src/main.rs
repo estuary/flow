@@ -100,6 +100,14 @@ struct Args {
         default_value = "1.0"
     )]
     auto_discover_probability: f64,
+
+    #[clap(
+        long = "inferred-schema-update-cooldown",
+        env = "INFERRED_SCHEMA_UPDATE_COOLDOWN",
+        default_value = "0s"
+    )]
+    #[arg(value_parser = humantime::parse_duration)]
+    inferred_schema_update_cooldown: std::time::Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -257,6 +265,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         decrypted_hmac_keys.clone(),
     ));
 
+    let inferred_schema_update_cooldown =
+        chrono::Duration::from_std(args.inferred_schema_update_cooldown)?;
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
         system_user_id,
@@ -266,6 +276,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         logs_tx.clone(),
         decrypted_hmac_keys,
         args.auto_discover_probability,
+        inferred_schema_update_cooldown,
     );
     let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
 
