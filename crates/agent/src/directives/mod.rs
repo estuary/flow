@@ -95,6 +95,7 @@ impl automations::Executor for DirectiveHandler {
                 "skipping directive application because job status is not queued"
             );
             txn.rollback().await?;
+            inbox.clear();
             return Ok(automations::Action::Done);
         }
 
