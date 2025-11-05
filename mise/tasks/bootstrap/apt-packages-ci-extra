@@ -13,16 +13,11 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   age \
   g++-14 \
   gcc-14 \
-  gcc-x86-64-linux-gnu \
   libjemalloc-dev \
-  lld-20 \
+  musl-tools \
   postgresql-client-16 \
   postgresql-client-common \
-
-# If we want to use amd64 VMs, we'll need musl-tools as well.
-# Currently this is handled by bootstrap:x86_64-musl-toolchain.
 
 # Configure system default compilers and linkers using update-alternatives.
 sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-20 100

@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 
 #MISE description="Build musl binaries (debug)"
-#MISE depends=["bootstrap:x86_64-musl-toolchain"]
-#MISE env={"RUSTFLAGS"="-D warnings -C linker-flavor=ld.lld"}
-
-# Configure cross-compilation toolchain for C dependencies
-# This doesn't work when set via #MISE env. I'm unsure why.
-export CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc
+#MISE depends=["bootstrap:apt-packages-ci-extra"]
 
 cargo build \
-    --target x86_64-unknown-linux-musl \
+    --target $(uname -m)-unknown-linux-musl \
     -p connector-init \
     -p parser \
     -p schemalate \

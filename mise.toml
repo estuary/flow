@@ -4,7 +4,7 @@
 # Tool versions
 [tools]
 go = { version = "1.25" }
-rust = { version = "1.91", targets = "wasm32-unknown-unknown,x86_64-unknown-linux-musl" }
+rust = { version = "1.91", targets = "wasm32-unknown-unknown,x86_64-unknown-linux-musl,aarch64-unknown-linux-musl" }
 
 "github:drager/wasm-pack" = { version = "0.13.1" }
 "github:etcd-io/etcd" = { version = "3.5.24" }

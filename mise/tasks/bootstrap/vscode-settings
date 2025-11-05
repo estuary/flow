@@ -13,7 +13,7 @@ cat > ${SETTINGS} << EOF
         "CGO_LDFLAGS": "${CGO_LDFLAGS}",
         "CGO_CFLAGS": "${CGO_CFLAGS}",
         "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
-        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/",
     },
     "rust-analyzer.cargo.extraEnv": {
         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
