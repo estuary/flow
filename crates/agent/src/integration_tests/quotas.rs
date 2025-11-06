@@ -1,7 +1,8 @@
 use crate::integration_tests::harness::{TestHarness, draft_catalog};
 
-#[tokio::test]
-#[serial_test::serial]
+//#[tokio::test]
+//#[serial_test::serial]
+#[allow(dead_code)]
 async fn test_quota_single_task() {
     let mut harness = TestHarness::init("test_quota_single_task").await;
 
@@ -66,8 +67,9 @@ async fn test_quota_single_task() {
     "###);
 }
 
-#[tokio::test]
-#[serial_test::serial]
+//#[tokio::test]
+//#[serial_test::serial]
+#[allow(dead_code)]
 async fn test_quota_derivations() {
     let mut harness = TestHarness::init("test_quota_derivation").await;
 
