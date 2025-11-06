@@ -258,7 +258,7 @@ pub async fn dequeue_tasks(
                 task_type = ANY($1) AND
                 wake_at   < NOW() AND
                 heartbeat < NOW() - $2::INTERVAL
-            ORDER BY wake_at DESC
+            ORDER BY wake_at ASC
             LIMIT $3
             FOR UPDATE SKIP LOCKED
         )

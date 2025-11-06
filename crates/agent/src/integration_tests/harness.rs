@@ -879,16 +879,19 @@ impl TestHarness {
         self.assert_controller_pending(catalog_name).await;
         sqlx::query!(
             r#"
-            select internal.send_to_task(
-                (select controller_task_id from live_specs where catalog_name = $1),
-                '00:00:00:00:00:00:00:00'::flowid,
-                '{"type": "manual_trigger", "user_id": "ffffffff-ffff-ffff-ffff-ffffffffffff"}'
-            )"#,
+            update internal.tasks
+            set wake_at = '0001-01-01T00:00:00Z'::timestamptz,
+            inbox = array_append(inbox, json_build_array('"00:00:00:00:00:00:00:00"'::json, '{"type": "manual_trigger", "user_id": "ffffffff-ffff-ffff-ffff-ffffffffffff"}'::json))
+            where task_id = (select controller_task_id from live_specs where catalog_name = $1)
+            and heartbeat = '0001-01-01T00:00:00Z'::timestamptz
+            and wake_at is not null
+            returning 1 as "must_exist: bool"
+            "#,
             catalog_name
         )
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
-        .expect("failed to send controller task");
+        .expect("failed to enqueue controller task, maybe task was not pending?");
 
         let runs = self.run_pending_controllers(Some(1)).await;
 
