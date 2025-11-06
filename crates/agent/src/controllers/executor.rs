@@ -103,14 +103,27 @@ impl automations::Outcome for Outcome {
         } = self;
 
         if live_spec_deleted && error.is_none() {
-            assert!(
-                next_run.is_none(),
-                "expected next_run to be None because live spec was deleted"
-            );
-            live_specs::hard_delete_live_spec(live_spec_id, txn)
-                .await
-                .context("deleting live_specs row")?;
-            tracing::debug!(%live_spec_id, "completed controller task for deleted live spec");
+            // Do we need to delete the live spec? If `live_spec_id.is_zero()`,
+            // it means that the `live_specs` row had _already_ been deleted
+            // before this controller run began. That can happen due an edge
+            // case where a message gets sent to this task's inbox during the
+            // controller run that performs the hard deletion of the live spec.
+            // In that case, returning `Action::Done` will not delete/remove the
+            // task, so we'll need to try again.
+            if live_spec_id.is_zero() {
+                tracing::debug!(
+                    "completing automations task for live spec that was already deleted"
+                );
+            } else {
+                assert!(
+                    next_run.is_none(),
+                    "expected next_run to be None because live spec was deleted"
+                );
+                live_specs::hard_delete_live_spec(live_spec_id, txn)
+                    .await
+                    .context("deleting live_specs row")?;
+                tracing::debug!(%live_spec_id, "completed controller task for deleted live spec");
+            }
             return Ok(Action::Done);
         }
 
@@ -156,9 +169,18 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let controller_state = fetch_controller_state(task_id, pool)
-            .await?
-            .unwrap_or_else(|| panic!("failed to fetch controller state for task_id: {task_id}"));
+        let Some(controller_state) = fetch_controller_state(task_id, pool).await? else {
+            tracing::info!(?task_id, ?inbox, "no controller state found for task");
+            inbox.clear();
+            return Ok(Outcome {
+                live_spec_id: models::Id::zero(),
+                live_spec_deleted: true,
+                failures: 0,
+                next_run: None,
+                error: None,
+                status: ControllerStatus::Uninitialized, // ignored
+            });
+        };
         // Note that `failures` here only counts the number of _consecutive_
         // failures, and resets to 0 on any sucessful update.
         let (status, failures, error, next_run) = run_controller(
