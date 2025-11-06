@@ -24,6 +24,7 @@ pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
 pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
 pub use models::publications::{JobStatus, LockFailure, StatusType};
+pub use quotas::check_resource_quotas;
 
 use models::draft_error;
 
@@ -620,11 +621,13 @@ impl Publisher {
         txn.execute("set transaction isolation level repeatable read")
             .await?;
 
+        /*
         let quota_errors =
             self::quotas::check_resource_quotas(&uncommitted.output, &mut txn).await?;
         if !quota_errors.is_empty() {
             return Ok((Vec::new(), quota_errors));
         }
+        */
 
         let failures = specs::persist_updates(&uncommitted, &mut txn).await?;
         if !failures.is_empty() {
