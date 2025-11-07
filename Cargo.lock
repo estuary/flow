@@ -338,6 +338,8 @@ checksum = "3a033b4ced7c585199fb78ef50fca7fe2f444369ec48080c5fd072efa1a03cc7"
 dependencies = [
  "bigdecimal",
  "bon",
+ "bzip2",
+ "crc32fast",
  "digest",
  "log",
  "miniz_oxide",
@@ -348,10 +350,12 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "snap",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "thiserror 2.0.17",
  "uuid 1.18.1",
+ "zstd",
 ]
 
 [[package]]
