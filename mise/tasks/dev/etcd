@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Start etcd via systemd"
+#MISE depends=["dev:env-common"]
+
+set -euo pipefail
+
+# Link systemd unit if not already linked
+UNIT_FILE="${HOME}/.config/systemd/user/flow-etcd.service"
+if [ ! -f "$UNIT_FILE" ]; then
+    mkdir -p "${HOME}/.config/systemd/user"
+    ln -sf "$(pwd)/systemd/flow-etcd.service" "$UNIT_FILE"
+    systemctl --user daemon-reload
+    echo "Linked flow-etcd.service"
+fi
+
+# Start the service
+echo "Starting flow-etcd..."
+systemctl --user start flow-etcd
+
+echo "Etcd started. Check status with: systemctl --user status flow-etcd"
+echo "View logs with: journalctl --user -u flow-etcd -f"

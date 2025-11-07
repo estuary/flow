@@ -1,0 +1,22 @@
+[Unit]
+Description=Flow Reactor (%i)
+Documentation=https://github.com/estuary/flow
+After=flow-etcd.service
+Requires=flow-etcd.service
+
+[Service]
+Type=simple
+
+# Load instance-specific environment
+# Instance format: <cluster>-<port> (e.g., foobar-9000)
+EnvironmentFile=%h/flow-local/env/common.env
+EnvironmentFile=%h/flow-local/env/reactor-%i.env
+
+ExecStartPre=%h/flow-local/run-in-repo.sh cargo build -p bindings
+ExecStart=%h/flow-local/run-in-repo.sh go run -tags libsqlite3 ./go/flowctl-go serve consumer
+
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=default.target

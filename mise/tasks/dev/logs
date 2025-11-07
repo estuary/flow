@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="View logs for Flow services"
+
+set -euo pipefail
+
+PATTERN="${1:-flow-*}"
+
+echo "Viewing logs for: ${PATTERN}"
+echo "Press Ctrl+C to exit"
+echo ""
+
+journalctl --user -u "${PATTERN}" -f

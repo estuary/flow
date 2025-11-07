@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Stop all Flow development services"
+
+set -euo pipefail
+
+echo "Stopping all flow-* systemd services..."
+systemctl --user stop 'flow-*' 2>/dev/null || true
+
+echo "All Flow services stopped."
+echo "Check remaining services with: systemctl --user list-units 'flow-*'"

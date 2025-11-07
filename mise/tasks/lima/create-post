@@ -7,6 +7,11 @@ set -euo pipefail
 mise run bootstrap:apt-packages-ci-base
 mise install
 
+# Install cockpit for web-based system management.
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cockpit
+# Set a user password for cockpit login (user: current user).
+echo "${USER}:password" | sudo chpasswd
+
 # Configure rootful (system) podman instead of rootless.
 # This better mirrors production environments where containers run as root.
 
