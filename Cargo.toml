@@ -34,7 +34,9 @@ async-compression = { version = "0", features = [
 async-stripe = { version = "0", features = ["runtime-tokio-hyper"] }
 async-trait = "0"
 atty = "0"
-apache-avro = { version = "0", default-features = false }
+# TODO: Add "xz" feature after next apache-avro release (>0.20.0)
+# Current v0.20.0 has library conflict: xz2->lzma-sys vs zip->liblzma-sys
+apache-avro = { version = "0", default-features = false, features = ["snappy", "zstandard", "bzip"] }
 
 base64 = "0"
 bigdecimal = { version = "0", default-features = false }
