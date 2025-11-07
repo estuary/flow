@@ -23,7 +23,7 @@ Environment=ETCD_INITIAL_CLUSTER=default=http://etcd.flow.localhost:2380
 ExecStart=sh -c etcd
 
 Restart=on-failure
-RestartSec=2s
+RestartSec=5s
 
 [Install]
 WantedBy=default.target

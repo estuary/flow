@@ -1,0 +1,17 @@
+[Unit]
+Description=Flow Control Plane Agent
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+
+EnvironmentFile=%h/flow-local/env/common.env
+EnvironmentFile=%h/flow-local/env/agent.env
+
+ExecStart=%h/flow-local/run-in-repo cargo run -p agent
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

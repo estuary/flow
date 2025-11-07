@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Start etcd via systemd"
-#MISE depends=["dev:env-common"]
-
 set -euo pipefail
+
+#MISE description="Start etcd via systemd"
+#MISE depends=["dev:common"]
 
 # Link systemd unit if not already linked
 UNIT_FILE="${HOME}/.config/systemd/user/flow-etcd.service"

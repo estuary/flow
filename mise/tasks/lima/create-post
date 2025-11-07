@@ -3,14 +3,14 @@ set -euo pipefail
 
 #MISE hide=true
 
-# This script runs after mise installation to configure bash activation and tooling.
 mise run bootstrap:apt-packages-ci-base
 mise install
+mise run bootstrap:vscode-settings
 
 # Install cockpit for web-based system management.
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cockpit
 # Set a user password for cockpit login (user: current user).
-echo "${USER}:password" | sudo chpasswd
+echo "${USER}:admin" | sudo chpasswd
 
 # Configure rootful (system) podman instead of rootless.
 # This better mirrors production environments where containers run as root.

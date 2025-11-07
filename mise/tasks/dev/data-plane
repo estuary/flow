@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start data plane with gazette brokers and reactors"
+#MISE depends=["dev:common"]
+#USAGE arg "<data_plane>" help="Name of the data plane"
+#USAGE arg "<base_port>" help="Base port for data plane services"
+#USAGE flag "--num-brokers <num_brokers>" help="Number of broker instances"
+#USAGE flag "--num-reactors <num_reactors>" help="Number of reactor instances"
+
+DATA_PLANE="${usage_data_plane}"
+BASE_PORT="${usage_base_port}"
+N_BROKERS="${usage_num_brokers:-0}"
+N_REACTORS="${usage_num_reactors:-0}"
+
+# Start broker instances if requested
+if [ "${N_BROKERS}" -gt 0 ] 2>/dev/null; then
+    mise run dev:gazette "${DATA_PLANE}" "${BASE_PORT}" --count "${N_BROKERS}"
+fi
+
+# Start reactor instances if requested
+if [ "${N_REACTORS}" -gt 0 ] 2>/dev/null; then
+    # Reactors start after brokers, so their base port is offset by the number of brokers.
+    # Use BASE_PORT as the broker discovery port.
+    REACTOR_BASE_PORT=$((BASE_PORT + N_BROKERS))
+    mise run dev:reactor "${DATA_PLANE}" "${REACTOR_BASE_PORT}" "${BASE_PORT}" --count "${N_REACTORS}"
+fi

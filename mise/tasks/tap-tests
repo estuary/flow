@@ -4,7 +4,7 @@ set -o pipefail
 set -o nounset
 
 #MISE description="Run all SQL tests"
-#MISE depends=["db:start"]
+#MISE depends=["dev:supabase"]
 #MISE sources=[".", "supabase/migrations/*.sql", "supabase/tests/*.sql", "supabase/run_single_test.sh"]
 
 # Run all SQL tests by invoking run_single_test.sh for each test file.

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start Supabase via systemd"
+#MISE depends=["dev:common"]
+
+# Link systemd unit if not already linked
+UNIT_FILE="${HOME}/.config/systemd/user/flow-supabase.service"
+if [ ! -f "$UNIT_FILE" ]; then
+    mkdir -p "${HOME}/.config/systemd/user"
+    ln -sf "$(pwd)/systemd/flow-supabase.service" "$UNIT_FILE"
+    systemctl --user daemon-reload
+    echo "Linked flow-supabase.service"
+fi
+
+# Start the service
+echo "Starting flow-supabase..."
+systemctl --user start flow-supabase
+
+echo "Supabase started. Check status with: systemctl --user status flow-supabase"
+echo "View logs with: journalctl --user -u flow-supabase -f"
+echo "Database accessible at: postgresql://postgres:postgres@db.flow.localhost:5432/postgres"

@@ -1,0 +1,7 @@
+[Unit]
+Description=Flow Data Plane (%i)
+Documentation=https://github.com/estuary/flow
+StopWhenUnneeded=yes
+
+[Install]
+WantedBy=default.target

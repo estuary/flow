@@ -1,0 +1,23 @@
+[Unit]
+Description=Flow Supabase Local Development
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+EnvironmentFile=%h/flow-local/env/common.env
+
+# sh wrappers launch supabase using PATH from common.env.
+
+# Always start supabase containers first (idempotent)
+ExecStartPre=%h/flow-local/run-in-repo sh -c 'supabase start'
+# If this isn't the first start, reset the database
+ExecStartPre=%h/flow-local/run-in-repo sh -c 'if [ -f %h/flow-local/.supabase-started ]; then supabase db reset; fi'
+# Mark as started for next time
+ExecStart=sh -c 'touch %h/flow-local/.supabase-started'
+# Stop containers on service stop
+ExecStop=%h/flow-local/run-in-repo 'supabase stop'
+
+[Install]
+WantedBy=default.target

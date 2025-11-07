@@ -12,11 +12,10 @@ Type=simple
 EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/reactor-%i.env
 
-ExecStartPre=%h/flow-local/run-in-repo.sh cargo build -p bindings
-ExecStart=%h/flow-local/run-in-repo.sh go run -tags libsqlite3 ./go/flowctl-go serve consumer
+ExecStart=%h/flow-local/run-in-repo go run -tags libsqlite3 ./go/flowctl-go serve consumer
 
 Restart=on-failure
-RestartSec=2s
+RestartSec=5s
 
 [Install]
 WantedBy=default.target

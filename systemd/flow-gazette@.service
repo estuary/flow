@@ -12,10 +12,10 @@ Type=simple
 EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/gazette-%i.env
 
-ExecStart=%h/flow-local/run-in-repo.sh go run go.gazette.dev/core/cmd/gazette serve
+ExecStart=%h/flow-local/run-in-repo go run go.gazette.dev/core/cmd/gazette serve
 
 Restart=on-failure
-RestartSec=2s
+RestartSec=5s
 
 [Install]
 WantedBy=default.target
