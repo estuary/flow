@@ -533,6 +533,14 @@ async fn handle_api(
                 session.offset_commit(request, header).await?,
             ))
         }
+        ApiKey::OffsetForLeaderEpoch => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header,
+                session.offset_for_leader_epoch(request).await?,
+            ))
+        }
         /*
         ApiKey::CreateTopics => Ok(K::CreateTopicsRequest(CreateTopicsRequest::decode(b, v)?)),
         ApiKey::ListGroups => Ok(K::ListGroupsRequest(ListGroupsRequest::decode(b, v)?)),
@@ -583,6 +591,7 @@ fn enc_resp<
     rh: &messages::RequestHeader,
     response: T,
 ) {
+    // tracing::trace!(?response, header=?rh, "encoding response message");
     b.put_i32(0); // Length header placeholder.
     let offset = b.len();
 
@@ -607,19 +616,46 @@ fn enc_resp<
 /// NOTE that the output of this function must be deterministic,
 /// that is: it cannot use a random nonce like you normally would
 /// when encrypting data.
-fn to_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
+fn to_upstream_topic_name(
+    topic: TopicName,
+    secret: String,
+    nonce: String,
+    backfill_counter: Option<u32>,
+) -> TopicName {
     let (cipher, nonce) = create_crypto(secret, nonce);
 
     let encrypted = cipher.encrypt(&nonce, topic.as_bytes()).unwrap();
-    let encoded = hex::encode(encrypted);
+    let mut encoded = hex::encode(encrypted);
+
+    // Append epoch suffix if provided for MSK topic isolation
+    if let Some(counter) = backfill_counter {
+        encoded.push_str(&format!("-e{}", counter));
+    }
+
     TopicName::from(StrBytes::from_string(encoded))
 }
 
+/// Strip epoch suffix from encrypted topic name if present.
+/// Format: `{encrypted-hex}-e{counter}` → `{encrypted-hex}`
+fn strip_epoch_suffix(topic: &TopicName) -> String {
+    let topic_str = topic.as_str();
+    if let Some(pos) = topic_str.rfind("-e") {
+        // Verify suffix matches pattern "-e{digits}"
+        if topic_str[pos + 2..].chars().all(|c| c.is_ascii_digit()) {
+            return topic_str[..pos].to_string();
+        }
+    }
+    topic_str.to_string()
+}
+
 /// Convert the output of [`to_upstream_topic_name`] back into
-/// its plain collection name format.
+/// its plain collection name format. Automatically strips epoch suffix if present.
 fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
     let (cipher, nonce) = create_crypto(secret, nonce);
-    let decoded = hex::decode(topic.as_bytes()).unwrap();
+
+    // Strip epoch suffix before decrypting
+    let topic_without_epoch = strip_epoch_suffix(&topic);
+    let decoded = hex::decode(topic_without_epoch.as_bytes()).unwrap();
     let decrypted = cipher.decrypt(&nonce, decoded.as_slice()).unwrap();
 
     TopicName::from(StrBytes::from_utf8(Bytes::from(decrypted)).unwrap())
@@ -692,14 +728,34 @@ mod test {
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
+            Some(1),
         );
         let enc_2 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
+            Some(1),
         );
 
         assert_eq!(enc_1, enc_2);
+    }
+
+    #[test]
+    fn test_encryption_different_backfill_counters() {
+        let enc_1 = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+            Some(1),
+        );
+        let enc_2 = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+            Some(2),
+        );
+
+        assert_ne!(enc_1, enc_2);
     }
 
     #[test]
@@ -708,6 +764,21 @@ mod test {
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
+            None,
+        );
+
+        let decrypted =
+            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
+
+        assert_eq!(decrypted.as_str(), "Test Topic");
+    }
+    #[test]
+    fn test_encrypt_decrypt_with_backfill() {
+        let encrypted = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+            Some(1),
         );
 
         let decrypted =
