@@ -149,6 +149,7 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
 | `/advanced/sslmode`             | SSL Mode            | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                       | string  |                            |
+| `/advanced/discover_unpublished_tables` | Discover Unpublished Tables | If `true`, the capture discovers all tables, even ones not currently in the publication. | boolean |  |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
 
 #### Bindings
