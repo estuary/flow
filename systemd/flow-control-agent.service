@@ -1,6 +1,8 @@
 [Unit]
 Description=Flow Control Plane Agent
 Documentation=https://github.com/estuary/flow
+After=flow-supabase.service
+Requires=flow-supabase.service
 
 [Service]
 Type=simple
@@ -12,6 +14,3 @@ ExecStart=%h/flow-local/run-in-repo cargo run -p agent
 
 Restart=on-failure
 RestartSec=5s
-
-[Install]
-WantedBy=default.target

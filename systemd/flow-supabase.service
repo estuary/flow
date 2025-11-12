@@ -18,6 +18,3 @@ ExecStartPre=%h/flow-local/run-in-repo sh -c 'if [ -f %h/flow-local/.supabase-st
 ExecStart=sh -c 'touch %h/flow-local/.supabase-started'
 # Stop containers on service stop
 ExecStop=%h/flow-local/run-in-repo 'supabase stop'
-
-[Install]
-WantedBy=default.target

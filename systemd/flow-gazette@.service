@@ -16,6 +16,3 @@ ExecStart=%h/flow-local/run-in-repo go run go.gazette.dev/core/cmd/gazette serve
 
 Restart=on-failure
 RestartSec=5s
-
-[Install]
-WantedBy=default.target

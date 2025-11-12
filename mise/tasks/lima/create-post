@@ -17,6 +17,9 @@ echo "${USER}:admin" | sudo chpasswd
 
 # Create a `podman` group with access to the podman socket.
 sudo groupadd podman 2> /dev/null || true
+sudo mkdir -p /run/podman
+sudo chgrp podman /run/podman
+sudo chmod g+rx   /run/podman
 
 # Configure podman socket to be accessible by the podman group.
 # Security note: This gives users in the podman group effective root access,

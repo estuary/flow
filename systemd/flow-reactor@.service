@@ -16,6 +16,3 @@ ExecStart=%h/flow-local/run-in-repo go run -tags libsqlite3 ./go/flowctl-go serv
 
 Restart=on-failure
 RestartSec=5s
-
-[Install]
-WantedBy=default.target

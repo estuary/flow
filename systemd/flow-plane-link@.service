@@ -1,0 +1,29 @@
+[Unit]
+Description=Flow Data Plane Link (%i)
+Documentation=https://github.com/estuary/flow
+After=flow-control-agent.service
+Requires=flow-control-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Load instance-specific environment with data plane configuration
+EnvironmentFile=%h/flow-local/env/plane-link-%i.env
+
+# Call control-plane API to register the data plane
+# Use printf to build JSON and avoid shell quoting complexities
+ExecStart=/bin/bash -c ' \
+    printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"]}}}" \
+        "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}" | \
+    curl -v \
+        -X POST \
+        -H "content-type: application/json" \
+        -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
+        --fail-with-body \
+        --data-binary @- \
+        http://agent.flow.localhost:8675/admin/create-data-plane \
+    '
+
+Restart=on-failure
+RestartSec=5s

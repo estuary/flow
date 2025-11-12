@@ -194,8 +194,10 @@ pub async fn start(
 
         // Wait for a non-empty read of stderr to complete or EOF/error.
         // Note that `flow-connector-init` writes one whitespace byte on startup.
-        if let Ok(_buf) = stderr.fill_buf().await {
-            stderr.consume(1); // Discard whitespace byte.
+        if let Ok(buf) = stderr.fill_buf().await {
+            if buf.first() == Some(&b' ') {
+                stderr.consume(1); // Discard.
+            }
         }
         std::mem::drop(ready_tx); // Signal that we're ready.
 
