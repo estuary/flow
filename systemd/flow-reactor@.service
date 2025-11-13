@@ -12,7 +12,15 @@ Type=simple
 EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/reactor-%i.env
 
-ExecStart=%h/flow-local/run-in-repo go run -tags libsqlite3 ./go/flowctl-go serve consumer
+ExecStartPre=%h/flow-local/run-in-repo cargo build -p bindings
+
+# Embed the mtime of libbindings to force a Go re-link if it changed.
+ExecStartPre=%h/flow-local/run-in-repo sh -c "\
+  CGO_LDFLAGS=\"${CGO_LDFLAGS} -Wl,--defsym=__libbindings_mtime=$(\
+    stat -c %%Y ${CARGO_TARGET_DIR}/debug/libbindings.a\
+  )\" \
+  go build -tags libsqlite3 -o %h/go/bin/flowctl-go ./go/flowctl-go"
+ExecStart=%h/go/bin/flowctl-go serve consumer
 
 Restart=on-failure
 RestartSec=5s

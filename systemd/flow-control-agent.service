@@ -10,7 +10,8 @@ Type=simple
 EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/agent.env
 
-ExecStart=%h/flow-local/run-in-repo cargo run -p agent
+ExecStartPre=%h/flow-local/run-in-repo cargo build -p agent
+ExecStart=%h/cargo-target/debug/agent
 
 Restart=on-failure
 RestartSec=5s

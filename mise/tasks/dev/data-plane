@@ -48,8 +48,8 @@ SYSTEM_USER_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3L
 
 # Data for JSON payload (simple key-value pairs without escaping issues)
 DATA_PLANE_NAME=${DATA_PLANE}
-BROKER_ADDRESS=https://broker-${DATA_PLANE}.flow.localhost:${BASE_PORT}
-REACTOR_ADDRESS=https://reactor-${DATA_PLANE}.flow.localhost:${REACTOR_BASE_PORT}
+BROKER_ADDRESS=https://gazette.${DATA_PLANE}.flow.localhost:${BASE_PORT}
+REACTOR_ADDRESS=https://reactor.${DATA_PLANE}.flow.localhost:${REACTOR_BASE_PORT}
 HMAC_KEY=${HMAC_KEY}
 EOF
 
@@ -60,6 +60,8 @@ EOF
 [Unit]
 PartOf=flow-plane@${DATA_PLANE}.target
 After=flow-plane@${DATA_PLANE}.target
+After=flow-gazette@${DATA_PLANE}-${BASE_PORT}.service
+After=flow-reactor@${DATA_PLANE}-${REACTOR_BASE_PORT}.service
 EOF
 
     DROPIN_DIR="${HOME}/.config/systemd/user/flow-plane@${DATA_PLANE}.target.d"
