@@ -1,9 +1,13 @@
 
-# Rockset
+# Rockset (Deprecated)
 
 This Flow connector materializes [delta updates](/concepts/materialization/#delta-updates) of your Flow collections into Rockset collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-rockset:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-rockset) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+:::warning
+This connector is deprecated. For the best experience, we recommend using one of our other [materialization connectors](/reference/Connectors/materialization-connectors).
+:::
 
 ## Prerequisites
 

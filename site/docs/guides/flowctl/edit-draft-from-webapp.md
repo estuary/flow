@@ -3,7 +3,7 @@ sidebar_position: 2
 ---
 import Mermaid from '@theme/Mermaid';
 
-# Edit a draft created in the web app
+# Edit a Draft Created in the Web App
 
 When you [create](../create-dataflow.md) or [edit](/guides/edit-data-flows) tasks in the web app, your work is periodically saved as a **draft**.
 Specifically, each time you click the **Next** button to reveal the **Save and Publish** button, a draft is saved.
