@@ -169,9 +169,23 @@ A read-only capture can be used to capture from a read-only standby replica. Thi
 be useful when you want to offload the impact of CDC operations from your primary database to
 a replica.
 
-In addition to the requirement that there be frequent writes to at least one captured table,
-there is one other significant constraint on this setup: the `hot_standby_feedback` setting
-must be enabled on the standby from which you intend to capture.
+:::warning PostgreSQL Version Requirement
+The ability to perform logical decoding from read-only standby replicas was added in **PostgreSQL v16**.
+Earlier versions will error out with the message:
+
+```
+ERROR: logical decoding cannot be used while in recovery
+```
+
+If you encounter this error, you have the following options:
+- **Upgrade** your PostgreSQL database to version 16 or later
+- **Capture from the primary instance** instead of the standby
+- Use the [PostgreSQL Batch Connector](../postgres-batch/) to capture the data
+:::
+
+In addition to the read-only capture requirement that there be frequent writes to at least one
+captured table, the `hot_standby_feedback` setting must be enabled on the standby from which
+you intend to capture.
 
 This setting prevents the primary database from vacuuming rows that are still needed by the
 standby for logical decoding. If not enabled, catalog metadata may get vacuumed on the primary
