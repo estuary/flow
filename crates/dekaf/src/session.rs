@@ -28,6 +28,7 @@ use tracing::instrument;
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
+    leader_epoch: i32,    // Leader epoch (binding backfill counter) for this read.
     handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
 }
 
@@ -321,6 +322,7 @@ impl Session {
                     continue;
                 };
 
+                let leader_epoch = collection.binding_backfill_counter as i32;
                 let partitions = collection
                     .partitions
                     .iter()
@@ -329,6 +331,7 @@ impl Session {
                         messages::metadata_response::MetadataResponsePartition::default()
                             .with_partition_index(index as i32)
                             .with_leader_id(messages::BrokerId(1))
+                            .with_leader_epoch(leader_epoch)
                             .with_replica_nodes(vec![messages::BrokerId(1)])
                             .with_isr_nodes(vec![messages::BrokerId(1)])
                     })
@@ -399,6 +402,72 @@ impl Session {
             .with_coordinators(coordinators))
     }
 
+    async fn fetch_partition_offset(
+        collection: &Collection,
+        current_epoch: i32,
+        partition: messages::list_offsets_request::ListOffsetsPartition,
+    ) -> anyhow::Result<(i32, i32, Option<PartitionOffset>, Option<ResponseError>)> {
+        // Validate epoch
+        if partition.current_leader_epoch >= 0 && partition.current_leader_epoch < current_epoch {
+            return Ok((
+                partition.partition_index,
+                partition.current_leader_epoch,
+                None,
+                Some(ResponseError::FencedLeaderEpoch),
+            ));
+        }
+
+        Ok((
+            partition.partition_index,
+            partition.current_leader_epoch,
+            collection
+                .fetch_partition_offset(
+                    partition.partition_index as usize,
+                    partition.timestamp, // In millis.
+                )
+                .await?,
+            None,
+        ))
+    }
+
+    async fn fetch_topic_offsets(
+        auth: &SessionAuthentication,
+        topic: messages::list_offsets_request::ListOffsetsTopic,
+    ) -> anyhow::Result<(
+        TopicName,
+        Option<i32>,
+        Vec<(i32, i32, Option<PartitionOffset>, Option<ResponseError>)>,
+    )> {
+        let maybe_collection = Collection::new(
+            auth,
+            from_downstream_topic_name(topic.name.clone()).as_str(),
+        )
+        .await?;
+
+        let Some(collection) = maybe_collection else {
+            return Ok((
+                topic.name,
+                None, // No epoch for missing collection
+                topic
+                    .partitions
+                    .iter()
+                    .map(|p| (p.partition_index, p.current_leader_epoch, None, None))
+                    .collect(),
+            ));
+        };
+
+        let current_epoch = collection.binding_backfill_counter as i32;
+
+        // Concurrently fetch requested offset for each partition.
+        let offsets =
+            futures::future::try_join_all(topic.partitions.into_iter().map(|partition| {
+                Self::fetch_partition_offset(&collection, current_epoch, partition)
+            }))
+            .await?;
+
+        Ok((topic.name, Some(current_epoch), offsets))
+    }
+
     pub async fn list_offsets(
         &mut self,
         request: messages::ListOffsetsRequest,
@@ -407,48 +476,20 @@ impl Session {
             let auth = self.auth.as_ref().unwrap();
 
             // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
-            // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
-            let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
-                futures::future::try_join_all(request.topics.clone().into_iter().map(
-                    |topic| async move {
-                        let maybe_collection = Collection::new(
-                            auth,
-                            from_downstream_topic_name(topic.name.clone()).as_str(),
-                        )
-                        .await?;
-
-                        let Some(collection) = maybe_collection else {
-                            return Ok((
-                                topic.name,
-                                topic
-                                    .partitions
-                                    .iter()
-                                    .map(|p| (p.partition_index, None))
-                                    .collect(),
-                            ));
-                        };
-                        let collection = &collection;
-
-                        // Concurrently fetch requested offset for each named partition.
-                        let offsets: anyhow::Result<_> = futures::future::try_join_all(
-                            topic.partitions.into_iter().map(|partition| async move {
-                                Ok((
-                                    partition.partition_index,
-                                    collection
-                                        .fetch_partition_offset(
-                                            partition.partition_index as usize,
-                                            partition.timestamp, // In millis.
-                                        )
-                                        .await?,
-                                ))
-                            }),
-                        )
-                        .await;
-
-                        Ok((topic.name, offsets?))
-                    },
-                ))
-                .await;
+            let collections: anyhow::Result<
+                Vec<(
+                    TopicName,
+                    Option<i32>,
+                    Vec<(i32, i32, Option<PartitionOffset>, Option<ResponseError>)>,
+                )>,
+            > = futures::future::try_join_all(
+                request
+                    .topics
+                    .clone()
+                    .into_iter()
+                    .map(|topic| Self::fetch_topic_offsets(auth, topic)),
+            )
+            .await;
 
             let collections = collections?;
 
@@ -459,28 +500,45 @@ impl Session {
             // Map topics, partition indices, and fetched offsets into a comprehensive response.
             let response = collections
                 .into_iter()
-                .map(|(topic_name, offsets)| {
+                .map(|(topic_name, maybe_current_epoch, offsets)| {
                     let partitions = offsets
                         .into_iter()
-                        .map(|(partition_index, maybe_offset)| {
-                            let Some(PartitionOffset {
-                                offset,
-                                mod_time: timestamp,
-                                ..
-                            }) = maybe_offset
-                            else {
-                                return ListOffsetsPartitionResponse::default()
-                                    .with_partition_index(partition_index)
-                                    .with_error_code(
-                                        ResponseError::UnknownTopicOrPartition.code(),
-                                    );
-                            };
+                        .map(
+                            |(partition_index, _consumer_epoch, maybe_offset, maybe_error)| {
+                                // Return error if epoch validation failed
+                                if let Some(error) = maybe_error {
+                                    let mut response = ListOffsetsPartitionResponse::default()
+                                        .with_partition_index(partition_index)
+                                        .with_error_code(error.code());
+                                    if let Some(current_epoch) = maybe_current_epoch {
+                                        response = response.with_leader_epoch(current_epoch);
+                                    }
+                                    return response;
+                                }
 
-                            ListOffsetsPartitionResponse::default()
-                                .with_partition_index(partition_index)
-                                .with_offset(offset)
-                                .with_timestamp(timestamp)
-                        })
+                                let Some(PartitionOffset {
+                                    offset,
+                                    mod_time: timestamp,
+                                    ..
+                                }) = maybe_offset
+                                else {
+                                    return ListOffsetsPartitionResponse::default()
+                                        .with_partition_index(partition_index)
+                                        .with_error_code(
+                                            ResponseError::UnknownTopicOrPartition.code(),
+                                        );
+                                };
+
+                                let mut response = ListOffsetsPartitionResponse::default()
+                                    .with_partition_index(partition_index)
+                                    .with_offset(offset)
+                                    .with_timestamp(timestamp);
+                                if let Some(current_epoch) = maybe_current_epoch {
+                                    response = response.with_leader_epoch(current_epoch);
+                                }
+                                response
+                            },
+                        )
                         .collect();
 
                     ListOffsetsTopicResponse::default()
@@ -713,6 +771,32 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
+
+                // Validate consumer's leader epoch against current collection epoch
+                if partition_request.current_leader_epoch >= 0
+                    && partition_request.current_leader_epoch
+                        < collection.binding_backfill_counter as i32
+                {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "task_name" => task_name.to_string(),
+                        "state" => "fenced_leader_epoch"
+                    )
+                    .increment(1);
+                    tracing::info!(
+                        collection = ?&key.0,
+                        partition = partition_request.partition,
+                        consumer_epoch = partition_request.current_leader_epoch,
+                        current_epoch = collection.binding_backfill_counter,
+                        "Consumer epoch is stale, skipping read start"
+                    );
+                    // Remove stale pending read if it exists - error will be returned during poll phase
+                    self.reads.remove(&key);
+                    continue;
+                }
+
                 let Some(partition) = collection
                     .partitions
                     .get(partition_request.partition as usize)
@@ -733,6 +817,7 @@ impl Session {
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
+                    leader_epoch: collection.binding_backfill_counter as i32,
                     handle: tokio_util::task::AbortOnDropHandle::new(match data_preview_params {
                         // Startree: 0, Tinybird: 12
                         Some(PartitionOffset {
@@ -839,6 +924,30 @@ impl Session {
                 key.1 = partition_request.partition;
 
                 let Some((pending, _)) = self.reads.get_mut(&key) else {
+                    // No pending read - check if this is due to epoch validation failure
+                    let auth = self.auth.as_ref().unwrap();
+                    if let Ok(Some(collection)) = Collection::new(&auth, &key.0).await {
+                        if partition_request.current_leader_epoch >= 0
+                            && partition_request.current_leader_epoch
+                                < collection.binding_backfill_counter as i32
+                        {
+                            // Epoch validation failed - return OFFSET_OUT_OF_RANGE
+                            partition_responses.push(
+                                PartitionData::default()
+                                    .with_partition_index(partition_request.partition)
+                                    .with_error_code(ResponseError::OffsetOutOfRange.code())
+                                    .with_current_leader(
+                                        messages::fetch_response::LeaderIdAndEpoch::default()
+                                            .with_leader_id(messages::BrokerId(1))
+                                            .with_leader_epoch(
+                                                collection.binding_backfill_counter as i32,
+                                            ),
+                                    ),
+                            );
+                            continue;
+                        }
+                    }
+                    // Collection doesn't exist or other error
                     partition_responses.push(
                         PartitionData::default()
                             .with_partition_index(partition_request.partition)
@@ -848,6 +957,41 @@ impl Session {
                 };
 
                 let (read, batch) = (&mut pending.handle).await??;
+
+                // Re-fetch collection to check if epoch changed during the read
+                let auth = self.auth.as_ref().unwrap();
+                let Some(collection) = Collection::new(&auth, &key.0).await? else {
+                    partition_responses.push(
+                        PartitionData::default()
+                            .with_partition_index(partition_request.partition)
+                            .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
+                    );
+                    self.reads.remove(&key);
+                    continue;
+                };
+
+                // Check if epoch incremented while we were reading
+                if collection.binding_backfill_counter as i32 > pending.leader_epoch {
+                    tracing::info!(
+                        collection = ?&key.0,
+                        partition = partition_request.partition,
+                        old_epoch = pending.leader_epoch,
+                        new_epoch = collection.binding_backfill_counter,
+                        "Epoch changed during read, returning OFFSET_OUT_OF_RANGE"
+                    );
+                    partition_responses.push(
+                        PartitionData::default()
+                            .with_partition_index(partition_request.partition)
+                            .with_error_code(ResponseError::OffsetOutOfRange.code())
+                            .with_current_leader(
+                                messages::fetch_response::LeaderIdAndEpoch::default()
+                                    .with_leader_id(messages::BrokerId(1))
+                                    .with_leader_epoch(collection.binding_backfill_counter as i32),
+                            ),
+                    );
+                    self.reads.remove(&key);
+                    continue;
+                }
 
                 let batch = match batch {
                     BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
@@ -869,6 +1013,7 @@ impl Session {
                     SessionDataPreviewState::NotDataPreview => {
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
+                        pending.leader_epoch = collection.binding_backfill_counter as i32;
                         pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                             propagate_task_forwarder(read.next_batch(
                                 crate::read::ReadTarget::Bytes(
@@ -879,16 +1024,26 @@ impl Session {
                         ));
 
                         partition_data = partition_data
-                            .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
-                            .with_last_stable_offset(pending.last_write_head);
+                            .with_high_watermark(pending.last_write_head)
+                            .with_last_stable_offset(pending.last_write_head)
+                            .with_current_leader(
+                                messages::fetch_response::LeaderIdAndEpoch::default()
+                                    .with_leader_id(messages::BrokerId(1))
+                                    .with_leader_epoch(pending.leader_epoch),
+                            );
                     }
                     SessionDataPreviewState::DataPreview(data_preview_states) => {
                         let data_preview_state = data_preview_states
                             .get(&key)
                             .expect("should be able to find data preview state by this point");
                         partition_data = partition_data
-                            .with_high_watermark(data_preview_state.offset) // Map to kafka cursor.
-                            .with_last_stable_offset(data_preview_state.offset);
+                            .with_high_watermark(data_preview_state.offset)
+                            .with_last_stable_offset(data_preview_state.offset)
+                            .with_current_leader(
+                                messages::fetch_response::LeaderIdAndEpoch::default()
+                                    .with_leader_id(messages::BrokerId(1))
+                                    .with_leader_epoch(collection.binding_backfill_counter as i32),
+                            );
                         self.reads.remove(&key);
                     }
                 }
@@ -1026,15 +1181,29 @@ impl Session {
                 "failed to parse consumer protocol message body: {formatted}"
             ))?;
 
-            consumer_protocol_subscription_msg
+            // Fetch collections to get backfill counters
+            let topic_names: Vec<_> = consumer_protocol_subscription_msg
                 .topics
-                .iter_mut()
-                .try_for_each(|topic| {
-                    let transformed = self.encrypt_topic_name(topic.to_owned().into())?.into();
-                    tracing::info!(topic_name = ?topic, "Request to join group");
-                    *topic = transformed;
-                    Ok::<(), anyhow::Error>(())
-                })?;
+                .iter()
+                .map(|t| TopicName::from(t.clone()))
+                .collect();
+            let collections = self
+                .fetch_collections(topic_names.iter())
+                .await
+                .unwrap_or_default();
+
+            for topic in consumer_protocol_subscription_msg.topics.iter_mut() {
+                let collection = collections
+                    .iter()
+                    .find(|(name, _)| name.as_str() == topic.as_str())
+                    .map(|(_, c)| c);
+                let backfill_counter = collection.map(|c| c.binding_backfill_counter);
+                let transformed = self
+                    .encrypt_topic_name(topic.to_owned().into(), backfill_counter)?
+                    .into();
+                tracing::info!(topic_name = ?topic, backfill_counter = ?backfill_counter, "Request to join group");
+                *topic = transformed;
+            }
 
             let mut new_protocol_subscription = BytesMut::new();
 
@@ -1213,12 +1382,29 @@ impl Session {
                 ConsumerProtocolAssignment::decode(&mut consumer_protocol_assignment_raw, 0)
                     .context("failed to parse consumer protocol message: assignment body")?;
 
+            // Fetch collections to get backfill counters
+            let topic_names: Vec<_> = consumer_protocol_assignment_msg
+                .assigned_partitions
+                .iter()
+                .map(|p| p.topic.clone())
+                .collect();
+            let collections = self
+                .fetch_collections(topic_names.iter())
+                .await
+                .unwrap_or_default();
+
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
                 .into_iter()
                 .map(|part| {
-                    let transformed_topic = self.encrypt_topic_name(part.topic.to_owned())?;
-                    tracing::info!(topic_name = ?part.topic, "Syncing group");
+                    let collection = collections
+                        .iter()
+                        .find(|(name, _)| name.as_str() == part.topic.as_str())
+                        .map(|(_, c)| c);
+                    let backfill_counter = collection.map(|c| c.binding_backfill_counter);
+                    let transformed_topic =
+                        self.encrypt_topic_name(part.topic.to_owned(), backfill_counter)?;
+                    tracing::info!(topic_name = ?part.topic, backfill_counter = ?backfill_counter, "Syncing group");
                     Ok(part.with_topic(transformed_topic))
                 })
                 .collect::<anyhow::Result<_>>()?;
@@ -1380,13 +1566,23 @@ impl Session {
             let desired_topic_partitions = collections
                 .iter()
                 .map(|(topic_name, collection)| {
-                    self.encrypt_topic_name(topic_name.clone())
-                        .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                    self.encrypt_topic_name(
+                        topic_name.clone(),
+                        Some(collection.binding_backfill_counter),
+                    )
+                    .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
             for topic in &mut req.topics {
-                let encrypted = self.encrypt_topic_name(topic.name.clone())?;
+                // Look up collection to get backfill counter
+                let collection = collections
+                    .iter()
+                    .find(|(name, _)| name == &topic.name)
+                    .map(|(_, c)| c)
+                    .context(format!("Collection not found for topic {:?}", topic.name))?;
+                let encrypted =
+                    self.encrypt_topic_name(topic.name.clone(), Some(collection.binding_backfill_counter))?;
                 topic.name = encrypted;
             }
 
@@ -1506,28 +1702,58 @@ impl Session {
             return Ok(redirect_response);
         }
 
-        let collection_partitions = if let Some(topics) = &req.topics {
+        let collections = if let Some(topics) = &req.topics {
             match self
                 .fetch_collections(topics.iter().map(|topic| &topic.name))
                 .await
             {
-                Ok(collections) => collections
-                    .into_iter()
-                    .map(|(topic_name, collection)| {
-                        self.encrypt_topic_name(topic_name)
-                            .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
+                Ok(collections) => Some(collections),
                 Err(e) if Self::is_redirect_error(&e) => return Ok(redirect_response),
                 Err(e) => return Err(e),
             }
         } else {
+            None
+        };
+
+        let collection_partitions = if let Some(ref collections) = collections {
+            collections
+                .iter()
+                .map(|(topic_name, collection)| {
+                    self.encrypt_topic_name(
+                        topic_name.clone(),
+                        Some(collection.binding_backfill_counter),
+                    )
+                    .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
             vec![]
         };
 
+        // Try fetching with epoch-qualified names first
         if let Some(ref mut topics) = req.topics {
-            for topic in topics {
-                topic.name = self.encrypt_topic_name(topic.name.clone())?;
+            for topic in topics.iter_mut() {
+                let collection = collections
+                    .as_ref()
+                    .and_then(|colls| colls.iter().find(|(name, _)| name == &topic.name))
+                    .map(|(_, c)| c);
+                if let Some(collection) = collection {
+                    topic.name = self.encrypt_topic_name(
+                        topic.name.clone(),
+                        Some(collection.binding_backfill_counter),
+                    )?;
+                } else {
+                    topic.name = self.encrypt_topic_name(topic.name.clone(), None)?;
+                }
+            }
+        }
+
+        // Prepare fallback request (non-epoch names) ahead of time
+        let mut fallback_req = req.clone();
+        if let Some(ref mut topics) = fallback_req.topics {
+            for topic in topics.iter_mut() {
+                let decrypted = self.decrypt_topic_name(topic.name.clone())?;
+                topic.name = self.encrypt_topic_name(decrypted, None)?;
             }
         }
 
@@ -1538,16 +1764,127 @@ impl Session {
             .await?;
 
         if !collection_partitions.is_empty() {
-            client.ensure_topics(collection_partitions).await?;
+            client.ensure_topics(collection_partitions.clone()).await?;
         }
 
-        let mut resp = client.send_request(req, Some(header)).await?;
+        let mut resp = client
+            .send_request(req.clone(), Some(header.clone()))
+            .await?;
+
+        // Check if we got no offsets - if so, try fallback to legacy (no epoch) for backwards compat
+        let should_fallback = resp.topics.iter().all(|topic| {
+            topic.partitions.iter().all(|p| {
+                // Consider it empty if offset is -1 (no committed offset) or error code is set
+                p.committed_offset == -1 || p.error_code != 0
+            })
+        });
+
+        if should_fallback && collections.is_some() {
+            tracing::info!(group_id = ?req.group_id, "No offsets found with epoch, trying legacy format");
+            resp = client.send_request(fallback_req, Some(header)).await?;
+        }
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
+            let maybe_backfill_counter = collections
+                .as_ref()
+                .map(|c| {
+                    c.iter()
+                        .find(|(topic_name, _)| topic_name == &topic.name)
+                        .map(|(_, c)| c.binding_backfill_counter)
+                })
+                .flatten();
+
+            if let Some(backfill_counter) = maybe_backfill_counter {
+                for partition in topic.partitions.iter_mut() {
+                    partition.committed_leader_epoch = backfill_counter as i32;
+                }
+            }
         }
 
         Ok(resp)
+    }
+
+    /// OffsetForLeaderEpoch handles consumer requests to validate their position after receiving FENCED_LEADER_EPOCH.
+    /// Returns the end offset for a given leader epoch, allowing consumers to reset their position.
+    #[instrument(skip_all, fields(topics=?req.topics.len()))]
+    pub async fn offset_for_leader_epoch(
+        &mut self,
+        req: messages::OffsetForLeaderEpochRequest,
+    ) -> anyhow::Result<messages::OffsetForLeaderEpochResponse> {
+        use messages::offset_for_leader_epoch_response::{
+            EpochEndOffset, OffsetForLeaderTopicResult,
+        };
+
+        let auth = self
+            .auth
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Not authenticated"))?;
+
+        let topics =
+            futures::future::try_join_all(req.topics.into_iter().map(|topic| async move {
+                let collection_name = from_downstream_topic_name(topic.topic.clone());
+                let Some(collection) = Collection::new(auth, &collection_name).await? else {
+                    // Collection doesn't exist - return empty partitions
+                    return Ok::<OffsetForLeaderTopicResult, anyhow::Error>(
+                        OffsetForLeaderTopicResult::default().with_topic(topic.topic),
+                    );
+                };
+
+                let current_epoch = collection.binding_backfill_counter as i32;
+
+                let partitions = topic
+                    .partitions
+                    .into_iter()
+                    .map(|partition| {
+                        if partition.leader_epoch < current_epoch {
+                            // Consumer is asking about an old epoch
+                            tracing::info!(
+                                collection = collection_name.as_str(),
+                                partition = partition.partition,
+                                consumer_epoch = partition.leader_epoch,
+                                current_epoch,
+                                "Consumer querying old epoch"
+                            );
+                            EpochEndOffset::default()
+                                .with_partition(partition.partition)
+                                .with_error_code(ResponseError::FencedLeaderEpoch.code())
+                                .with_leader_epoch(current_epoch)
+                        } else if partition.leader_epoch == current_epoch {
+                            // Current epoch - return offset 0 (reset starts at beginning)
+                            tracing::debug!(
+                                collection = collection_name.as_str(),
+                                partition = partition.partition,
+                                epoch = current_epoch,
+                                "Returning reset offset for current epoch"
+                            );
+                            EpochEndOffset::default()
+                                .with_partition(partition.partition)
+                                .with_leader_epoch(current_epoch)
+                                .with_end_offset(0)
+                        } else {
+                            // Future epoch - unknown
+                            tracing::warn!(
+                                collection = collection_name.as_str(),
+                                partition = partition.partition,
+                                consumer_epoch = partition.leader_epoch,
+                                current_epoch,
+                                "Consumer querying future epoch"
+                            );
+                            EpochEndOffset::default()
+                                .with_partition(partition.partition)
+                                .with_error_code(ResponseError::UnknownTopicOrPartition.code())
+                        }
+                    })
+                    .collect();
+
+                Ok(OffsetForLeaderTopicResult::default()
+                    .with_topic(topic.topic)
+                    .with_partitions(partitions))
+            }))
+            .await?;
+
+        Ok(messages::OffsetForLeaderEpochResponse::default().with_topics(topics))
     }
 
     /// ApiVersions lists the APIs which are supported by this "broker".
@@ -1563,42 +1900,78 @@ impl Session {
                 .with_max_version(T::VERSIONS.max)
                 .with_min_version(T::VERSIONS.min)
         }
+        /*
+           V2_1_0_0,
+           map[int16]int16{
+               apiKeyProduce:              7,
+               apiKeyFetch:                10,
+               apiKeyListOffsets:          4,
+               apiKeyMetadata:             7,
+               apiKeyOffsetCommit:         6,
+               apiKeyOffsetFetch:          5,
+               apiKeyOffsetForLeaderEpoch: 2,
+               apiKeyTxnOffsetCommit:      2,
+               apiKeyDeleteTopics:         3,
+           },
+        */
         let res = ApiVersionsResponse::default().with_api_keys(vec![
             version::<ApiVersionsRequest>(ApiKey::ApiVersions),
             version::<SaslHandshakeRequest>(ApiKey::SaslHandshake),
             version::<SaslAuthenticateRequest>(ApiKey::SaslAuthenticate),
-            version::<MetadataRequest>(ApiKey::Metadata),
+            ApiVersion::default()
+                .with_api_key(ApiKey::Metadata as i16)
+                .with_min_version(7)
+                .with_max_version(7),
             ApiVersion::default()
                 .with_api_key(ApiKey::FindCoordinator as i16)
                 .with_min_version(0)
                 .with_max_version(2),
-            version::<ListOffsetsRequest>(ApiKey::ListOffsets),
+            ApiVersion::default()
+                .with_api_key(ApiKey::ListOffsets as i16)
+                .with_min_version(4)
+                .with_max_version(10),
             ApiVersion::default()
                 .with_api_key(ApiKey::Fetch as i16)
                 // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
                 // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
                 // just the consequence of convergent development, where some implicit requirement got encoded both in the client
                 // and server without being explicitly documented anywhere.
-                .with_min_version(4)
+                .with_min_version(10)
                 // Version >= 13 did away with topic names in favor of unique topic UUIDs, so we need to stick below that.
                 .with_max_version(12),
             // Needed by `kaf`.
             version::<DescribeConfigsRequest>(ApiKey::DescribeConfigs),
-            ApiVersion::default()
-                .with_api_key(ApiKey::Produce as i16)
-                .with_min_version(3)
-                .with_max_version(9),
             version::<JoinGroupRequest>(ApiKey::JoinGroup),
             version::<LeaveGroupRequest>(ApiKey::LeaveGroup),
             version::<ListGroupsRequest>(ApiKey::ListGroups),
             version::<SyncGroupRequest>(ApiKey::SyncGroup),
             version::<DeleteGroupsRequest>(ApiKey::DeleteGroups),
             version::<HeartbeatRequest>(ApiKey::Heartbeat),
-            version::<OffsetCommitRequest>(ApiKey::OffsetCommit),
+            ApiVersion::default()
+                .with_api_key(ApiKey::OffsetCommit as i16)
+                .with_min_version(6)
+                .with_max_version(6),
+            ApiVersion::default()
+                .with_api_key(ApiKey::OffsetForLeaderEpoch as i16)
+                .with_min_version(2)
+                .with_max_version(2),
             ApiVersion::default()
                 .with_api_key(ApiKey::OffsetFetch as i16)
                 .with_min_version(0)
                 .with_max_version(7),
+            // Unsupported
+            ApiVersion::default()
+                .with_api_key(ApiKey::Produce as i16)
+                .with_min_version(3)
+                .with_max_version(9),
+            ApiVersion::default()
+                .with_api_key(ApiKey::TxnOffsetCommit as i16)
+                .with_min_version(2)
+                .with_max_version(2),
+            ApiVersion::default()
+                .with_api_key(ApiKey::DeleteTopics as i16)
+                .with_min_version(3)
+                .with_max_version(3),
         ]);
 
         // UNIMPLEMENTED:
@@ -1606,13 +1979,16 @@ impl Session {
             ApiKey::LeaderAndIsr,
             ApiKey::StopReplica,
             ApiKey::CreateTopics,
-            ApiKey::DeleteTopics,
         */
 
         Ok(res)
     }
 
-    fn encrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
+    fn encrypt_topic_name(
+        &self,
+        name: TopicName,
+        backfill_counter: Option<u32>,
+    ) -> anyhow::Result<TopicName> {
         Ok(to_upstream_topic_name(
             name,
             self.secret.to_owned(),
@@ -1620,6 +1996,7 @@ impl Session {
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
                 SessionAuthentication::Redirect { config, .. } => config.token.to_string(),
             },
+            backfill_counter,
         ))
     }
     fn decrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
