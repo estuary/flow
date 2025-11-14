@@ -1,0 +1,58 @@
+[package]
+name = "notifications"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+activate = { path = "../activate" }
+allocator = { path = "../allocator" }
+async-process = { path = "../async-process" }
+build = { path = "../build" }
+coroutines = { path = "../coroutines" }
+doc = { path = "../doc" }
+migrate = { path = "../migrate" }
+gazette = { path = "../gazette" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+locate-bin = { path = "../locate-bin" }
+models = { path = "../models", features = ["async-graphql", "sqlx-support"] }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
+runtime = { path = "../runtime" }
+sources = { path = "../sources" }
+tables = { path = "../tables", features = ["persist"] }
+validation = { path = "../validation" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+handlebars = { workspace = true }
+humantime = { workspace = true }
+humantime-serde = { workspace = true }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+assemble = { path = "../assemble" }
+insta = { workspace = true }
+md5 = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
