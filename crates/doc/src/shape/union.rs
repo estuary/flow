@@ -269,7 +269,6 @@ impl Shape {
         let redact = lhs.redact.union(rhs.redact);
         let provenance = lhs.provenance.union(rhs.provenance);
         let default = union_option(lhs.default, rhs.default);
-        let secret = union_option(lhs.secret, rhs.secret);
 
         // Union of annotations is actually an _intersection_, which yields only
         // the annotations that are guaranteed to apply at a given location.
@@ -318,7 +317,6 @@ impl Shape {
             redact,
             provenance,
             default,
-            secret,
             annotations,
             string,
             array,

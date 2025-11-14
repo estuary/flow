@@ -169,7 +169,7 @@ impl TestHarness {
 
         let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
         let publisher = Publisher::new(
-            "/not/a/real/bin/dir",
+            "/not/a/real/bin/dir".into(),
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
             "some-connector-network",
             &logs_tx,

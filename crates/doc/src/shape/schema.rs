@@ -17,7 +17,6 @@ fn to_sub_schema(shape: Shape) -> Schema {
         redact,
         provenance: _, // Not mapped to a schema.
         default,
-        secret,
         annotations,
         array,
         numeric,
@@ -179,10 +178,6 @@ fn to_sub_schema(shape: Shape) -> Schema {
 
     // Extensions.
     {
-        if let Some(true) = secret {
-            out.insert("secret".to_string(), serde_json::json!(true));
-        }
-
         match reduce {
             Reduce::Unset | Reduce::Multiple => {}
             Reduce::Strategy(strategy) => {

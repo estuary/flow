@@ -34,8 +34,6 @@ pub struct Shape {
     /// Default value of this document location, if any. A validation error is recorded if the
     /// default value specified does not validate against the location's schema.
     pub default: Option<Box<(Value, Option<super::FailedValidation>)>>,
-    /// Is this location sensitive? For example, a password or credential.
-    pub secret: Option<bool>,
     /// Annotations are any keywords starting with `X-` or `x-`.
     /// Their keys and values are collected here, without performing any
     /// normalization of prefix case. Technically both `x-foo` and `X-foo` may be
@@ -186,7 +184,6 @@ impl Shape {
             redact: Redact::Unset,
             provenance: Provenance::Unset,
             default: None,
-            secret: None,
             annotations: BTreeMap::new(),
             array: ArrayShape::new(),
             numeric: NumericShape::new(),
@@ -207,7 +204,6 @@ impl Shape {
             redact: Redact::Unset,
             provenance: Provenance::Inline,
             default: None,
-            secret: None,
             annotations: BTreeMap::new(),
             array: ArrayShape::new(),
             numeric: NumericShape::new(),

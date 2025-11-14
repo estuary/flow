@@ -19,7 +19,7 @@ expression: "&[out1, out2, out3, out4]"
         title: "the title",
         description: "the description",
         default_json: b"{\"hello\":\"world\"}",
-        secret: true,
+        secret: false,
         exists: Must,
         numeric: None,
         array: None,
@@ -39,7 +39,7 @@ expression: "&[out1, out2, out3, out4]"
         title: "the title",
         description: "the description",
         default_json: b"{\"hello\":\"world\"}",
-        secret: true,
+        secret: false,
         exists: May,
         numeric: None,
         array: None,
@@ -67,7 +67,7 @@ expression: "&[out1, out2, out3, out4]"
         title: "the title",
         description: "the description",
         default_json: b"{\"hello\":\"world\"}",
-        secret: true,
+        secret: false,
         exists: May,
         numeric: Some(
             Numeric {
@@ -94,7 +94,7 @@ expression: "&[out1, out2, out3, out4]"
         title: "the title",
         description: "the description",
         default_json: b"{\"hello\":\"world\"}",
-        secret: true,
+        secret: false,
         exists: May,
         numeric: None,
         array: Some(

@@ -255,7 +255,6 @@ impl Shape {
         let redact = lhs.redact.intersect(rhs.redact);
         let provenance = lhs.provenance.intersect(rhs.provenance);
         let default = intersect_default(type_, lhs.default, rhs.default);
-        let secret = lhs.secret.or(rhs.secret);
 
         let mut annotations = rhs.annotations;
         annotations.extend(lhs.annotations.into_iter());
@@ -298,7 +297,6 @@ impl Shape {
             redact,
             provenance,
             default,
-            secret,
             annotations,
             string,
             array,

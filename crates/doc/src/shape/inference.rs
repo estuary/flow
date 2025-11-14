@@ -230,15 +230,6 @@ impl Shape {
                     Annotation::X(key, value) => {
                         shape.annotations.insert(key.clone(), value.clone());
                     }
-
-                    // These annotations mostly just influence the UI. Most are ignored for now,
-                    // but explicitly mentioned so that a compiler error will force us to check
-                    // here as new annotations are added.
-                    Annotation::Secret(b) => shape.secret = Some(*b),
-                    Annotation::Multiline(_) => {}
-                    Annotation::Advanced(_) => {}
-                    Annotation::Order(_) => {}
-                    Annotation::Discriminator(_) => {}
                 },
 
                 // Array constraints.
@@ -546,7 +537,6 @@ mod test {
                     Value::String("john.doe@gmail.com".to_owned()),
                     None,
                 ))),
-                secret: Some(true),
                 string: StringShape {
                     content_encoding: Some("base64".into()),
                     content_type: Some("some/thing".into()),

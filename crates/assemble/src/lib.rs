@@ -65,7 +65,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
             .map(Into::into)
             .unwrap_or_default(),
         default_json,
-        secret: shape.secret.unwrap_or_default(),
+        secret: false,
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
                 content_type: shape
@@ -595,7 +595,6 @@ mod test {
             default: Some(Box::new((json!({"hello": "world"}), None))),
             description: Some("the description".into()),
             title: Some("the title".into()),
-            secret: Some(true),
             string: StringShape {
                 content_encoding: Some("BaSE64".into()),
                 format: Some(json::schema::formats::Format::DateTime),

@@ -1,7 +1,7 @@
 use super::{PackedSlice, PackedStr, Schema, formats, types};
 
 /// CoreAnnotation represents annotations of the JSON-Schema validation specification.
-/// C.f. https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.9
+/// C.f. https://json-schema.org/draft/2020-12/json-schema-validation#name-a-vocabulary-for-basic-meta
 #[derive(Debug)]
 pub enum CoreAnnotation {
     Comment(PackedStr),
