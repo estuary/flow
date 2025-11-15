@@ -12,7 +12,7 @@ update events, and typically has a smaller impact on the source database.
 However, the batch connector is the right choice when:
 
 - Your PostgreSQL instance doesn't support logical replication
-- You need to capture from a read replica on PostgreSQL <=15
+- You need to capture from a read replica on PostgreSQL \<=15
 - You need to capture from database views
 - You want to execute ad-hoc or custom queries
 
