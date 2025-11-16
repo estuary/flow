@@ -1917,6 +1917,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "config-encryption"
+version = "0.1.0"
+dependencies = [
+ "aide",
+ "anyhow",
+ "async-process",
+ "axum",
+ "clap",
+ "doc",
+ "futures",
+ "insta",
+ "json",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "connector-init"
 version = "0.0.0"
 dependencies = [
@@ -2702,7 +2726,7 @@ dependencies = [
  "bytes",
  "doc",
  "insta",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "json",
  "lazy_static",
  "models",
@@ -2751,7 +2775,7 @@ dependencies = [
  "anyhow",
  "doc",
  "insta",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "json",
  "lazy_static",
  "models",

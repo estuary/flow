@@ -22,3 +22,6 @@ __pycache__
 
 # OS generated files
 .DS_Store
+
+# Rebuilt cache bust file used for Go bindings
+go/bindings/cache_bust.go

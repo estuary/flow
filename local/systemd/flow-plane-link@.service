@@ -1,0 +1,69 @@
+[Unit]
+Description=Flow Data Plane Link (%i)
+Documentation=https://github.com/estuary/flow
+After=flow-control-agent.service
+Requires=flow-control-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Load instance-specific environment with data plane configuration
+EnvironmentFile=%h/flow-local/env/plane-link-%i.env
+
+# TODO(johnny): Created publication races start-up of the reactor.
+ExecStartPre=sleep 2
+
+# Call control-plane API to register the data plane
+# Use printf to build JSON and avoid shell quoting complexities
+ExecStart=/bin/bash -c ' \
+    printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"]}}}" \
+        "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}" | \
+    curl -v \
+        -X POST \
+        -H "content-type: application/json" \
+        -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
+        --fail-with-body \
+        --data-binary @- \
+        http://agent.flow.localhost:8675/admin/create-data-plane \
+    '
+
+# Trigger L2 reporting update after successful data plane registration
+ExecStart=/bin/bash -c ' \
+    printf "{\\"defaultDataPlane\\":\\"ops/dp/public/%%s\\",\\"dryRun\\":false}" \
+        "${DATA_PLANE_NAME}" | \
+    curl -v \
+        -X POST \
+        -H "content-type: application/json" \
+        -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
+        --fail-with-body \
+        --data-binary @- \
+        http://agent.flow.localhost:8675/admin/update-l2-reporting \
+    '
+
+# On service stop, remove live_specs assigned to this data plane, then remove the data plane itself
+ExecStop=/bin/bash -c ' \
+    psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+        -c "DELETE FROM public.live_specs WHERE data_plane_id = (SELECT id FROM public.data_planes WHERE data_plane_name = '\''ops/dp/public/${DATA_PLANE_NAME}'\'');" \
+        || true; \
+    psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+        -c "DELETE FROM public.data_planes WHERE data_plane_name = '\''ops/dp/public/${DATA_PLANE_NAME}'\'';" \
+        || true \
+    '
+
+# Trigger L2 reporting update after cleanup
+ExecStop=/bin/bash -c ' \
+    printf "{\\"defaultDataPlane\\":\\"ops/dp/public/%%s\\",\\"dryRun\\":false}" \
+        "${DATA_PLANE_NAME}" | \
+    curl -v \
+        -X POST \
+        -H "content-type: application/json" \
+        -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
+        --fail-with-body \
+        --data-binary @- \
+        http://agent.flow.localhost:8675/admin/update-l2-reporting \
+        || true \
+    '
+
+Restart=on-failure
+RestartSec=5s

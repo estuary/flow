@@ -29,10 +29,16 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
     if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
         return Ok(RuntimeProtocol::Materialize);
     }
+    if !image.ends_with(":local") {
+        docker_cmd(&["pull", image, "--quiet"])
+            .await
+            .context("pulling image")?;
+    }
 
     let inspect_output = docker_cmd(&["inspect", image])
         .await
         .context("inspecting image")?;
+
     let inspection = parse_image_inspection(&inspect_output)?;
     tracing::info!(
         %image,
@@ -194,8 +200,10 @@ pub async fn start(
 
         // Wait for a non-empty read of stderr to complete or EOF/error.
         // Note that `flow-connector-init` writes one whitespace byte on startup.
-        if let Ok(_buf) = stderr.fill_buf().await {
-            stderr.consume(1); // Discard whitespace byte.
+        if let Ok(buf) = stderr.fill_buf().await {
+            if buf.first() == Some(&b' ') {
+                stderr.consume(1); // Discard.
+            }
         }
         std::mem::drop(ready_tx); // Signal that we're ready.
 
@@ -439,7 +447,7 @@ async fn inspect_container_network(
             // dual-stack port bindings (either `::1` or `0.0.0.0`).
             // `docker` will always emit a non-empty IP.
             let host_ip = if host_ip.is_empty() {
-                "::1".to_string()
+                "127.0.0.1".to_string()
             } else {
                 host_ip
             };

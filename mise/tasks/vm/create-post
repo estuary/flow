@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE hide=true
+
+mise run bootstrap:apt-packages-ci-base
+mise install
+mise run bootstrap:ide-settings
+
+# Install cockpit for web-based system management.
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cockpit
+# Set a user password for cockpit login (user: current user).
+echo "${USER}:admin" | sudo chpasswd
+
+# Grant the user access to the docker group and systemd journals.
+sudo usermod -aG docker ${USER}
+sudo usermod -aG systemd-journal ${USER}
+
+# Add additional .bashrc configuration if not already present.
+if ! grep -q "mise" "${HOME}/.bashrc"; then
+cat >> "${HOME}/.bashrc" << 'EOF'
+# Source mise hooks for directory activation and CLI completion.
+source <(${HOME}/.local/bin/mise activate bash)
+source <(${HOME}/.local/bin/mise completion bash --include-bash-completion-lib)
+
+EOF
+fi
+
+# Create and enable a swapfile.
+sudo fallocate -l 8G /swapfile.img
+sudo chmod 600 /swapfile.img
+sudo mkswap /swapfile.img
+sudo swapon /swapfile.img
+
+# Enable zswap for in-memory LZO compression, with write-behind to the swapfile.
+echo 1 | sudo tee /sys/module/zswap/parameters/enabled

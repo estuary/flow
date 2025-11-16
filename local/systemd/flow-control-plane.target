@@ -1,0 +1,5 @@
+[Unit]
+Description=Flow Control Plane
+Documentation=https://github.com/estuary/flow
+Wants=flow-control-agent.service
+Wants=flow-config-encryption.service

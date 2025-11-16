@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+#MISE description="Build musl binaries (debug)"
+#MISE depends=["bootstrap:apt-packages-ci-extra"]
+
+cargo build \
+    --target $(uname -m)-unknown-linux-musl \
+    -p connector-init \
+    -p parser \
+    -p schemalate \
