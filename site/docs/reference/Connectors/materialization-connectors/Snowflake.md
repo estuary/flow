@@ -79,8 +79,6 @@ grant CREATE SCHEMA, MONITOR, USAGE on database identifier($database_name) to ro
 use role ACCOUNTADMIN;
 grant CREATE INTEGRATION on account to role identifier($estuary_role);
 use role sysadmin;
--- Optional: Set the timestamp type to `TIMESTAMP_TZ` or `TIMESTAMP_NTZ`; otherwise defaults to using `TIMESTAMP_LTZ`
--- ALTER USER $estuary_user SET TIMESTAMP_TYPE_MAPPING = 'TIMESTAMP_TZ';
 COMMIT;
 ```
 
@@ -285,13 +283,37 @@ Snowpipe Streaming is used by default for [delta updates](#delta-updates) bindin
 
 ## Timestamp Data Type Mapping
 
-Flow materializes timestamp data types as `TIMESTAMP_LTZ` columns in Snowflake by default.
-Alternatively, the Snowflake `TIMESTAMP_TYPE_MAPPING` configuration can be specifically set to `TIMESTAMP_TZ` or `TIMESTAMP_NTZ` to use columns of these types.
+The Snowflake materialization connector requires setting an expected timestamp type.
+These types map to Snowflake's [timestamp data types](https://docs.snowflake.com/en/sql-reference/data-types-datetime#label-datatypes-timestamp-variations) with some caveats for `TIMESTAMP_NTZ`.
 
-While Snowflake defaults to `TIMESTAMP_NTZ`, Flow never creates columns with NTZ timestamps unless the user's `TIMESTAMP_TYPE_MAPPING` is specifically configured to use `TIMESTAMP_NTZ`.
+Available options in Estuary include:
 
-See Snowflake documentation on the [`TIMESTAMP_TYPE_MAPPING` configuration](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping) and
-the [timestamp data types](https://docs.snowflake.com/en/sql-reference/data-types-datetime#label-datatypes-timestamp-variations) for more information.
+* `TIMESTAMP_LTZ`
+
+   Stored as a UTC point-in-time. Snowflake performs automatic timezone normalization.
+
+* `TIMESTAMP_NTZ` (discard TZ)
+
+   Stored as a wall-clock time without timezone. The source timezone is discarded.
+
+   This `NTZ` variant is recommended for **existing** tasks that already use `TIMESTAMP_NTZ`.
+
+   The type is written as `TIMESTAMP_NTZ_DISCARD` when working directly with the materialization specification.
+
+* `TIMESTAMP_NTZ` (normalize to UTC)
+
+   Stored as a wall-clock time without timezone. The connector normalizes to UTC prior to storage within Snowflake.
+
+   This `NTZ` variant is recommended for **new** tasks that use `TIMESTAMP_NTZ`, as it aligns well with Snowflake's default behavior.
+
+   The type is written as `TIMESTAMP_NTZ_NORMALIZE` when working directly with the materialization specification.
+
+* `TIMESTAMP_TZ`
+
+   Stored as a timestamp with associated timezone.
+
+You do not need to explicitly set the [`TIMESTAMP_TYPE_MAPPING` configuration](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping) in Snowflake.
+However, if you do, the value in Snowflake **must** match the value in Estuary.
 
 ## Reserved words
 

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 ---
-# Troubleshoot a task with flowctl
+# Troubleshoot a Task with flowctl
 
 flowctl offers the most advanced views of [task logs](../../concepts/advanced/logs-stats.md).
 If a task has errors or is failing in the web app, you'll be able to troubleshoot more effectively with flowctl.

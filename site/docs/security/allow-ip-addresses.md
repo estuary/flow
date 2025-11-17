@@ -38,7 +38,6 @@ While your dashboard is the best location to find accurate, up-to-date IP addres
 **GCP `us-central1 c2`:**
 
 - `34.121.207.128/32`
-- `34.68.62.148/32`
 - `35.226.75.135/32`
 
 **AWS `us-west-2 c1`:**

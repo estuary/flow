@@ -66,7 +66,7 @@ const config = {
       "data-button-text-color": "#F2F2F2",
       "data-project-logo": "https://docs.estuary.dev/img/estuary-new.png",
       "data-modal-example-questions-title": "Try asking me...",
-      "data-modal-disclaimer": "This AI assistant answers questions using Estuary's [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can't find your answer, join us on [Slack](https://go.estuary.dev/slack).",
+      "data-modal-disclaimer": "This AI assistant answers questions using Estuary's [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can't find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us).",
       "data-modal-example-questions": "How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?",
       "data-uncertain-answer-callout": "I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack).",
       "data-user-analytics-cookie-enabled": false,

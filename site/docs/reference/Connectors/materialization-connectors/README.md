@@ -117,7 +117,7 @@ In the future, other open-source materialization connectors from third parties c
 * PostgreSQL
   * [Configuration](./PostgreSQL/)
   * Package — ghcr.io/estuary/materialize-postgres:dev
-* Rockset
+* Rockset (Deprecated)
   * [Configuration](./Rockset.md)
   * Package — ghcr.io/estuary/materialize-rockset:dev
 * SingleStore
