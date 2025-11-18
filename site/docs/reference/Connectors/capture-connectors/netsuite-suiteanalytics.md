@@ -15,6 +15,17 @@ If you don't have SuiteAnalytics Connect, the connector can be used in SuiteQL m
 
 Flow discovers all of the tables to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
 
+:::info SuiteQL Table Coverage
+When running in **SuiteQL mode**, only a **subset of NetSuite tables** is currently supported by the connector.
+
+If you need a table that is not yet supported:
+
+- Contact Estuary Support with the table name(s)
+- We will confirm availability and, if needed, add the table to the connector's support list
+
+This limitation applies **only to SuiteQL mode**. SuiteAnalytics (JDBC) mode discovers all accessible tables.
+:::
+
 ## Prerequisites
 
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
@@ -176,7 +187,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 ### Sample
 
 ```yaml
-
 captures:
    ${PREFIX}/${CAPTURE_NAME}:
       endpoint:
