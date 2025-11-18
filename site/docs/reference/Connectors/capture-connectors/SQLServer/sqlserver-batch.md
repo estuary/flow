@@ -1,81 +1,180 @@
 # SQL Server Batch Query Connector
 
-This connector captures data from SQL Server into Flow collections by periodically
-executing queries and translating the results into JSON documents.
+This connector captures data from SQL Server databases into Flow collections by
+periodically executing queries and translating the results into JSON documents.
 
-For local development or open-source workflows, [`ghcr.io/estuary/source-sqlserver-batch:dev`](https://ghcr.io/estuary/source-sqlserver-batch:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+## When to use this connector
 
-We recommend using our [SQL Server CDC Connector](./sqlserver.md) instead
-if possible. Using CDC provides lower latency data capture, delete and update events, and usually
-has a smaller impact on the source database.
+We recommend using our [SQL Server CDC Connector](http://go.estuary.dev/source-sqlserver)
+instead when possible. CDC provides lower latency data capture, delete and
+update events, and typically has a smaller impact on the source database.
 
-However there are some circumstances where this might not be feasible. Perhaps you need
-to capture from a managed SQL Server instance which doesn't support logical replication.
-Or perhaps you need to capture the contents of a view or the result of an ad-hoc query.
-That's the sort of situation this connector is intended for.
+However, the batch connector is the right choice when:
 
-The number one caveat you need to be aware of when using this connector is that **it will
-periodically execute its update query over and over**. For example, if you set the polling interval to
-5 minutes, a naive `SELECT * FROM foo` query against a 100 MiB view will produce 30 GiB/day
-of ingested data, most of it duplicated. The default polling interval is set
-to 24 hours to minimize the impact of this behavior, but even then it could mean a lot of
-duplicated data being processed depending on the size of your tables.
+- Your SQL Server instance doesn't support Change Tracking (e.g., some managed services)
+- You need to capture from database views
+- You want to execute ad-hoc or custom queries
+- You need to capture from a read replica that doesn't have Change Tracking enabled
 
-If you start editing these queries or manually adding capture bindings for views or to run
-ad-hoc queries, you need to either have some way of restricting the query to "just the new
-rows since last time" or else have your polling interval set high enough that the data rate
-`<DatasetSize> / <PollingInterval>` is an amount of data you're willing to deal with.
+## Supported versions and platforms
+
+This connector works with all supported versions of SQL Server on major cloud platforms
+(including Amazon RDS, Azure SQL Database, and other managed services), as well as
+self-hosted instances.
+
+:::tip Configuration Tip
+To capture data from databases hosted on your internal network, you must
+use [SSH tunneling](/guides/connect-network/).
+:::
+
+## Prerequisites
+
+You'll need:
+
+- A SQL Server database with a user that has `SELECT` permission on the tables
+  you want to capture
+- Network access to the database (direct or via SSH tunnel)
+
+## Setup
+
+### Creating a capture user
+
+We recommend creating a dedicated user for Flow captures:
+
+```sql
+CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
+CREATE USER flow_capture FOR LOGIN flow_capture;
+```
+
+Grant read permissions on the tables you want to capture:
+
+```sql
+-- Grant SELECT on a specific schema
+GRANT SELECT ON SCHEMA::dbo TO flow_capture;
+
+-- Or grant SELECT on all schemas
+GRANT SELECT ON DATABASE::my_database TO flow_capture;
+```
+
+Replace `dbo` or `my_database` with the name of your schema or database, or
+grant permissions on multiple schemas as needed.
+
+## Usage
+
+### Query behaviors
+
+The connector executes queries periodically to capture data. It defaults to a
+built-in query template which supports three patterns of use:
+
+- **Full-refresh** (no cursor): The entire table/view is re-read on each poll.
+- **Cursor-incremental**: Captures rows where the cursor has advanced since we
+  last polled, according to `WHERE cursor > $lastValue ORDER BY cursor`.
+- **Custom query**: Override the built-in template to execute arbitrary SQL.
+  This may be useful for filtering, aggregations, or subsets of your data.
+
+Common cursor choices:
+
+- **Update timestamps**: Best when available, as they capture both new rows and updates
+- **Creation timestamps**: Work for append-only tables but won't detect updates
+- **Auto-incrementing IDs**: Work for append-only tables but won't detect updates
+
+When no cursor is configured, the entire table or view is re-read on each poll.
+
+:::warning Data Volume Consideration
+Full-refresh bindings re-capture all data on each poll, which can generate
+significant data volumes. A few megabytes polled every hour adds up to
+gigabytes per day. Use cursors or longer polling intervals to manage data
+volume when capturing views or tables without suitable cursors.
+:::
+
+### Polling schedule
+
+The connector executes queries on a configurable schedule, which may be set at
+the capture level and/or overridden on a per-binding basis. When unset, the
+schedule defaults to polling every 24 hours.
+
+Polling intervals are written as strings in one of two formats:
+
+- **Interval format**: `5m` (5 minutes), `1h` (1 hour), `24h` (24 hours), etc
+- **Time-of-day format**: `daily at 12:34Z` (daily at 12:34 UTC)
+  - Time-of-day polling schedules must specify the time in UTC with the 'Z'
+    suffix. Other timezones or offsets are not currently supported.
+
+### Time zone handling
+
+SQL Server `DATETIME`, `DATETIME2`, and `SMALLDATETIME` columns don't include
+time zone information. The connector converts these to RFC3339 timestamps by
+interpreting them in the time zone configured in `/advanced/timezone` (defaults
+to UTC).
+
+The `DATETIMEOFFSET` type includes time zone information and is preserved as-is.
+
+### Collection keys
+
+Discovered tables with primary keys will use them as their collection keys.
+Tables without a primary key use `/_meta/row_id` as the collection key.
+
+When a full-refresh binding outputs to a collection keyed by `/_meta/row_id`,
+the connector can infer deletions: if a refresh yields fewer rows than the
+previous poll, deletion documents are emitted for the missing row IDs.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SQL Server batch source connector.
+Configure this connector in the Flow web app or using YAML config files with
+[flowctl CLI](/guides/flowctl/). See [connectors](/concepts/connectors/#using-connectors)
+to learn more about using connectors.
 
-### Properties
-
-#### Endpoint
+### Endpoint Properties
 
 | Property | Title | Description | Type | Required/Default |
-| --- | --- | --- | --- | --- |
+|----------|-------|-------------|------|------------------|
 | **`/address`** | Server Address | The host or host:port at which the database can be reached. | string | Required |
-| **`/database`** | Database | Logical database name to capture from. | string | Required |
 | **`/user`** | User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Password | Password for the specified database user. | string | Required |
-| `/advanced` | Advanced Options | Options for advanced users. You should not typically need to modify these. | object |  |
-| `/advanced/discover_views` | Discover Views | When set views will be automatically discovered as resources. If unset only tables will be discovered. | boolean | `false` |
-| `/advanced/timezone` | Timezone | The IANA timezone name in which datetime columns will be converted to RFC3339 timestamps. | string | `UTC` |
-| `/advanced/poll` | Polling Schedule | When and how often to execute fetch queries. Accepts a Go duration string like '5m' or '6h' for frequency-based polling or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. | string | `24h` |
-| `/advanced/discover_schemas` | Discovery Schema Selection | If this is specified only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas. | string[] |  |
-| `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| **`/database`** | Database | Logical database name to capture from. | string | Required |
+| `/advanced` | Advanced Options | Options for advanced users. You should not typically need to modify these. | object | |
+| `/advanced/poll` | Default Polling Schedule | When and how often to execute fetch queries. Accepts a Go duration string like '5m' or '6h' for frequency-based polling, or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. | string | `"24h"` |
+| `/advanced/discover_views` | Discover Views | When set, views will be automatically discovered as resources. If unset, only tables will be discovered. | boolean | `false` |
+| `/advanced/discover_schemas` | Discovery Schema Selection | If this is specified, only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas. | array | `[]` |
+| `/advanced/timezone` | Time Zone | The IANA timezone name in which datetime columns will be converted to RFC3339 timestamps. Defaults to UTC if left blank. | string | `"UTC"` |
+| `/advanced/source_tag` | Source Tag | When set, the capture will add this value as the property 'tag' in the source metadata of each document. | string | |
+| `/networkTunnel` | Network Tunnel | Connect to your system through an SSH server that acts as a bastion host for your network. | object | |
 
-#### Bindings
+### Binding Properties
 
 | Property | Title | Description | Type | Required/Default |
-| --- | --- | --- | --- | --- |
-| **`/name`** | Name | The name of the resource | string | Required |
-| `/schema` | Schema | Schema where the table is located | string |  |
-| `/table` | Table | The name of the table to be captured | string |  |
-| `/cursor` | Cursor | The names of columns which should be persisted between query executions as a cursor | string[] |  |
+|----------|-------|-------------|------|------------------|
+| **`/name`** | Resource Name | The unique name of this resource. | string | Required |
+| `/schema` | Schema Name | The name of the schema in which the captured table lives. Must be set unless using a custom template. | string | |
+| `/table` | Table Name | The name of the table to be captured. Must be set unless using a custom template. | string | |
+| `/cursor` | Cursor Columns | The names of columns which should be persisted between query executions as a cursor. | array | `[]` (full-refresh) |
+| `/poll` | Polling Schedule | When and how often to execute the fetch query (overrides the connector default setting). Accepts a Go duration string like '5m' or '6h' for frequency-based polling, or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. | string | |
+| `/template` | Query Template Override | Optionally overrides the query template which will be rendered and then executed. | string | |
 
-### Sample
+## Type mapping
 
-```yaml
-captures:
-  ${PREFIX}/${CAPTURE_NAME}:
-    endpoint:
-      connector:
-        image: "ghcr.io/estuary/source-sqlserver-batch:dev"
-        config:
-          address: "<host>:1433"
-          database: "my_db"
-          user: "flow_capture"
-          password: "secret"
-    bindings:
-      - resource:
-          name: "transactions"
-          schema: "main"
-          table: "transactions"
-          cursor:
-            - "id"
-        target: ${PREFIX}/${COLLECTION_NAME}
-```
+SQL Server types are mapped to JSON types as follows:
+
+| SQL Server Type | JSON Type | Notes |
+|-----------------|-----------|-------|
+| `BIT` | `boolean` | |
+| `TINYINT`, `SMALLINT`, `INT`, `BIGINT` | `integer` | |
+| `FLOAT`, `REAL` | `number` | |
+| `NUMERIC`, `DECIMAL`, `MONEY`, `SMALLMONEY` | `string` | Formatted as number string with format `number` to preserve precision |
+| `CHAR`, `VARCHAR`, `TEXT`, `NCHAR`, `NVARCHAR`, `NTEXT`, `XML` | `string` | |
+| `BINARY`, `VARBINARY`, `IMAGE` | `string` | Bytes encoded as base64 string |
+| `DATE` | `string` | Format: `date` |
+| `TIME` | `string` | Format: `time` |
+| `DATETIME`, `DATETIME2`, `SMALLDATETIME` | `string` | Format: `date-time` (RFC3339), interpreted in configured timezone |
+| `DATETIMEOFFSET` | `string` | Format: `date-time` (RFC3339), timezone preserved |
+| `UNIQUEIDENTIFIER` | `string` | Format: `uuid` |
+
+## Query templates
+
+Query templates use Go's template syntax to generate SQL queries. The connector
+uses a default template which implements appropriate behavior for full-refresh
+and cursor-incremental bindings, but you can override this for custom behavior.
+
+Overriding the query template is best left to power-users or done at the direction
+of Estuary support. Consult the [connector source](https://github.com/estuary/connectors/blob/main/source-sqlserver-batch/main.go)
+for the current text of the default template.
