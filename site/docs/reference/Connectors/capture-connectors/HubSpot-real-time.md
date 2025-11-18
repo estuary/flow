@@ -33,6 +33,12 @@ The connector automatically discovers bindings for the following HubSpot resourc
 
 OAuth2 is used to authenticate the connector with HubSpot. A HubSpot account is required for the OAuth2 authentication process.
 
+### Permissions and OAuth scopes
+
+During the OAuth flow, HubSpot may present scopes that include permission to create, update, or delete data. This is due to how HubSpot groups permissions and exposes certain read APIs behind combined read/write scopes.
+
+The HubSpot ( Real-Time ) connector uses these credentials only to read data from HubSpot and does not create, update, or delete CRM objects or other resources in your HubSpot account. All operations performed by this connector are read-only capture operations into Flow collections.
+
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
