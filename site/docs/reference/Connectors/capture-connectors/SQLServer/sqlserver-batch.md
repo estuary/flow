@@ -11,10 +11,9 @@ update events, and typically has a smaller impact on the source database.
 
 However, the batch connector is the right choice when:
 
-- Your SQL Server instance doesn't support Change Tracking (e.g., some managed services)
+- Your SQL Server instance doesn't support CDC (e.g., some managed services)
 - You need to capture from database views
 - You want to execute ad-hoc or custom queries
-- You need to capture from a read replica that doesn't have Change Tracking enabled
 
 ## Supported versions and platforms
 
