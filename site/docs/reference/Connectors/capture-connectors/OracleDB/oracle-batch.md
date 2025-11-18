@@ -23,8 +23,10 @@ This connector works with Oracle Database 11g and later on major cloud platforms
 as well as self-hosted instances.
 
 :::tip Configuration Tip
-To capture data from databases hosted on your internal network, you must
-use [SSH tunneling](/guides/connect-network/).
+To capture data from databases hosted on your internal network, you may need to
+use [SSH tunneling](/guides/connect-network/). If you have a
+[private deployment](/getting-started/deployment-options/#private-deployment),
+you can also use private cloud networking features to reach your database.
 :::
 
 ## Prerequisites

@@ -26,7 +26,10 @@ To use this connector, you'll need a MariaDB database setup with the following.
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
 :::tip Configuration Tip
-To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
+To capture data from databases hosted on your internal network, you may need to
+use [SSH tunneling](/guides/connect-network/). If you have a
+[private deployment](/getting-started/deployment-options/#private-deployment),
+you can also use private cloud networking features to reach your database.
 :::
 
 ## Setup
