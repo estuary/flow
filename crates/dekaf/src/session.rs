@@ -6,7 +6,6 @@ use crate::{
 };
 use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use itertools::Itertools;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -258,114 +257,77 @@ impl Session {
             .with_topics(topics))
     }
 
-    // Lists all read-able collections as Kafka topics. Omits partition metadata.
+    // Lists all read-able collections as Kafka topics
     async fn metadata_all_topics(&mut self) -> anyhow::Result<Vec<MetadataResponseTopic>> {
-        let collections = self
+        let collection_names = self
             .auth
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?
             .fetch_all_collection_names()
             .await?;
+        tracing::debug!(collections=?ops::DebugJson(&collection_names), "fetched all collections");
 
-        tracing::debug!(collections=?ops::DebugJson(&collections), "fetched all collections");
+        let collections = self
+            .fetch_collections_for_metadata(collection_names)
+            .await?;
 
-        let topics = collections
+        collections
             .into_iter()
-            .map(|name| {
-                Ok(MetadataResponseTopic::default()
-                    .with_name(Some(self.encode_topic_name(name)?))
-                    .with_is_internal(false)
-                    .with_partitions(vec![
-                        MetadataResponsePartition::default()
-                            .with_partition_index(0)
-                            .with_leader_id(messages::BrokerId(1))
-                            .with_replica_nodes(vec![messages::BrokerId(1)])
-                            .with_isr_nodes(vec![messages::BrokerId(1)]),
-                    ]))
+            .map(|(name, opt_coll)| {
+                let coll = opt_coll.ok_or_else(|| {
+                    anyhow::anyhow!("Collection '{}' not found or not accessible", name)
+                })?;
+                let encoded_name = self.encode_topic_name(name)?;
+                self.build_topic_metadata(encoded_name, &coll)
             })
-            .collect::<anyhow::Result<_>>()?;
-
-        Ok(topics)
+            .collect()
     }
 
-    // Lists partitions of specific, requested collections.
+    // Lists partitions of specific, requested collections
     async fn metadata_select_topics(
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
         let topics: anyhow::Result<_> = async {
-            let auth = self.auth.as_ref().unwrap();
+            let names: Vec<_> = requests
+                .iter()
+                .map(|t| from_downstream_topic_name(t.name.clone().unwrap_or_default()).to_string())
+                .collect();
 
-            // Concurrently fetch Collection instances for all requested topics.
-            let collections: Vec<(TopicName, Option<Collection>)> = futures::future::try_join_all(
-                requests.clone().into_iter().map(|topic| async move {
-                    Collection::new(
-                        auth,
-                        from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
-                            .as_str(),
-                    )
-                    .await
-                    .map(|coll| (topic.name.unwrap_or_default(), coll))
-                }),
-            )
-            .await?;
+            let collections = self.fetch_collections_for_metadata(names).await?;
 
-            let mut topics = vec![];
+            requests
+                .iter()
+                .zip(collections)
+                .map(|(request, (_, maybe_collection))| {
+                    let topic_name = request.name.to_owned().ok_or_else(|| {
+                        anyhow::anyhow!("Topic name is missing in metadata request")
+                    })?;
 
-            for (name, maybe_collection) in collections {
-                let Some(collection) = maybe_collection else {
-                    topics.push(
-                        MetadataResponseTopic::default()
-                            .with_name(Some(self.encode_topic_name(name.to_string())?))
-                            .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
-                    );
-                    continue;
-                };
-
-                let leader_epoch = collection.binding_backfill_counter as i32;
-                let partitions = collection
-                    .partitions
-                    .iter()
-                    .enumerate()
-                    .map(|(index, _)| {
-                        messages::metadata_response::MetadataResponsePartition::default()
-                            .with_partition_index(index as i32)
-                            .with_leader_id(messages::BrokerId(1))
-                            .with_leader_epoch(leader_epoch)
-                            .with_replica_nodes(vec![messages::BrokerId(1)])
-                            .with_isr_nodes(vec![messages::BrokerId(1)])
-                    })
-                    .collect();
-
-                topics.push(
-                    MetadataResponseTopic::default()
-                        .with_name(Some(name))
-                        .with_is_internal(false)
-                        .with_partitions(partitions),
-                );
-            }
-            Ok(topics)
+                    match maybe_collection {
+                        Some(collection) => self.build_topic_metadata(topic_name, &collection),
+                        None => Ok(MetadataResponseTopic::default()
+                            .with_name(Some(self.encode_topic_name(topic_name.to_string())?))
+                            .with_error_code(ResponseError::UnknownTopicOrPartition.code())),
+                    }
+                })
+                .collect()
         }
         .await;
 
         match topics {
             Ok(topics) => Ok(topics),
             Err(e) if Self::is_redirect_error(&e) => {
-                return Ok(requests
+                // For redirects, return minimal metadata with single partition
+                Ok(requests
                     .into_iter()
                     .map(|req| {
                         MetadataResponseTopic::default()
                             .with_name(req.name)
                             .with_is_internal(false)
-                            .with_partitions(vec![
-                                MetadataResponsePartition::default()
-                                    .with_partition_index(0)
-                                    .with_leader_id(messages::BrokerId(1))
-                                    .with_replica_nodes(vec![messages::BrokerId(1)])
-                                    .with_isr_nodes(vec![messages::BrokerId(1)]),
-                            ])
+                            .with_partitions(vec![Self::build_partition(0, 0)])
                     })
-                    .collect_vec());
+                    .collect())
             }
             Err(e) => Err(e),
         }
@@ -1920,8 +1882,8 @@ impl Session {
             version::<SaslAuthenticateRequest>(ApiKey::SaslAuthenticate),
             ApiVersion::default()
                 .with_api_key(ApiKey::Metadata as i16)
-                .with_min_version(7)
-                .with_max_version(7),
+                .with_min_version(9)
+                .with_max_version(9),
             ApiVersion::default()
                 .with_api_key(ApiKey::FindCoordinator as i16)
                 .with_min_version(0)
@@ -1936,7 +1898,7 @@ impl Session {
                 // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
                 // just the consequence of convergent development, where some implicit requirement got encoded both in the client
                 // and server without being explicitly documented anywhere.
-                .with_min_version(10)
+                .with_min_version(4)
                 // Version >= 13 did away with topic names in favor of unique topic UUIDs, so we need to stick below that.
                 .with_max_version(12),
             // Needed by `kaf`.
@@ -2119,5 +2081,58 @@ impl Session {
             }
             Err(e) => Err(e),
         }
+    }
+
+    fn build_partition(index: i32, leader_epoch: i32) -> MetadataResponsePartition {
+        MetadataResponsePartition::default()
+            .with_partition_index(index)
+            .with_leader_id(messages::BrokerId(1))
+            .with_leader_epoch(leader_epoch)
+            .with_replica_nodes(vec![messages::BrokerId(1)])
+            .with_isr_nodes(vec![messages::BrokerId(1)])
+    }
+
+    /// Helper to create topic metadata from a collection
+    fn build_topic_metadata(
+        &self,
+        name: TopicName,
+        collection: &Collection,
+    ) -> anyhow::Result<MetadataResponseTopic> {
+        let leader_epoch = collection.binding_backfill_counter as i32;
+
+        let partitions = if collection.partitions.is_empty() {
+            // Fallback to single partition if collection has no partitions defined
+            vec![Self::build_partition(0, leader_epoch)]
+        } else {
+            collection
+                .partitions
+                .iter()
+                .enumerate()
+                .map(|(index, _)| Self::build_partition(index as i32, leader_epoch))
+                .collect()
+        };
+
+        Ok(MetadataResponseTopic::default()
+            .with_name(Some(name))
+            .with_is_internal(false)
+            .with_partitions(partitions))
+    }
+
+    /// Fetch collections concurrently
+    async fn fetch_collections_for_metadata(
+        &self,
+        names: impl IntoIterator<Item = String>,
+    ) -> anyhow::Result<Vec<(String, Option<Collection>)>> {
+        let auth = self
+            .auth
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        futures::future::try_join_all(
+            names.into_iter().map(|name| async move {
+                Collection::new(auth, &name).await.map(|coll| (name, coll))
+            }),
+        )
+        .await
     }
 }
