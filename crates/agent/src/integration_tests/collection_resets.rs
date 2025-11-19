@@ -291,3 +291,200 @@ async fn test_publication_spec_updates() {
         collection_history[2].spec.get()
     );
 }
+
+#[tokio::test]
+#[serial_test::serial]
+async fn test_task_resets() {
+    let mut harness = TestHarness::init("test_task_resets").await;
+    let tenant = harness.setup_tenant("test").await;
+
+    // Create a full data pipeline: capture → source collection → derivation → derived collection → materialization
+    let catalog = serde_json::json!({
+        "captures": {
+            "test/capture": {
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "table": "data" }, "target": "test/source" }
+                ]
+            }
+        },
+        "collections": {
+            "test/source": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "value": { "type": "number" }
+                    }
+                },
+                "key": ["/id"]
+            },
+            "test/derived": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "doubled": { "type": "number" }
+                    }
+                },
+                "key": ["/id"],
+                "derive": {
+                    "using": {
+                        "sqlite": { "migrations": [] }
+                    },
+                    "transforms": [
+                        {
+                            "name": "double",
+                            "source": "test/source",
+                            "shuffle": "any",
+                            "lambda": "select $id, $value * 2 as doubled;"
+                        }
+                    ]
+                }
+            }
+        },
+        "materializations": {
+            "test/materialize": {
+                "endpoint": {
+                    "connector": { "image": "materialize/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "table": "derived" }, "source": "test/derived" }
+                ]
+            }
+        }
+    });
+
+    let result = harness
+        .user_publication(tenant, "initial pipeline", draft_catalog(catalog.clone()))
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed: {:?}",
+        result.errors
+    );
+
+    // Get initial shard template IDs for all three tasks
+    let capture = harness.get_controller_state("test/capture").await;
+    let proto_flow::AnyBuiltSpec::Capture(capture_spec) = capture.built_spec.as_ref().unwrap()
+    else {
+        panic!("expected capture spec");
+    };
+    let initial_capture_shard = capture_spec.shard_template.as_ref().unwrap().id.clone();
+
+    let derivation = harness.get_controller_state("test/derived").await;
+    let proto_flow::AnyBuiltSpec::Collection(collection_spec) =
+        derivation.built_spec.as_ref().unwrap()
+    else {
+        panic!("expected collection spec");
+    };
+    let initial_derivation_shard = collection_spec
+        .derivation
+        .as_ref()
+        .unwrap()
+        .shard_template
+        .as_ref()
+        .unwrap()
+        .id
+        .clone();
+
+    let materialization = harness.get_controller_state("test/materialize").await;
+    let proto_flow::AnyBuiltSpec::Materialization(mat_spec) =
+        materialization.built_spec.as_ref().unwrap()
+    else {
+        panic!("expected materialization spec");
+    };
+    let initial_mat_shard = mat_spec.shard_template.as_ref().unwrap().id.clone();
+
+    // Reset all three tasks in a single publication by cloning the catalog and injecting reset flags
+    let mut reset_catalog = catalog.clone();
+    reset_catalog["captures"]["test/capture"]["reset"] = serde_json::json!(true);
+    reset_catalog["collections"]["test/derived"]["reset"] = serde_json::json!(true);
+    reset_catalog["materializations"]["test/materialize"]["reset"] = serde_json::json!(true);
+
+    let result = harness
+        .user_publication(tenant, "reset all tasks", draft_catalog(reset_catalog))
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed: {:?}",
+        result.errors
+    );
+
+    // Verify all three tasks got new shard template IDs
+    let capture = harness.get_controller_state("test/capture").await;
+    let proto_flow::AnyBuiltSpec::Capture(capture_spec) = capture.built_spec.as_ref().unwrap()
+    else {
+        panic!("expected capture spec");
+    };
+    let new_capture_shard = capture_spec.shard_template.as_ref().unwrap().id.clone();
+    assert_ne!(
+        initial_capture_shard, new_capture_shard,
+        "capture shard ID should have changed after reset"
+    );
+
+    let derivation = harness.get_controller_state("test/derived").await;
+    let proto_flow::AnyBuiltSpec::Collection(collection_spec) =
+        derivation.built_spec.as_ref().unwrap()
+    else {
+        panic!("expected collection spec");
+    };
+    let new_derivation_shard = collection_spec
+        .derivation
+        .as_ref()
+        .unwrap()
+        .shard_template
+        .as_ref()
+        .unwrap()
+        .id
+        .clone();
+    assert_ne!(
+        initial_derivation_shard, new_derivation_shard,
+        "derivation shard ID should have changed after reset"
+    );
+
+    let materialization = harness.get_controller_state("test/materialize").await;
+    let proto_flow::AnyBuiltSpec::Materialization(mat_spec) =
+        materialization.built_spec.as_ref().unwrap()
+    else {
+        panic!("expected materialization spec");
+    };
+    let new_mat_shard = mat_spec.shard_template.as_ref().unwrap().id.clone();
+    assert_ne!(
+        initial_mat_shard, new_mat_shard,
+        "materialization shard ID should have changed after reset"
+    );
+
+    // Verify publication details mention the resets
+    let capture_specs = harness.get_publication_specs("test/capture").await;
+    assert_eq!(2, capture_specs.len());
+    assert!(
+        capture_specs[1]
+            .detail
+            .contains("reset capture to new generation"),
+        "unexpected detail: {}",
+        capture_specs[1].detail
+    );
+
+    let derivation_specs = harness.get_publication_specs("test/derived").await;
+    assert_eq!(2, derivation_specs.len());
+    assert!(
+        derivation_specs[1]
+            .detail
+            .contains("reset collection to new generation"),
+        "unexpected detail: {}",
+        derivation_specs[1].detail
+    );
+
+    let mat_specs = harness.get_publication_specs("test/materialize").await;
+    assert_eq!(2, mat_specs.len());
+    assert!(
+        mat_specs[1]
+            .detail
+            .contains("reset materialization to new generation"),
+        "unexpected detail: {}",
+        mat_specs[1].detail
+    );
+}

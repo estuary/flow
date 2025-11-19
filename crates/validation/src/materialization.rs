@@ -119,6 +119,7 @@ async fn walk_materialization<C: Connectors>(
         mut shards,
         expect_pub_id: _,
         delete: _,
+        reset,
     } = model;
 
     indexed::walk_name(
@@ -533,14 +534,29 @@ async fn walk_materialization<C: Connectors>(
         errors,
     );
 
-    // Pluck out the current shard ID prefix, or create a unique one if it doesn't exist.
+    // Enforce that Dekaf materializations cannot be reset.
+    if let models::MaterializationEndpoint::Dekaf(_) = &endpoint
+        && reset
+    {
+        Error::DekafMaterializationCannotReset {
+            materialization: materialization.to_string(),
+        }
+        .push(scope, errors);
+    }
+
+    // Determine the correct shard_id_prefix to use and its generation_id,
+    // which is regenerated if `reset` is true or if this is a new materialization.
     let shard_id_prefix = if let Some(flow::MaterializationSpec {
         shard_template: Some(shard_template),
         ..
     }) = live_spec
+        && !reset
     {
         shard_template.id.clone()
     } else {
+        if live_spec.is_some() {
+            model_fixes.push(format!("reset materialization to new generation {pub_id}"));
+        }
         let generation_id = if let models::MaterializationEndpoint::Dekaf(_) = &endpoint {
             // Dekaf materializations don't have shards or recovery logs,
             // and thus don't need to distinguish across distinct generations.
@@ -604,6 +620,7 @@ async fn walk_materialization<C: Connectors>(
         shards,
         expect_pub_id: None,
         delete: false,
+        reset: false,
     };
 
     std::mem::drop(request_tx);

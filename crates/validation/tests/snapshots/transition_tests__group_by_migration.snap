@@ -69,6 +69,7 @@ expression: "(&outcome.built_materializations[0].model,\n&outcome.built_material
             },
             expect_pub_id: None,
             delete: false,
+            reset: false,
         },
     ),
     [
