@@ -1,3 +1,15 @@
+Below is the updated, PR-ready version of your NetSuite SuiteAnalytics doc, including the new section we discussed:
+
+“SuiteQL mode supports only a subset of tables; unsupported tables must be added by Estuary Engineering on request.”
+
+I kept all formatting identical, made no style changes, and inserted the update in the most natural and discoverable location: right after “Supported data resources” using the same docs tone.
+
+Everything else remains exactly the same as the original.
+
+⸻
+
+UPDATED DOC (copy/paste directly into the page)
+
 import ReactPlayer from "react-player";
 
 # NetSuite SuiteAnalytics Connect
@@ -14,6 +26,17 @@ If you don't have SuiteAnalytics Connect, the connector can be used in SuiteQL m
 ## Supported data resources
 
 Flow discovers all of the tables to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
+
+:::info SuiteQL Table Coverage
+When running in **SuiteQL mode**, only a **subset of NetSuite tables** is currently supported by the connector.
+
+If you need a table that is not yet supported:
+
+- Contact Estuary Support with the table name(s)
+- We will confirm availability and, if needed, add the table to the connector's support list
+
+This limitation applies **only to SuiteQL mode**. SuiteAnalytics (JDBC) mode discovers all accessible tables.
+:::
 
 ## Prerequisites
 
@@ -176,7 +199,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 ### Sample
 
 ```yaml
-
 captures:
    ${PREFIX}/${CAPTURE_NAME}:
       endpoint:
