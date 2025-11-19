@@ -893,11 +893,11 @@ impl Session {
                             && partition_request.current_leader_epoch
                                 < collection.binding_backfill_counter as i32
                         {
-                            // Epoch validation failed - return OFFSET_OUT_OF_RANGE
+                            // Epoch validation failed - return FENCED_LEADER_EPOCH
                             partition_responses.push(
                                 PartitionData::default()
                                     .with_partition_index(partition_request.partition)
-                                    .with_error_code(ResponseError::OffsetOutOfRange.code())
+                                    .with_error_code(ResponseError::FencedLeaderEpoch.code())
                                     .with_current_leader(
                                         messages::fetch_response::LeaderIdAndEpoch::default()
                                             .with_leader_id(messages::BrokerId(1))
@@ -1698,7 +1698,9 @@ impl Session {
             .with_group_id(group_id.clone())
             .with_topics(cleanup_topics);
 
-        client.send_request(cleanup_req, Some(header.clone())).await?;
+        client
+            .send_request(cleanup_req, Some(header.clone()))
+            .await?;
 
         tracing::debug!(
             group_id = ?group_id,
@@ -1810,7 +1812,7 @@ impl Session {
         let should_fallback = resp.topics.iter().all(|topic| {
             topic.partitions.iter().all(|p| {
                 // Consider it empty if offset is -1 (no committed offset) or error code is set
-                p.committed_offset == -1 || p.error_code != 0
+                p.committed_offset == -1
             })
         });
 
@@ -1908,7 +1910,7 @@ impl Session {
                             );
                             EpochEndOffset::default()
                                 .with_partition(partition.partition)
-                                .with_error_code(ResponseError::UnknownTopicOrPartition.code())
+                                .with_error_code(ResponseError::UnknownLeaderEpoch.code())
                         }
                     })
                     .collect();
