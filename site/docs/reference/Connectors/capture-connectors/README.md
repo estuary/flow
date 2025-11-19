@@ -36,7 +36,7 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - [Configuration](./SQLServer/amazon-rds-sqlserver.md)
   - Package - ghcr.io/estuary/source-amazon-rds-sqlserver:dev
 - Amazon Redshift
-  - [Configuration](./amazon-redshift.md)
+  - [Configuration](./redshift-batch.md)
   - Package - ghcr.io/estuary/source-redshift-batch:dev
 - Amazon S3
   - [Configuration](./amazon-s3.md)
