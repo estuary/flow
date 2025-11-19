@@ -1536,6 +1536,13 @@ impl Session {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
+            let original_topics = req.topics.clone();
+            let secret = self.secret.clone();
+            let token = match self.auth.as_ref().context("Must be authenticated")? {
+                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+                SessionAuthentication::Redirect { config, .. } => config.token.to_string(),
+            };
+
             for topic in &mut req.topics {
                 // Look up collection to get backfill counter
                 let collection = collections
@@ -1556,7 +1563,24 @@ impl Session {
 
             client.ensure_topics(desired_topic_partitions).await?;
 
-            let mut resp = client.send_request(req.clone(), Some(header)).await?;
+            let mut resp = client.send_request(req.clone(), Some(header.clone())).await?;
+
+            if let Err(e) = Self::send_legacy_offset_cleanup(
+                client,
+                req.group_id.clone(),
+                &original_topics,
+                &secret,
+                &token,
+                &header,
+            )
+            .await
+            {
+                tracing::warn!(
+                    group_id = ?req.group_id,
+                    error = ?e,
+                    "Failed to clean up legacy offsets (non-fatal)"
+                );
+            }
 
             for topic in resp.topics.iter_mut() {
                 let encrypted_name = topic.name.clone();
@@ -1633,6 +1657,55 @@ impl Session {
             Err(e) if Self::is_redirect_error(&e) => Ok(redirect_response),
             Err(e) => Err(e),
         }
+    }
+
+    async fn send_legacy_offset_cleanup(
+        client: &mut KafkaApiClient,
+        group_id: messages::GroupId,
+        topics: &[messages::offset_commit_request::OffsetCommitRequestTopic],
+        secret: &str,
+        token: &str,
+        header: &RequestHeader,
+    ) -> anyhow::Result<()> {
+        let mut cleanup_topics = Vec::new();
+
+        for topic in topics {
+            let legacy_name = to_upstream_topic_name(
+                topic.name.clone(),
+                secret.to_owned(),
+                token.to_string(),
+                None,
+            );
+
+            let cleanup_partitions = topic
+                .partitions
+                .iter()
+                .map(|p| {
+                    messages::offset_commit_request::OffsetCommitRequestPartition::default()
+                        .with_partition_index(p.partition_index)
+                        .with_committed_offset(-1)
+                })
+                .collect();
+
+            cleanup_topics.push(
+                messages::offset_commit_request::OffsetCommitRequestTopic::default()
+                    .with_name(legacy_name)
+                    .with_partitions(cleanup_partitions),
+            );
+        }
+
+        let cleanup_req = messages::OffsetCommitRequest::default()
+            .with_group_id(group_id.clone())
+            .with_topics(cleanup_topics);
+
+        client.send_request(cleanup_req, Some(header.clone())).await?;
+
+        tracing::debug!(
+            group_id = ?group_id,
+            "Sent legacy offset cleanup request"
+        );
+
+        Ok(())
     }
 
     #[instrument(skip_all, fields(group=?req.group_id))]
