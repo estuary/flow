@@ -63,6 +63,7 @@ expression: "(selections, errors)"
                     },
                     expect_pub_id: None,
                     delete: false,
+                    reset: false,
                 },
             ),
             [],

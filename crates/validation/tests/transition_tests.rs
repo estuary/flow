@@ -461,6 +461,48 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_reset_capture() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  captures:
+    the/capture:
+      reset: true
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome.built_captures);
+}
+
+#[test]
+fn test_reset_materialization() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      reset: true
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome.built_materializations);
+}
+
+#[test]
+fn test_reset_derivation() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/derivation:
+      reset: true
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome.built_collections);
+}
+
+#[test]
 fn test_disable_live_bindings() {
     let outcome = common::run(
         MODEL_YAML,

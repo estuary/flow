@@ -300,6 +300,7 @@ async fn prepare_discover(
                 expect_pub_id: None,
                 bindings: Vec::new(),
                 delete: false,
+                reset: false,
             };
             draft.captures.insert(tables::DraftCapture {
                 capture: capture_name.clone(),
