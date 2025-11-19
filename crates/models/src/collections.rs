@@ -49,14 +49,16 @@ pub struct CollectionDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
-    /// # Delete this collection within the control plane.
+    /// # Delete this collection.
     /// When true, a publication will delete this collection.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub delete: bool,
-    /// # Reset this collection within the control plane.
-    /// When true, a publication will reset this collection.
-    /// Resetting a collection is equivalent to deleting and then re-creating
-    /// the collection, but is applied as a single publication.
+    /// # Reset this collection.
+    /// Publishing a value of `true` will reset this collection, which is
+    /// equivalent to deleting and then re-creating the collection but
+    /// applied as a single publication.
+    /// If this is a derived collection then the derivation task state is
+    /// also reset, effectively re-building the derivation in its entirety.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub reset: bool,
 }

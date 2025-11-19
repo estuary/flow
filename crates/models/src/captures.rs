@@ -54,10 +54,16 @@ pub struct CaptureDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
-    /// # Delete this capture within the control plane.
+    /// # Delete this capture.
     /// When true, a publication will delete this capture.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub delete: bool,
+    /// # Reset this capture.
+    /// Publishing a value of `true` will reset this capture, which is
+    /// equivalent to deleting and then re-creating the capture but
+    /// applied as a single publication.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub reset: bool,
 }
 
 /// Settings to determine how Flow should stay abreast of ongoing changes to collections and schemas.
@@ -135,6 +141,7 @@ impl CaptureDef {
             shards: ShardTemplate::default(),
             expect_pub_id: None,
             delete: false,
+            reset: false,
             redact_salt: None,
         }
     }

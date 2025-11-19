@@ -102,7 +102,7 @@ async fn walk_derivation<C: Connectors>(
     Option<String>,
     Vec<String>,
 )> {
-    let (collection, scope, model, expect_build_id, live_model, live_spec, dependency_hash) =
+    let (collection, scope, model, reset, expect_build_id, live_model, live_spec, dependency_hash) =
         match eob {
             // If this is a drafted derivation, pluck out its details.
             EOB::Right(tables::DraftCollection {
@@ -112,6 +112,7 @@ async fn walk_derivation<C: Connectors>(
                     Some(
                         collection_model @ models::CollectionDef {
                             derive: Some(model),
+                            reset,
                             ..
                         },
                     ),
@@ -120,6 +121,7 @@ async fn walk_derivation<C: Connectors>(
                 collection,
                 scope,
                 model.clone(),
+                *reset,
                 models::Id::zero(),
                 None,
                 None,
@@ -143,6 +145,7 @@ async fn walk_derivation<C: Connectors>(
                         Some(
                             collection_model @ models::CollectionDef {
                                 derive: Some(model),
+                                reset,
                                 ..
                             },
                         ),
@@ -152,6 +155,7 @@ async fn walk_derivation<C: Connectors>(
                 collection,
                 scope,
                 model.clone(),
+                *reset,
                 if spec.derivation.is_some() {
                     *last_build_id
                 } else {
@@ -613,7 +617,10 @@ async fn walk_derivation<C: Connectors>(
         transforms_spec.push(spec);
     }
 
-    // Pluck out the current shard ID prefix, or create a unique one if it doesn't exist.
+    // Determine the correct shard_id_prefix to use and its generation_id,
+    // which is regenerated if `reset` is true or if this is a new derivation.
+    // Note: `reset` comes from the collection definition, which resets both
+    // the collection journals AND the derivation task.
     let shard_id_prefix = if let Some(flow::CollectionSpec {
         derivation:
             Some(flow::collection_spec::Derivation {
@@ -622,9 +629,11 @@ async fn walk_derivation<C: Connectors>(
             }),
         ..
     }) = live_spec
+        && !reset
     {
         shard_template.id.clone()
     } else {
+        // The collection already logs a model fix so we omit it here.
         assemble::shard_id_prefix(pub_id, collection, labels::TASK_TYPE_DERIVATION)
     };
 

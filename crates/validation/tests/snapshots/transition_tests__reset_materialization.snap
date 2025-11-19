@@ -1,0 +1,670 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: outcome.built_materializations
+---
+[
+    BuiltMaterialization {
+        materialization: the/materialization,
+        scope: test://example/catalog.yaml#/materializations/the~1materialization,
+        control_id: "1111111111111104",
+        data_plane_id: "1212121212121204",
+        expect_pub_id: "1010101010101010",
+        expect_build_id: "1010101010101010",
+        model: {
+          "endpoint": {
+            "connector": {
+              "image": "other/image",
+              "config": {"a":"config"}
+            }
+          },
+          "bindings": [
+            {
+              "resource": {"_meta":{"path":["table","path"]},"table":"bar"},
+              "source": "the/collection",
+              "fields": {
+                "require": {
+                  "F1": {},
+                  "f_two": {}
+                },
+                "exclude": [
+                  "F2"
+                ],
+                "recommended": true
+              }
+            }
+          ]
+        },
+        model_fixes: [
+          "removed dropped exclude projection FY of source collection the/collection",
+          "removed dropped exclude projection does/not/exist of source collection the/collection",
+          "reset materialization to new generation 2020202020202020"
+        ],
+        validated: Validated {
+            bindings: [
+                Binding {
+                    case_insensitive_fields: false,
+                    constraints: {
+                        "F1": Constraint {
+                            r#type: FieldOptional,
+                            reason: "optional",
+                            folded_field: "",
+                        },
+                        "f_one": Constraint {
+                            r#type: LocationRecommended,
+                            reason: "recommended",
+                            folded_field: "",
+                        },
+                        "f_two": Constraint {
+                            r#type: FieldRequired,
+                            reason: "field required",
+                            folded_field: "",
+                        },
+                        "flow_document": Constraint {
+                            r#type: LocationRequired,
+                            reason: "location required",
+                            folded_field: "",
+                        },
+                    },
+                    resource_path: [
+                        "table",
+                        "path",
+                    ],
+                    delta_updates: false,
+                    ser_policy: None,
+                },
+            ],
+        },
+        spec: MaterializationSpec {
+            name: "the/materialization",
+            connector_type: Image,
+            config_json: b"{\"image\":\"other/image\",\"config\":{\"a\":\"config\"}}",
+            bindings: [
+                Binding {
+                    resource_config_json: b"{\"table\":\"bar\"}",
+                    resource_path: [
+                        "table",
+                        "path",
+                    ],
+                    collection: Some(
+                        CollectionSpec {
+                            name: "the/collection",
+                            write_schema_json: b"{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                            read_schema_json: b"",
+                            key: [
+                                "/f_one",
+                            ],
+                            uuid_ptr: "/_meta/uuid",
+                            partition_fields: [],
+                            projections: [
+                                Projection {
+                                    ptr: "/f_one",
+                                    field: "F1",
+                                    explicit: true,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "integer",
+                                            ],
+                                            string: None,
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: Some(
+                                                Numeric {
+                                                    has_minimum: false,
+                                                    minimum: 0.0,
+                                                    has_maximum: false,
+                                                    maximum: 0.0,
+                                                },
+                                            ),
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/f_two",
+                                    field: "F2",
+                                    explicit: true,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "string",
+                                            ],
+                                            string: Some(
+                                                String {
+                                                    content_type: "",
+                                                    format: "",
+                                                    content_encoding: "",
+                                                    max_length: 0,
+                                                },
+                                            ),
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/f_x",
+                                    field: "FX",
+                                    explicit: true,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [],
+                                            string: None,
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Cannot,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/_meta/flow_truncated",
+                                    field: "_meta/flow_truncated",
+                                    explicit: false,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "boolean",
+                                            ],
+                                            string: None,
+                                            title: "Flow truncation indicator",
+                                            description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/f_one",
+                                    field: "f_one",
+                                    explicit: false,
+                                    is_partition_key: false,
+                                    is_primary_key: true,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "integer",
+                                            ],
+                                            string: None,
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: Some(
+                                                Numeric {
+                                                    has_minimum: false,
+                                                    minimum: 0.0,
+                                                    has_maximum: false,
+                                                    maximum: 0.0,
+                                                },
+                                            ),
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/f_two",
+                                    field: "f_two",
+                                    explicit: false,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "string",
+                                            ],
+                                            string: Some(
+                                                String {
+                                                    content_type: "",
+                                                    format: "",
+                                                    content_encoding: "",
+                                                    max_length: 0,
+                                                },
+                                            ),
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/f_x",
+                                    field: "f_x",
+                                    explicit: false,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [],
+                                            string: None,
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Cannot,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "",
+                                    field: "flow_document",
+                                    explicit: false,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "object",
+                                            ],
+                                            string: None,
+                                            title: "",
+                                            description: "",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                                Projection {
+                                    ptr: "/_meta/uuid",
+                                    field: "flow_published_at",
+                                    explicit: false,
+                                    is_partition_key: false,
+                                    is_primary_key: false,
+                                    inference: Some(
+                                        Inference {
+                                            types: [
+                                                "string",
+                                            ],
+                                            string: Some(
+                                                String {
+                                                    content_type: "",
+                                                    format: "date-time",
+                                                    content_encoding: "uuid",
+                                                    max_length: 0,
+                                                },
+                                            ),
+                                            title: "Flow Publication Time",
+                                            description: "Flow publication date-time of this document",
+                                            default_json: b"",
+                                            secret: false,
+                                            exists: Must,
+                                            numeric: None,
+                                            array: None,
+                                            enum_json_vec: [],
+                                            reduce: Unset,
+                                            redact: Unset,
+                                        },
+                                    ),
+                                },
+                            ],
+                            ack_template_json: b"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                            partition_template: Some(
+                                JournalSpec {
+                                    name: "the/collection/0000000000000001",
+                                    replication: 3,
+                                    labels: Some(
+                                        LabelSet {
+                                            labels: [
+                                                Label {
+                                                    name: "app.gazette.dev/managed-by",
+                                                    value: "estuary.dev/flow",
+                                                    prefix: false,
+                                                },
+                                                Label {
+                                                    name: "content-type",
+                                                    value: "application/x-ndjson",
+                                                    prefix: false,
+                                                },
+                                                Label {
+                                                    name: "estuary.dev/build",
+                                                    value: "2121212121212121",
+                                                    prefix: false,
+                                                },
+                                                Label {
+                                                    name: "estuary.dev/collection",
+                                                    value: "the/collection",
+                                                    prefix: false,
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    fragment: Some(
+                                        Fragment {
+                                            length: 536870912,
+                                            compression_codec: Gzip,
+                                            stores: [
+                                                "s3://a-bucket/",
+                                            ],
+                                            refresh_interval: Some(
+                                                Duration {
+                                                    seconds: 300,
+                                                    nanos: 0,
+                                                },
+                                            ),
+                                            retention: None,
+                                            flush_interval: Some(
+                                                Duration {
+                                                    seconds: 86400,
+                                                    nanos: 0,
+                                                },
+                                            ),
+                                            path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                        },
+                                    ),
+                                    flags: 4,
+                                    max_append_rate: 4194304,
+                                    suspend: None,
+                                },
+                            ),
+                            derivation: None,
+                        },
+                    ),
+                    partition_selector: Some(
+                        LabelSelector {
+                            include: Some(
+                                LabelSet {
+                                    labels: [
+                                        Label {
+                                            name: "estuary.dev/collection",
+                                            value: "the/collection",
+                                            prefix: false,
+                                        },
+                                    ],
+                                },
+                            ),
+                            exclude: Some(
+                                LabelSet {
+                                    labels: [],
+                                },
+                            ),
+                        },
+                    ),
+                    priority: 0,
+                    field_selection: Some(
+                        FieldSelection {
+                            keys: [
+                                "f_one",
+                            ],
+                            values: [
+                                "F1",
+                                "f_two",
+                            ],
+                            document: "flow_document",
+                            field_config_json_map: {
+                                "F1": b"{}",
+                                "f_two": b"{}",
+                            },
+                        },
+                    ),
+                    delta_updates: false,
+                    deprecated_shuffle: None,
+                    journal_read_suffix: "materialize/the/materialization/table%2Fpath",
+                    not_before: None,
+                    not_after: None,
+                    backfill: 0,
+                    state_key: "table%2Fpath",
+                    ser_policy: None,
+                },
+            ],
+            shard_template: Some(
+                ShardSpec {
+                    id: "materialize/the/materialization/2020202020202020",
+                    sources: [],
+                    recovery_log_prefix: "recovery",
+                    hint_prefix: "/estuary/flow/hints",
+                    hint_backups: 2,
+                    max_txn_duration: Some(
+                        Duration {
+                            seconds: 1200,
+                            nanos: 0,
+                        },
+                    ),
+                    min_txn_duration: Some(
+                        Duration {
+                            seconds: 0,
+                            nanos: 0,
+                        },
+                    ),
+                    disable: false,
+                    hot_standbys: 0,
+                    labels: Some(
+                        LabelSet {
+                            labels: [
+                                Label {
+                                    name: "app.gazette.dev/managed-by",
+                                    value: "estuary.dev/flow",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/build",
+                                    value: "2121212121212121",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/log-level",
+                                    value: "info",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/task-name",
+                                    value: "the/materialization",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/task-type",
+                                    value: "materialization",
+                                    prefix: false,
+                                },
+                            ],
+                        },
+                    ),
+                    disable_wait_for_ack: false,
+                    ring_buffer_size: 65536,
+                    read_channel_size: 4096,
+                },
+            ),
+            recovery_log_template: Some(
+                JournalSpec {
+                    name: "recovery/materialize/the/materialization/2020202020202020",
+                    replication: 3,
+                    labels: Some(
+                        LabelSet {
+                            labels: [
+                                Label {
+                                    name: "app.gazette.dev/managed-by",
+                                    value: "estuary.dev/flow",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "content-type",
+                                    value: "application/x-gazette-recoverylog",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/build",
+                                    value: "2121212121212121",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/task-name",
+                                    value: "the/materialization",
+                                    prefix: false,
+                                },
+                                Label {
+                                    name: "estuary.dev/task-type",
+                                    value: "materialization",
+                                    prefix: false,
+                                },
+                            ],
+                        },
+                    ),
+                    fragment: Some(
+                        Fragment {
+                            length: 268435456,
+                            compression_codec: Snappy,
+                            stores: [
+                                "s3://a-bucket/",
+                            ],
+                            refresh_interval: Some(
+                                Duration {
+                                    seconds: 300,
+                                    nanos: 0,
+                                },
+                            ),
+                            retention: None,
+                            flush_interval: Some(
+                                Duration {
+                                    seconds: 172800,
+                                    nanos: 0,
+                                },
+                            ),
+                            path_postfix_template: "",
+                        },
+                    ),
+                    flags: 4,
+                    max_append_rate: 4194304,
+                    suspend: None,
+                },
+            ),
+            network_ports: [],
+            inactive_bindings: [],
+        },
+        previous_spec: MaterializationSpec {
+            name: "the/materialization",
+            connector_type: Image,
+            config_json: b"",
+            bindings: [
+                Binding {
+                    resource_config_json: b"",
+                    resource_path: [
+                        "table",
+                        "path",
+                    ],
+                    collection: Some(
+                        CollectionSpec {
+                            name: "the/collection",
+                            write_schema_json: b"",
+                            read_schema_json: b"",
+                            key: [],
+                            uuid_ptr: "",
+                            partition_fields: [],
+                            projections: [],
+                            ack_template_json: b"",
+                            partition_template: Some(
+                                JournalSpec {
+                                    name: "the/collection/0000000000000001",
+                                    replication: 0,
+                                    labels: None,
+                                    fragment: None,
+                                    flags: 0,
+                                    max_append_rate: 0,
+                                    suspend: None,
+                                },
+                            ),
+                            derivation: None,
+                        },
+                    ),
+                    partition_selector: None,
+                    priority: 0,
+                    field_selection: None,
+                    delta_updates: false,
+                    deprecated_shuffle: None,
+                    journal_read_suffix: "",
+                    not_before: None,
+                    not_after: None,
+                    backfill: 0,
+                    state_key: "",
+                    ser_policy: None,
+                },
+            ],
+            shard_template: Some(
+                ShardSpec {
+                    id: "materialize/the/materialization/0000000000000001",
+                    sources: [],
+                    recovery_log_prefix: "",
+                    hint_prefix: "",
+                    hint_backups: 0,
+                    max_txn_duration: None,
+                    min_txn_duration: None,
+                    disable: false,
+                    hot_standbys: 0,
+                    labels: None,
+                    disable_wait_for_ack: false,
+                    ring_buffer_size: 0,
+                    read_channel_size: 0,
+                },
+            ),
+            recovery_log_template: Some(
+                JournalSpec {
+                    name: "recovery/materialize/the/materialization/0000000000000001",
+                    replication: 0,
+                    labels: None,
+                    fragment: None,
+                    flags: 0,
+                    max_append_rate: 0,
+                    suspend: None,
+                },
+            ),
+            network_ports: [],
+            inactive_bindings: [],
+        },
+        is_touch: 0,
+        dependency_hash: 5b38dc32c776e2b2,
+    },
+]

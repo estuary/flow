@@ -119,6 +119,7 @@ async fn walk_capture<C: Connectors>(
         shards,
         expect_pub_id: _,
         delete: _,
+        reset,
     } = model;
 
     indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
@@ -383,14 +384,19 @@ async fn walk_capture<C: Connectors>(
         errors,
     );
 
-    // Pluck out the current shard ID prefix, or create a unique one if it doesn't exist.
+    // Determine the correct shard_id_prefix to use and its generation_id,
+    // which is regenerated if `reset` is true or if this is a new capture.
     let shard_id_prefix = if let Some(flow::CaptureSpec {
         shard_template: Some(shard_template),
         ..
     }) = live_spec
+        && !reset
     {
         shard_template.id.clone()
     } else {
+        if live_spec.is_some() {
+            model_fixes.push(format!("reset capture to new generation {pub_id}"));
+        }
         assemble::shard_id_prefix(pub_id, &capture, labels::TASK_TYPE_CAPTURE)
     };
 
@@ -450,6 +456,7 @@ async fn walk_capture<C: Connectors>(
         shards,
         expect_pub_id: None,
         delete: false,
+        reset: false,
     };
 
     std::mem::drop(request_tx);
