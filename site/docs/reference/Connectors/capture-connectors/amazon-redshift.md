@@ -1,8 +1,10 @@
-# Amazon Redshift
+# Amazon Redshift (Deprecated)
 
 This connector captures data from your Amazon Redshift cluster into Flow collections.
 
-[`ghcr.io/estuary/source-redshift:dev`](https://ghcr.io/estuary/source-redshift:dev) provides the latest connector image. You can access past image versions by following the link in your browser.
+:::warning
+This connector is deprecated. For the best experience, we recommend using our native [Redshift batch connector](./redshift-batch.md) instead.
+:::
 
 ## Prerequisites
 
