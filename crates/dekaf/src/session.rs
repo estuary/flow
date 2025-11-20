@@ -1844,86 +1844,116 @@ impl Session {
 
     /// OffsetForLeaderEpoch handles consumer requests to validate their position after receiving FENCED_LEADER_EPOCH.
     /// Returns the end offset for a given leader epoch, allowing consumers to reset their position.
+    ///
+    /// When a consumer receives FENCED_LEADER_EPOCH during a fetch, the standard recovery flow is:
+    /// 1. Consumer calls OffsetForLeaderEpoch for their old epoch
+    /// 2. Broker returns the end offset where that epoch ended
+    /// 3. Consumer compares their position to the end offset
+    /// 4. Consumer decides whether to continue or reset
+    /// Since the intent is for a consumer to reset its offset back to 0 when the backfill counter changes, the behavior we want is:
+    /// - If the requested epoch is less than the current epoch, return end offset 0 (indicating reset to beginning)
+    /// - If the requested epoch equals the current epoch, return the current write head
     #[instrument(skip_all, fields(topics=?req.topics.len()))]
     pub async fn offset_for_leader_epoch(
         &mut self,
         req: messages::OffsetForLeaderEpochRequest,
     ) -> anyhow::Result<messages::OffsetForLeaderEpochResponse> {
-        use messages::offset_for_leader_epoch_response::{
-            EpochEndOffset, OffsetForLeaderTopicResult,
-        };
-
         let auth = self
             .auth
             .as_ref()
             .ok_or(anyhow::anyhow!("Not authenticated"))?;
 
-        let topics =
-            futures::future::try_join_all(req.topics.into_iter().map(|topic| async move {
-                let collection_name = from_downstream_topic_name(topic.topic.clone());
-                let Some(collection) = Collection::new(auth, &collection_name).await? else {
-                    // Collection doesn't exist - return empty partitions
-                    return Ok::<OffsetForLeaderTopicResult, anyhow::Error>(
-                        OffsetForLeaderTopicResult::default().with_topic(topic.topic),
-                    );
-                };
-
-                let current_epoch = collection.binding_backfill_counter as i32;
-
-                let partitions = topic
-                    .partitions
-                    .into_iter()
-                    .map(|partition| {
-                        if partition.leader_epoch < current_epoch {
-                            // Consumer is asking about an old epoch
-                            tracing::info!(
-                                collection = collection_name.as_str(),
-                                partition = partition.partition,
-                                consumer_epoch = partition.leader_epoch,
-                                current_epoch,
-                                "Consumer querying old epoch"
-                            );
-                            EpochEndOffset::default()
-                                .with_partition(partition.partition)
-                                .with_error_code(ResponseError::FencedLeaderEpoch.code())
-                                .with_leader_epoch(current_epoch)
-                        } else if partition.leader_epoch == current_epoch {
-                            // Current epoch - return offset 0 (reset starts at beginning)
-                            tracing::debug!(
-                                collection = collection_name.as_str(),
-                                partition = partition.partition,
-                                epoch = current_epoch,
-                                "Returning reset offset for current epoch"
-                            );
-                            EpochEndOffset::default()
-                                .with_partition(partition.partition)
-                                .with_leader_epoch(current_epoch)
-                                .with_end_offset(0)
-                        } else {
-                            // Future epoch - unknown
-                            tracing::warn!(
-                                collection = collection_name.as_str(),
-                                partition = partition.partition,
-                                consumer_epoch = partition.leader_epoch,
-                                current_epoch,
-                                "Consumer querying future epoch"
-                            );
-                            EpochEndOffset::default()
-                                .with_partition(partition.partition)
-                                .with_error_code(ResponseError::UnknownLeaderEpoch.code())
-                        }
-                    })
-                    .collect();
-
-                Ok(OffsetForLeaderTopicResult::default()
-                    .with_topic(topic.topic)
-                    .with_partitions(partitions))
-            }))
-            .await?;
+        let topics = futures::future::try_join_all(
+            req.topics
+                .into_iter()
+                .map(|topic| Self::fetch_topic_leader_epochs(auth, topic)),
+        )
+        .await?;
 
         Ok(messages::OffsetForLeaderEpochResponse::default().with_topics(topics))
     }
 
+    async fn fetch_topic_leader_epochs(
+        auth: &SessionAuthentication,
+        topic: messages::offset_for_leader_epoch_request::OffsetForLeaderTopic,
+    ) -> anyhow::Result<messages::offset_for_leader_epoch_response::OffsetForLeaderTopicResult>
+    {
+        use messages::offset_for_leader_epoch_response::OffsetForLeaderTopicResult;
+
+        let collection_name = from_downstream_topic_name(topic.topic.clone());
+        let Some(collection) = Collection::new(auth, &collection_name).await? else {
+            return Ok(OffsetForLeaderTopicResult::default().with_topic(topic.topic));
+        };
+
+        let current_epoch = collection.binding_backfill_counter as i32;
+
+        let partitions =
+            futures::future::try_join_all(topic.partitions.into_iter().map(|partition| {
+                Self::fetch_partition_leader_epoch(
+                    &collection,
+                    &collection_name,
+                    partition,
+                    current_epoch,
+                )
+            }))
+            .await?;
+
+        Ok(OffsetForLeaderTopicResult::default()
+            .with_topic(topic.topic)
+            .with_partitions(partitions))
+    }
+
+    async fn fetch_partition_leader_epoch(
+        collection: &Collection,
+        collection_name: &str,
+        partition: messages::offset_for_leader_epoch_request::OffsetForLeaderPartition,
+        current_epoch: i32,
+    ) -> anyhow::Result<messages::offset_for_leader_epoch_response::EpochEndOffset> {
+        use messages::offset_for_leader_epoch_response::EpochEndOffset;
+
+        if partition.leader_epoch < current_epoch {
+            tracing::info!(
+                collection = collection_name,
+                partition = partition.partition,
+                consumer_epoch = partition.leader_epoch,
+                current_epoch,
+                "Consumer querying for offset of old epoch, returning reset to beginning"
+            );
+            return Ok(EpochEndOffset::default()
+                .with_partition(partition.partition)
+                .with_leader_epoch(current_epoch)
+                .with_end_offset(0));
+        } else if partition.leader_epoch == current_epoch {
+            let high_watermark = collection
+                .fetch_partition_offset(partition.partition as usize, -1)
+                .await?
+                .map(|po| po.offset)
+                .unwrap_or(0);
+
+            tracing::debug!(
+                collection = collection_name,
+                partition = partition.partition,
+                epoch = current_epoch,
+                high_watermark,
+                "Returning high watermark for current epoch"
+            );
+            return Ok(EpochEndOffset::default()
+                .with_partition(partition.partition)
+                .with_leader_epoch(current_epoch)
+                .with_end_offset(high_watermark));
+        } else {
+            tracing::warn!(
+                collection = collection_name,
+                partition = partition.partition,
+                consumer_epoch = partition.leader_epoch,
+                current_epoch,
+                "Consumer querying future epoch"
+            );
+            return Ok(EpochEndOffset::default()
+                .with_partition(partition.partition)
+                .with_error_code(ResponseError::UnknownLeaderEpoch.code()));
+        }
+    }
     /// ApiVersions lists the APIs which are supported by this "broker".
     pub async fn api_versions(
         &mut self,
