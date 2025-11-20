@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rustup target add wasm32-unknown-unknown
+
+RUSTFLAGS="-D warnings" \
+wasm-pack test --node crates/flow-web

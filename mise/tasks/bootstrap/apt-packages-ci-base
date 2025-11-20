@@ -20,6 +20,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   libsqlite3-dev \
   libssl-dev \
   make \
+  parallel \
   pkg-config \
   protobuf-compiler \
   python3.12 \

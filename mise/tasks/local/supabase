@@ -3,7 +3,9 @@ set -euo pipefail
 
 #MISE description="Start Supabase via systemd"
 #MISE depends=["local:common"]
+#USAGE flag "--no-block" help="Do not wait for service to start"
 
+NO_BLOCK="${usage_no_block:-false}"
 FLOW_LOCAL="${HOME}/flow-local"
 
 cat > "${FLOW_LOCAL}/env/supabase-functions.env" <<EOF
@@ -20,8 +22,14 @@ if [ ! -f "$UNIT_FILE" ]; then
     systemctl --user daemon-reload
 fi
 
-systemctl --user start flow-supabase
+if [ "${NO_BLOCK}" = "true" ]; then
+    systemctl --user start --no-block flow-supabase
+    echo "Supabase starting (non-blocking). Wait for completion with: systemctl --user start flow-supabase"
+else
+    systemctl --user start flow-supabase
+    echo "Supabase started."
+fi
 
-echo "Supabase started. Check status with: systemctl --user status flow-supabase"
+echo "Check status with: systemctl --user status flow-supabase"
 echo "View logs with: journalctl --user -u flow-supabase -f"
 echo "Database accessible at: postgresql://postgres:postgres@db.flow.localhost:5432/postgres"

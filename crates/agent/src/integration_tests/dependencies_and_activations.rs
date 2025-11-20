@@ -15,7 +15,6 @@ use models::{
 use uuid::Uuid;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_activations_performed_after_publication_failure() {
     let mut harness = TestHarness::init("test_activations_take_precedence_over_publications").await;
     let _user_id = harness.setup_tenant("muskrats").await;
@@ -226,7 +225,6 @@ fn assert_last_publication_failed(ps: &PublicationStatus) {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_dependencies_and_controllers() {
     let mut harness = TestHarness::init("test_dependencies_and_controllers").await;
 

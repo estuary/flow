@@ -4,12 +4,14 @@
 # Tool versions
 [tools]
 go = { version = "1.25" }
-rust = { version = "1.91" }
+# `rust` is required, but installation via mise is incompatible with Swatim/rust-cache
 
 "github:drager/wasm-pack" = { version = "0.13.1" }
 "github:etcd-io/etcd" = { version = "3.5.24" }
 "github:getsops/sops" = { version = "3.11.0", bin = "sops" }
 "github:jdx/usage" = { version = "2.6.0" }
+"github:mozilla/sccache" = {version = "0.12.0", platforms = { linux-arm64 =   { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
+"github:nextest-rs/nextest" = { version = "cargo-nextest-0.9.114" }
 "github:rui314/mold" = { version = "2.40.4" }
 "github:supabase/cli" = { version = "2.54.11" }
 "go:github.com/gogo/protobuf/protoc-gen-gogo" = { version = "1.3.2" }
@@ -83,3 +85,5 @@ CGO_LDFLAGS = """
 -ldl \
 -lm \
 """
+
+RUSTC_WRAPPER = "sccache"

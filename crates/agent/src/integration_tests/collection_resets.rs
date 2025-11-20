@@ -3,7 +3,6 @@ use crate::integration_tests::harness::{
 };
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_publication_spec_updates() {
     let mut harness = TestHarness::init("test_publication_spec_updates").await;
 
