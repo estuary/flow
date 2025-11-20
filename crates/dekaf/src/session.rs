@@ -939,12 +939,12 @@ impl Session {
                         partition = partition_request.partition,
                         old_epoch = pending.leader_epoch,
                         new_epoch = collection.binding_backfill_counter,
-                        "Epoch changed during read, returning OFFSET_OUT_OF_RANGE"
+                        "Epoch changed during read, returning FENCED_LEADER_EPOCH"
                     );
                     partition_responses.push(
                         PartitionData::default()
                             .with_partition_index(partition_request.partition)
-                            .with_error_code(ResponseError::OffsetOutOfRange.code())
+                            .with_error_code(ResponseError::FencedLeaderEpoch.code())
                             .with_current_leader(
                                 messages::fetch_response::LeaderIdAndEpoch::default()
                                     .with_leader_id(messages::BrokerId(1))
