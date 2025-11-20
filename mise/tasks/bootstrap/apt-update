@@ -4,4 +4,7 @@ set -euo pipefail
 #MISE description="Update apt package lists"
 #MISE sources=["."]
 
+# Disable man-db auto-update to speed up apt installs
+sudo rm -f /var/lib/man-db/auto-update
+
 sudo apt-get update

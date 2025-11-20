@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Platform Continuous Integration"
+
+# These steps are kept in lockstep with the "Platform Test" Github Actions workflow.
+
+mise run local:supabase --no-block
+mise run build:rocksdb
+mise run ci:format-check
+mise run ci:musl-dev
+mise run ci:wasm-test-node
+mise run local:supabase
+mise run ci:sql-tap
+mise run ci:gnu-dev
+mise run build:gazette
+mise run build:flowctl-go
+mise run ci:nextest-build
+mise run ci:nextest-run
+mise run ci:doctest
+mise run ci:gotest
+mise run ci:catalog-test
+mise run build:flow-schema

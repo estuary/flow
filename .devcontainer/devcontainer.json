@@ -48,10 +48,6 @@
 		"redhat.vscode-yaml",
 		// Rust debugging support.
 		"vadimcn.vscode-lldb",
-		// Protobuf language support.
-		"zxh404.vscode-proto3",
-		// Formatting support (eg, protobuf).
-		"xaver.clang-format",
 		// Spell checking.
 		"streetsidesoftware.code-spell-checker"
 	],

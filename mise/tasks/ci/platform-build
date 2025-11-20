@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mise run build:rocksdb
+mise run ci:musl-opt
+mise run ci:gnu-opt
+mise run build:flowctl-go --release
+mise run ci:wasm-opt

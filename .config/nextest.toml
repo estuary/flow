@@ -1,0 +1,11 @@
+[test-groups]
+
+serial-db-tests = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'
+test-group = 'serial-db-tests'
+
+[[profile.default.overrides]]
+filter = 'package(automations) and test(test_fibonacci_bench)'
+test-group = 'serial-db-tests'

@@ -6,7 +6,6 @@ use crate::{
 use proto_flow::capture::response::{Discovered, discovered::Binding};
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_user_discovers() {
     let mut harness = TestHarness::init("test_user_discovers").await;
 

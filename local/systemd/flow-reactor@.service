@@ -13,7 +13,8 @@ TimeoutStartSec=600
 EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/reactor-%i.env
 
-ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/bindings'
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p bindings'
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/bindings-cache-bust'
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && go build -tags libsqlite3 -o %h/go/bin/flowctl-go ./go/flowctl-go'
 ExecStart=%h/go/bin/flowctl-go serve consumer
 
