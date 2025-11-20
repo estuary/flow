@@ -2051,29 +2051,41 @@ impl Session {
         Ok(res)
     }
 
+    fn get_topic_name_nonce(&self, use_task_name: bool) -> anyhow::Result<String> {
+        match self.auth.as_ref().context("Must be authenticated")? {
+            SessionAuthentication::Task(auth) => Ok(if use_task_name {
+                auth.task_name.to_string()
+            } else {
+                auth.config.token.to_string()
+            }),
+            SessionAuthentication::Redirect { .. } => {
+                anyhow::bail!("Redirect sessions should not encrypt/decrypt topic names")
+            }
+        }
+    }
+
     fn encrypt_topic_name(
         &self,
         name: TopicName,
         backfill_counter: Option<u32>,
     ) -> anyhow::Result<TopicName> {
+        let nonce = self.get_topic_name_nonce(backfill_counter.is_some())?;
         Ok(to_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            match self.auth.as_ref().context("Must be authenticated")? {
-                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
-                SessionAuthentication::Redirect { config, .. } => config.token.to_string(),
-            },
+            nonce,
             backfill_counter,
         ))
     }
+
     fn decrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
+        // Auto-detect which nonce was used based on epoch suffix presence
+        let use_task_name = crate::has_epoch_suffix(name.as_str());
+        let nonce = self.get_topic_name_nonce(use_task_name)?;
         Ok(from_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            match self.auth.as_ref().context("Must be authenticated")? {
-                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
-                SessionAuthentication::Redirect { config, .. } => config.token.to_string(),
-            },
+            nonce,
         ))
     }
 
