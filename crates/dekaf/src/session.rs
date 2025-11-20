@@ -379,6 +379,15 @@ impl Session {
             ));
         }
 
+        if partition.current_leader_epoch > current_epoch {
+            return Ok((
+                partition.partition_index,
+                partition.current_leader_epoch,
+                None,
+                Some(ResponseError::UnknownLeaderEpoch),
+            ));
+        }
+
         Ok((
             partition.partition_index,
             partition.current_leader_epoch,
@@ -735,28 +744,49 @@ impl Session {
                 };
 
                 // Validate consumer's leader epoch against current collection epoch
-                if partition_request.current_leader_epoch >= 0
-                    && partition_request.current_leader_epoch
+                if partition_request.current_leader_epoch >= 0 {
+                    if partition_request.current_leader_epoch
                         < collection.binding_backfill_counter as i32
-                {
-                    metrics::counter!(
-                        "dekaf_fetch_requests",
-                        "topic_name" => key.0.to_string(),
-                        "partition_index" => key.1.to_string(),
-                        "task_name" => task_name.to_string(),
-                        "state" => "fenced_leader_epoch"
-                    )
-                    .increment(1);
-                    tracing::info!(
-                        collection = ?&key.0,
-                        partition = partition_request.partition,
-                        consumer_epoch = partition_request.current_leader_epoch,
-                        current_epoch = collection.binding_backfill_counter,
-                        "Consumer epoch is stale, skipping read start"
-                    );
-                    // Remove stale pending read if it exists - error will be returned during poll phase
-                    self.reads.remove(&key);
-                    continue;
+                    {
+                        metrics::counter!(
+                            "dekaf_fetch_requests",
+                            "topic_name" => key.0.to_string(),
+                            "partition_index" => key.1.to_string(),
+                            "task_name" => task_name.to_string(),
+                            "state" => "fenced_leader_epoch"
+                        )
+                        .increment(1);
+                        tracing::info!(
+                            collection = ?&key.0,
+                            partition = partition_request.partition,
+                            consumer_epoch = partition_request.current_leader_epoch,
+                            current_epoch = collection.binding_backfill_counter,
+                            "Consumer epoch is stale, skipping read start"
+                        );
+                        // Remove stale pending read if it exists - error will be returned during poll phase
+                        self.reads.remove(&key);
+                        continue;
+                    } else if partition_request.current_leader_epoch
+                        > collection.binding_backfill_counter as i32
+                    {
+                        metrics::counter!(
+                            "dekaf_fetch_requests",
+                            "topic_name" => key.0.to_string(),
+                            "partition_index" => key.1.to_string(),
+                            "task_name" => task_name.to_string(),
+                            "state" => "unknown_leader_epoch"
+                        )
+                        .increment(1);
+                        tracing::info!(
+                            collection = ?&key.0,
+                            partition = partition_request.partition,
+                            consumer_epoch = partition_request.current_leader_epoch,
+                            current_epoch = collection.binding_backfill_counter,
+                            "Consumer epoch is ahead of broker epoch, skipping read start"
+                        );
+                        self.reads.remove(&key);
+                        continue;
+                    }
                 }
 
                 let Some(partition) = collection
@@ -889,24 +919,41 @@ impl Session {
                     // No pending read - check if this is due to epoch validation failure
                     let auth = self.auth.as_ref().unwrap();
                     if let Ok(Some(collection)) = Collection::new(&auth, &key.0).await {
-                        if partition_request.current_leader_epoch >= 0
-                            && partition_request.current_leader_epoch
+                        if partition_request.current_leader_epoch >= 0 {
+                            if partition_request.current_leader_epoch
                                 < collection.binding_backfill_counter as i32
-                        {
-                            // Epoch validation failed - return FENCED_LEADER_EPOCH
-                            partition_responses.push(
-                                PartitionData::default()
-                                    .with_partition_index(partition_request.partition)
-                                    .with_error_code(ResponseError::FencedLeaderEpoch.code())
-                                    .with_current_leader(
-                                        messages::fetch_response::LeaderIdAndEpoch::default()
-                                            .with_leader_id(messages::BrokerId(1))
-                                            .with_leader_epoch(
-                                                collection.binding_backfill_counter as i32,
-                                            ),
-                                    ),
-                            );
-                            continue;
+                            {
+                                // Epoch validation failed - return FENCED_LEADER_EPOCH
+                                partition_responses.push(
+                                    PartitionData::default()
+                                        .with_partition_index(partition_request.partition)
+                                        .with_error_code(ResponseError::FencedLeaderEpoch.code())
+                                        .with_current_leader(
+                                            messages::fetch_response::LeaderIdAndEpoch::default()
+                                                .with_leader_id(messages::BrokerId(1))
+                                                .with_leader_epoch(
+                                                    collection.binding_backfill_counter as i32,
+                                                ),
+                                        ),
+                                );
+                                continue;
+                            } else if partition_request.current_leader_epoch
+                                > collection.binding_backfill_counter as i32
+                            {
+                                partition_responses.push(
+                                    PartitionData::default()
+                                        .with_partition_index(partition_request.partition)
+                                        .with_error_code(ResponseError::UnknownLeaderEpoch.code())
+                                        .with_current_leader(
+                                            messages::fetch_response::LeaderIdAndEpoch::default()
+                                                .with_leader_id(messages::BrokerId(1))
+                                                .with_leader_epoch(
+                                                    collection.binding_backfill_counter as i32,
+                                                ),
+                                        ),
+                                );
+                                continue;
+                            }
                         }
                     }
                     // Collection doesn't exist or other error
@@ -917,6 +964,23 @@ impl Session {
                     );
                     continue;
                 };
+
+                if partition_request.current_leader_epoch >= 0
+                    && partition_request.current_leader_epoch > pending.leader_epoch
+                {
+                    partition_responses.push(
+                        PartitionData::default()
+                            .with_partition_index(partition_request.partition)
+                            .with_error_code(ResponseError::UnknownLeaderEpoch.code())
+                            .with_current_leader(
+                                messages::fetch_response::LeaderIdAndEpoch::default()
+                                    .with_leader_id(messages::BrokerId(1))
+                                    .with_leader_epoch(pending.leader_epoch),
+                            ),
+                    );
+                    self.reads.remove(&key);
+                    continue;
+                }
 
                 let (read, batch) = (&mut pending.handle).await??;
 
@@ -1555,32 +1619,49 @@ impl Session {
                 topic.name = encrypted;
             }
 
-            let client = self
-                .get_kafka_client()
-                .await?
-                .connect_to_group_coordinator(req.group_id.as_str())
-                .await?;
+            let mut resp = {
+                let mut client = self
+                    .get_kafka_client()
+                    .await?
+                    .connect_to_group_coordinator(req.group_id.as_str())
+                    .await?;
 
-            client.ensure_topics(desired_topic_partitions).await?;
+                client.ensure_topics(desired_topic_partitions).await?;
 
-            let mut resp = client.send_request(req.clone(), Some(header.clone())).await?;
+                let resp = client.send_request(req.clone(), Some(header.clone())).await?;
+                let cleanup_ready = resp.topics.iter().all(|topic| {
+                    topic
+                        .partitions
+                        .iter()
+                        .all(|partition| partition.error_code.err().is_none())
+                });
 
-            if let Err(e) = Self::send_legacy_offset_cleanup(
-                client,
-                req.group_id.clone(),
-                &original_topics,
-                &secret,
-                &token,
-                &header,
-            )
-            .await
-            {
-                tracing::warn!(
-                    group_id = ?req.group_id,
-                    error = ?e,
-                    "Failed to clean up legacy offsets (non-fatal)"
-                );
-            }
+                if cleanup_ready {
+                    if let Err(e) = Self::send_legacy_offset_cleanup(
+                        &mut client,
+                        req.group_id.clone(),
+                        &original_topics,
+                        &secret,
+                        &token,
+                        &header,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            group_id = ?req.group_id,
+                            error = ?e,
+                            "Failed to clean up legacy offsets (non-fatal)"
+                        );
+                    }
+                } else {
+                    tracing::info!(
+                        group_id = ?req.group_id,
+                        "Skipping legacy offset cleanup because the new commit returned errors"
+                    );
+                }
+
+                resp
+            };
 
             for topic in resp.topics.iter_mut() {
                 let encrypted_name = topic.name.clone();
