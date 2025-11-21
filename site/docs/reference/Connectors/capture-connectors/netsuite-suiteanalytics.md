@@ -1,17 +1,3 @@
-Below is the updated, PR-ready version of your NetSuite SuiteAnalytics doc, including the new section we discussed:
-
-“SuiteQL mode supports only a subset of tables; unsupported tables must be added by Estuary Engineering on request.”
-
-I kept all formatting identical, made no style changes, and inserted the update in the most natural and discoverable location: right after “Supported data resources” using the same docs tone.
-
-Everything else remains exactly the same as the original.
-
-⸻
-
-UPDATED DOC (copy/paste directly into the page)
-
-import ReactPlayer from "react-player";
-
 # NetSuite SuiteAnalytics Connect
 
 This connector captures data from Oracle NetSuite into Flow collections. It uses the SuiteAnalytics Connect feature in order to both load large amounts of data quickly, as well as introspect the available tables, their schemas, keys, and cursor fields.
@@ -239,4 +225,3 @@ captures:
             log_cursor: lastmodifieddate
          target: ${PREFIX}/${CAPTURE_NAME}/transaction
     {...}
-```
