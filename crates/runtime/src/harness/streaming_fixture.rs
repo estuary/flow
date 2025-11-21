@@ -168,7 +168,7 @@ impl StreamingReader {
                 };
 
                 if is_ack {
-                    tracing::debug!(line_number, txn, "detected ack, emitting checkpoint");
+                    tracing::info!(line_number, txn, "detected ack, emitting checkpoint");
                     // Emit a checkpoint for the completed transaction
                     () = co
                         .yield_(Ok(Read::Checkpoint(consumer::Checkpoint {
@@ -190,7 +190,6 @@ impl StreamingReader {
                 }
 
                 // Parse as document: [collection, doc]
-                tracing::debug!(line_number, line = %line, "parsing document line");
                 let (collection, mut doc): (models::Collection, serde_json::Value) =
                     match serde_json::from_str(&line) {
                         Ok(parsed) => parsed,
@@ -218,8 +217,7 @@ impl StreamingReader {
                         crate::uuid::Flags(0),
                     );
 
-                    *json::ptr::create_value(ptr, &mut doc)
-                        .expect("able to create fixture UUID") =
+                    *json::ptr::create_value(ptr, &mut doc).expect("able to create fixture UUID") =
                         serde_json::json!(uuid.as_hyphenated());
 
                     () = co
@@ -231,6 +229,15 @@ impl StreamingReader {
                 }
 
                 offset += 1;
+
+                if line_number % 1000000 == 0 {
+                    tracing::info!(
+                        line_number,
+                        txn,
+                        offset,
+                        "processed streaming fixture lines"
+                    );
+                }
             }
 
             // If there are any remaining documents without a final ack,
