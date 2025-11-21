@@ -139,6 +139,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             interval: std::time::Duration::from_secs(32),
             shards: models::ShardTemplate::default(),
             delete: false,
+            reset: false,
             redact_salt: None,
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
@@ -294,6 +295,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             shards: models::ShardTemplate::default(),
             source: None,
             delete: false,
+            reset: false,
             on_incompatible_schema_change: Default::default(),
         };
         let shard_template = proto_gazette::consumer::ShardSpec {

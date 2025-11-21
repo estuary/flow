@@ -297,6 +297,8 @@ pub enum Error {
     TouchModelIsDelete,
     #[error("this binding must backfill because its source collection {collection} was reset")]
     SourceCollectionWasReset { collection: String },
+    #[error("materialization {materialization} uses Dekaf endpoint which cannot be reset")]
+    DekafMaterializationCannotReset { materialization: String },
     #[error(
         "{entity} {name} has {count} bindings, which exceeds the maximum of {} bindings",
         crate::MAX_BINDINGS

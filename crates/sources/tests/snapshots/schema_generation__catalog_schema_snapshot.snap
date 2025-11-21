@@ -243,7 +243,7 @@ expression: "&schema"
           }
         },
         "delete": {
-          "title": "Delete this capture within the control plane.",
+          "title": "Delete this capture.",
           "description": "When true, a publication will delete this capture.",
           "type": "boolean"
         },
@@ -269,6 +269,11 @@ expression: "&schema"
           "title": "Salt used for redacting sensitive fields in captured documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
           "type": "string"
+        },
+        "reset": {
+          "title": "Reset this capture.",
+          "description": "Publishing a value of `true` will reset this capture, which is\nequivalent to deleting and then re-creating the capture but\napplied as a single publication.",
+          "type": "boolean"
         },
         "shards": {
           "title": "Template for shards of this capture task.",
@@ -325,7 +330,7 @@ expression: "&schema"
       "type": "object",
       "properties": {
         "delete": {
-          "title": "Delete this collection within the control plane.",
+          "title": "Delete this collection.",
           "description": "When true, a publication will delete this collection.",
           "type": "boolean"
         },
@@ -369,8 +374,8 @@ expression: "&schema"
           "$ref": "#/$defs/Schema"
         },
         "reset": {
-          "title": "Reset this collection within the control plane.",
-          "description": "When true, a publication will reset this collection.\nResetting a collection is equivalent to deleting and then re-creating\nthe collection, but is applied as a single publication.",
+          "title": "Reset this collection.",
+          "description": "Publishing a value of `true` will reset this collection, which is\nequivalent to deleting and then re-creating the collection but\napplied as a single publication.\nIf this is a derived collection then the derivation task state is\nalso reset, effectively re-building the derivation in its entirety.",
           "type": "boolean"
         },
         "schema": {
@@ -935,7 +940,7 @@ expression: "&schema"
           }
         },
         "delete": {
-          "title": "Delete this materialization within the control plane.",
+          "title": "Delete this materialization.",
           "description": "When true, a publication will delete this materialization.",
           "type": "boolean"
         },
@@ -952,6 +957,11 @@ expression: "&schema"
           "title": "Default handling of schema changes that are incompatible with the target resource.",
           "description": "This can be overridden on a per-binding basis.",
           "$ref": "#/$defs/OnIncompatibleSchemaChange"
+        },
+        "reset": {
+          "title": "Reset this materialization.",
+          "description": "Publishing a value of `true` will reset this materialization, which is\nequivalent to deleting and then re-creating the materialization but\napplied as a single publication.",
+          "type": "boolean"
         },
         "shards": {
           "title": "Template for shards of this materialization task.",
