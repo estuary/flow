@@ -5,6 +5,39 @@ use proto_flow::{capture, derive, flow, materialize};
 
 mod journal_reader;
 
+// FixtureReader is an enum that wraps both in-memory and streaming fixture readers.
+#[derive(Clone)]
+enum FixtureReader {
+    InMemory(runtime::harness::fixture::Reader),
+    Streaming(runtime::harness::streaming_fixture::StreamingReader),
+}
+
+impl runtime::harness::Reader for FixtureReader {
+    type Stream = futures::stream::BoxStream<'static, anyhow::Result<runtime::harness::Read>>;
+
+    fn start_for_derivation(
+        self,
+        derivation: &flow::CollectionSpec,
+        resume: proto_gazette::consumer::Checkpoint,
+    ) -> Self::Stream {
+        match self {
+            FixtureReader::InMemory(r) => r.start_for_derivation(derivation, resume),
+            FixtureReader::Streaming(r) => r.start_for_derivation(derivation, resume),
+        }
+    }
+
+    fn start_for_materialization(
+        self,
+        materialization: &flow::MaterializationSpec,
+        resume: proto_gazette::consumer::Checkpoint,
+    ) -> Self::Stream {
+        match self {
+            FixtureReader::InMemory(r) => r.start_for_materialization(materialization, resume),
+            FixtureReader::Streaming(r) => r.start_for_materialization(materialization, resume),
+        }
+    }
+}
+
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Preview {
@@ -56,6 +89,12 @@ pub struct Preview {
     /// ]
     #[clap(long)]
     fixture: Option<String>,
+    /// Use streaming mode to read the fixture file line-by-line instead of loading it all into memory.
+    /// This is useful for large fixture files. The fixture format changes to newline-delimited JSON
+    /// where each line is either a document ["collection/name", {...document...}] or an ack marker
+    /// {"ack": true} denoting a transaction boundary.
+    #[clap(long, requires = "fixture")]
+    streaming_fixture: bool,
     /// Docker network to run connector images.
     #[clap(long, default_value = "bridge")]
     network: String,
@@ -83,6 +122,7 @@ impl Preview {
             timeout,
             sessions,
             fixture,
+            streaming_fixture,
             network,
             initial_state,
             output_state,
@@ -124,12 +164,22 @@ impl Preview {
         };
 
         // Parse a provided data fixture.
-        let fixture_reader = if let Some(fixture) = fixture {
-            let fixture = std::fs::read(fixture).context("couldn't open fixture file")?;
-            let fixture: runtime::harness::fixture::Fixture =
-                serde_json::from_slice(&fixture).context("couldn't parse fixture")?;
+        let fixture_reader: Option<FixtureReader> = if let Some(fixture) = fixture {
+            if *streaming_fixture {
+                Some(FixtureReader::Streaming(
+                    runtime::harness::streaming_fixture::StreamingReader {
+                        path: std::path::PathBuf::from(fixture),
+                    },
+                ))
+            } else {
+                let fixture = std::fs::read(fixture).context("couldn't open fixture file")?;
+                let fixture: runtime::harness::fixture::Fixture =
+                    serde_json::from_slice(&fixture).context("couldn't parse fixture")?;
 
-            Some(runtime::harness::fixture::Reader(fixture))
+                Some(FixtureReader::InMemory(
+                    runtime::harness::fixture::Reader(fixture),
+                ))
+            }
         } else {
             None
         };
