@@ -227,9 +227,14 @@ Estuary will encrypt the configuration as part of the `draft author` command, an
 
 You can also implement `sops` manually if you are writing a Flow specification locally.
 
-This can be useful if you need to maintain strict control over how credentials are encrypted.
-In this case, you own the KMS key and grant Estuary access for decryption.
-`flowctl` will not modify endpoint configurations that have already been encrypted.
+This can be useful if you need to maintain strict control over how credentials
+are encrypted. In this case, you own the KMS key and grant Estuary access for
+decryption. `flowctl` will not modify endpoint configurations that have already
+been encrypted.
+
+:::important
+Using an external KMS is only supported when using a GCP data plane and a GCP KMS.
+:::
 
 The examples below provide a useful reference.
 
@@ -279,14 +284,17 @@ It's not required to provide the KMS key to use again,
 as `sops` finds it within its metadata section.
 
 :::important
-When deploying catalogs onto the managed Flow runtime,
-you must grant access to decrypt your GCP KMS key to the Flow runtime service agent,
-which is:
+When deploying catalogs onto the managed Flow runtime, you must grant access to
+decrypt your GCP KMS key to the Flow runtime service account for your data plane.
+
+The service account email varies by data plane, but for `gcp-us-central1-c2` it is:
 
 ```
 flow-258@helpful-kingdom-273219.iam.gserviceaccount.com
 ```
 
+The account email for other data planes can be obtained from Estuary support
+upon request.
 :::
 
 #### Example: Protect portions of a configuration
