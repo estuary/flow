@@ -1,5 +1,3 @@
-
-
 # Amazon DynamoDB
 
 This connector uses DynamoDB streams to continuously capture updates from DynamoDB tables into one or more Flow collections.
@@ -27,7 +25,9 @@ To use this connector, you'll need:
 
   These permissions should be specified with the `dynamodb:` prefix in an IAM policy document. For more details and examples, see [Using identity-based policies with Amazon DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/using-identity-based-policies.html) in the Amazon docs.
 
-- The AWS **access key** and **secret access key** for the user. See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
+- AWS Credentials.  One of the following types:
+  - The AWS **access key** and **secret access key** for the user. See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
+  - To authenticate using an AWS Role, you'll need the **region** and the **role arn**.  Follow the steps in the [AWS IAM guide](/guides/iam-auth/aws.md) to setup the role.
 
 ## Configuration
 
@@ -37,14 +37,29 @@ You configure connectors either in the Flow web app, or by directly editing the 
 
 #### Endpoint
 
-| Property                    | Title                   | Description                                                                                                   | Type    | Required/Default |
-| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------- | ------- | ---------------- |
-| **`/awsAccessKeyId`**       | Access Key ID           | AWS Access Key ID for capturing from DynamoDB tables.                                                         | string  | Required         |
-| **`/awsSecretAccessKey`**   | Secret Access Key       | AWS Secret Access Key for capturing from DynamoDB tables.                                                     | string  | Required         |
-| **`/region`**               | AWS Region              | The name of the AWS region where the DynamoDB tables are located.                                             | string  | Required         |
-| `advanced/backfillSegments` | Backfill Table Segments | Number of segments to use for backfill table scans. Has no effect if changed after the backfill has started.  | integer |                  |
-| `advanced/endpoint`         | AWS Endpoint            | The AWS endpoint URI to connect to. Use if you're capturing from a compatible API that isn't provided by AWS. | string  |                  |
-| `advanced/scanLimit`        | Scan Limit              | Limit the number of items to evaluate for each table backfill scan request.                                   | integer |                  |
+| Property                             | Title                   | Description                                                                                                   | Type    | Required/Default |
+| ------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------- | ------- | ---------------- |
+| **`/region`**                        | AWS Region              | The name of the AWS region where the DynamoDB tables are located.                                             | string  | Required         |
+| **`/credentials`**                   | Credentials             | Credentials for authentication.                                                                               | [Credentials](#credentials) | Required |
+| `advanced/backfillSegments`          | Backfill Table Segments | Number of segments to use for backfill table scans. Has no effect if changed after the backfill has started.  | integer |                  |
+| `advanced/endpoint`                  | AWS Endpoint            | The AWS endpoint URI to connect to. Use if you're capturing from a compatible API that isn't provided by AWS. | string  |                  |
+| `advanced/scanLimit`                 | Scan Limit              | Limit the number of items to evaluate for each table backfill scan request.                                   | integer |                  |
+
+#### Credentials
+
+Credentials for authenticating with AWS.  Use one of the following sets of options:
+
+| Property                                 | Title                   | Description                                                                                               | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                                                                         | string  | Required: `AWSAccessKey` |
+| **`/credentials/aws_access_key_id`**     | AWS Access Key ID       | AWS Access Key ID for capturing from DynamoDB tables.                                                     | string  | Required                 |
+| **`/credentials/aws_secret_access_key`** | AWS Secret Access key   | AWS Secret Access Key for capturing from DynamoDB tables.                                                 | string  | Required                 |
+
+| Property                                 | Title                   | Description                                                                                               | Type    | Required/Default   |
+| ---------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- | ------- | ------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                                                                         | string  | Required: `AWSIAM` |
+| **`/credentials/aws_role_arn`**          | AWS Role ARN            | IAM Role to assume.                                                                                       | string  | Required           |
+| **`/credentials/aws_region`**            | AWS Region              | AWS Region to authenticate in.                                                                            | string  | Required           |
 
 #### Bindings
 
@@ -64,8 +79,10 @@ captures:
       connector:
         image: ghcr.io/estuary/source-dynamodb:dev
         config:
-          awsAccessKeyId: "example-aws-access-key-id"
-          awsSecretAccessKey: "example-aws-secret-access-key"
+          credentials:
+            auth_type: "AWSAccessKey"
+            aws_access_key_id: "example-aws-access-key-id"
+            aws_secret_access_key: "example-aws-secret-access-key"
           region: "us-east-1"
     bindings:
       - resource:
