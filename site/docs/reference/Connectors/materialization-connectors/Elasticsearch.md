@@ -101,10 +101,14 @@ The options supported currently are:
 - **routing**: A single key field may be selected for routing documents to index
   shards. The value of this field is used as the `routing` parameter in all
   operations performed by the connector.
-- **keyword**: Fields with `type: string` will have `keyword` index mappings
-  created for them only they are part of the key. Set the `keyword` field
-  configuration on non-key string or integer fields to have them created as
-  `keyword` instead of their native mapping.
+- **mapping**: This object can be used to set the `type` and optionally a
+  `format` for a field to be used for the index mapping.  This can be useful to
+  map a string field as a `keyword` or to set the `format` for a `date` field.
+
+  :::note
+
+  Fields with `type: string` will have `keyword` index mappings created for
+  them only they are part of the key.
 
 An example JSON configuration for this field configurations is shown below:
 
@@ -117,12 +121,20 @@ An example JSON configuration for this field configurations is shown below:
       },
       "source": "PREFIX/source_collection",
       "fields": {
-        "include": {
+        "require": {
           "myKey": {
             "routing": true
           },
           "stringOrIntegerField": {
-            "keyword": true
+            "mapping": {
+              "type": "keyword"
+            }
+          },
+          "unixTimestamp": {
+            "mapping": {
+              "type": "date",
+              "format": "epoch_seconds"
+            }
           }
         },
         "recommended": true
