@@ -72,6 +72,7 @@ fragment SelectStatus on LiveSpecStatus {
             nextRetry
         }
         publications @include(if: $fullStatus) {
+            nextAfter
             history {
                 id
                 created
@@ -112,7 +113,6 @@ fragment SelectStatus on LiveSpecStatus {
             schemaLastUpdated
             schemaMd5
             nextMd5
-            nextUpdateAfter
         }
     }
 }

@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use super::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
-    coalesce_results, dependencies::Dependencies, periodic, publication_status::PendingPublication,
+    backoff_publication_failure, coalesce_results, dependencies::Dependencies, periodic,
+    publication_status::PendingPublication,
 };
 use crate::controllers::{activation, publication_status};
 use anyhow::Context;
@@ -86,20 +87,22 @@ async fn maybe_publish<C: ControlPlane>(
     // still usable as a regular collection in that case.
 
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
-    if let Some(success_result) = dependencies
+
+    let dep_update_pub = dependencies
         .update(state, control_plane, &mut status.publications, |deleted| {
             handle_deleted_dependencies(model.clone(), deleted)
         })
-        .await?
-    {
-        inferred_schema_updated_successfully(status, state, success_result);
+        .await?;
+
+    if let Some(success_result) = dep_update_pub {
+        collection_published_successfully(status, state, &success_result);
         return Ok(true);
     }
 
     if let Some(success_result) =
         periodic::update_periodic_publish(state, &mut status.publications, control_plane).await?
     {
-        inferred_schema_updated_successfully(status, state, success_result);
+        collection_published_successfully(status, state, &success_result);
         return Ok(true);
     }
 
@@ -116,10 +119,13 @@ async fn maybe_publish<C: ControlPlane>(
     Ok(false)
 }
 
-fn inferred_schema_updated_successfully(
+/// Invoked whenever the collection has been successfully published by the
+/// controller to update the `inferred_schema_status` based on the results of
+/// the publication.
+fn collection_published_successfully(
     status: &mut CollectionStatus,
     state: &ControllerState,
-    pub_result: PublicationResult,
+    pub_result: &PublicationResult,
 ) {
     assert!(
         pub_result.status.is_success(),
@@ -175,6 +181,8 @@ pub async fn update_inferred_schema<C: ControlPlane>(
     control_plane: &C,
     collection_def: &models::CollectionDef,
 ) -> anyhow::Result<bool> {
+    publication_status::clear_pending_publication_next_after(&mut collection_status.publications);
+
     let inferred_schema_status = collection_status
         .inferred_schema
         .get_or_insert_with(Default::default);
@@ -192,24 +200,18 @@ pub async fn update_inferred_schema<C: ControlPlane>(
     }) = maybe_inferred_schema
     {
         if inferred_schema_status.schema_md5.as_ref() != Some(&md5) {
+            inferred_schema_status.next_md5 = Some(md5.clone());
             // Do we need to wait for a cooloff after the last update?
-            let cooldown = control_plane.inferred_schema_update_cooldown();
-            if let Some(last_updated) = inferred_schema_status.schema_last_updated
-                && (last_updated + cooldown) > control_plane.current_time()
-            {
-                let next_update_after = last_updated + cooldown;
-                tracing::info!(%next_update_after, ?cooldown, next_md5 = %md5, "awaiting cooldown before inferred schema update");
-                inferred_schema_status.next_md5 = Some(md5);
-                inferred_schema_status.next_update_after = Some(next_update_after);
-                return Ok(false);
-            }
+            publication_status::check_can_publish(
+                &mut collection_status.publications,
+                control_plane,
+            )?;
 
             let mut pending_pub = PendingPublication::new();
             tracing::info!(
                 %collection_name,
                 prev_md5 = ?inferred_schema_status.schema_md5,
                 new_md5 = ?md5,
-                ?cooldown,
                 last_updated = ?inferred_schema_status.schema_last_updated,
                 "updating inferred schema"
             );
@@ -231,12 +233,16 @@ pub async fn update_inferred_schema<C: ControlPlane>(
             draft_row.is_touch = false;
 
             // Important that we only update the status fields if the publication suceeded.
-            // Note we use the default retry and backoff for these errors.
+            let failures = super::last_pub_failed(&collection_status.publications, "")
+                .map(|(_, count)| count)
+                .unwrap_or(1);
+            let min_backoff = control_plane.controller_publication_cooldown();
             let successful_result = pending_pub
                 .finish(state, &mut collection_status.publications, control_plane)
                 .await?
-                .error_for_status()?;
-            inferred_schema_updated_successfully(collection_status, state, successful_result);
+                .error_for_status()
+                .with_retry(backoff_publication_failure(failures, min_backoff))?;
+            collection_published_successfully(collection_status, state, &successful_result);
             return Ok(true);
         }
     } else {

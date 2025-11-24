@@ -58,7 +58,12 @@ impl Summary {
         // failed activations. But we also handle those specific cases
         // separately here, in case the controller hasn't had a chance to run
         // yet.
-        if let Some(err) = controller_error {
+        // As a special case, ignore publication cooldown errors completely.
+        // Either the publication will soon work, or else we'll surface a
+        // clearer error message below.
+        if let Some(err) = controller_error
+            && !err.starts_with(super::publications::PUBLICATION_COOLDOWN_ERROR)
+        {
             return Summary::error(err);
         }
 
@@ -220,6 +225,19 @@ mod test {
             message: "pending data-plane activation",
         }
         "###);
+        let pending_activate_new_build_cooldown = Summary::of(
+            false,
+            last_build,
+            Some(crate::status::publications::PUBLICATION_COOLDOWN_ERROR),
+            Some(&not_activated),
+            None,
+        );
+        insta::assert_debug_snapshot!(pending_activate_new_build_cooldown, @r###"
+        Summary {
+            status: Warning,
+            message: "pending data-plane activation",
+        }
+        "###);
 
         let a_shard = ShardRef {
             name: "test/foo".to_string(),
@@ -256,6 +274,20 @@ mod test {
             message: "Ok",
         }
         "###);
+        let no_connector_status_cooldown = Summary::of(
+            false,
+            last_build,
+            Some(crate::status::publications::PUBLICATION_COOLDOWN_ERROR),
+            Some(&activated_ok),
+            None,
+        );
+        insta::assert_debug_snapshot!(no_connector_status_cooldown, @r###"
+        Summary {
+            status: Ok,
+            message: "Ok",
+        }
+        "###);
+
         let disabled = Summary::of(true, last_build, no_error, Some(&activated_ok), None);
         insta::assert_debug_snapshot!(disabled, @r###"
         Summary {
@@ -287,6 +319,19 @@ mod test {
             message: "waiting on connector status",
         }
         "###);
+        let pending_connector_ok_cooldown = Summary::of(
+            false,
+            last_build,
+            Some(crate::status::publications::PUBLICATION_COOLDOWN_ERROR),
+            Some(&activated_ok),
+            Some(&old_connector_status),
+        );
+        insta::assert_debug_snapshot!(pending_connector_ok_cooldown, @r###"
+        Summary {
+            status: Warning,
+            message: "waiting on connector status",
+        }
+        "###);
 
         let ok_connector_status = ConnectorStatus {
             shard: a_shard.clone(),
@@ -303,6 +348,19 @@ mod test {
             Some(&ok_connector_status),
         );
         insta::assert_debug_snapshot!(ok_status, @r###"
+        Summary {
+            status: Ok,
+            message: "connector is ready",
+        }
+        "###);
+        let ok_status_cooldown = Summary::of(
+            false,
+            last_build,
+            Some(crate::status::publications::PUBLICATION_COOLDOWN_ERROR),
+            Some(&activated_ok),
+            Some(&ok_connector_status),
+        );
+        insta::assert_debug_snapshot!(ok_status_cooldown, @r###"
         Summary {
             status: Ok,
             message: "connector is ready",

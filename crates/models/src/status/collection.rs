@@ -46,6 +46,10 @@ pub struct InferredSchemaStatus {
     /// present, it indicates that the controller is waiting on a cooldown
     /// period before publishing the inferred schema, and represents the
     /// approximate time of the next update.
+    #[deprecated(
+        since = "2025-11-24",
+        note = "we now use only the more general `nextAfter` field on the `publications` status"
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::datetime_schema")]
     pub next_update_after: Option<DateTime<Utc>>,
