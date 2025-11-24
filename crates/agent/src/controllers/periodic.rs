@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use control_plane_api::publications::PublicationResult;
 use models::{ModelDef, status::publications::PublicationStatus};
 
-use crate::ControlPlane;
+use crate::{ControlPlane, controllers::publication_status};
 
 use super::{ControllerErrorExt, ControllerState, NextRun, publication_status::PendingPublication};
 
@@ -69,6 +69,7 @@ pub async fn update_periodic_publish<C: ControlPlane>(
     if !pending.has_pending() {
         return Ok(None);
     }
+    publication_status::check_can_publish(pub_status, control_plane)?;
 
     let pub_result = pending
         .finish(state, pub_status, control_plane)

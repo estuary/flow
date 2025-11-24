@@ -638,6 +638,11 @@ This does not include any information on user-initiated publications.
 """
 type PublicationStatus {
 	"""
+	If we are awaiting a cooldown before publishing this spec, this field will be set
+	to the time after which the publication will be retried.
+	"""
+	nextAfter: DateTime
+	"""
 	The publication id at which the controller has last notified dependent
 	specs. A publication of the controlled spec will cause the controller to
 	notify the controllers of all dependent specs. When it does so, it sets

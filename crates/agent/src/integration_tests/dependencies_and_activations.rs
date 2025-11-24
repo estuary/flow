@@ -4,13 +4,13 @@ use crate::{
     ControlPlane,
     controllers::ControllerState,
     integration_tests::harness::{
-        InjectBuildError, TestHarness, draft_catalog, get_collection_generation_id,
+        HarnessBuilder, InjectBuildError, TestHarness, draft_catalog, get_collection_generation_id,
         mock_inferred_schema,
     },
 };
 use models::{
     CatalogType,
-    status::{ShardRef, publications::PublicationStatus},
+    status::{ShardRef, StatusSummaryType, publications::PublicationStatus},
 };
 use uuid::Uuid;
 
@@ -715,13 +715,14 @@ async fn test_dependencies_and_controllers() {
         ),
     );
     harness.control_plane().reset_activations();
-    let runs = harness.run_pending_controllers(None).await;
-    assert_controllers_ran(&["owls/materialize"], runs);
 
+    let runs = harness.run_pending_controllers(Some(2)).await;
+    assert_controllers_ran(&["owls/materialize"], runs);
     harness.assert_live_spec_hard_deleted("owls/capture").await;
     harness
         .control_plane()
         .assert_activations("after capture deleted", vec![("owls/capture", None)]);
+
     // Assert that the materialization recorded the build error and has a retry scheduled
     let materialization_state = harness.get_controller_state("owls/materialize").await;
     let failed_pub = &materialization_state
@@ -729,7 +730,12 @@ async fn test_dependencies_and_controllers() {
         .unwrap_materialization()
         .publications
         .history[0];
+    assert!(
+        !failed_pub.is_success(),
+        "expected publication to fail, but was success"
+    );
     assert_eq!("simulated build failure", &failed_pub.errors[0].detail);
+
     harness.assert_controller_pending("owls/materialize").await;
 
     // Assert that the controller backs off
@@ -818,6 +824,265 @@ async fn test_dependencies_and_controllers() {
     harness
         .assert_live_spec_hard_deleted("owls/test-test")
         .await;
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn test_dependency_update_publication_cooldown() {
+    let mut harness = HarnessBuilder::new("test_dependency_update_publication_cooldown")
+        .with_publication_cooldown(chrono::Duration::minutes(5))
+        .build()
+        .await;
+
+    let user_id = harness.setup_tenant("coati").await;
+
+    fn collection_spec(prop_count: usize) -> serde_json::Value {
+        let mut properties = (0..prop_count)
+            .into_iter()
+            .map(|i| (format!("p{i}"), serde_json::json!({"type": "string"})))
+            .collect::<serde_json::Map<_, _>>();
+        properties.insert("id".to_string(), serde_json::json!({"type": "string"}));
+        serde_json::json!({
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" }
+                },
+                "required": ["id"]
+            },
+            "key": ["/id"]
+        })
+    }
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "coati/bugs": collection_spec(1),
+            "coati/fruit": collection_spec(1),
+        },
+        "captures": {
+            "coati/capture": {
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "table": "bugs" }, "target": "coati/bugs" },
+                    { "resource": { "table": "fruit" }, "target": "coati/fruit" }
+                ]
+            }
+        },
+        "materializations": {
+            "coati/materialize": {
+                "endpoint": {
+                    "connector": { "image": "materialize/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "table": "bugs" }, "source": "coati/bugs" },
+                    { "resource": { "table": "fruit" }, "source": "coati/fruit" },
+                ]
+            }
+        },
+    }));
+
+    let first_pub = harness
+        .user_publication(user_id, "initial publication", draft)
+        .await;
+    assert!(
+        first_pub.status.is_success(),
+        "publication failed with : {:?}",
+        first_pub.errors
+    );
+    harness.run_pending_controllers(None).await;
+
+    harness.control_plane().assert_activations(
+        "initial activations",
+        vec![
+            ("coati/capture", Some(CatalogType::Capture)),
+            ("coati/materialize", Some(CatalogType::Materialization)),
+            ("coati/bugs", Some(CatalogType::Collection)),
+            ("coati/fruit", Some(CatalogType::Collection)),
+        ],
+    );
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "coati/bugs": collection_spec(2),
+        }
+    }));
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("first publication of bugs".to_string()),
+            uuid::Uuid::new_v4(),
+            draft,
+            None,
+        )
+        .await
+        .expect("publication error");
+    assert!(result.status.is_success());
+
+    harness.run_pending_controllers(None).await;
+    // Everything but the fruit collection should have been published and activated
+    harness.control_plane().assert_activations(
+        "after bugs published",
+        vec![
+            ("coati/capture", Some(CatalogType::Capture)),
+            ("coati/materialize", Some(CatalogType::Materialization)),
+            ("coati/bugs", Some(CatalogType::Collection)),
+        ],
+    );
+
+    // Now publish fruit, and expect that both the capture and materialization wait on the cooldown
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "coati/fruit": collection_spec(2),
+        }
+    }));
+    // Using a low-level publish instead of a user publication here because the latter would
+    // pull in the capture and materialization due to draft expansion.
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("first publication of fruit".to_string()),
+            uuid::Uuid::new_v4(),
+            draft,
+            None,
+        )
+        .await
+        .expect("publication error");
+    assert!(result.status.is_success());
+
+    // Only fruit gets activated, because the others should not have published yet
+    harness.run_pending_controllers(None).await;
+    harness.control_plane().assert_activations(
+        "after fruit published",
+        vec![("coati/fruit", Some(CatalogType::Collection))],
+    );
+
+    // The capture and materialization should both be waiting on a cooldown. We
+    // assert that the status does _not_ show the cooldown error, though, since
+    // it would be confusing and not actionable.
+    let materialization_state = harness.get_controller_state("coati/materialize").await;
+    assert!(
+        materialization_state
+            .error
+            .is_some_and(|e| e.contains("waiting on publication cooldown")),
+        "expected materialization to have cooldown error"
+    );
+    assert_status(
+        &mut harness,
+        "coati/materialize",
+        StatusSummaryType::Warning,
+        "waiting for task shards to be ready",
+    )
+    .await;
+
+    let capture_state = harness.get_controller_state("coati/capture").await;
+    assert!(
+        capture_state
+            .error
+            .is_some_and(|e| e.contains("waiting on publication cooldown")),
+        "expected capture_state to have cooldown error"
+    );
+    assert_status(
+        &mut harness,
+        "coati/capture",
+        StatusSummaryType::Warning,
+        "waiting for task shards to be ready",
+    )
+    .await;
+
+    // Publish the materialization and capture, and assert that they get activated immediately, without waiting for the cooldown
+    let draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "coati/capture": {
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {"version": 2} }
+                },
+                "bindings": [
+                    { "resource": { "table": "bugs" }, "target": "coati/bugs" },
+                    { "resource": { "table": "fruit" }, "target": "coati/fruit" }
+                ]
+            }
+        },
+        "materializations": {
+            "coati/materialize": {
+                "endpoint": {
+                    "connector": { "image": "materialize/test:test", "config": {"verstion": 2} }
+                },
+                "bindings": [
+                    { "resource": { "table": "bugs" }, "source": "coati/bugs" },
+                    { "resource": { "table": "fruit" }, "source": "coati/fruit" },
+                ]
+            }
+        },
+    }));
+    let result = harness
+        .user_publication(user_id, "user publish tasks", draft)
+        .await;
+    assert!(result.status.is_success());
+    harness.run_pending_controllers(None).await;
+    harness.control_plane().assert_activations(
+        "after user publish tasks",
+        vec![
+            ("coati/capture", Some(CatalogType::Capture)),
+            ("coati/materialize", Some(CatalogType::Materialization)),
+        ],
+    );
+
+    // Expect that the `next_after` field got cleared.
+    let materialization_state = harness.get_controller_state("coati/materialize").await;
+    let next_after = materialization_state
+        .current_status
+        .publication_status()
+        .unwrap()
+        .next_after;
+    assert!(
+        next_after.is_none(),
+        "expected materialization publications.next_after to be None, got: {next_after:?}"
+    );
+
+    let capture_state = harness.get_controller_state("coati/capture").await;
+    let next_after = capture_state
+        .current_status
+        .publication_status()
+        .unwrap()
+        .next_after;
+    assert!(
+        next_after.is_none(),
+        "expected capture publications.next_after to be None, got: {next_after:?}"
+    );
+    assert_status(
+        &mut harness,
+        "coati/capture",
+        StatusSummaryType::Warning,
+        "waiting for task shards to be ready",
+    )
+    .await;
+    assert_status(
+        &mut harness,
+        "coati/materialize",
+        StatusSummaryType::Warning,
+        "waiting for task shards to be ready",
+    )
+    .await;
+}
+
+async fn assert_status(
+    harness: &mut TestHarness,
+    catalog_name: &str,
+    expected: StatusSummaryType,
+    expect_message_contains: &str,
+) {
+    let summary = harness.status_summary(catalog_name).await;
+    assert_eq!(
+        expected, summary.status,
+        "expected '{catalog_name}' status to be {expected:?}, got: {summary:?}"
+    );
+    assert!(
+        summary.message.contains(expect_message_contains),
+        "expected '{catalog_name}' status to contain '{expect_message_contains}', got: '{}'",
+        summary.message
+    );
 }
 
 fn assert_controllers_ran(expected: &[&str], actual: Vec<ControllerState>) {

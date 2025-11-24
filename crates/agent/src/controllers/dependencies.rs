@@ -5,9 +5,13 @@ use chrono::{DateTime, Utc};
 use control_plane_api::publications::PublicationResult;
 use models::{AnySpec, ModelDef, status::publications::PublicationStatus};
 
-use crate::ControlPlane;
-
-use super::{ControllerErrorExt, ControllerState, NextRun, publication_status::PendingPublication};
+use crate::{
+    ControlPlane,
+    controllers::{
+        ControllerErrorExt, ControllerState, backoff_publication_failure,
+        publication_status::{self, PendingPublication},
+    },
+};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {
@@ -88,10 +92,19 @@ impl Dependencies {
         DF: FnOnce(&BTreeSet<String>) -> anyhow::Result<(String, M)>,
         M: Into<models::AnySpec>,
     {
+        let min_backoff = control_plane.controller_publication_cooldown();
         let mut pending = self
-            .start_update(state, control_plane.current_time(), handle_deleted)
+            .start_update(
+                state,
+                control_plane.current_time(),
+                control_plane.controller_publication_cooldown(),
+                handle_deleted,
+            )
             .await?;
         if pending.has_pending() {
+            // Ensure that we're allowed to publish before proceeding
+            publication_status::check_can_publish(pub_status, control_plane)?;
+
             let pub_result = pending
                 .finish(state, pub_status, control_plane)
                 .await
@@ -102,7 +115,8 @@ impl Dependencies {
             let failures = super::last_pub_failed(pub_status, "")
                 .map(|(_, count)| count)
                 .unwrap_or(1);
-            let success_result = pub_result.with_retry(backoff_publication_failure(failures))?;
+            let success_result =
+                pub_result.with_retry(backoff_publication_failure(failures, min_backoff))?;
             Ok(Some(success_result))
         } else {
             Ok(None)
@@ -112,10 +126,11 @@ impl Dependencies {
     /// Starts the update process and returns a `PendingPublication`. This is
     /// basically the same as `update` except that it allows the controller to
     /// finish the publication itself if it needs to.
-    pub async fn start_update<DF, M>(
+    async fn start_update<DF, M>(
         &mut self,
         state: &ControllerState,
-        now: DateTime<Utc>,
+        start_time: DateTime<Utc>,
+        min_publication_backoff: chrono::Duration,
         handle_deleted: DF,
     ) -> anyhow::Result<PendingPublication>
     where
@@ -147,12 +162,12 @@ impl Dependencies {
             .publication_status()
             .and_then(|s| super::last_pub_failed(s, &detail))
         {
-            let backoff = backoff_publication_failure(fail_count);
+            let backoff = backoff_publication_failure(fail_count, min_publication_backoff);
             // 0 the jitter when computing here so that we don't randomly use a greater jitter
             // than was determined when the backoff error was first returned. This isn't critical,
             // but avoids potentially "extra" controller runs.
             let next_attempt = last + backoff.with_jitter_percent(0).compute_duration();
-            if next_attempt > now {
+            if next_attempt > start_time {
                 return super::backoff_err(backoff, "dependency update publication", fail_count);
             }
         }
@@ -174,14 +189,4 @@ impl Dependencies {
         }
         Ok(pending_pub)
     }
-}
-
-fn backoff_publication_failure(prev_failures: u32) -> NextRun {
-    let mins = if prev_failures < 3 {
-        prev_failures.max(1)
-    } else {
-        // max of 5 hours between attempts
-        (prev_failures * 30).min(300)
-    };
-    NextRun::after_minutes(mins as u32)
 }

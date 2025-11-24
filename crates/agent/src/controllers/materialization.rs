@@ -1,9 +1,10 @@
-use super::{
+use crate::controllers::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, activation,
-    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies, periodic,
-    publication_status::PendingPublication,
+    backoff_data_plane_activate, backoff_publication_failure, coalesce_results, config_update,
+    dependencies::Dependencies,
+    periodic,
+    publication_status::{self, PendingPublication},
 };
-use crate::controllers::config_update;
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
@@ -24,6 +25,17 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<Option<NextRun>> {
+    publication_status::clear_pending_publication_next_after(&mut status.publications);
+
+    let MaterializationStatus {
+        activation, alerts, ..
+    } = status;
+    let activation_result =
+        activation::update_activation(activation, alerts, state, events, control_plane)
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))
+            .map_err(Into::into);
+
     let updated_config_published = config_update::updated_config_publish(
         state,
         &mut status.config_updates,
@@ -71,103 +83,36 @@ pub async fn update<C: ControlPlane>(
             return Ok(pending);
         },
     )
-    .await;
-
-    if updated_config_published.as_ref().ok() == Some(&true) {
+    .await?;
+    if updated_config_published {
         return Ok(Some(NextRun::immediately()));
     }
-    let updated_config_result = updated_config_published.map(|_| None);
 
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
-
-    let dependencies_published =
-        dependencies_update(&mut dependencies, status, control_plane, state, model).await;
-    if dependencies_published.as_ref().ok() == Some(&true) {
+    let dep_result = dependencies
+        .update(state, control_plane, &mut status.publications, |deleted| {
+            Ok(handle_deleted_dependencies(deleted, model.clone()))
+        })
+        .await?;
+    if dep_result.is_some() {
         return Ok(Some(NextRun::immediately()));
     }
-    let dependencies_result = dependencies_published.map(|_| None);
 
-    // Don't attempt to add bindings if we've already failed to publish
-    // with the bindings that are already there.
-    let source_capture_result = if dependencies_result.is_ok() {
-        let source_capture_published =
-            source_capture_update(&mut dependencies, status, control_plane, state, model).await;
-        if source_capture_published.as_ref().ok() == Some(&true) {
-            return Ok(Some(NextRun::immediately()));
-        }
-        source_capture_published.map(|_| None)
-    } else {
-        Ok(None)
-    };
+    let source_capture_published =
+        source_capture_update(&mut dependencies, status, control_plane, state, model).await?;
+    if source_capture_published {
+        return Ok(Some(NextRun::immediately()));
+    }
 
-    let periodic_published = periodic_update(status, control_plane, state).await;
-    if periodic_published.as_ref().ok() == Some(&true) {
+    let periodic_published =
+        periodic::update_periodic_publish(state, &mut status.publications, control_plane).await;
+    if periodic_published.as_ref().is_ok_and(|r| r.is_some()) {
         return Ok(Some(NextRun::immediately()));
     }
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
-    let MaterializationStatus {
-        activation, alerts, ..
-    } = status;
-    let activation_result =
-        activation::update_activation(activation, alerts, state, events, control_plane)
-            .await
-            .with_retry(backoff_data_plane_activate(state.failures))
-            .map_err(Into::into);
-
     // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-    coalesce_results(
-        state.failures,
-        [
-            updated_config_result,
-            dependencies_result,
-            source_capture_result,
-            periodic_result,
-            activation_result,
-        ],
-    )
-}
-
-async fn periodic_update<C: ControlPlane>(
-    status: &mut MaterializationStatus,
-    control_plane: &C,
-    state: &ControllerState,
-) -> anyhow::Result<bool> {
-    let periodic = periodic::start_periodic_publish_update(state, control_plane)?;
-    if periodic.has_pending() {
-        do_publication(&mut status.publications, state, periodic, control_plane).await?;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-async fn dependencies_update<C: ControlPlane>(
-    dependencies: &mut Dependencies,
-    status: &mut MaterializationStatus,
-    control_plane: &C,
-    state: &ControllerState,
-    model: &models::MaterializationDef,
-) -> anyhow::Result<bool> {
-    // Materializations use a slightly different process for updating based on changes in dependencies,
-    // because we need to handle the schema evolution whenever we publish. The collection schemas could have changed
-    // since the last publish, and we might need to apply `onIncompatibleSchemaChange` actions.
-    let dependency_pub = dependencies
-        .start_update(state, control_plane.current_time(), |deleted| {
-            Ok(handle_deleted_dependencies(deleted, model.clone()))
-        })
-        .await?;
-    if dependency_pub.has_pending() {
-        do_publication(
-            &mut status.publications,
-            state,
-            dependency_pub,
-            control_plane,
-        )
-        .await?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    coalesce_results(state.failures, [periodic_result, activation_result])
 }
 
 async fn source_capture_update<C: ControlPlane>(
@@ -209,36 +154,6 @@ async fn source_capture_update<C: ControlPlane>(
     }
 }
 
-/// Publishes the publication. Returns an error if the publication
-/// was not successful.
-async fn do_publication<C: ControlPlane>(
-    pub_status: &mut PublicationStatus,
-    state: &ControllerState,
-    mut pending_pub: PendingPublication,
-    control_plane: &C,
-) -> anyhow::Result<()> {
-    let result = pending_pub
-        .finish(state, pub_status, control_plane)
-        .await
-        .context("failed to execute publication")?;
-
-    // We retry materialization publication failures, because they primarily depend on the
-    // availability and state of an external system. But we don't retry indefinitely, since
-    // oftentimes users will abandon live tasks after deleting those external systems.
-    result
-        .error_for_status()
-        .with_retry(backoff_publication_failure(state.failures))?;
-    Ok(())
-}
-
-fn backoff_publication_failure(prev_failures: i32) -> NextRun {
-    if prev_failures < 3 {
-        NextRun::after_minutes(prev_failures.max(1) as u32)
-    } else {
-        NextRun::after_minutes(prev_failures as u32 * 10)
-    }
-}
-
 fn handle_deleted_dependencies(
     deleted: &BTreeSet<String>,
     mut model: models::MaterializationDef,
@@ -269,6 +184,7 @@ pub async fn update_source_capture<C: ControlPlane>(
     live_capture: &tables::LiveCapture,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {
+    const DETAIL_PREFIX: &str = "adding";
     let capture_spec = live_capture.model();
 
     // Did a prior attempt to add bindings fail?
@@ -287,12 +203,12 @@ pub async fn update_source_capture<C: ControlPlane>(
     // Avoid generating a detail with hundreds of collection names
     let detail = if status.add_bindings.len() > 10 {
         format!(
-            "adding {} bindings to match the sourceCapture",
+            "{DETAIL_PREFIX} {} bindings to match the sourceCapture",
             status.add_bindings.len()
         )
     } else {
         format!(
-            "adding binding(s) to match the sourceCapture: [{}]",
+            "{DETAIL_PREFIX} binding(s) to match the sourceCapture: [{}]",
             status.add_bindings.iter().join(", ")
         )
     };
@@ -303,6 +219,7 @@ pub async fn update_source_capture<C: ControlPlane>(
     // reset, because we match on the detail message. This is intentional, so
     // that changes which may allow the publication to succeed will get retried
     // immediately.
+    publication_status::check_can_publish(pub_status, control_plane)?;
     if let Some((last_attempt, fail_count)) =
         super::last_pub_failed(pub_status, &detail).filter(|_| prev_failed)
     {
@@ -337,11 +254,22 @@ pub async fn update_source_capture<C: ControlPlane>(
         &status.add_bindings,
         &mut new_model,
     )?;
-    let pending_pub =
+    let mut pending_pub =
         PendingPublication::update_model(&state.catalog_name, state.last_pub_id, new_model, detail);
-    do_publication(pub_status, state, pending_pub, control_plane)
+    let result = pending_pub
+        .finish(state, pub_status, control_plane)
         .await
-        .context("publishing changes from sourceCapture")?;
+        .context("executing source capture update publication")?;
+    let prev_failures = super::last_pub_failed(&*pub_status, DETAIL_PREFIX)
+        .map(|(_, count)| count)
+        .unwrap_or(0);
+    result
+        .error_for_status()
+        .with_retry(backoff_publication_failure(
+            prev_failures + 1,
+            control_plane.controller_publication_cooldown(),
+        ))?;
+
     status.add_bindings.clear();
     status.up_to_date = true;
 
