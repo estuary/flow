@@ -10,7 +10,7 @@ use crate::{
     ControlPlane,
     controllers::{
         ControllerErrorExt, ControllerState, NextRun, alerts,
-        publication_status::PendingPublication,
+        publication_status::{self, PendingPublication},
     },
     controlplane::ConnectorSpec,
 };
@@ -72,6 +72,9 @@ pub async fn update<C: ControlPlane>(
         // next_at <= now, so proceed with the auto-discover as long as the
         // control plane says it's okay.
         (Some(n), _) if control_plane.can_auto_discover() => {
+            // Ensure that we're allowed to publish now, and skip the discover
+            // if we need to await the cooldown.
+            publication_status::check_can_publish(pub_status, control_plane)?;
             tracing::debug!(due_at = %n, "starting auto-discover");
         }
         (Some(n), _) => {

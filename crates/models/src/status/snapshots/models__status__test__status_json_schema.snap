@@ -416,6 +416,7 @@ expression: schema
           ]
         },
         "next_update_after": {
+          "deprecated": true,
           "description": "The time of the next scheduled inferred schema update. If this is\npresent, it indicates that the controller is waiting on a cooldown\nperiod before publishing the inferred schema, and represents the\napproximate time of the next update.",
           "format": "date-time",
           "type": [
@@ -622,6 +623,13 @@ expression: schema
         "max_observed_pub_id": {
           "$ref": "#/$defs/Id",
           "description": "The publication id at which the controller has last notified dependent\nspecs. A publication of the controlled spec will cause the controller to\nnotify the controllers of all dependent specs. When it does so, it sets\n`max_observed_pub_id` to the current `last_pub_id`, so that it can avoid\nnotifying dependent controllers unnecessarily."
+        },
+        "next_after": {
+          "description": "If we are awaiting a cooldown before publishing this spec, this field will be set\nto the time after which the publication will be retried.",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
         }
       },
       "required": [
