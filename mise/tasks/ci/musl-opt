@@ -3,6 +3,7 @@ set -euo pipefail
 
 rustup target add $(uname -m)-unknown-linux-musl
 
+FLOW_VERSION=$(git describe --dirty --tags) \
 cargo build \
     --locked \
     --release \

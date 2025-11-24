@@ -6,3 +6,4 @@ mise run ci:musl-opt
 mise run ci:gnu-opt
 mise run build:flowctl-go --release
 mise run ci:wasm-opt
+mise run ci:package

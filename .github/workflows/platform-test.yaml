@@ -1,54 +1,19 @@
-name: Platform CI
+name: Platform Test
 
 on:
   push:
     paths:
       - ".github/workflows/platform-test.yaml"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "site/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-
-  platform-build:
-    name: Platform Build
-    runs-on: ubuntu-2404-large
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install build tools
-        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
-      - run: rustup upgrade
-
-      - name: Cache Rust workspace
-        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
-        with:
-          workspaces: ". -> ../../../cargo-target"
-
-      - name: Cache RocksDB
-        uses: actions/cache@v4
-        with:
-          key: rocksdb-${{ runner.os }}-${{ runner.arch }}-${{ env.ROCKSDB_VERSION }}
-          path: |
-            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/include/
-            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/lib/
-
-      - name: Cache/Restore Go workspace.
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-
-      - uses: mozilla-actions/sccache-action@v0.0.9
-      - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
-
-      # These steps are kept in lockstep with task `ci:platform-build`
-      - run: mise run build:rocksdb
-      - run: mise run ci:musl-opt
-      - run: mise run ci:gnu-opt
-      - run: mise run build:flowctl-go --release
-      - run: mise run ci:wasm-opt
 
   platform-test:
     name: Platform Test
@@ -90,7 +55,7 @@ jobs:
       - run: mise run build:rocksdb
       - run: mise run ci:format-check
       - run: mise run ci:musl-dev
-      - run: mise run ci:wasm-test-node
+      - run: mise run ci:wasm-test
       - run: mise run local:supabase
       - run: mise run ci:sql-tap
       - run: mise run ci:gnu-dev
@@ -102,44 +67,3 @@ jobs:
       - run: mise run ci:gotest
       - run: mise run ci:catalog-test
       - run: mise run build:flow-schema
-
-      #- uses: actions/upload-artifact@v4
-      #  with:
-      #    name: test-dependencies-${{ runner.os }}-${{ runner.arch }}
-      #    path: |
-      #      ~/cargo-target/${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}-unknown-linux-musl/debug/flow-connector-init
-      #      ~/cargo-target/debug/libbindings.a
-      #      ~/cargo-target/debug/flowctl
-      #      ~/rocksdb-${{ env.ROCKSDB_VERSION }}/include/
-      #      ~/rocksdb-${{ env.ROCKSDB_VERSION }}/lib/
-      #
-      #    if-no-files-found: error
-
-#      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
-#        with:
-#          cache-workspace-crates: true
-#          # save-if: ${{ github.ref == 'refs/heads/master' }}
-#          workspaces: ". -> ../../../cargo-target"
-#
-#      - run: cargo test -p activate
-#
-#      - uses: actions-rust-lang/setup-rust-toolchain@v1
-#        with:
-#          target: ${{ matrix.v.arch }}-unknown-linux-musl
-#          cache-workspace-crates: true
-#          cache-workspaces: ". -> ../../../cargo-target"
-#          rustflags: "" # Set by mise.
-#
-#      - uses: actions/cache@v4
-#        with:
-#          path: |
-#            ~/.cargo/bin/
-#            ~/.cargo/git/db/
-#            ~/.cargo/registry/cache/
-#            ~/.cargo/registry/index/
-#            ~/cargo-target
-#          key: |
-#            cargo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.ref_name }}-${{ hashFiles('**/Cargo.lock') }}
-#          restore-keys: |
-#            cargo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.ref_name }}-
-#            cargo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-master

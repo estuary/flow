@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build and optionally push multi-arch Docker images"
+
+PACKAGE_DIR="${HOME}/flow-package"
+TAGS_FILE="${PACKAGE_DIR}/tags"
+PUSH="${PUSH:-false}"
+
+# Determine current architecture for local loading
+ARCH=$(uname -m)
+if [[ "${ARCH}" == "x86_64" ]]; then
+    CURRENT_PLATFORM="linux/amd64"
+elif [[ "${ARCH}" == "aarch64" ]]; then
+    CURRENT_PLATFORM="linux/arm64"
+else
+    echo "Warning: Unknown architecture ${ARCH}, skipping local load" >&2
+    CURRENT_PLATFORM=""
+fi
+
+# Validate required files exist
+if [[ ! -f "${TAGS_FILE}" ]]; then
+    echo "Error: Tags file not found at ${TAGS_FILE}" >&2
+    exit 1
+fi
+
+if [[ ! -d "${PACKAGE_DIR}/amd64" ]] && [[ ! -d "${PACKAGE_DIR}/arm64" ]]; then
+    echo "Error: Missing architecture directories in ${PACKAGE_DIR}" >&2
+    exit 1
+fi
+
+# Read comma-separated tags
+IFS=',' read -ra TAGS <<< "$(cat "${TAGS_FILE}")"
+
+# Ensure buildx builder exists and supports multi-arch
+BUILDER_NAME="flow-multiarch"
+if ! docker buildx inspect "${BUILDER_NAME}" &>/dev/null; then
+    echo "Creating buildx builder: ${BUILDER_NAME}"
+    docker buildx create --name "${BUILDER_NAME}" --use --bootstrap
+else
+    docker buildx use "${BUILDER_NAME}"
+fi
+
+# Process each Dockerfile
+for DOCKERFILE in docker/*.Dockerfile; do
+    # Derive image name from filename (e.g., dekaf.Dockerfile -> dekaf)
+    IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
+
+    echo "=== Building image: ${IMAGE_NAME} ==="
+
+    # Build for each tag
+    for TAG in "${TAGS[@]}"; do
+        FULL_IMAGE="ghcr.io/estuary/${IMAGE_NAME}:${TAG}"
+        echo "Building: ${FULL_IMAGE}"
+
+        BUILD_ARGS=(
+            --tag "${FULL_IMAGE}"
+            --file "${DOCKERFILE}"
+        )
+
+        if [[ "${PUSH}" == "true" ]]; then
+            BUILD_ARGS+=(--platform linux/amd64,linux/arm64)
+            BUILD_ARGS+=(--push)
+        else
+            BUILD_ARGS+=(--platform ${CURRENT_PLATFORM})
+            BUILD_ARGS+=(--load)
+        fi
+
+        docker buildx build "${BUILD_ARGS[@]}" "${PACKAGE_DIR}"
+    done
+
+    echo "=== Completed: ${IMAGE_NAME} ==="
+done
+
+echo "Done! Built images for tags: ${TAGS[*]}"
+if [[ "${PUSH}" == "true" ]]; then
+    echo "Images pushed to ghcr.io/estuary/"
+else
+    echo "Images loaded locally for ${CURRENT_PLATFORM}"
+fi

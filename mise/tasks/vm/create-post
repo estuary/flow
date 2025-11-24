@@ -7,6 +7,8 @@ mise run bootstrap:apt-packages-ci-base
 mise install
 mise run bootstrap:ide-settings
 
+rustup default stable
+
 # Install cockpit for web-based system management.
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cockpit
 # Set a user password for cockpit login (user: current user).
@@ -20,8 +22,8 @@ sudo usermod -aG systemd-journal ${USER}
 if ! grep -q "mise" "${HOME}/.bashrc"; then
 cat >> "${HOME}/.bashrc" << 'EOF'
 # Source mise hooks for directory activation and CLI completion.
-source <(${HOME}/.local/bin/mise activate bash)
-source <(${HOME}/.local/bin/mise completion bash --include-bash-completion-lib)
+source <($(which mise) activate bash)
+source <($(which mise) completion bash --include-bash-completion-lib)
 
 EOF
 fi

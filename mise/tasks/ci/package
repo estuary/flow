@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ARCH=$(uname -m)
+
+# Map ARCH to amd64 or arm64 (matching docker architecture names).
+if [[ "${ARCH}" == "x86_64" ]]; then
+    PACKAGE_DIR=${HOME}/flow-package/amd64/
+elif [[ "${ARCH}" == "aarch64" ]]; then
+    PACKAGE_DIR=${HOME}/flow-package/arm64/
+else
+    echo "Unsupported architecture: ${ARCH}"
+    exit 1
+fi
+
+# Cleanup and re-create package directory.
+rm -rf ${PACKAGE_DIR} || true
+mkdir -p ${PACKAGE_DIR}
+
+cat > ${HOME}/flow-package/tags <<EOF
+$(git describe --tags --dirty)
+EOF
+
+ln $(which sops) ${PACKAGE_DIR}/sops
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/derive-python ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/derive-typescript ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-connector-init ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-parser ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/${ARCH}-unknown-linux-musl/release/flow-schemalate ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/agent ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/flow-config-encryption ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/data-plane-controller ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/dekaf ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/flowctl ${PACKAGE_DIR}/
+ln ${CARGO_TARGET_DIR}/release/oidc-discovery-server ${PACKAGE_DIR}/
+ln ${HOME}/go/bin/flowctl-go ${PACKAGE_DIR}/
+
+cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-web.tgz
+cp crates/data-plane-controller/entrypoint.sh ${PACKAGE_DIR}/data-plane-controller-entrypoint.sh
+cp crates/oidc-discovery-server/entrypoint.sh ${PACKAGE_DIR}/oidc-discovery-server-entrypoint.sh
