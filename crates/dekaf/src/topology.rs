@@ -228,7 +228,15 @@ impl Collection {
             uuid_ptr,
             value_schema,
             extractors,
-            binding_backfill_counter: binding.backfill,
+            // Start the backfill counter (which will map to the topic leader epoch) at 1, not 0.
+            // Kafka consumers don't seem to handle going from epoch 0 to epoch 1 gracefully. Specifically,
+            // they don't seem to execute their log truncation detection logic in this case, resulting in the
+            // first backfill (going from unset, 0) to 1 not causing the consumer to restart as it does for all
+            // subsequent backfill counter increments.
+            //
+            // TODO(jshearer): While this is a simple fix, it's not clear why exactly consumers behaves this way.
+            // It would be good to understand this better and see if there's a more principled fix.
+            binding_backfill_counter: binding.backfill + 1,
         }))
     }
 
