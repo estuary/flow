@@ -12,7 +12,7 @@ TimeoutStartSec=600
 EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/gazette-%i.env
 
-ExecStartPre=sh -c 'cd ${FLOW_ROOT} && go build -o %h/go/bin/gazette go.gazette.dev/core/cmd/gazette'
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/gazette'
 ExecStart=%h/go/bin/gazette serve
 
 Restart=on-failure

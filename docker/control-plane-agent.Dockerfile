@@ -31,7 +31,8 @@ RUN ln -s /usr/local/aws-cli/v2/current/bin/aws \
     ln -s /usr/local/aws-cli/v2/current/bin/aws_completer \
         /usr/local/bin/aws_completer
 
-# Copy binaries & libraries to the image, owned by root.
-COPY bin/* /usr/local/bin/
+ARG TARGETARCH
+COPY ${TARGETARCH}/agent /usr/local/bin/
+COPY ${TARGETARCH}/sops /usr/local/bin/
 
 WORKDIR /tmp

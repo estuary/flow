@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Create a development VM within GCP for a project"
+#USAGE arg "<project_name>" help="Short name of the development project (for example, 'one' or '$feature-name')"
+#USAGE flag "--zone <zone>" help="Zone in which to create the VM" default="us-central1-a"
+#USAGE flag "--machine-type <machine_type>" help="GCP machine type" default="c4-highcpu-8"
+#USAGE flag "--image-family <image_family>" help="GCP machine image" default="ubuntu-2404-lts-amd64"
+
+ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)")
+
+# Derive a deterministic instance name: dev-<user>-<project-name>
+INSTANCE_NAME="dev-${ACCOUNT%@estuary.dev}-${usage_project_name:?}"
+
+gcloud compute instances create ${INSTANCE_NAME} \
+  --project estuary-theatre \
+  --zone ${usage_zone:?} \
+  --machine-type ${usage_machine_type:?} \
+  --image-family ${usage_image_family:?} \
+  --image-project ubuntu-os-cloud \
+  --network-interface subnet=default \
+  --metadata enable-oslogin=TRUE \
+  --tags dev-vm \
+  --labels dev-vm=true,owner=${ACCOUNT//[^a-zA-Z0-9]/_} \
+  --boot-disk-size 128GB \
+  --boot-disk-type hyperdisk-balanced \
+
+# Add additional .bashrc configuration if not already present.
+if ! grep -q gcp-vms ~/.ssh/config; then
+    cat >> ~/.ssh/config << 'EOF'
+
+# Include GCP VM SSH configurations.
+Include ~/.ssh/gcp-vms/*.config
+
+EOF
+fi
+
+# Write an ssh config file to ~/.ssh/gcp-vms/${INSTANCE_NAME}.config
+mkdir -p ~/.ssh/gcp-vms/
+cat > ~/.ssh/gcp-vms/${INSTANCE_NAME}.config <<EOF
+Host ${INSTANCE_NAME}
+  ControlMaster auto
+  ControlPath ~/.ssh/mux-${INSTANCE_NAME}.sock
+  ControlPersist 20m
+  ForwardAgent true
+  HostName ${INSTANCE_NAME}
+  ServerAliveCountMax 3
+  ServerAliveInterval 30
+  User ${ACCOUNT//[^a-zA-Z0-9]/_}
+  UserKnownHostsFile ~/.ssh/google_compute_known_hosts
+  IdentitiesOnly yes
+  CheckHostIP no
+  ProxyCommand gcloud compute start-iap-tunnel ${INSTANCE_NAME} %p --listen-on-stdin --project=estuary-theatre --zone=${usage_zone:?}
+EOF
+
+echo "Waiting for VM ${INSTANCE_NAME} to become reachable over SSH..."
+sleep 60
+
+ssh ${INSTANCE_NAME} <<EOF
+# Install mise.
+curl -v https://mise.run | sh
+EOF
+
+# Use a second shell, so that mise is now on the PATH.
+ssh ${INSTANCE_NAME} <<EOF
+mkdir -p ~/estuary
+pushd ~/estuary
+
+# Check out the flow repository.
+GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+git clone git@github.com:estuary/flow.git
+pushd flow
+
+# Attempt to switch to the host's current branch.
+# Don't fail if it doesn't exist (use the primary branch instead).
+git checkout $(git branch --show-current) || true
+
+# Boostrap the VM environment.
+~/.local/bin/mise trust .
+~/.local/bin/mise run vm:create-post
+EOF
+
+echo <<EOF
+Your VM ${INSTANCE_NAME} is ready.
+
+Connect:
+    ssh ${INSTANCE_NAME}
+
+EOF

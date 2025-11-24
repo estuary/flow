@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+FLOW_VERSION=$(git describe --dirty --tags) \
 SQLX_OFFLINE=true \
 cargo build \
     --locked \

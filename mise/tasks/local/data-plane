@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start data plane with gazette brokers and reactors"
-#MISE depends=["build:connector-musl-bin", "build:bindings", "local:common", "local:tls-cert", "local:etcd"]
+#MISE depends=["build:connector-init", "build:rocksdb", "local:common", "local:tls-cert", "local:etcd"]
 #USAGE arg "<data_plane>" help="Name of the data plane"
 #USAGE arg "<base_port>" help="Base port block for data plane services (must be divisible by 100, e.g., 8100, 9600)"
 #USAGE flag "--num-brokers <num_brokers>" help="Number of broker instances"

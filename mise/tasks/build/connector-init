@@ -3,8 +3,8 @@
 #MISE description="Build musl binaries (debug)"
 #MISE depends=["bootstrap:apt-packages-ci-extra"]
 
+rustup target add $(uname -m)-unknown-linux-musl
+
 cargo build \
     --target $(uname -m)-unknown-linux-musl \
-    -p connector-init \
-    -p parser \
-    -p schemalate \
+    -p connector-init

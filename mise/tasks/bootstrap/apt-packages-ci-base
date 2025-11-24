@@ -24,3 +24,4 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   pkg-config \
   protobuf-compiler \
   python3.12 \
+  rustup \

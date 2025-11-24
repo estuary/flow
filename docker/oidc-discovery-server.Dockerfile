@@ -7,12 +7,12 @@ RUN apt update -y \
         curl \
    && rm -rf /var/lib/apt/lists/*
 
-# Copy in our local assets.
-COPY oidc-discovery-server /usr/local/bin/
-COPY entrypoint.sh /usr/local/bin/
+ARG TARGETARCH
+COPY ${TARGETARCH}/oidc-discovery-server /usr/local/bin/
+COPY ${TARGETARCH}/oidc-discovery-server-entrypoint.sh /usr/local/bin/
 
 ENV RUST_LOG=info
 
 EXPOSE 8080
 
-CMD ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/oidc-discovery-server-entrypoint.sh"]

@@ -9,7 +9,7 @@ mise run local:supabase --no-block
 mise run build:rocksdb
 mise run ci:format-check
 mise run ci:musl-dev
-mise run ci:wasm-test-node
+mise run ci:wasm-test
 mise run local:supabase
 mise run ci:sql-tap
 mise run ci:gnu-dev

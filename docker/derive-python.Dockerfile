@@ -6,7 +6,8 @@ RUN apt update -y \
      nodejs \
      && rm -rf /var/lib/apt/lists/*
 
-COPY target/x86_64-unknown-linux-musl/release/derive-python /
+ARG TARGETARCH
+COPY ${TARGETARCH}/derive-python /
 
 USER nobody
 ENV UV_CACHE_DIR=/tmp/uv-cache

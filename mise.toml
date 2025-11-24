@@ -10,7 +10,7 @@ go = { version = "1.25" }
 "github:etcd-io/etcd" = { version = "3.5.24" }
 "github:getsops/sops" = { version = "3.11.0", bin = "sops" }
 "github:jdx/usage" = { version = "2.6.0" }
-"github:mozilla/sccache" = {version = "0.12.0", platforms = { linux-arm64 =   { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
+"github:mozilla/sccache" = { version = "0.12.0", platforms = { linux-arm64 = { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
 "github:nextest-rs/nextest" = { version = "cargo-nextest-0.9.114" }
 "github:rui314/mold" = { version = "2.40.4" }
 "github:supabase/cli" = { version = "2.54.11" }
@@ -67,23 +67,10 @@ CGO_CPPFLAGS = """
 -I {{ env.ROCKSDB_INCLUDE_DIR }} \
 """
 
-# -lc must come before -lbindings due to how Go's internal linker processes
-# CGO_LDFLAGS in a single left-to-right pass. When it examines -lbindings,
-# it sees undefined references to malloc / free and requires that they be
-# pre-resolved by libraries appearing earlier in the link order.
 CGO_LDFLAGS = """
 -fuse-ld=mold \
 -L {{ env.CARGO_TARGET_DIR }}/debug \
 -L {{ env.ROCKSDB_LIB_DIR }} \
--lc \
--lbindings \
--lrocksdb \
--lsnappy \
--lstdc++ \
--lssl \
--lcrypto \
--ldl \
--lm \
 """
 
 RUSTC_WRAPPER = "sccache"

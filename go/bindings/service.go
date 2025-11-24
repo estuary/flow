@@ -1,6 +1,11 @@
 package bindings
 
 /*
+// -lc must come before -lbindings due to how Go's internal linker processes
+// CGO_LDFLAGS in a single left-to-right pass. When it examines -lbindings,
+// it sees undefined references to malloc / free and requires that they be
+// pre-resolved by libraries appearing earlier in the link order.
+#cgo LDFLAGS: -lc -lbindings -lrocksdb -lsnappy -lstdc++ -lssl -lcrypto -ldl -lm
 #include "../../crates/bindings/flow_bindings.h"
 */
 import "C"
