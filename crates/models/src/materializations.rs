@@ -39,10 +39,16 @@ pub struct MaterializationDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Id")]
     pub expect_pub_id: Option<Id>,
-    /// # Delete this materialization within the control plane.
+    /// # Delete this materialization.
     /// When true, a publication will delete this materialization.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub delete: bool,
+    /// # Reset this materialization.
+    /// Publishing a value of `true` will reset this materialization, which is
+    /// equivalent to deleting and then re-creating the materialization but
+    /// applied as a single publication.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub reset: bool,
 }
 
 /// An Endpoint connector used for Flow materializations.
@@ -168,6 +174,7 @@ impl MaterializationDef {
             shards: ShardTemplate::default(),
             expect_pub_id: None,
             delete: false,
+            reset: false,
             on_incompatible_schema_change: OnIncompatibleSchemaChange::default(),
         }
     }
