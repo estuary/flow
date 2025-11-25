@@ -386,6 +386,7 @@ mod test {
             publications: PublicationStatus {
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 history,
+                next_after: Some("2024-01-02T03:04:05.06Z".parse().unwrap()),
             },
             alerts: Default::default(),
         });

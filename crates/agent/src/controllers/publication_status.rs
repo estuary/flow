@@ -1,9 +1,12 @@
-use crate::controlplane::ControlPlane;
+use crate::{
+    controllers::{NextRun, RetryableError},
+    controlplane::ControlPlane,
+};
 use anyhow::Context;
 use control_plane_api::publications::PublicationResult;
 use models::{
     Id, draft_error,
-    status::publications::{PublicationInfo, PublicationStatus},
+    status::publications::{PUBLICATION_COOLDOWN_ERROR, PublicationInfo, PublicationStatus},
 };
 use tables::BuiltRow;
 
@@ -60,6 +63,54 @@ impl PartialEq for PendingPublication {
         // Pending publications are never equal, because we ought to never be comparing statuses
         // while a publication is still pending.
         false
+    }
+}
+
+pub fn check_can_publish<C: ControlPlane>(
+    status: &mut PublicationStatus,
+    control_plane: &C,
+) -> Result<(), RetryableError> {
+    if let Some(next_after) = publication_cooldown(&*status, control_plane) {
+        status.next_after = Some(next_after);
+        Err(publication_cooldown_error(NextRun::after(next_after)))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn publication_cooldown_error(next_after: NextRun) -> RetryableError {
+    RetryableError {
+        inner: anyhow::anyhow!(PUBLICATION_COOLDOWN_ERROR),
+        retry: Some(next_after),
+        is_backoff: true,
+    }
+}
+
+/// Clears the `next_after` field in the publication status. This function
+/// exists primarily so we have a single place to document why we do this. The
+/// `next_after` will get set again during the current controller run if we're
+/// still waiting to publish. Clearing it ensures that it won't stick around in
+/// the case where a user-initiated publication (or something) completes before
+/// the cooldown expires and obviates the need for the controller to publish. So
+/// we always clear it at the beginning of a controller run, knowing that it'll
+/// get re-set soon if needed.
+pub fn clear_pending_publication_next_after(status: &mut PublicationStatus) {
+    status.next_after.take();
+}
+
+fn publication_cooldown<C: ControlPlane>(
+    status: &PublicationStatus,
+    control_plane: &C,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    let Some(last_attempt) = status.last_attempt() else {
+        return None;
+    };
+
+    let next_after = last_attempt + control_plane.controller_publication_cooldown();
+    if control_plane.current_time() >= next_after {
+        None
+    } else {
+        Some(next_after)
     }
 }
 

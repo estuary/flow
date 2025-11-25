@@ -1,5 +1,5 @@
 use super::harness::{
-    HarnessBuilder, TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema,
+    HarnessBuilder, draft_catalog, get_collection_generation_id, mock_inferred_schema,
 };
 use crate::{controllers::ControllerState, integration_tests::harness::InjectBuildError};
 use chrono::{DateTime, Utc};
@@ -102,9 +102,13 @@ async fn test_inferred_schema_updates_no_cooldown() {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn test_inferred_schema_updates() {
+async fn test_inferred_schema_updates_with_cooldown() {
+    let publish_cooldown = chrono::Duration::minutes(5);
+
+    let cooldown_time_ago = || chrono::Utc::now() - publish_cooldown;
+
     let mut harness = HarnessBuilder::new("test_inferred_schema_updates")
-        .with_inferred_schema_cooldown(chrono::Duration::minutes(5))
+        .with_publication_cooldown(publish_cooldown)
         .build()
         .await;
 
@@ -223,18 +227,21 @@ async fn test_inferred_schema_updates() {
         "live spec should not have been published"
     );
 
-    // Expect the next_run time to be determined by the inferred schema cooloff
+    // Expect the next_run time to be determined by the publication cooloff
     let next_run_time = harness
         .assert_controller_pending("frogs/inferred-collection")
         .await;
     let next_run_diff = next_run_time - chrono::Utc::now();
     assert!(next_run_diff > chrono::Duration::minutes(4));
-    assert!(next_run_diff < chrono::Duration::minutes(6));
+    assert_within_minutes(next_run_time, 6);
 
     assert_inferred_schema_status_pending(&next_state, &schema_v1_md5, &schema_v2_md5);
+    assert_awaiting_publication_cooldown(&next_state);
 
     // Simulate the passage of time to allow the inferred schema publication to proceed
-    push_back_inferred_last_updated_timestamp(&mut harness, "frogs/inferred-collection").await;
+    harness
+        .push_back_last_pub_history_ts("frogs/inferred-collection", cooldown_time_ago())
+        .await;
 
     // Fail the next publication
     harness.control_plane().fail_next_build(
@@ -254,13 +261,15 @@ async fn test_inferred_schema_updates() {
     // Expect the previous version of the inferred schema to still be present.
     assert_inferred_schema_present_with(&collection_state, generation_id, 0);
     // And the status still shows the outdated md5
-    assert_inferred_schema_status_pending(&next_state, &schema_v1_md5, &schema_v2_md5);
+    assert_inferred_schema_status_pending(&collection_state, &schema_v1_md5, &schema_v2_md5);
 
     let next_run = harness
         .assert_controller_pending("frogs/inferred-collection")
         .await;
-    assert_within_minutes(next_run, 3);
-    push_back_inferred_last_updated_timestamp(&mut harness, "frogs/inferred-collection").await;
+    assert_within_minutes(next_run, 6);
+    harness
+        .push_back_last_pub_history_ts("frogs/inferred-collection", cooldown_time_ago())
+        .await;
 
     // Simulate multiple publication failures to test exponential backoff
     for attempt in 2..=4 {
@@ -277,12 +286,19 @@ async fn test_inferred_schema_updates() {
             .run_pending_controller("frogs/inferred-collection")
             .await;
         assert!(collection_state.error.is_some());
-        assert_eq!(collection_state.failures, attempt as i32);
+        // +1 because the previous cooldown/backoff also counts as an error
+        assert_eq!(collection_state.failures, attempt as i32 + 1);
 
         // Verify retry backoff increases
         let next_run = harness
             .assert_controller_pending("frogs/inferred-collection")
             .await;
+        let diff = next_run - chrono::Utc::now();
+        assert!(
+            diff.num_minutes() >= 5,
+            "expected next run to be at least 5 minutes in the future, but was only {}m",
+            diff.num_minutes(),
+        );
         let expect_max_delay_minutes = match attempt {
             2 => 16,
             3 => 205,
@@ -291,13 +307,16 @@ async fn test_inferred_schema_updates() {
         };
         assert_within_minutes(next_run, expect_max_delay_minutes);
         assert_inferred_schema_status_pending(&collection_state, &schema_v1_md5, &schema_v2_md5);
+        harness
+            .push_back_last_pub_history_ts("frogs/inferred-collection", cooldown_time_ago())
+            .await;
     }
     let last_update_time = harness
         .get_controller_state("frogs/inferred-collection")
         .await
         .controller_updated_at;
 
-    // Finally, allow publication to succeed
+    // Allow publication to succeed, but now we're waiting on the cooldown again
     let collection_state = harness
         .run_pending_controller("frogs/inferred-collection")
         .await;
@@ -309,14 +328,29 @@ async fn test_inferred_schema_updates() {
     assert_inferred_schema_status_completed(&collection_state, &schema_v2_md5, last_update_time);
 }
 
+fn assert_awaiting_publication_cooldown(state: &ControllerState) {
+    let collection_status = state.current_status.unwrap_collection();
+    let pub_status = &collection_status.publications;
+    assert!(
+        pub_status.next_after.is_some(),
+        "expected publication status next_after to be Some"
+    );
+    assert!(
+        state.error.as_ref().is_some_and(
+            |err| err.starts_with(models::status::publications::PUBLICATION_COOLDOWN_ERROR)
+        ),
+        "expected publication cooldown error, got: {:?}",
+        state.error
+    );
+}
+
 fn assert_inferred_schema_status_pending(
     state: &ControllerState,
     expect_current_md5: &str,
     expect_next_md5: &str,
 ) {
-    let schema_status = state
-        .current_status
-        .unwrap_collection()
+    let collection_status = state.current_status.unwrap_collection();
+    let schema_status = collection_status
         .inferred_schema
         .as_ref()
         .expect("inferred schema status must be present");
@@ -327,8 +361,8 @@ fn assert_inferred_schema_status_pending(
         schema_status.schema_md5
     );
     assert!(
-        schema_status.next_update_after.is_some(),
-        "expected next_update_at to be Some for pending inferred schema update"
+        schema_status.next_update_after.is_none(),
+        "next_update_after is deprecated and no longer used"
     );
     assert_eq!(
         Some(expect_next_md5),
@@ -392,24 +426,6 @@ fn assert_inferred_schema_present_with(
             .is_some(),
         "expected schema to contain property 'p{max_property_num}', in: {actual}"
     );
-}
-
-async fn push_back_inferred_last_updated_timestamp(harness: &mut TestHarness, catalog_name: &str) {
-    let new_ts = (chrono::Utc::now() - chrono::Duration::minutes(6)).to_rfc3339();
-
-    tracing::debug!(%catalog_name, %new_ts, "overriding inferred_schema.schema_last_updated");
-    sqlx::query!(
-        r#"update controller_jobs set
-        status = jsonb_set(status::jsonb, '{inferred_schema, schema_last_updated}', to_jsonb($2::text))::json
-        where live_spec_id = (select id from live_specs where catalog_name = $1)
-        and status->'inferred_schema'->>'schema_last_updated' is not null
-        returning 1 as "must_exist: bool";"#,
-        catalog_name,
-        new_ts,
-    )
-    .fetch_one(&harness.pool)
-    .await
-    .expect("failed to override schema_last_updated time");
 }
 
 fn assert_uses_placholder_inferred_schema(state: &ControllerState) {

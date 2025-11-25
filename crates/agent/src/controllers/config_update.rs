@@ -35,6 +35,8 @@ where
     if config_update_status.is_none() && !has_config_update_event {
         return Ok(false);
     }
+    // Return a backoff error if we need to wait for the publication cooldown
+    self::publication_status::check_can_publish(publication_status, control_plane)?;
 
     // Since there's either a previous config update that failed or a new config update that needs
     // published, the current config update from Supabase is fetched.

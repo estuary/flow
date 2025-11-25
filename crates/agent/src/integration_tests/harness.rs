@@ -135,19 +135,19 @@ pub struct TestHarness {
 
 pub struct HarnessBuilder {
     test_name: String,
-    inferred_schema_cooldown: chrono::Duration,
+    publication_cooldown: chrono::Duration,
 }
 
 impl HarnessBuilder {
     pub fn new(test_name: impl Into<String>) -> HarnessBuilder {
         HarnessBuilder {
             test_name: test_name.into(),
-            inferred_schema_cooldown: chrono::Duration::seconds(0),
+            publication_cooldown: chrono::Duration::seconds(0),
         }
     }
 
-    pub fn with_inferred_schema_cooldown(mut self, cooldown: chrono::Duration) -> Self {
-        self.inferred_schema_cooldown = cooldown;
+    pub fn with_publication_cooldown(mut self, cooldown: chrono::Duration) -> Self {
+        self.publication_cooldown = cooldown;
         self
     }
 
@@ -155,7 +155,7 @@ impl HarnessBuilder {
     pub async fn build(self) -> TestHarness {
         let HarnessBuilder {
             test_name,
-            inferred_schema_cooldown,
+            publication_cooldown,
         } = self;
         // Setup tracing so we can see logs
         let subscriber = tracing_subscriber::FmtSubscriber::builder()
@@ -209,7 +209,7 @@ impl HarnessBuilder {
             logs_tx.clone(),
             std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             1.0, // auto_discover_probability
-            inferred_schema_cooldown,
+            publication_cooldown,
         ));
 
         let controller_exec =
@@ -1701,8 +1701,8 @@ impl ControlPlane for TestControlPlane {
         self.auto_discover_enabled
     }
 
-    fn inferred_schema_update_cooldown(&self) -> chrono::Duration {
-        self.inner.inferred_schema_update_cooldown()
+    fn controller_publication_cooldown(&self) -> chrono::Duration {
+        self.inner.controller_publication_cooldown()
     }
 
     #[tracing::instrument(level = "debug", err, skip(self))]

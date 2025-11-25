@@ -207,7 +207,8 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
     task_id = %_task_id,
     live_spec_id = %controller_state.live_spec_id,
     catalog_name = %controller_state.catalog_name,
-    data_plane_id = %controller_state.data_plane_id
+    data_plane_id = %controller_state.data_plane_id,
+    last_build_id = %controller_state.last_build_id
 ))]
 async fn run_controller<C: ControlPlane>(
     task_state: &mut State,

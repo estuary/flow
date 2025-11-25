@@ -6,6 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
+pub const PUBLICATION_COOLDOWN_ERROR: &str = "waiting on publication cooldown";
+
 /// Summary of a publication that was attempted by a controller.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
@@ -111,6 +113,11 @@ impl PublicationInfo {
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PublicationStatus {
+    /// If we are awaiting a cooldown before publishing this spec, this field will be set
+    /// to the time after which the publication will be retried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "crate::datetime_schema")]
+    pub next_after: Option<DateTime<Utc>>,
     /// The publication id at which the controller has last notified dependent
     /// specs. A publication of the controlled spec will cause the controller to
     /// notify the controllers of all dependent specs. When it does so, it sets
@@ -122,11 +129,18 @@ pub struct PublicationStatus {
     pub history: VecDeque<PublicationInfo>,
 }
 
+impl PublicationStatus {
+    pub fn last_attempt(&self) -> Option<DateTime<Utc>> {
+        self.history.front().and_then(|p| p.completed.or(p.created))
+    }
+}
+
 impl Clone for PublicationStatus {
     fn clone(&self) -> Self {
         PublicationStatus {
             max_observed_pub_id: self.max_observed_pub_id,
             history: self.history.clone(),
+            next_after: self.next_after.clone(),
         }
     }
 }
@@ -136,6 +150,7 @@ impl Default for PublicationStatus {
         PublicationStatus {
             max_observed_pub_id: Id::zero(),
             history: VecDeque::new(),
+            next_after: None,
         }
     }
 }

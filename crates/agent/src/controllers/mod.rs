@@ -189,6 +189,7 @@ fn backoff_err<T>(next_attempt: NextRun, action: &str, fail_count: u32) -> anyho
 pub struct RetryableError {
     pub inner: anyhow::Error,
     pub retry: Option<NextRun>,
+    pub is_backoff: bool,
 }
 
 impl std::fmt::Display for RetryableError {
@@ -227,12 +228,29 @@ trait ControllerErrorExt {
     }
 }
 
-impl<T, E: Into<anyhow::Error>> ControllerErrorExt for Result<T, E> {
+impl<T> ControllerErrorExt for Result<T, anyhow::Error> {
     type Success = T;
     fn with_maybe_retry(self, after: Option<NextRun>) -> Result<T, RetryableError> {
-        self.map_err(|e| RetryableError {
-            inner: e.into(),
-            retry: after,
+        self.map_err(|e| match e.downcast::<RetryableError>() {
+            Ok(mut retryable) => {
+                retryable.retry = after;
+                retryable
+            }
+            Err(other) => RetryableError {
+                inner: other.into(),
+                retry: after,
+                is_backoff: false,
+            },
+        })
+    }
+}
+
+impl<T> ControllerErrorExt for Result<T, RetryableError> {
+    type Success = T;
+    fn with_maybe_retry(self, after: Option<NextRun>) -> Result<T, RetryableError> {
+        self.map_err(|mut e| {
+            e.retry = after;
+            e
         })
     }
 }
@@ -318,6 +336,13 @@ impl NextRun {
         dur
     }
 
+    pub fn at_least(mut self, min_duration: chrono::Duration) -> NextRun {
+        self.after_seconds = self
+            .after_seconds
+            .max(min_duration.num_seconds().max(0) as u32);
+        self
+    }
+
     pub fn earliest(runs: impl IntoIterator<Item = Option<NextRun>>) -> Option<NextRun> {
         let mut min = None;
         for run in runs {
@@ -340,6 +365,19 @@ fn fallback_backoff_next_run(failures: i32) -> NextRun {
     NextRun::after_minutes(minutes).with_jitter_percent(50)
 }
 
+pub fn backoff_publication_failure(prev_failures: u32, minimum: chrono::Duration) -> NextRun {
+    let mins = if prev_failures < 3 {
+        // A minute per failure, for the first two failures
+        prev_failures.max(1)
+    } else {
+        // Back off steeply to 30 minutes per failure, to a max of 5 hours
+        // between attempts. A publication that's failed twice in a row is
+        // unlikely to work on subsequent attempts.
+        (prev_failures * 30).min(300)
+    };
+    NextRun::after_minutes(mins as u32).at_least(minimum)
+}
+
 /// Reduces a collection of results into a single result, setting the next run
 /// time to the smallest value among all the results, regardless of whether the
 /// result is an error or not.
@@ -349,6 +387,7 @@ pub fn coalesce_results(
 ) -> anyhow::Result<Option<NextRun>> {
     let mut min = None;
     let mut errs = Vec::new();
+    let mut is_backoff = true;
     for result in results {
         match result {
             Ok(nr) => {
@@ -358,6 +397,7 @@ pub fn coalesce_results(
                 Ok(rt) => {
                     min = NextRun::earliest([min, rt.retry]);
                     errs.push(rt.inner);
+                    is_backoff &= rt.is_backoff;
                 }
                 Err(reg_err) => {
                     errs.push(reg_err);
@@ -365,6 +405,7 @@ pub fn coalesce_results(
                         min,
                         Some(fallback_backoff_next_run(prev_failures + 1)),
                     ]);
+                    is_backoff = false;
                 }
             },
         }
@@ -386,6 +427,12 @@ pub fn coalesce_results(
 
     let res = if errs.is_empty() {
         Ok(min)
+    } else if let Some(next) = min
+        && is_backoff
+    {
+        Err(anyhow::Error::from(
+            publication_status::publication_cooldown_error(next),
+        ))
     } else if errs.len() > 1 {
         Err(anyhow::anyhow!(
             "{} errors:\n- {}",
@@ -501,6 +548,9 @@ async fn controller_update<C: ControlPlane>(
 
 #[cfg(test)]
 mod test {
+    use control_plane_api::server::public;
+    use models::status::publications::PUBLICATION_COOLDOWN_ERROR;
+
     use super::*;
 
     #[test]
@@ -549,12 +599,14 @@ mod test {
                 Err(RetryableError {
                     inner: anyhow::anyhow!("first error"),
                     retry: None,
+                    is_backoff: false,
                 }
                 .into()),
                 Ok(Some(NextRun::after_minutes(1))),
                 Err(RetryableError {
                     inner: anyhow::anyhow!("second error"),
                     retry: Some(NextRun::after_minutes(5)),
+                    is_backoff: false,
                 }
                 .into()),
             ],
@@ -565,6 +617,7 @@ mod test {
             "2 errors:\n- first error\n- second error (will retry)",
             &err.to_string()
         );
+        assert!(!err.is_backoff);
 
         // No next run
         let res = coalesce_results(
@@ -574,12 +627,14 @@ mod test {
                 Err(RetryableError {
                     inner: anyhow::anyhow!("an error"),
                     retry: None,
+                    is_backoff: false,
                 }
                 .into()),
             ],
         );
         let err = res.unwrap_err().downcast::<RetryableError>().unwrap();
         assert!(err.retry.is_none());
+        assert!(!err.is_backoff);
 
         // Multiple errors, with retry set from an Err result
         let res = coalesce_results(
@@ -589,12 +644,14 @@ mod test {
                 Err(RetryableError {
                     inner: anyhow::anyhow!("first error"),
                     retry: None,
+                    is_backoff: false,
                 }
                 .into()),
                 Ok(Some(NextRun::after_minutes(55))),
                 Err(RetryableError {
                     inner: anyhow::anyhow!("second error"),
                     retry: Some(NextRun::after_minutes(5)),
+                    is_backoff: true,
                 }
                 .into()),
             ],
@@ -605,6 +662,7 @@ mod test {
             "2 errors:\n- first error\n- second error (will retry)",
             &err.to_string()
         );
+        assert!(!err.is_backoff);
 
         // Single error with default retry
         let res = coalesce_results(
@@ -616,6 +674,7 @@ mod test {
         );
         let err = res.unwrap_err().downcast::<RetryableError>().unwrap();
         assert_eq!(600, err.retry.unwrap().after_seconds);
+        assert!(!err.is_backoff);
 
         // Multiple errors, with default retry
         let res = coalesce_results(
@@ -627,6 +686,7 @@ mod test {
                 Err(RetryableError {
                     inner: anyhow::anyhow!("second error"),
                     retry: Some(NextRun::after_minutes(888)),
+                    is_backoff: true,
                 }
                 .into()),
             ],
@@ -636,6 +696,29 @@ mod test {
         assert_eq!(
             "2 errors:\n- not a retryable error\n- second error (will retry)",
             &err.to_string()
+        );
+        assert!(!err.is_backoff);
+
+        let res = coalesce_results(
+            0,
+            [
+                Err(anyhow::Error::from(
+                    publication_status::publication_cooldown_error(NextRun::after_minutes(5)),
+                )),
+                Err(anyhow::Error::from(
+                    publication_status::publication_cooldown_error(NextRun::after_minutes(4)),
+                )),
+                Err(anyhow::Error::from(
+                    publication_status::publication_cooldown_error(NextRun::after_minutes(3)),
+                )),
+            ],
+        );
+        let err = res.unwrap_err().downcast::<RetryableError>().unwrap();
+        assert_eq!(180, err.retry.unwrap().after_seconds);
+        assert!(err.is_backoff);
+        assert_eq!(
+            format!("{PUBLICATION_COOLDOWN_ERROR} (will retry)"),
+            err.to_string()
         );
     }
 }

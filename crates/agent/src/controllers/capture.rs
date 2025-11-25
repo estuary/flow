@@ -21,6 +21,8 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::CaptureDef,
 ) -> anyhow::Result<Option<NextRun>> {
+    publication_status::clear_pending_publication_next_after(&mut status.publications);
+
     let CaptureStatus {
         publications,
         alerts,
