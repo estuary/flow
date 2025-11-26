@@ -59,6 +59,7 @@ pub struct Collection {
     pub uuid_ptr: json::Pointer,
     pub value_schema: avro::Schema,
     pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
+    pub binding_backfill_counter: u32,
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
@@ -227,6 +228,7 @@ impl Collection {
             uuid_ptr,
             value_schema,
             extractors,
+            binding_backfill_counter: binding.backfill,
         }))
     }
 
