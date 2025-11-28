@@ -60,6 +60,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
 | `/interval` | Interval | Interval between data syncs | string |          |
+| `/schedule` | Calculated Property Refresh Schedule | The schedule for refreshing this binding's [calculated properties](#calculated-properties). Accepts a cron expression. For example, a schedule of `55 23 * * *` means the binding will refresh calculated properties at 23:55 UTC every day. If left empty, the binding will not refresh calculated properties. | string | 55 23 * * * |
 
 ### Sample
 
@@ -77,5 +78,12 @@ captures:
     bindings:
       - resource:
           name: companies
+          schedule: "55 23 * * *"
         target: ${PREFIX}/${COLLECTION_NAME}
 ```
+
+## Calculated Properties
+
+HubSpot CRM objects can contain [calculated properties](https://knowledge.hubspot.com/properties/create-calculation-properties), properties whose values are calculated at query time. Since calculated properties do not maintain state in HubSpot, calculated property updates do not update the associated record's `updatedAt` timestamp. The HubSpot connector uses the `updatedAt` timestamp to incrementally detect changes, and since calculated property updates don't update the `updatedAt` timestamp, calculated property updates are not incrementally captured by the connector.
+
+To address this challenge, the HubSpot connector is able to refresh the values of calculated properties on a schedule after the initial backfill completes. This is controlled at a binding level by the cron expression in the [`schedule` property](#bindings). When a scheduled calculated property refresh occurs, the connector fetches every record's current calculated property values and merges them into the associated collection using [`merge` reduction strategies](/reference/reduction-strategies/merge).
