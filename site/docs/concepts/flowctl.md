@@ -189,7 +189,7 @@ It stores a `sops`-protected configuration in its encrypted form,
 and decrypts it only when invoking a connector on your behalf.
 
 sops, short for “Secrets Operations,” is a tool that encrypts the values of a JSON or YAML document
-against a key management system (KMS) such as Google Cloud Platform KMS, Azure Key Vault, or Hashicorp Vault.
+against a key management system (KMS) such as Google Cloud Platform KMS, Azure Key Vault, or AWS Key Management Service.
 Encryption or decryption of a credential with `sops` is an active process:
 it requires that the user (or the Flow runtime identity) have a current authorization to the required KMS,
 and creates a request trace which can be logged and audited.
@@ -231,6 +231,16 @@ This can be useful if you need to maintain strict control over how credentials
 are encrypted. In this case, you own the KMS key and grant Estuary access for
 decryption. `flowctl` will not modify endpoint configurations that have already
 been encrypted.
+
+Estuary supports customers encrypting secrets with keys from AWS Key Management Service, Google Cloud Platform KMS, and Azure Key Vault.
+
+:::important
+When deploying catalogs onto the managed Flow runtime, you must grant access to
+decrypt your KMS key to the appropriate identity for your data plane and KMS.
+These identities vary by data plane, find yours under
+[Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
+in the Estuary dashboard.
+:::
 
 The examples below provide a useful reference.
 
@@ -278,14 +288,6 @@ If you need to make further changes to your configuration,
 edit it using `sops config.yaml`.
 It's not required to provide the KMS key to use again,
 as `sops` finds it within its metadata section.
-
-:::important
-When deploying catalogs onto the managed Flow runtime, you must grant access to
-decrypt your KMS key to the appropriate identity for your data plane and KMS.
-These identities vary by data plane, find yours under
-[Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
-in the Estuary dashboard.
-:::
 
 #### Example: Protect portions of a configuration
 
