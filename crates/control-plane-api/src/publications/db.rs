@@ -23,7 +23,7 @@ pub struct Row {
     pub dry_run: bool,
     pub logs_token: Uuid,
     pub user_id: Uuid,
-    pub data_plane_name: String,
+    pub data_plane_name: Option<String>,
     pub job_status: Json<Box<RawValue>>,
 }
 
