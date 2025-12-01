@@ -240,7 +240,6 @@ schema_registry_converter = { version = "4", features = [
     "avro",
     "json",
 ] }
-serial_test = "3"
 tracing-test = "0"
 wasm-bindgen-test = "0"
 
