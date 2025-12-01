@@ -73,5 +73,10 @@ pub extern "C" fn task_service_drop(svc: *mut TaskService) {
         let svc = unsafe { Box::from_raw(svc_ptr as *mut TaskServiceImpl) };
         svc.graceful_stop();
     }
+    let err_ptr = if err_cap == 0 {
+        std::ptr::NonNull::dangling().as_ptr()
+    } else {
+        err_ptr
+    };
     unsafe { String::from_raw_parts(err_ptr, err_len, err_cap) };
 }

@@ -29,9 +29,14 @@ impl InN for In1 {
         arena: &mut Vec<u8>,
         out: &mut Vec<Out>,
     ) -> Result<(), S::Error> {
+        let data = if self.data_len == 0 {
+            std::ptr::NonNull::dangling().as_ptr()
+        } else {
+            self.data_ptr
+        };
         svc.invoke(
             self.code,
-            unsafe { std::slice::from_raw_parts(self.data_ptr, self.data_len as usize) },
+            unsafe { std::slice::from_raw_parts(data, self.data_len as usize) },
             arena,
             out,
         )
@@ -195,13 +200,13 @@ pub fn create<S: Service>(log_level: i32, log_dest_fd: i32) -> *mut Channel {
 
     let ch = Box::new(Channel {
         svc_impl,
-        arena_ptr: 0 as *mut u8,
+        arena_ptr: std::ptr::NonNull::dangling().as_ptr(),
         arena_len: 0,
         arena_cap: 0,
-        out_ptr: 0 as *mut Out,
+        out_ptr: std::ptr::NonNull::dangling().as_ptr(),
         out_len: 0,
         out_cap: 0,
-        err_ptr: 0 as *mut u8,
+        err_ptr: std::ptr::NonNull::dangling().as_ptr(),
         err_len: 0,
         err_cap: 0,
         tracing_dispatch: dispatch as *mut u8,
