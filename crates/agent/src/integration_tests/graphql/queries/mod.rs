@@ -4,7 +4,6 @@ use std::fs;
 use std::path::Path;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_graphql_queries() {
     let (mut harness, alice_user_id, bob_user_id) = common_setup().await;
 

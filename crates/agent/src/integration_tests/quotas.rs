@@ -1,7 +1,6 @@
 use crate::integration_tests::harness::{TestHarness, draft_catalog};
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_quota_single_task() {
     let mut harness = TestHarness::init("test_quota_single_task").await;
 
@@ -67,7 +66,6 @@ async fn test_quota_single_task() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_quota_derivations() {
     let mut harness = TestHarness::init("test_quota_derivation").await;
 
@@ -147,7 +145,6 @@ async fn test_quota_derivations() {
 
 // Testing that we can disable tasks to reduce usage when at quota
 #[tokio::test]
-#[serial_test::parallel]
 async fn test_disable_when_over_quota() {
     let mut harness = TestHarness::init("test_disable_when_over_quota").await;
 

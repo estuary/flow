@@ -4,7 +4,6 @@ use uuid::Uuid;
 use crate::integration_tests::harness::{TestHarness, draft_catalog};
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_forbidden_connector() {
     let harness = TestHarness::init("test_forbidden_connector").await;
     let user_id = harness.setup_tenant("sheep").await;

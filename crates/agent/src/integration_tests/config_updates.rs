@@ -28,7 +28,6 @@ fn updated_config() -> serde_json::Value {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_config_update_publication_success() {
     // Set up harness & tenant.
     let mut harness = TestHarness::init("test_config_update_publication_success").await;
@@ -173,7 +172,6 @@ async fn test_config_update_publication_success() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_config_update_publication_failure() {
     // Set up harness & tenant.
     let mut harness = TestHarness::init("test_config_update_publication_failure").await;
@@ -336,7 +334,6 @@ async fn test_config_update_publication_failure() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_config_update_publication_backoff() {
     // Set up harness & tenant.
     let mut harness = TestHarness::init("test_config_update_publication_backoff").await;
