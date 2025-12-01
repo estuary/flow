@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rustup target add $(uname -m)-unknown-linux-musl
+
+cargo build \
+    --locked \
+    --target $(uname -m)-unknown-linux-musl \
+    -p connector-init

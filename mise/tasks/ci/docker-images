@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build and optionally push multi-arch Docker images"
+
+PACKAGE_DIR="${HOME}/flow-package"
+TAGS_FILE="${PACKAGE_DIR}/tags"
+PUSH="${PUSH:-false}"
+
+# Validate required files exist
+if [[ ! -f "${TAGS_FILE}" ]]; then
+    echo "Error: Tags file not found at ${TAGS_FILE}" >&2
+    exit 1
+fi
+
+if [[ ! -d "${PACKAGE_DIR}/amd64" ]] && [[ ! -d "${PACKAGE_DIR}/arm64" ]]; then
+    echo "Error: Missing architecture directories in ${PACKAGE_DIR}" >&2
+    exit 1
+fi
+
+# Read comma-separated tags into array
+IFS=',' read -ra TAGS <<< "$(cat "${TAGS_FILE}")"
+
+# Determine platforms and output type based on push mode
+if [[ "${PUSH}" == "true" ]]; then
+    PLATFORMS='["linux/amd64", "linux/arm64"]'
+    OUTPUT='["type=registry"]'
+else
+    # For local builds, detect current architecture
+    ARCH=$(uname -m)
+    if [[ "${ARCH}" == "x86_64" ]]; then
+        PLATFORMS='["linux/amd64"]'
+    elif [[ "${ARCH}" == "aarch64" ]]; then
+        PLATFORMS='["linux/arm64"]'
+    else
+        echo "Error: Unknown architecture ${ARCH}" >&2
+        exit 1
+    fi
+    OUTPUT='["type=docker"]'
+fi
+
+# Ensure buildx builder exists and supports multi-arch
+BUILDER_NAME="flow-multiarch"
+if ! docker buildx inspect "${BUILDER_NAME}" &>/dev/null; then
+    echo "Creating buildx builder: ${BUILDER_NAME}"
+    docker buildx create --name "${BUILDER_NAME}" --use --bootstrap
+else
+    docker buildx use "${BUILDER_NAME}"
+fi
+
+# Generate bake JSON dynamically from Dockerfiles
+BAKE_FILE=$(mktemp)
+trap "rm -f ${BAKE_FILE}" EXIT
+
+# Build the targets object by iterating over Dockerfiles
+TARGETS_JSON="{}"
+TARGET_NAMES=()
+
+for DOCKERFILE in docker/*.Dockerfile; do
+    IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
+    TARGET_NAMES+=("${IMAGE_NAME}")
+
+    # Build tags array for this image
+    IMAGE_TAGS=$(printf '%s\n' "${TAGS[@]}" | jq -R '"ghcr.io/estuary/'"${IMAGE_NAME}"':\(.)"' | jq -s '.')
+
+    # Use absolute path for dockerfile since context is different from CWD
+    DOCKERFILE_ABS="$(pwd)/${DOCKERFILE}"
+
+    # Add target to targets object
+    TARGETS_JSON=$(echo "${TARGETS_JSON}" | jq \
+        --arg name "${IMAGE_NAME}" \
+        --arg dockerfile "${DOCKERFILE_ABS}" \
+        --arg context "${PACKAGE_DIR}" \
+        --argjson tags "${IMAGE_TAGS}" \
+        --argjson platforms "${PLATFORMS}" \
+        --argjson output "${OUTPUT}" \
+        '.[$name] = {
+            "dockerfile": $dockerfile,
+            "context": $context,
+            "tags": $tags,
+            "platforms": $platforms,
+            "output": $output
+        }')
+done
+
+# Build the complete bake file
+TARGET_NAMES_JSON=$(printf '%s\n' "${TARGET_NAMES[@]}" | jq -R '.' | jq -s '.')
+jq -n \
+    --argjson targets "${TARGET_NAMES_JSON}" \
+    --argjson target "${TARGETS_JSON}" \
+    '{
+        "group": {
+            "default": {
+                "targets": $targets
+            }
+        },
+        "target": $target
+    }' > "${BAKE_FILE}"
+
+echo "Generated bake configuration:"
+cat "${BAKE_FILE}"
+echo ""
+
+echo "=== Building all images in parallel ==="
+docker buildx bake --allow=fs.read=${HOME}/flow-package -f "${BAKE_FILE}"
+
+echo ""
+echo "Done! Built images for tags: ${TAGS[*]}"
+if [[ "${PUSH}" == "true" ]]; then
+    echo "Images pushed to ghcr.io/estuary/"
+else
+    echo "Images loaded locally"
+fi

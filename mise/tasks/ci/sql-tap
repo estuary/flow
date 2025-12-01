@@ -1,0 +1,40 @@
+#!/bin/bash
+
+set -o pipefail
+set -o nounset
+
+#MISE description="Run all SQL tests"
+#MISE depends=["local:supabase"]
+
+# Run all SQL tests in parallel using GNU parallel.
+# Each test runs in its own isolated transaction.
+
+# Find all test files
+test_files=(supabase/tests/*.test.sql)
+
+echo "Running ${#test_files[@]} test files in parallel..."
+
+# Run tests in parallel with GNU parallel
+# --halt soon,fail=1: Stop as soon as one job fails
+# --jobs 0: Run as many jobs as CPU cores
+# --line-buffer: Print output from each job as it completes
+# --tagstring: Prefix each line with the test name
+# --keep-order: Print results in same order as input
+printf '%s\n' "${test_files[@]}" | \
+  parallel --halt soon,fail=1 \
+           --jobs 0 \
+           --line-buffer \
+           --tagstring '{/}' \
+           --keep-order \
+           'supabase/run_single_test.sh {}'
+
+exit_code=$?
+
+echo "========================================"
+if [ $exit_code -eq 0 ]; then
+  echo "All ${#test_files[@]} tests passed!"
+else
+  echo "One or more tests failed"
+fi
+
+exit $exit_code

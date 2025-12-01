@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Installs base packages present on GitHub Actions Ubuntu Runners"
+#MISE depends=["bootstrap:apt-update"]
+#MISE sources=["."]
+
+# Packages we use which are already installed on GitHub Actions Ubuntu runners.
+# Packages NOT on GitHub Actions CI runners should go in apt-packages-ci-extra.
+# See: https://github.com/actions/runner-images?tab=readme-ov-file
+
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  build-essential \
+  ca-certificates \
+  docker-buildx \
+  docker.io \
+  git-lfs \
+  jq \
+  libclang-dev \
+  libsqlite3-dev \
+  libssl-dev \
+  make \
+  parallel \
+  pkg-config \
+  protobuf-compiler \
+  python3.12 \
+  rustup \

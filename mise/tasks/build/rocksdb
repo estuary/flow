@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Downloads, compiles, and installs RocksDB static library"
+#MISE depends=["bootstrap:apt-packages-ci-extra"]
+#MISE sources=["."]
+
+BASE_DIR="${HOME}/rocksdb-${ROCKSDB_VERSION}"
+
+# If ${BASE_DIR}/lib/librocksdb.a already exists, skip build.
+if [[ -f "${BASE_DIR}/lib/librocksdb.a" ]]; then
+    echo "RocksDB static library already built at ${BASE_DIR}/lib/librocksdb.a"
+    exit 0
+fi
+
+ROCKSDB_URL="https://github.com/facebook/rocksdb/archive/refs/tags/v${ROCKSDB_VERSION}.tar.gz"
+
+mkdir -p "${BASE_DIR}/lib"
+curl -L "${ROCKSDB_URL}" -o "${BASE_DIR}/rocksdb.tar.gz"
+
+tar -xzf "${BASE_DIR}/rocksdb.tar.gz" -C "${BASE_DIR}"
+rm "${BASE_DIR}/rocksdb.tar.gz"
+SOURCE_DIR="${BASE_DIR}/rocksdb-${ROCKSDB_VERSION}"
+cd "${SOURCE_DIR}"
+
+# Build static library with optimizations.
+# See: https://github.com/facebook/rocksdb/blob/main/build_tools/build_detect_platform
+# Export ROCKSDB_DISABLE_* variables so build_detect_platform can see them.
+export ROCKSDB_DISABLE_BZIP=1
+export ROCKSDB_DISABLE_LZ4=1
+export ROCKSDB_DISABLE_ZLIB=1
+export ROCKSDB_DISABLE_ZSTD=1
+
+make static_lib -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) \
+  EXTRA_CXXFLAGS="-fPIC -frtti" \
+  EXTRA_CFLAGS="-fPIC" \
+  DEBUG_LEVEL=0 \
+  PORTABLE=0
+
+strip --strip-unneeded "${SOURCE_DIR}/librocksdb.a"
+
+mv "${SOURCE_DIR}/include" "${BASE_DIR}/"
+mv "${SOURCE_DIR}/librocksdb.a" "${BASE_DIR}/lib/"
+rm -r "${SOURCE_DIR}"

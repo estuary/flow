@@ -17,14 +17,11 @@ RUN apt update -y \
 RUN curl -fsSL https://get.pulumi.com/ | bash -s
 RUN ln -s /root/.pulumi/bin/pulumi /usr/local/bin/pulumi
 
-# Install the `sops` CLI.
-RUN curl -L -o /usr/local/bin/sops \
-      https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 \
-   && chmod +x /usr/local/bin/sops
-
 # Copy in our local assets.
-COPY data-plane-controller /usr/local/bin/
-COPY entrypoint.sh /usr/local/bin/
+ARG TARGETARCH
+COPY ${TARGETARCH}/data-plane-controller /usr/local/bin/
+COPY ${TARGETARCH}/data-plane-controller-entrypoint.sh /usr/local/bin/
+COPY ${TARGETARCH}/sops /usr/local/bin/
 
 # AWS profile to expect in ~/.aws/credentials
 ENV AWS_PROFILE=data-plane-ops
@@ -35,7 +32,7 @@ ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
 
 ENV RUST_LOG=info
 
-CMD ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/data-plane-controller-entrypoint.sh"]
 
 # Example of running this container locally:
 # docker run --rm --net=host -it \
