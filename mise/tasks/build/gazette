@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+go build -o ${HOME}/go/bin/gazette go.gazette.dev/core/cmd/gazette

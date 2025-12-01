@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Generate Rust protobuf bindings"
+
+cargo build -p proto-gazette -p proto-flow -p proto-grpc --all-features

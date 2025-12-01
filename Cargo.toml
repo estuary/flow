@@ -69,7 +69,11 @@ humantime-serde = "1"
 itertools = "0"
 indexmap = { version = "1", features = ["serde"] }
 iri-string = "0"
-jemallocator = { version = "0", features = ["profiling"] }
+jemallocator = { version = "0", features = [
+    "profiling",
+    # Allow use of system jemalloc library via JEMALLOC_OVERRIDE env var.
+    "unprefixed_malloc_on_supported_platforms",
+] }
 jemalloc-ctl = "0"
 json-patch = "4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
@@ -252,8 +256,20 @@ tonic-prost-build = "0"
 
 
 [profile.release]
+debug = "none"
+strip = "debuginfo"
+incremental = false
+lto = "thin"
+
+[profile.dev]
+# We leave `debug` off because it cuts local and CI builds by a third,
+# and it produces a 100x smaller Cargo build cache, which is important
+# for GitHub Actions caching. Use "full" if you want an actual debugger.
+debug = "none"
+strip = "debuginfo"
 incremental = true
-debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugger.
+lto = "off"
+opt-level = 1 # Basic optimization. As fast to build as none.
 
 [patch.'crates-io']
 

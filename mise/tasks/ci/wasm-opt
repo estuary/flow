@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rustup target add wasm32-unknown-unknown
+
+RUSTFLAGS="-D warnings" \
+wasm-pack build --scope estuary crates/flow-web --out-name flow_web
+
+cd crates/flow-web/pkg/ && npm pack

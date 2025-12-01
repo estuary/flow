@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FLOW_VERSION=$(git describe --dirty --tags) \
+SQLX_OFFLINE=true \
+cargo build \
+    --locked \
+    --release \
+    -p agent \
+    -p bindings \
+    -p config-encryption \
+    -p data-plane-controller \
+    -p dekaf \
+    -p flowctl \
+    -p oidc-discovery-server \

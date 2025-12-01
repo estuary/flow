@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic idle check for automatic shutdown
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+Unit=idle-shutdown.service
+
+[Install]
+WantedBy=timers.target

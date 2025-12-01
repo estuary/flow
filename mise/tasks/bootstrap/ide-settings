@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Writes settings.json for use with VSCode Remote SSH"
+
+SETTINGS="${HOME}/.vscode-server/data/Machine/settings.json"
+
+mkdir -p $(dirname ${SETTINGS})
+cat > ${SETTINGS} << EOF
+{
+    "go.goroot": "${GOROOT}",
+    "go.toolsEnvVars": {
+        "CGO_LDFLAGS": "${CGO_LDFLAGS}",
+        "CGO_CFLAGS": "${CGO_CFLAGS}",
+        "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/",
+    },
+    "rust-analyzer.cargo.extraEnv": {
+        "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
+        "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
+        "PATH": "${PATH}",
+        "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
+        "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
+        "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+        "RUSTFLAGS": "${RUSTFLAGS}",
+        "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
+        "SNAPPY_STATIC": "${SNAPPY_STATIC}",
+    },
+    "rust-analyzer.runnables.extraEnv": {
+        "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
+        "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
+        "PATH": "${PATH}",
+        "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
+        "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
+        "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+        "RUSTFLAGS": "${RUSTFLAGS}",
+        "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
+        "SNAPPY_STATIC": "${SNAPPY_STATIC}",
+    },
+
+    // TODO(johnny): Remove this Go dependency altogether!
+    "go.buildTags": "libsqlite3",
+    // We're running in VMs with restricted memory, so don't index crates
+    // that aren't actively being worked on by the user.
+    "rust-analyzer.cachePriming.enable": false
+}
+EOF
+
+echo "Wrote VSCode settings: ${SETTINGS}"
