@@ -79,7 +79,6 @@ async fn test_inferred_schema_updates_no_cooldown() {
     );
     assert!(schema_status.schema_md5.is_none());
     assert!(schema_status.next_md5.is_none());
-    assert!(schema_status.next_update_after.is_none());
 
     let mut last_update_time = collection_state.live_spec_updated_at;
     let generation_id = get_collection_generation_id(&collection_state);
@@ -195,7 +194,6 @@ async fn test_inferred_schema_updates_with_cooldown() {
     );
     assert!(schema_status.schema_md5.is_none());
     assert!(schema_status.next_md5.is_none());
-    assert!(schema_status.next_update_after.is_none());
 
     // First inferred schema update
     let generation_id = get_collection_generation_id(&collection_state);
@@ -344,6 +342,7 @@ fn assert_awaiting_publication_cooldown(state: &ControllerState) {
     );
 }
 
+#[allow(deprecated)] // suppress warning for next_update_after
 fn assert_inferred_schema_status_pending(
     state: &ControllerState,
     expect_current_md5: &str,
@@ -372,6 +371,7 @@ fn assert_inferred_schema_status_pending(
     );
 }
 
+#[allow(deprecated)] // suppress warning for next_update_after
 fn assert_inferred_schema_status_completed(
     state: &ControllerState,
     expect_md5: &str,
@@ -398,8 +398,7 @@ fn assert_inferred_schema_status_completed(
     );
     assert!(
         schema_status.next_update_after.is_none(),
-        "expected no pending update, but next_update_at was {:?}",
-        schema_status.next_update_after
+        "next_update_after is deprecated and no longer used",
     );
 }
 

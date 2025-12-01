@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use super::{
-    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
-    backoff_publication_failure, coalesce_results, dependencies::Dependencies, periodic,
-    publication_status::PendingPublication,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, activation,
+    backoff_data_plane_activate, backoff_publication_failure, coalesce_results,
+    dependencies::Dependencies,
+    periodic,
+    publication_status::{self, PendingPublication},
 };
-use crate::controllers::{activation, publication_status};
 use anyhow::Context;
 use control_plane_api::publications::PublicationResult;
 use itertools::Itertools;
@@ -18,6 +19,7 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::CollectionDef,
 ) -> anyhow::Result<Option<NextRun>> {
+    publication_status::clear_pending_publication_next_after(&mut status.publications);
     let published = maybe_publish(status, state, control_plane, model).await;
     // Return now only if a publication was performed successfully. If the
     // publication failed, then we still attempt to update the activation.
@@ -25,6 +27,7 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
+    let pending_pub_next = status.publications.next_after;
     let CollectionStatus {
         inferred_schema: _,
         publications,
@@ -32,11 +35,17 @@ pub async fn update<C: ControlPlane>(
         alerts,
     } = status;
 
-    let activation_result =
-        activation::update_activation(activation, alerts, state, events, control_plane)
-            .await
-            .with_retry(backoff_data_plane_activate(state.failures))
-            .map_err(Into::into);
+    let activation_result = activation::update_activation(
+        activation,
+        alerts,
+        pending_pub_next,
+        state,
+        events,
+        control_plane,
+    )
+    .await
+    .with_retry(backoff_data_plane_activate(state.failures))
+    .map_err(Into::into);
 
     let notify_result =
         publication_status::update_notify_dependents(publications, state, control_plane)
@@ -45,14 +54,10 @@ pub async fn update<C: ControlPlane>(
 
     // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
     // bypassed for some reason.
-    let inferred_schema_next = status.inferred_schema.as_ref().map(|inferred| {
-        if let Some(next) = inferred.next_update_after {
-            NextRun::after(next)
-        } else {
-            // Keep an infrequent periodic check, just in case our notification mechanism fails
-            NextRun::after_minutes(300)
-        }
-    });
+    let inferred_schema_next = status
+        .inferred_schema
+        .as_ref()
+        .map(|_| NextRun::after_minutes(300));
     coalesce_results(
         state.failures,
         [
@@ -135,7 +140,6 @@ fn collection_published_successfully(
     let inferred_schema_status = status.inferred_schema.get_or_insert_default();
     // Any pending inferred schema update has been handled by the just-committed publication.
     inferred_schema_status.next_md5.take();
-    inferred_schema_status.next_update_after.take();
 
     // We intentionally ignore the collection generation id here. The controller
     // is only responsible for publishing whenever the md5 changes, and we leave
@@ -182,6 +186,13 @@ pub async fn update_inferred_schema<C: ControlPlane>(
     collection_def: &models::CollectionDef,
 ) -> anyhow::Result<bool> {
     publication_status::clear_pending_publication_next_after(&mut collection_status.publications);
+    // Unset the deprecated next_update_after field on all statuses. If we're
+    // still awaiting a cooldown, then we'll set the new `next_after` field on
+    // the publications status.
+    if let Some(inferred_status) = collection_status.inferred_schema.as_mut() {
+        #[allow(deprecated)]
+        inferred_status.next_update_after.take();
+    }
 
     let inferred_schema_status = collection_status
         .inferred_schema

@@ -138,11 +138,18 @@ pub async fn update<C: ControlPlane>(
     // updated_at timestamp of the live spec.
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
-    let activate_result =
-        activation::update_activation(activation, alerts, state, events, control_plane)
-            .await
-            .with_retry(backoff_data_plane_activate(state.failures))
-            .map_err(Into::into);
+    let pending_publish = status.publications.next_after;
+    let activate_result = activation::update_activation(
+        activation,
+        alerts,
+        pending_publish,
+        state,
+        events,
+        control_plane,
+    )
+    .await
+    .with_retry(backoff_data_plane_activate(state.failures))
+    .map_err(Into::into);
 
     let notify_result = publication_status::update_notify_dependents(
         &mut status.publications,

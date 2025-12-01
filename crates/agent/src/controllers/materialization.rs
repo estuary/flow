@@ -27,15 +27,6 @@ pub async fn update<C: ControlPlane>(
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 
-    let MaterializationStatus {
-        activation, alerts, ..
-    } = status;
-    let activation_result =
-        activation::update_activation(activation, alerts, state, events, control_plane)
-            .await
-            .with_retry(backoff_data_plane_activate(state.failures))
-            .map_err(Into::into);
-
     let updated_config_published = config_update::updated_config_publish(
         state,
         &mut status.config_updates,
@@ -83,8 +74,8 @@ pub async fn update<C: ControlPlane>(
             return Ok(pending);
         },
     )
-    .await?;
-    if updated_config_published {
+    .await;
+    if updated_config_published.as_ref().is_ok_and(|r| *r) {
         return Ok(Some(NextRun::immediately()));
     }
 
@@ -93,14 +84,14 @@ pub async fn update<C: ControlPlane>(
         .update(state, control_plane, &mut status.publications, |deleted| {
             Ok(handle_deleted_dependencies(deleted, model.clone()))
         })
-        .await?;
-    if dep_result.is_some() {
+        .await;
+    if dep_result.as_ref().is_ok_and(|d| d.is_some()) {
         return Ok(Some(NextRun::immediately()));
     }
 
     let source_capture_published =
-        source_capture_update(&mut dependencies, status, control_plane, state, model).await?;
-    if source_capture_published {
+        source_capture_update(&mut dependencies, status, control_plane, state, model).await;
+    if source_capture_published.as_ref().is_ok_and(|r| *r) {
         return Ok(Some(NextRun::immediately()));
     }
 
@@ -111,8 +102,33 @@ pub async fn update<C: ControlPlane>(
     }
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
+    let pending_publish = status.publications.next_after;
+    let MaterializationStatus {
+        activation, alerts, ..
+    } = status;
+    let activation_result = activation::update_activation(
+        activation,
+        alerts,
+        pending_publish,
+        state,
+        events,
+        control_plane,
+    )
+    .await
+    .with_retry(backoff_data_plane_activate(state.failures))
+    .map_err(Into::into);
+
     // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-    coalesce_results(state.failures, [periodic_result, activation_result])
+    coalesce_results(
+        state.failures,
+        [
+            periodic_result,
+            activation_result,
+            source_capture_published.map(|_| None),
+            updated_config_published.map(|_| None),
+            dep_result.map(|_| None),
+        ],
+    )
 }
 
 async fn source_capture_update<C: ControlPlane>(
