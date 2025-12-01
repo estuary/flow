@@ -135,7 +135,7 @@ impl PublicationsExecutor {
             %row.logs_token,
             %row.created_at,
             %row.updated_at,
-            %row.data_plane_name,
+            data_plane_name = %row.data_plane_name.as_deref().unwrap_or_default(),
             "processing publication",
         );
 
@@ -168,7 +168,7 @@ impl PublicationsExecutor {
             detail: row.detail.clone(),
             draft,
             verify_user_authz: true,
-            default_data_plane_name: Some(row.data_plane_name.clone()).filter(|s| !s.is_empty()),
+            default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: ExpandDraft {
                 filter_user_has_admin: true,
             },
