@@ -42,7 +42,6 @@ mod test {
     use sqlx::Row;
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn test_cases() {
         let mut harness =
             crate::integration_tests::harness::TestHarness::init("click-to-accept directives")

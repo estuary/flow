@@ -80,6 +80,5 @@ zeroize = { workspace = true }
 assemble = { path = "../assemble" }
 insta = { workspace = true }
 md5 = { workspace = true }
-serial_test = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
