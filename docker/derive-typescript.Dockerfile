@@ -1,6 +1,7 @@
 FROM denoland/deno:distroless-2.5.4
 
-COPY target/x86_64-unknown-linux-musl/release/derive-typescript /
+ARG TARGETARCH
+COPY ${TARGETARCH}/derive-typescript /
 
 USER nobody
 ENV DENO_DIR=/tmp/deno-dir

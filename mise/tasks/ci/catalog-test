@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH=${PATH}:~/cargo-target/debug/:~/cargo-target/$(uname -m)-unknown-linux-musl/debug/ \
+~/go/bin/flowctl-go test --source examples/flow.yaml

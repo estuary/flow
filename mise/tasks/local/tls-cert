@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#MISE description="Generate self-signed TLS certificates"
+
+set -euo pipefail
+
+CA_KEY_PATH="${HOME}/flow-local/ca.key"
+CA_CERT_PATH="${HOME}/flow-local/ca.crt"
+TLS_KEY_PATH="${HOME}/flow-local/server.key"
+TLS_CERT_PATH="${HOME}/flow-local/server.crt"
+
+# Check if certificates already exist
+if [ -f "$TLS_CERT_PATH" ] && [ -f "$TLS_KEY_PATH" ]; then
+    exit 0
+fi
+
+echo "Generating self-signed TLS certificates..."
+
+mkdir -p "${HOME}/flow-local"
+
+# Generate CA certificate (ECDSA P-256)
+openssl req -x509 -nodes -days 3650 \
+    -subj "/C=US/ST=QC/O=Estuary/CN=Estuary Root CA" \
+    -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+    -keyout "$CA_KEY_PATH" \
+    -out "$CA_CERT_PATH"
+
+# Generate server certificate request (ECDSA P-256)
+openssl req -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+    -subj "/C=US/ST=QC/O=Estuary/CN=flow.localhost" \
+    -addext "subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1" \
+    -keyout "$TLS_KEY_PATH" -out "${HOME}/flow-local/server.csr"
+
+# Sign server certificate with CA
+cat > "${HOME}/flow-local/extfile.txt" <<EOF
+subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1
+basicConstraints=CA:FALSE
+EOF
+
+openssl x509 -req -days 365 \
+    -in "${HOME}/flow-local/server.csr" \
+    -CA "$CA_CERT_PATH" \
+    -CAkey "$CA_KEY_PATH" \
+    -CAcreateserial \
+    -out "$TLS_CERT_PATH" \
+    -extfile "${HOME}/flow-local/extfile.txt"
+
+# Cleanup temporary files
+rm -f "${HOME}/flow-local/server.csr" "${HOME}/flow-local/extfile.txt"
+
+echo "Generated TLS certificates:"
+echo "  CA cert: $CA_CERT_PATH"
+echo "  Server cert: $TLS_CERT_PATH"
+echo "  Server key: $TLS_KEY_PATH"

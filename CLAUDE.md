@@ -21,45 +21,20 @@ Flow is built with:
 
 ## Essential Commands
 
-### Build
+### Build & Test
+
+Use regular `cargo` and `go` tools to build and test crates.
 
 ```bash
-# Check specific Rust crate
-cargo check -p $crate_name
-
-# Build specific Rust crate
-cargo build --release --locked -p $crate_name
-
-# Build Go module (use wrapper script for proper CGO flags)
-./go.sh build ./go/$module_name
+# libsqlite3 tag is required for `bindings` and `flowctl-go` packages.
+go build -tags libsqlite3 ./go/bindings
 
 # Regenerate checked-in protobuf (required after .proto changes)
-make go-protobufs rust-protobufs
+mise run go-protobufs
+mise run rust-protobufs
 
-# Project-wide build (SLOW)
-make linux-binaries
-```
-
-Some Go modules link RocksDB or SQLite.
-Use `./go.sh` wrapper to configure proper CGO flags.
-
-### Test
-
-```bash
-# Test specific Rust crate
-cargo test --release --locked -p $crate_name
-
-# Test specific Go module
-./go.sh test ./go/$module_name
-
-# Run pgTAP SQL tests
-./supabase/run_sql_tests.sh
-
-# Test all Rust code (SLOW)
-make rust-gnu-test
-
-# Test all Go code (SLOW)
-make go-test-fast
+# Run pgTAP SQL Tests`
+mise run tap-tests
 
 # E2E tests over derivation examples (SLOW)
 make catalog-test

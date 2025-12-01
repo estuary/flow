@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE hide=true
+
+mise run bootstrap:apt-packages-ci-base
+mise install
+mise run bootstrap:ide-settings
+
+rustup default stable
+
+# Install cockpit for web-based system management.
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cockpit
+# Set user password for cockpit login.
+echo "${USER}:admin" | sudo chpasswd
+
+# Grant the user access to the docker group and systemd journals.
+sudo usermod -aG docker ${USER}
+sudo usermod -aG systemd-journal ${USER}
+
+# Add additional .bashrc configuration if not already present.
+if ! grep -q "mise" "${HOME}/.bashrc"; then
+    cat >> "${HOME}/.bashrc" << 'EOF'
+# Source mise hooks for directory activation and CLI completion.
+source <(~/.local/bin/mise activate bash)
+source <(~/.local/bin/mise completion bash --include-bash-completion-lib)
+
+EOF
+fi
+
+# Create and enable a swapfile.
+sudo fallocate -l 8G /swapfile.img
+sudo chmod 600 /swapfile.img
+sudo mkswap /swapfile.img
+sudo swapon /swapfile.img
+
+# Add swapfile to fstab for persistence across reboots.
+if ! grep -q "/swapfile.img" /etc/fstab; then
+    echo "/swapfile.img none swap sw 0 0" | sudo tee -a /etc/fstab
+fi
+
+# Enable zswap for in-memory LZO compression, with write-behind to the swapfile.
+# Configure via kernel command line for persistence across reboots.
+echo 1 | sudo tee /sys/module/zswap/parameters/enabled
+if ! grep -q "zswap.enabled=1" /etc/default/grub; then
+    sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\([^"]*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 zswap.enabled=1"/' /etc/default/grub
+    sudo update-grub
+fi
+
+# Install idle shutdown mechanism.
+# Files are copied to /tmp/idle-shutdown/ by the create-gcp script.
+if [[ -d /tmp/idle-shutdown ]]; then
+    sudo install -m 755 /tmp/idle-shutdown/idle-shutdown.sh /usr/local/bin/
+    sudo install -m 644 /tmp/idle-shutdown/idle-shutdown.service /etc/systemd/system/
+    sudo install -m 644 /tmp/idle-shutdown/idle-shutdown.timer /etc/systemd/system/
+    sudo mkdir -p /var/lib/idle-shutdown
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now idle-shutdown.timer
+    rm -rf /tmp/idle-shutdown
+fi

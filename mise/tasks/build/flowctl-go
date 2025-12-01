@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+#USAGE flag "--release" help="Link a release build of libbindings.a"
+
+if [ "${usage_release:-false}" = "true" ]; then
+    # Link the release library into place of the debug one.
+    # This is a little janky, but allows CGO_LDFLAGS to remain unchanged.
+    mkdir -p ${CARGO_TARGET_DIR}/debug
+    ln -f ${CARGO_TARGET_DIR}/release/libbindings.a ${CARGO_TARGET_DIR}/debug/libbindings.a
+fi
+
+# Variables which are injected into the flowctl-go binary via -ldflags.
+VERSION=$(git describe --dirty --tags)
+DATE=$(date +%F-%T-%Z)
+
+# The use of -ldflags plays an additional role beyond embedding version info:
+# it forces Go to re-link flowctl-go on every invocation, which is necessary to
+# pick up any changes to the linked libbindings.a. Go's build cache would otherwise
+# skip relinking if no Go source files changed.
+
+go build \
+    -o ${HOME}/go/bin/flowctl-go \
+    -v \
+    -tags libsqlite3 \
+	-ldflags "-X go.gazette.dev/core/mainboilerplate.Version=${VERSION} -X go.gazette.dev/core/mainboilerplate.BuildDate=${DATE}" \
+    ./go/flowctl-go

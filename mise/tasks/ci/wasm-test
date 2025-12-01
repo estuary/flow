@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#USAGE flag "--browser" help="Test using firefox and chrome browsers"
+
+rustup target add wasm32-unknown-unknown
+
+if [ "${usage_browser:-false}" = "true" ]; then
+    RUSTFLAGS="-D warnings" \
+    wasm-pack test --chrome --firefox --headless crates/flow-web
+else
+    RUSTFLAGS="-D warnings" \
+    wasm-pack test --node crates/flow-web
+fi

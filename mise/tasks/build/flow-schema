@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+${CARGO_TARGET_DIR}/debug/flowctl raw json-schema > flow.schema.json

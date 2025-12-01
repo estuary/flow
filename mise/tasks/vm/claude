@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Prepare a VM to run Claude Code"
+#USAGE arg "<hostname>" help="The SSH hostname of the VM into which Claude Code is installed, e.x. lima-dev-one"
+
+HOSTNAME="${usage_hostname:?}"
+
+# Detect host OS
+if [[ "$(uname)" == "Darwin" ]]; then
+    HOST_OS="mac"
+elif [[ "$(uname)" == "Linux" ]]; then
+    HOST_OS="linux"
+else
+    echo "Error: Unsupported host OS: $(uname)"; exit 1
+fi
+
+# Ensure Claude Code is installed within the VM.
+if ssh "${HOSTNAME}" ls .local/bin/claude 2>&1; then
+    echo "Claude Code is already installed in ${HOSTNAME}"
+else
+    echo "Installing Claude Code in VM: ${HOSTNAME}..."
+    ssh "${HOSTNAME}" 'bash -c "curl -fsSL https://claude.ai/install.sh | bash"'
+fi
+
+echo "Ensuring a fresh Claude Code access token"
+~/.claude/local/claude -p "what is 1 + 1?" >/dev/null
+
+echo "Syncing credentials from host to VM..."
+
+# Ensure .claude directory exists in VM
+ssh "${HOSTNAME}" 'mkdir -p ~/.claude'
+
+# Extract and copy credentials based on host OS
+if [[ "${HOST_OS}" == "mac" ]]; then
+    # Extract from macOS Keychain and pipe directly to VM
+    if ! security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | \
+         jq -c 'del(.claudeAiOauth.refreshToken)' | \
+         ssh "${HOSTNAME}" 'cat > ~/.claude/.credentials.json'; then
+        echo "Error: Could not find Claude Code credentials in macOS Keychain"
+        echo "Please ensure you are logged in to Claude Code on the host"
+        exit 1
+    fi
+elif [[ "${HOST_OS}" == "linux" ]]; then
+    # Copy directly from Linux filesystem
+    if ! cat ~/.claude/.credentials.json | \
+         jq -c 'del(.claudeAiOauth.refreshToken)' | \
+         ssh "${HOSTNAME}" 'cat > ~/.claude/.credentials.json'; then
+        echo "Error: Could not find Claude Code credentials at ~/.claude/.credentials.json"
+        echo "Please ensure you are logged in to Claude Code on the host"
+        exit 1
+    fi
+fi
+
+# Copy .claude.json configuration file
+scp ~/.claude.json "${HOSTNAME}:~/.claude.json"
+
+# Set appropriate permissions
+ssh "${HOSTNAME}" 'chmod 700 ~/.claude && chmod 600 ~/.claude/.credentials.json'
+
+echo "Claude Code installed and configured in ${HOSTNAME}"
