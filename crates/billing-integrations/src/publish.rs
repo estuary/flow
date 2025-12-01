@@ -153,8 +153,7 @@ struct Invoice {
     invoice_type: InvoiceType,
     extra: Option<sqlx::types::Json<Option<Extra>>>,
     has_payment_method: Option<bool>,
-    capture_hours: Option<f64>,
-    materialization_hours: Option<f64>,
+    has_full_pipeline: bool,
     payment_provider: PaymentProvider,
     tenant_trial_start: Option<NaiveDate>,
 }
@@ -250,9 +249,7 @@ impl Invoice {
                         return Ok(InvoiceResult::NoDataMoved);
                     }
 
-                    if (self.capture_hours.unwrap_or_default() == 0.0
-                        || self.materialization_hours.unwrap_or_default() == 0.0)
-                        && !matches!(&self.invoice_type, InvoiceType::Manual)
+                    if !self.has_full_pipeline && !matches!(&self.invoice_type, InvoiceType::Manual)
                     {
                         return Ok(InvoiceResult::NoFullPipeline);
                     }
@@ -530,8 +527,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     subtotal::bigint as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
                     customer.has_payment_method as has_payment_method,
-                    dataflow_hours.capture_hours::float as capture_hours,
-                    dataflow_hours.materialization_hours::float as materialization_hours,
+                    coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
                 from invoices_ext
@@ -544,14 +540,15 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                 ) as customer on true
                 left join lateral(
                 	select
-                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,
-                    	sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours
+                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
+                		and sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') > 0
+                		as has_full_pipeline
                     from catalog_stats_monthly
                     join live_specs on live_specs.catalog_name ^@ catalog_stats_monthly.catalog_name
                     where
                     	catalog_stats_monthly.catalog_name = billed_prefix
                     	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
-                ) as dataflow_hours on true
+                ) as dataflow on true
                 where ((
                     date_start >= date_trunc('day', $1::date)
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
@@ -581,8 +578,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     subtotal::bigint as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
                     customer.has_payment_method as has_payment_method,
-                    dataflow_hours.capture_hours::float as capture_hours,
-                    dataflow_hours.materialization_hours::float as materialization_hours,
+                    coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
                 from invoices_ext
@@ -595,14 +591,15 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                 ) as customer on true
                 left join lateral(
                 	select
-                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') / (60.0 * 60) as capture_hours,
-                    	sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') / (60.0 * 60)  as materialization_hours
+                		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
+                		and sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'materialization') > 0
+                		as has_full_pipeline
                     from catalog_stats_monthly
                     join live_specs on live_specs.catalog_name ^@ catalog_stats_monthly.catalog_name
                     where
                     	catalog_stats_monthly.catalog_name = billed_prefix
                     	and tstzrange(date_trunc('day', $1::date), date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day') @> catalog_stats_monthly.ts
-                ) as dataflow_hours on true
+                ) as dataflow on true
                 where (
                     date_start >= date_trunc('day', $1::date)
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
