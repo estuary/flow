@@ -89,6 +89,7 @@ pub async fn provision_tenant(
             from data_planes
             where starts_with(data_plane_name, 'ops/dp/public/')
             and data_plane_name <> 'ops/dp/public/gcp-us-central1-c1'
+            and data_plane_name <> 'ops/dp/public/gcp-us-central1-c2'
         ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
