@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rustup target add $(uname -m)-unknown-linux-musl
+
+FLOW_VERSION=$(git describe --dirty --tags) \
+cargo build \
+    --locked \
+    --release \
+    --target $(uname -m)-unknown-linux-musl \
+    -p connector-init \
+    -p derive-python \
+    -p derive-typescript \
+    -p parser \
+    -p schemalate \

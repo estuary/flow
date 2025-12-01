@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+#MISE description="SSH to a remote host (or VM) and forward all Estuary platform ports"
+#USAGE arg "<hostname>" help="The hostname of host to SSH to (e.x. 'lima-dev')"
+
+echo "Port forwarding to host '${usage_hostname:?}'. Press Ctrl+C to terminate."
+echo "  PostgREST API:          http://localhost:5431"
+echo "  Postgres DB:            http://localhost:5432"
+echo "  Supabase Studio:        http://localhost:5433"
+echo "  Mailpit (email login):  http://localhost:5434"
+echo "  Cockpit Systemd UI:     http://localhost:9090"
+echo "  Broker (example):       https://broker-local-cluster.flow.localhost:8000/"
+echo "  Reactor (example):      https://reactor-local-cluster.flow.localhost:8099/"
+
+C=''
+
+ssh ${usage_hostname:?} \
+    -N ${C# Do not execute remote command (just forward ports)} \
+    \
+    ${C# Supabase } \
+    -L 5431:localhost:5431 ${C# PostgREST API} \
+    -L 5432:localhost:5432 ${C# Postgres DB} \
+    -L 5433:localhost:5433 ${C# Studio} \
+    -L 5434:localhost:5434 ${C# Mailpit} \
+    ${C# local-cluster Data Plane} \
+    -L 8000:localhost:8000 ${C# gazette 1} \
+    -L 8001:localhost:8001 ${C# gazette 2} \
+    -L 8002:localhost:8002 ${C# gazette 3} \
+    -L 8003:localhost:8003 ${C# gazette 4} \
+    -L 8098:localhost:8098 ${C# reactor 2} \
+    -L 8099:localhost:8099 ${C# reactor 1} \
+    ${C# Control Plane} \
+    -L 8675:localhost:8675 ${C# Control-plane agent} \
+    -L 8765:localhost:8765 ${C# Control-plane config-encryption} \
+    ${C# Cockpit Systemd UI} \
+    -L 9090:localhost:9090 \
+    ${C# Reserved for Secondary Data Plane} \
+    -L 10000:localhost:10000 \
+    -L 10001:localhost:10001 \
+    -L 10002:localhost:10002 \
+    -L 10003:localhost:10003 \
+    -L 10098:localhost:10098 \
+    -L 10099:localhost:10099 \
+    ${C# Reserved for Tertiary Data Plane} \
+    -L 10100:localhost:10100 \
+    -L 10101:localhost:10101 \
+    -L 10102:localhost:10102 \
+    -L 10103:localhost:10103 \
+    -L 10198:localhost:10198 \
+    -L 10199:localhost:10199 \

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Stop all Flow development services"
+
+set -euo pipefail
+
+echo "Stopping all flow-* systemd services..."
+systemctl --user stop 'flow-*' 2>/dev/null || true
+
+# Clean up linked and generated systemd files.
+rm -r "${HOME}/.config/systemd/user" || true
+# Clean up control plane builds.
+rm -r "${HOME}/flow-local/builds/" || true
+# Clean up environment files generated for systemd units.
+rm -r "${HOME}/flow-local/env" || true
+# Clean up Etcd data directory.
+rm -r "${HOME}/flow-local/etcd/" || true
+# Clean up gazette journal fragments.
+rm -r "${HOME}/flow-local/fragments/" || true
+
+# Reload to drop unit files.
+systemctl --user daemon-reload
+# Reset failed units to clear their state.
+systemctl --user reset-failed flow-*
+
+echo "All Flow services stopped."
+echo "Check remaining services with: systemctl --user list-units 'flow-*'"

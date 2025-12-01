@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cargo build \
+    --locked \
+    -p bindings \
+    -p flowctl \

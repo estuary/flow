@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Generate Rust flow-client GraphQL schema"
+
+cargo build -p flow-client --all-features

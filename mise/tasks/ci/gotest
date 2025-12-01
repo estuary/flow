@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+GORACE="halt_on_error=1" \
+PATH=${PATH}:~/cargo-target/debug/:~/cargo-target/$(uname -m)-unknown-linux-musl/debug/ \
+go test -tags libsqlite3 --race --count=5 --failfast ./go/...
