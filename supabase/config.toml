@@ -65,3 +65,15 @@ secret = ""
 # Bypass the check for a valid JWT in the Authorization header of a request
 # for the alert-data-processing edge function.
 verify_jwt = false
+
+[storage]
+# The storage backend is used for storing large objects like images and videos.
+enabled = false
+
+[realtime]
+# Realtime is used for subscribing to changes in your database.
+enabled = false
+
+[analytics]
+# Analytics is used for tracking usage and performance metrics.
+enabled = false
