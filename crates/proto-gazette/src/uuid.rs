@@ -266,7 +266,7 @@ mod test {
             Error::UUIDParse(s, _) if s == "not-a-uuid"
         ));
 
-        let err = parse(::uuid::Uuid::new_v4()).unwrap_err();
+        let err = parse(::uuid::Uuid::nil()).unwrap_err();
         assert!(matches!(err, Error::UUIDNotV1(_)));
     }
 }
