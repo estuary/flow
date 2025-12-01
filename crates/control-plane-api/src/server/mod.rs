@@ -263,7 +263,13 @@ pub fn build_router(
     .map(|h| h.parse().unwrap())
     .collect::<Vec<_>>();
 
+    // Sets the Access-Control-Max-Age header to 1 hour, to allow browsers to
+    // avoid making a ton of extra pre-flight requests. We don't change this
+    // often, so 1 hour seemed like a reasonable bound on when clients would
+    // observe any changes to cors. Max supported by chome is 2 hours.
+    let cors_max_age = std::time::Duration::from_secs(60 * 60 * 1);
     let cors = tower_http::cors::CorsLayer::new()
+        .max_age(cors_max_age)
         .allow_methods(tower_http::cors::AllowMethods::mirror_request())
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
