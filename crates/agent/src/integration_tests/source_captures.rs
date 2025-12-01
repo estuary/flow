@@ -5,7 +5,6 @@ use models::Id;
 use uuid::Uuid;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_source_captures() {
     let mut harness = TestHarness::init("test_source_captures").await;
 
@@ -186,7 +185,6 @@ async fn test_source_captures() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_source_captures_collection_name() {
     let mut harness = TestHarness::init("test_source_captures_collection_name").await;
 
@@ -346,7 +344,6 @@ async fn test_source_captures_collection_name() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_source_capture_no_annotations() {
     let harness = TestHarness::init("test_source_capture_no_annotations").await;
     let user_id = harness.setup_tenant("sheep").await;

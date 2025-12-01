@@ -3,7 +3,6 @@ use models::status::ControllerStatus;
 use std::collections::BTreeSet;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn specs_are_published_periodically() {
     let mut harness = TestHarness::init("specs_are_published_periodically").await;
 
