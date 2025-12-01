@@ -1,37 +1,4 @@
 {
-    "files.watcherExclude": {
-        "**/.build/**": true,
-        "**/target/**": true
-    },
-    "yaml.schemas": {
-        "https://json-schema.org/draft/2019-09/schema": [
-            "schema.yaml",
-            "*.schema.yaml"
-        ]
-    },
-    "sqltools.format": {
-        "linesBetweenQueries": 2,
-        "reservedWordCase": "upper",
-        "language": "sql"
-    },
     "files.trimTrailingWhitespace": true,
     "editor.formatOnSave": true,
-    "cSpell.words": [
-        "airbyte",
-        "Firebolt",
-        "schemalate"
-    ],
-    "[sql]": {
-        // Disable SQL formatting because it's - frankly - terrible.
-        "editor.formatOnSave": false
-    },
-    "[typescript]": {
-        "editor.formatOnSave": true,
-        "editor.defaultFormatter": "denoland.vscode-deno"
-    },
-    "deno.enablePaths": ["./supabase/functions"],
-    "deno.config": "./deno.jsonc",
-    "deno.lint": true,
-    "deno.path": ".build/package/bin/deno",
-    "rust-analyzer.imports.group.enable": false
 }
