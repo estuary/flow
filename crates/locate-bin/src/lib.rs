@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::path::PathBuf;
 use which::which;
 
@@ -13,7 +14,9 @@ pub fn locate(binary: &str) -> anyhow::Result<PathBuf> {
 
     // Fall back to the $PATH.
     if !bin.exists() {
-        bin = which(binary)?;
+        bin = which(binary).with_context(|| {
+            format!("failed to locate '{binary}' alongside '{this_program}' or on the $PATH")
+        })?;
     } else {
         bin = bin.canonicalize().unwrap();
     }

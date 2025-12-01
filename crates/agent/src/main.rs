@@ -35,9 +35,6 @@ struct Args {
     /// Docker network for connector invocations.
     #[clap(long = "connector-network", default_value = "bridge")]
     connector_network: String,
-    /// Path to binaries like `flowctl`.
-    #[clap(long = "bin-dir", env = "BIN_DIR")]
-    bindir: String,
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
@@ -157,11 +154,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         .await
         .context("failed to bind server port")?;
 
-    let bindir = std::fs::canonicalize(args.bindir)
-        .context("canonicalize --bin-dir")?
-        .into_os_string()
-        .into_string()
-        .expect("os path must be utf8");
+    let flowctl_go = locate_bin::locate("flowctl-go")?;
 
     // The HOSTNAME variable will be set to the name of the pod in k8s
     let application_name = std::env::var("HOSTNAME").unwrap_or_else(|_| "agent".to_string());
@@ -246,7 +239,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let id_gen = models::IdGenerator::new(id_gen_shard);
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(
-        &bindir,
+        flowctl_go,
         &args.builds_root,
         &args.connector_network,
         &logs_tx,
