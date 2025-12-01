@@ -1,0 +1,8 @@
+[Unit]
+Description=Check for idle state and shutdown if inactive
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/local/bin/idle-shutdown.sh

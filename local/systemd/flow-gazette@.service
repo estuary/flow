@@ -1,0 +1,19 @@
+[Unit]
+Description=Flow Broker (%i)
+Documentation=https://github.com/estuary/flow
+After=flow-etcd.service
+
+[Service]
+Type=simple
+TimeoutStartSec=600
+
+# Load instance-specific environment
+# Instance format: <cluster>-<port> (e.g., foobar-8080)
+EnvironmentFile=%h/flow-local/env/common.env
+EnvironmentFile=%h/flow-local/env/gazette-%i.env
+
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/gazette'
+ExecStart=%h/go/bin/gazette serve
+
+Restart=on-failure
+RestartSec=5s

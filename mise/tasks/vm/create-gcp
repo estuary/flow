@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Create a development VM within GCP for a project"
+#USAGE arg "<project_name>" help="Short name of the development project (for example, 'one' or '$feature-name')"
+#USAGE flag "--project <project>" help="GCP project ID" default="estuary-theatre"
+#USAGE flag "--zone <zone>" help="Zone in which to create the VM" default="us-central1-a"
+#USAGE flag "--machine-type <machine_type>" help="GCP machine type" default="c4-highcpu-8"
+#USAGE flag "--image-family <image_family>" help="GCP machine image" default="ubuntu-2404-lts-amd64"
+
+ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)")
+USERNAME="${ACCOUNT%%@*}"
+
+# Derive a deterministic instance name: dev-<user>-<project-name>
+INSTANCE_NAME="dev-${USERNAME}-${usage_project_name:?}"
+
+# Validate ssh-agent is running and has keys
+if ! ssh-add -L &>/dev/null; then
+  echo "ERROR: No SSH keys found in ssh-agent." >&2
+  echo "Please run 'ssh-add' to add your keys before creating a VM." >&2
+  echo "" >&2
+  echo "Example: ssh-add ~/.ssh/id_ed25519" >&2
+  exit 1
+fi
+
+# Extract public keys from ssh-agent for instance metadata
+# Format: username:ssh-key-type key-data comment
+SSH_KEYS=$(ssh-add -L | sed "s/^/${USERNAME}:/")
+
+echo "Using SSH keys from agent:"
+ssh-add -l | sed 's/^/  - /'
+echo ""
+
+gcloud compute instances create ${INSTANCE_NAME} \
+  --project ${usage_project:?} \
+  --zone ${usage_zone:?} \
+  --machine-type ${usage_machine_type:?} \
+  --image-family ${usage_image_family:?} \
+  --image-project ubuntu-os-cloud \
+  --network-interface subnet=default \
+  --metadata ssh-keys="${SSH_KEYS}" \
+  --tags dev-vm \
+  --labels dev-vm=true,owner=${USERNAME} \
+  --boot-disk-size 128GB \
+  --boot-disk-type hyperdisk-balanced \
+
+# Add additional ssh configuration if not already present.
+if ! grep -q gcp-vms ~/.ssh/config; then
+    # Prepend to ssh config file, as it's sensitive to Host or Match directives.
+    # We use a temp file for portability across macOS and Linux.
+    TMP_SSH_CONFIG=$(mktemp)
+    cat > "${TMP_SSH_CONFIG}" <<EOF
+# Include GCP VM SSH configurations.
+Include ~/.ssh/gcp-vms/*.config
+
+EOF
+    cat ~/.ssh/config >> "${TMP_SSH_CONFIG}"
+    mv "${TMP_SSH_CONFIG}" ~/.ssh/config
+fi
+
+# Write an ssh config file to ~/.ssh/gcp-vms/${INSTANCE_NAME}.config
+mkdir -p ~/.ssh/gcp-vms/
+cat > ~/.ssh/gcp-vms/${INSTANCE_NAME}.config <<EOF
+Host ${INSTANCE_NAME}
+  ControlMaster auto
+  ControlPath ~/.ssh/mux-${INSTANCE_NAME}.sock
+  ControlPersist 20m
+  ForwardAgent true
+  HostName ${INSTANCE_NAME}
+  ServerAliveCountMax 3
+  ServerAliveInterval 30
+  User ${USERNAME}
+  UserKnownHostsFile ~/.ssh/gcp-vms/hosts
+  StrictHostKeyChecking accept-new
+  CheckHostIP no
+  ProxyCommand bash -c 'gcloud compute instances start ${INSTANCE_NAME} --project=${usage_project:?} --zone=${usage_zone:?} 2>/dev/null; gcloud compute start-iap-tunnel ${INSTANCE_NAME} %p --listen-on-stdin --project=${usage_project:?} --zone=${usage_zone:?}'
+EOF
+
+MAX_ATTEMPTS=36  # 36 * 5 seconds = 3 minutes
+ATTEMPT=0
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+  ATTEMPT=$((ATTEMPT + 1))
+  echo "Connecting to ${INSTANCE_NAME} (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
+
+  if ssh -o BatchMode=yes ${INSTANCE_NAME} exit; then
+    break
+  else
+    sleep 5
+  fi
+done
+
+if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+  echo "ERROR: Failed to connect to ${INSTANCE_NAME} after $MAX_ATTEMPTS attempts" >&2
+  exit 1
+fi
+
+ssh ${INSTANCE_NAME} <<EOF
+# Install mise.
+curl -v https://mise.run | sh
+EOF
+
+# Copy idle shutdown files to VM.
+scp -r mise/tasks/vm/files ${INSTANCE_NAME}:/tmp/idle-shutdown
+
+# Use a second shell, so that mise is now on the PATH.
+ssh ${INSTANCE_NAME} <<EOF
+mkdir -p ~/estuary
+pushd ~/estuary
+
+# Check out the flow repository.
+GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+git clone git@github.com:estuary/flow.git
+pushd flow
+
+# Attempt to switch to the host's current branch.
+# Don't fail if it doesn't exist (use the primary branch instead).
+git checkout $(git branch --show-current) || true
+
+# Boostrap the VM environment.
+~/.local/bin/mise trust .
+~/.local/bin/mise run vm:create-post
+EOF
+
+# Tear down the mux so the next connection picks up new group memberships.
+ssh -O exit ${INSTANCE_NAME} 2>/dev/null || true
+
+cat <<EOF
+Your VM ${INSTANCE_NAME} is ready.
+
+Connect:
+    ssh ${INSTANCE_NAME}
+
+EOF
