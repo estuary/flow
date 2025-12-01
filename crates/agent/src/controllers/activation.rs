@@ -60,6 +60,7 @@ const ALERT_AFTER_SHARD_FAILURES: std::sync::LazyLock<u32> = std::sync::LazyLock
 pub async fn update_activation<C: ControlPlane>(
     status: &mut ActivationStatus,
     alerts_status: &mut Alerts,
+    next_pending_pub: Option<chrono::DateTime<chrono::Utc>>,
     state: &ControllerState,
     events: &Inbox,
     control_plane: &C,
@@ -81,166 +82,37 @@ pub async fn update_activation<C: ControlPlane>(
                 "ignoring shard failures, activating a new build"
             );
         };
-        do_activate(now, state, status, control_plane).await?;
-        let has_task_shards = has_task_shards(state);
-        if has_task_shards {
-            // Reset the shard health status, as we'll need to await another successful check.
-            status.shard_status = Some(ShardStatusCheck {
-                count: 0,
-                first_ts: now,
-                last_ts: now,
-                status: ShardsStatus::Pending,
-            });
-        } else {
-            // Clear an existing shard status in case the spec has transitioned
-            // to no longer having shards.
-            status.shard_status.take();
-            // Resolve any open shard failed alerts that may be firing.
-            alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
-        }
-        // Delete any shard failure records from previous builds. This effectively resets
-        // the retry backoff for any failures that happen after this activation.
-        control_plane
-            .delete_shard_failures(
-                state.catalog_name.clone(),
-                status.last_activated,
-                failure_retention_threshold,
-            )
-            .await?;
-        status.recent_failure_count = 0;
-        // We'll check again soon to see whether the shard is actually up
-        return Ok(
-            has_task_shards.then_some(NextRun::from_duration(shard_health_check_interval(
-                state,
-                0,
-                ShardsStatus::Pending,
-            ))),
-        );
+        return activate_new_build(
+            status,
+            alerts_status,
+            state,
+            control_plane,
+            now,
+            failure_retention_threshold,
+        )
+        .await;
     }
 
     // Update our shard failure information. We can skip this if we know that there's
     // been no recent failures.
     if observed_shard_failures > 0 || status.recent_failure_count > 0 {
-        // Delete any shard failure records that are from previous builds, or that are too old.
-        control_plane
-            .delete_shard_failures(
-                state.catalog_name.clone(),
-                status.last_activated,
-                failure_retention_threshold,
-            )
-            .await?;
-
-        // Fetch the set of recent shard failures, and determine
-        // an appropriate time to re-activate any failed shards.
-        let failures = control_plane
-            .get_shard_failures(state.catalog_name.clone())
-            .await?;
-        status.recent_failure_count = failures
-            .iter()
-            .filter(|f| {
-                f.shard.build == status.last_activated && f.ts > failure_retention_threshold
-            })
-            .count() as u32;
-
-        // Determine a time for the next restart attempt. If we've already
-        // determined a `next_retry` time, then we won't push it back in
-        // response to additional failures. This ensures that we won't backoff
-        // indefinitely. Note that this could return `now` in order to restart
-        // failed shards immediately.
-        if observed_shard_failures > 0 && status.next_retry.is_none() {
-            let next = if is_ops_catalog_task(state) {
-                tracing::info!("restarting failed ops catalog task shards");
-                now // always retry ops catalog shards immediately
-            } else {
-                get_next_retry_time(now, &failures)
-            };
-            status.next_retry = Some(next);
-        }
-
-        // Update the `last_failure` status field
-        if let Some(latest) = failures.iter().max_by_key(|f| f.ts) {
-            let last_failure_ts = status
-                .last_failure
-                .as_ref()
-                .map(|f| f.ts)
-                .unwrap_or(DateTime::<Utc>::MIN_UTC);
-            if latest.ts > last_failure_ts {
-                status.last_failure = Some(latest.clone());
-            } else {
-                // This just means that we observed an out of order failure event, which is fine.
-                tracing::debug!(
-                    last_failure = ?status.last_failure,
-                    latest_event = ?latest,
-                    event_count = failures.len(),
-                    "shard failure event received out of order (this is ok)");
-            }
-        }
-
-        if observed_shard_failures > 0 {
-            // If we've just observed a shard failure, then update the shard status to reflect that
-            if let Some(shards_status) = status.shard_status.as_mut() {
-                if shards_status.status == ShardsStatus::Failed {
-                    shards_status.count += 1;
-                    shards_status.last_ts = now;
-                } else {
-                    tracing::debug!(prev_status = ?shards_status, "updating shard_status to Failed due to ShardFailed event");
-                    *shards_status = ShardStatusCheck {
-                        first_ts: now,
-                        last_ts: now,
-                        status: ShardsStatus::Failed,
-                        count: 0,
-                    }
-                }
-            }
-
-            // And possibly trigger an alert
-            if let Some(spec_type) = state
-                .live_spec
-                .as_ref()
-                .map(|s| s.catalog_type())
-                .filter(|_| status.recent_failure_count >= *ALERT_AFTER_SHARD_FAILURES)
-            {
-                // last_failure should always be present, but this just prevents
-                // things from blowing up if someone were to manually edit the
-                // controller status, or if the status was last serialized by a
-                // different version of the agent.
-                // We prefer `fields.error` over `message` because it provides
-                // more detailed information about the failure. The error
-                // _should_ always be present, but is not technically required
-                // by the schema, so this is another bit of defensive programming.
-                let (last_error, last_message) = status
-                    .last_failure
-                    .as_ref()
-                    .map(|f| {
-                        (
-                            f.ts,
-                            f.fields
-                                .get("error")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(f.message.as_str()),
-                        )
-                    })
-                    .unwrap_or((now, "Unknown"));
-                let error = format!(
-                    "Observed {} recent task shard failures, the latest at {}. Last failure:\n{}",
-                    status.recent_failure_count, last_error, last_message
-                );
-
-                alerts::set_alert_firing(
-                    alerts_status,
-                    AlertType::ShardFailed,
-                    now,
-                    error,
-                    status.recent_failure_count,
-                    spec_type,
-                );
-            }
-        }
+        handle_shard_failures(
+            status,
+            alerts_status,
+            state,
+            control_plane,
+            now,
+            failure_retention_threshold,
+            observed_shard_failures,
+            next_pending_pub,
+        )
+        .await?;
     }
 
     if let Some(rt) = status.next_retry {
         if rt <= now {
             tracing::info!(
+                retry_after = %rt,
                 recent_failure_count = status.recent_failure_count,
                 "restarting failed task shards"
             );
@@ -280,6 +152,181 @@ pub async fn update_activation<C: ControlPlane>(
         alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
     }
     Ok(next_status_check)
+}
+
+async fn handle_shard_failures<C: ControlPlane>(
+    status: &mut ActivationStatus,
+    alerts_status: &mut std::collections::BTreeMap<AlertType, status::ControllerAlert>,
+    state: &ControllerState,
+    control_plane: &C,
+    update_started_at: DateTime<Utc>,
+    failure_retention_threshold: DateTime<Utc>,
+    observed_shard_failures: usize,
+    next_pending_pub: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<(), anyhow::Error> {
+    control_plane
+        .delete_shard_failures(
+            state.catalog_name.clone(),
+            status.last_activated,
+            failure_retention_threshold,
+        )
+        .await?;
+    let failures = {
+        let mut all_failures = control_plane
+            .get_shard_failures(state.catalog_name.clone())
+            .await?;
+        // Filter these again, just in case there was a raced insertion of
+        // failure events that happened just after we deleted the old ones.
+        all_failures.retain(|f| {
+            f.shard.build == status.last_activated && f.ts > failure_retention_threshold
+        });
+        all_failures
+    };
+    status.recent_failure_count = failures.len() as u32;
+
+    // If we've just observed a shard failure and we haven't already determined
+    // the time of the next retry, then determine that now.
+    if observed_shard_failures > 0 && status.next_retry.is_none() {
+        // If we're waiting on a cooldown before publishing the spec, then don't restart the task
+        // shards until after the spec is published. Not always, but often if the controller needs
+        // to publish the spec, then that publication is actually necessary in order to fix the
+        // failure condition. We add some extra time to this in order to ensure that any necessary
+        // publication would be attempted before we try restarting the shard. In the common case,
+        // that publication will succeed, and then the _new_ build will be activated immediately.
+        // In case that publication fails, we'll still attempt to restart the failed shards, though.
+        let earliest_restart = next_pending_pub
+            .map(|next_after| next_after + chrono::Duration::minutes(2))
+            .unwrap_or(update_started_at);
+
+        let next = if is_ops_catalog_task(state) {
+            tracing::info!("restarting failed ops catalog task shards");
+            update_started_at.max(earliest_restart) // always retry ops catalog shards ASAP
+        } else {
+            get_next_retry_time(update_started_at, earliest_restart, &failures)
+        };
+
+        status.next_retry = Some(next);
+    }
+    if let Some(latest) = failures.iter().max_by_key(|f| f.ts) {
+        let last_failure_ts = status
+            .last_failure
+            .as_ref()
+            .map(|f| f.ts)
+            .unwrap_or(DateTime::<Utc>::MIN_UTC);
+        if latest.ts > last_failure_ts {
+            status.last_failure = Some(latest.clone());
+        } else {
+            // This just means that we observed an out of order failure event, which is fine.
+            tracing::debug!(
+                last_failure = ?status.last_failure,
+                latest_event = ?latest,
+                event_count = failures.len(),
+                "shard failure event received out of order (this is ok)");
+        }
+    }
+    if observed_shard_failures > 0 {
+        // If we've just observed a shard failure, then update the shard status to reflect that
+        if let Some(shards_status) = status.shard_status.as_mut() {
+            if shards_status.status == ShardsStatus::Failed {
+                shards_status.count += 1;
+                shards_status.last_ts = update_started_at;
+            } else {
+                tracing::debug!(prev_status = ?shards_status, "updating shard_status to Failed due to ShardFailed event");
+                *shards_status = ShardStatusCheck {
+                    first_ts: update_started_at,
+                    last_ts: update_started_at,
+                    status: ShardsStatus::Failed,
+                    count: 0,
+                }
+            }
+        }
+
+        // And possibly trigger an alert
+        if let Some(spec_type) = state
+            .live_spec
+            .as_ref()
+            .map(|s| s.catalog_type())
+            .filter(|_| status.recent_failure_count >= *ALERT_AFTER_SHARD_FAILURES)
+        {
+            // last_failure should always be present, but this just prevents
+            // things from blowing up if someone were to manually edit the
+            // controller status, or if the status was last serialized by a
+            // different version of the agent.
+            // We prefer `fields.error` over `message` because it provides
+            // more detailed information about the failure. The error
+            // _should_ always be present, but is not technically required
+            // by the schema, so this is another bit of defensive programming.
+            let (last_error, last_message) = status
+                .last_failure
+                .as_ref()
+                .map(|f| {
+                    (
+                        f.ts,
+                        f.fields
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(f.message.as_str()),
+                    )
+                })
+                .unwrap_or((update_started_at, "Unknown"));
+            let error = format!(
+                "Observed {} recent task shard failures, the latest at {}. Last failure:\n{}",
+                status.recent_failure_count, last_error, last_message
+            );
+
+            alerts::set_alert_firing(
+                alerts_status,
+                AlertType::ShardFailed,
+                update_started_at,
+                error,
+                status.recent_failure_count,
+                spec_type,
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn activate_new_build<C: ControlPlane>(
+    status: &mut ActivationStatus,
+    alerts_status: &mut std::collections::BTreeMap<AlertType, status::ControllerAlert>,
+    state: &ControllerState,
+    control_plane: &C,
+    update_started_at: DateTime<Utc>,
+    failure_retention_threshold: DateTime<Utc>,
+) -> Result<Option<NextRun>, anyhow::Error> {
+    do_activate(update_started_at, state, status, control_plane).await?;
+    let has_task_shards = has_task_shards(state);
+    if has_task_shards {
+        // Reset the shard health status, as we'll need to await another successful check.
+        status.shard_status = Some(ShardStatusCheck {
+            count: 0,
+            first_ts: update_started_at,
+            last_ts: update_started_at,
+            status: ShardsStatus::Pending,
+        });
+    } else {
+        // Clear an existing shard status in case the spec has transitioned
+        // to no longer having shards.
+        status.shard_status.take();
+        // Resolve any open shard failed alerts that may be firing.
+        alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
+    }
+    control_plane
+        .delete_shard_failures(
+            state.catalog_name.clone(),
+            status.last_activated,
+            failure_retention_threshold,
+        )
+        .await?;
+    status.recent_failure_count = 0;
+    Ok(
+        has_task_shards.then_some(NextRun::from_duration(shard_health_check_interval(
+            state,
+            0,
+            ShardsStatus::Pending,
+        ))),
+    )
 }
 
 fn should_resolve_alert(
@@ -554,7 +601,11 @@ fn shard_health_check_interval(
     duration.min(max_duration)
 }
 
-fn get_next_retry_time(now: DateTime<Utc>, failures: &[ShardFailure]) -> DateTime<Utc> {
+fn get_next_retry_time(
+    now: DateTime<Utc>,
+    earliest_allowed: DateTime<Utc>,
+    failures: &[ShardFailure],
+) -> DateTime<Utc> {
     use itertools::Itertools;
 
     // Divide the total number of failures by the number of unique shards that
@@ -567,7 +618,7 @@ fn get_next_retry_time(now: DateTime<Utc>, failures: &[ShardFailure]) -> DateTim
         .unique_by(|f| (f.shard.key_begin.as_str(), f.shard.r_clock_begin.as_str()))
         .count();
     let consecutive_failures = (failures.len() as f32 / shard_count as f32).ceil() as u32;
-    let next = match consecutive_failures {
+    let backoff_time = match consecutive_failures {
         0..=2 => now,
         moar => {
             // Limit the backoff to at most 15 minutes, since we don't yet have
@@ -580,8 +631,11 @@ fn get_next_retry_time(now: DateTime<Utc>, failures: &[ShardFailure]) -> DateTim
             now + backoff
         }
     };
+    let next = backoff_time.max(earliest_allowed);
+
     tracing::info!(
         ?next,
+        ?earliest_allowed,
         %now,
         %consecutive_failures,
         %shard_count,
@@ -858,7 +912,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let now: DateTime<Utc> = "2024-04-05T08:07:08.09Z".parse().unwrap();
-        let next = get_next_retry_time(now, &shard_failures);
+        let next = get_next_retry_time(now, now, &shard_failures);
         next - now
     }
 }

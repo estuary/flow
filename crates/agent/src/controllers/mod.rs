@@ -548,7 +548,6 @@ async fn controller_update<C: ControlPlane>(
 
 #[cfg(test)]
 mod test {
-    use control_plane_api::server::public;
     use models::status::publications::PUBLICATION_COOLDOWN_ERROR;
 
     use super::*;
