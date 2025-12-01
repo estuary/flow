@@ -114,11 +114,11 @@ fn do_spec() {
     let mut schema = ParseConfig::json_schema();
     let obj = schema.as_object_mut().unwrap();
 
-    // Add a UUID as the $id of the schema. This allows the resulting schema to be nested within
+    // Add a canonical $id of the schema. This allows the resulting schema to be nested within
     // other schemas, since any $ref uris will be resolved relative to the $id.
     obj.insert(
         "$id".to_string(),
-        serde_json::Value::String(format!("uuid://{}", uuid::Uuid::new_v4())),
+        serde_json::Value::String("flow://parser-config-schema".to_string()),
     );
     // Add the "advanced" annotation to the schema, so that the configuration UI will collapse this
     // by default.
