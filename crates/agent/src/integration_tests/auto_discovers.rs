@@ -8,7 +8,6 @@ use proto_flow::capture::response::{Discovered, discovered::Binding};
 use serde_json::json;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_auto_discovers_add_new_bindings() {
     let mut harness = TestHarness::init("test_auto_discovers_new").await;
 
@@ -338,7 +337,6 @@ async fn test_auto_discovers_add_new_bindings() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_auto_discovers_no_evolution() {
     let mut harness = TestHarness::init("test_auto_discovers_no_evolution").await;
 
@@ -578,7 +576,6 @@ async fn test_auto_discovers_no_evolution() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_auto_discovers_update_only() {
     let mut harness = TestHarness::init("test_auto_discovers_update_only").await;
 
