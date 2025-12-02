@@ -19,6 +19,7 @@ use snapshot::Snapshot;
 
 pub use error::{ApiError, ApiErrorExt};
 
+// A test comment
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
 #[derive(Debug, Clone, Copy, Default)]
