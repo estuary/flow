@@ -4,8 +4,8 @@ use proto_gazette::consumer;
 mod capture;
 mod derive;
 pub mod fixture;
-pub mod streaming_fixture;
 mod materialize;
+pub mod streaming_fixture;
 
 // Routines for building test harness of captures, derivations,
 // and materializations. All test harnesses have the same basic
