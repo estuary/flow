@@ -42,8 +42,8 @@ While your dashboard is the best location to find accurate, up-to-date IP addres
 
 **AWS `us-west-2 c1`:**
 
-- `44.242.118.196/32`
-- `44.250.84.6/32`
+- `34.213.10.188/32`
+- `52.34.175.198/32`
 
 ### Europe
 
