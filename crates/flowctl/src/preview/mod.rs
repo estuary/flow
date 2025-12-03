@@ -43,17 +43,9 @@ pub struct Preview {
     sessions: Option<Vec<isize>>,
     /// Path to a transactions fixture to use, instead of reading live collections.
     /// Fixtures are used only for derivations and materializations.
-    /// They are a JSON array, one item per transaction, of arrays of tuples specifying
-    /// a "read" source collection and its document. For example:
-    /// [
-    ///     [
-    ///         ["collection/one", {"foo": 1}],
-    ///         ["collection/two", {"bar": 2}]
-    ///     ],
-    ///     [
-    ///         ["collection/one", {"foo": 2}]
-    ///     ]
-    /// ]
+    /// The fixture format is newline-delimited JSON where each line is either a
+    /// document ["collection/name", {...document...}] or an ack marker {"ack": true}
+    /// denoting a transaction boundary.
     #[clap(long)]
     fixture: Option<String>,
     /// Docker network to run connector images.
@@ -124,15 +116,12 @@ impl Preview {
         };
 
         // Parse a provided data fixture.
-        let fixture_reader = if let Some(fixture) = fixture {
-            let fixture = std::fs::read(fixture).context("couldn't open fixture file")?;
-            let fixture: runtime::harness::fixture::Fixture =
-                serde_json::from_slice(&fixture).context("couldn't parse fixture")?;
-
-            Some(runtime::harness::fixture::Reader(fixture))
-        } else {
-            None
-        };
+        let fixture_reader =
+            fixture.as_ref().map(
+                |fixture| runtime::harness::streaming_fixture::StreamingReader {
+                    path: std::path::PathBuf::from(fixture),
+                },
+            );
         let journal_reader = journal_reader::Reader::new(&ctx.client, delay);
 
         let initial_state =
