@@ -257,7 +257,7 @@ To configure this option:
 
 4. Fill out the "Minimum Backfill XID" or "Maximum Backfill XID" field with the `xmin` value you retrieved.
 
-5. Click "Backfill".
+5. Click "Backfill" and make sure that "incremental" is selected in the drop down.
 
 6. Save and publish your changes.
 
