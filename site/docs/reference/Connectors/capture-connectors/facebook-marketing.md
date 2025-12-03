@@ -1,5 +1,5 @@
 
-# Facebook Marketing
+# Facebook Marketing (deprecated)
 
 This connector captures data from the Facebook Marketing API into Flow collections.
 
