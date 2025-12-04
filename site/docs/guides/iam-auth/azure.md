@@ -15,7 +15,9 @@ Next, you need to create a Federated Credential by heading to Certificates & Sec
 
 | Data Plane | Issuer |
 |---|---|
+| US east-1 AWS data plane | https://openid.estuary.dev/aws-us-east-1-c1.dp.estuary-data.com/ |
 | US central-1 GCP data plane | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
+| US west-2 AWS data plane | https://openid.estuary.dev/aws-us-west-2-c1.dp.estuary-data.com/ |
 | EU west-1 AWS data plane | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
 
 Now take note of the Application ID and Tenant ID of your App Registration and use it when configuring Azure IAM.
