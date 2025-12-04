@@ -17,13 +17,43 @@ To use this connector, you'll need:
 
 - An IAM user with the following [permissions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazondynamodb.html):
   - `ListTables` on all resources
-  - `DescribeTable` on all resources
+  - `DescribeTable` on all resources (The connector discovers **all tables** in your account during setup. Even if you only want to capture specific tables, your IAM policy must allow `DescribeTable` on all tables, or discovery will fail with an `AccessDeniedException`.)
   - `DescribeStream` on all resources
   - `Scan` on all tables used
   - `GetRecords` on all streams used
   - `GetShardIterator` on all streams used
 
   These permissions should be specified with the `dynamodb:` prefix in an IAM policy document. For more details and examples, see [Using identity-based policies with Amazon DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/using-identity-based-policies.html) in the Amazon docs.
+
+  **Example IAM Policy:**
+
+  ```json
+  {
+      "Version": "2012-10-17",
+      "Statement": [
+          {
+              "Effect": "Allow",
+              "Action": [
+                  "dynamodb:DescribeTable",
+                  "dynamodb:DescribeStream",
+                  "dynamodb:GetRecords",
+                  "dynamodb:GetShardIterator",
+                  "dynamodb:ListStreams",
+                  "dynamodb:Scan",
+                  "dynamodb:Query"
+              ],
+              "Resource": [
+                  "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/*",
+                  "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/*/stream/*"
+              ]
+          },
+          {
+              "Effect": "Allow",
+              "Action": "dynamodb:ListTables",
+              "Resource": "*"
+          }
+      ]
+  }
 
 - AWS Credentials.  One of the following types:
   - The AWS **access key** and **secret access key** for the user. See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
