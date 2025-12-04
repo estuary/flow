@@ -141,60 +141,60 @@ captures:
               include_deleted: false
     bindings:
       - resource:
-          stream: ad_account
-          syncMode: incremental
+          name: ad_account
+          interval: PT1H
         target: ${PREFIX}/ad_account
       - resource:
-          stream: ad_sets
-          syncMode: incremental
+          name: ad_sets
+          interval: PT1H
         target: ${PREFIX}/ad_sets
       - resource:
-          stream: ads_insights
-          syncMode: incremental
+          name: ads_insights
+          interval: PT1H
         target: ${PREFIX}/ads_insights
       - resource:
-          stream: ads_insights_age_and_gender
-          syncMode: incremental
+          name: ads_insights_age_and_gender
+          interval: PT1H
         target: ${PREFIX}/ads_insights_age_and_gender
       - resource:
-          stream: ads_insights_country
-          syncMode: incremental
+          name: ads_insights_country
+          interval: PT1H
         target: ${PREFIX}/ads_insights_country
       - resource:
-          stream: ads_insights_region
-          syncMode: incremental
+          name: ads_insights_region
+          interval: PT1H
         target: ${PREFIX}/ads_insights_region
       - resource:
-          stream: ads_insights_dma
-          syncMode: incremental
+          name: ads_insights_dma
+          interval: PT1H
         target: ${PREFIX}/ads_insights_dma
       - resource:
-          stream: ads_insights_platform_and_device
-          syncMode: incremental
+          name: ads_insights_platform_and_device
+          interval: PT1H
         target: ${PREFIX}/ads_insights_platform_and_device
       - resource:
-          stream: ads_insights_action_type
-          syncMode: incremental
+          name: ads_insights_action_type
+          interval: PT1H
         target: ${PREFIX}/ads_insights_action_type
       - resource:
-          stream: campaigns
-          syncMode: incremental
+          name: campaigns
+          interval: PT1H
         target: ${PREFIX}/campaigns
       - resource:
-          stream: custom_conversions
-          syncMode: full_refresh
+          name: custom_conversions
+          interval: PT1H
         target: ${PREFIX}/custom_conversions
       - resource:
-          stream: activities
-          syncMode: incremental
+          name: activities
+          interval: PT1H
         target: ${PREFIX}/activities
       - resource:
-          stream: ads
-          syncMode: incremental
+          name: ads
+          interval: PT1H
         target: ${PREFIX}/ads
       - resource:
-          stream: ad_creatives
-          syncMode: full_refresh
+          name: ad_creatives
+          interval: PT1H
         target: ${PREFIX}/ad_creatives
 ```
 
