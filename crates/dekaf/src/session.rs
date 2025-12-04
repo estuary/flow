@@ -38,6 +38,17 @@ enum SessionDataPreviewState {
     DataPreview(HashMap<(TopicName, i32), PartitionOffset>),
 }
 
+/// Outcome of fetching an offset for a single partition.
+enum PartitionOffsetOutcome {
+    Success(PartitionOffset),
+    /// Consumer's epoch is behind the current epoch
+    Fenced,
+    /// Consumer's epoch is ahead of the current epoch
+    UnknownEpoch,
+    /// Partition index is out of range
+    PartitionNotFound,
+}
+
 pub struct Session {
     app: Arc<App>,
     client: Option<KafkaApiClient>,
@@ -369,70 +380,99 @@ impl Session {
         collection: &Collection,
         current_epoch: i32,
         partition: messages::list_offsets_request::ListOffsetsPartition,
-    ) -> anyhow::Result<(i32, i32, Option<PartitionOffset>, Option<ResponseError>)> {
+    ) -> anyhow::Result<(i32, PartitionOffsetOutcome)> {
         if partition.current_leader_epoch >= 0 && partition.current_leader_epoch < current_epoch {
-            return Ok((
-                partition.partition_index,
-                partition.current_leader_epoch,
-                None,
-                Some(ResponseError::FencedLeaderEpoch),
-            ));
+            return Ok((partition.partition_index, PartitionOffsetOutcome::Fenced));
         }
 
         if partition.current_leader_epoch > current_epoch {
             return Ok((
                 partition.partition_index,
-                partition.current_leader_epoch,
-                None,
-                Some(ResponseError::UnknownLeaderEpoch),
+                PartitionOffsetOutcome::UnknownEpoch,
             ));
         }
 
-        Ok((
-            partition.partition_index,
-            partition.current_leader_epoch,
-            collection
-                .fetch_partition_offset(partition.partition_index as usize, partition.timestamp)
-                .await?,
-            None,
-        ))
+        let outcome = match collection
+            .fetch_partition_offset(partition.partition_index as usize, partition.timestamp)
+            .await?
+        {
+            Some(offset) => PartitionOffsetOutcome::Success(offset),
+            None => PartitionOffsetOutcome::PartitionNotFound,
+        };
+
+        Ok((partition.partition_index, outcome))
     }
 
-    async fn fetch_topic_offsets(
+    /// Fetch offsets for all partitions of a topic and build the response.
+    async fn list_topic_offsets(
         auth: &SessionAuthentication,
-        topic: messages::list_offsets_request::ListOffsetsTopic,
-    ) -> anyhow::Result<(
-        TopicName,
-        Option<i32>,
-        Vec<(i32, i32, Option<PartitionOffset>, Option<ResponseError>)>,
-    )> {
-        let maybe_collection = Collection::new(
+        topic: &messages::list_offsets_request::ListOffsetsTopic,
+    ) -> anyhow::Result<messages::list_offsets_response::ListOffsetsTopicResponse> {
+        use messages::list_offsets_response::{
+            ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
+        };
+
+        let Some(collection) = Collection::new(
             auth,
             from_downstream_topic_name(topic.name.clone()).as_str(),
         )
-        .await?;
+        .await?
+        else {
+            // Collection doesn't exist
+            let partitions = topic
+                .partitions
+                .iter()
+                .map(|p| {
+                    ListOffsetsPartitionResponse::default()
+                        .with_partition_index(p.partition_index)
+                        .with_error_code(ResponseError::UnknownTopicOrPartition.code())
+                })
+                .collect();
 
-        let Some(collection) = maybe_collection else {
-            return Ok((
-                topic.name,
-                None, // No epoch for missing collection
-                topic
-                    .partitions
-                    .iter()
-                    .map(|p| (p.partition_index, p.current_leader_epoch, None, None))
-                    .collect(),
-            ));
+            return Ok(ListOffsetsTopicResponse::default()
+                .with_name(topic.name.clone())
+                .with_partitions(partitions));
         };
 
         let current_epoch = collection.binding_backfill_counter as i32;
 
-        let offsets =
-            futures::future::try_join_all(topic.partitions.into_iter().map(|partition| {
+        let partition_results =
+            futures::future::try_join_all(topic.partitions.iter().cloned().map(|partition| {
                 Self::fetch_partition_offset(&collection, current_epoch, partition)
             }))
             .await?;
 
-        Ok((topic.name, Some(current_epoch), offsets))
+        let partitions = partition_results
+            .into_iter()
+            .map(|(partition_index, outcome)| match outcome {
+                PartitionOffsetOutcome::Success(PartitionOffset {
+                    offset,
+                    mod_time: timestamp,
+                    ..
+                }) => ListOffsetsPartitionResponse::default()
+                    .with_partition_index(partition_index)
+                    .with_offset(offset)
+                    .with_timestamp(timestamp)
+                    .with_leader_epoch(current_epoch),
+                PartitionOffsetOutcome::Fenced => ListOffsetsPartitionResponse::default()
+                    .with_partition_index(partition_index)
+                    .with_error_code(ResponseError::FencedLeaderEpoch.code())
+                    .with_leader_epoch(current_epoch),
+                PartitionOffsetOutcome::UnknownEpoch => ListOffsetsPartitionResponse::default()
+                    .with_partition_index(partition_index)
+                    .with_error_code(ResponseError::UnknownLeaderEpoch.code())
+                    .with_leader_epoch(current_epoch),
+                PartitionOffsetOutcome::PartitionNotFound => {
+                    ListOffsetsPartitionResponse::default()
+                        .with_partition_index(partition_index)
+                        .with_error_code(ResponseError::UnknownTopicOrPartition.code())
+                }
+            })
+            .collect();
+
+        Ok(ListOffsetsTopicResponse::default()
+            .with_name(topic.name.clone())
+            .with_partitions(partitions))
     }
 
     pub async fn list_offsets(
@@ -442,79 +482,15 @@ impl Session {
         let result: anyhow::Result<_> = async {
             let auth = self.auth.as_ref().unwrap();
 
-            // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
-            let collections: anyhow::Result<
-                Vec<(
-                    TopicName,
-                    Option<i32>,
-                    Vec<(i32, i32, Option<PartitionOffset>, Option<ResponseError>)>,
-                )>,
-            > = futures::future::try_join_all(
+            let topics = futures::future::try_join_all(
                 request
                     .topics
-                    .clone()
-                    .into_iter()
-                    .map(|topic| Self::fetch_topic_offsets(auth, topic)),
+                    .iter()
+                    .map(|topic| Self::list_topic_offsets(auth, topic)),
             )
-            .await;
+            .await?;
 
-            let collections = collections?;
-
-            use messages::list_offsets_response::{
-                ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
-            };
-
-            // Map topics, partition indices, and fetched offsets into a comprehensive response.
-            let response = collections
-                .into_iter()
-                .map(|(topic_name, maybe_current_epoch, offsets)| {
-                    let partitions = offsets
-                        .into_iter()
-                        .map(
-                            |(partition_index, _consumer_epoch, maybe_offset, maybe_error)| {
-                                // Return error if epoch validation failed
-                                if let Some(error) = maybe_error {
-                                    let mut response = ListOffsetsPartitionResponse::default()
-                                        .with_partition_index(partition_index)
-                                        .with_error_code(error.code());
-                                    if let Some(current_epoch) = maybe_current_epoch {
-                                        response = response.with_leader_epoch(current_epoch);
-                                    }
-                                    return response;
-                                }
-
-                                let Some(PartitionOffset {
-                                    offset,
-                                    mod_time: timestamp,
-                                    ..
-                                }) = maybe_offset
-                                else {
-                                    return ListOffsetsPartitionResponse::default()
-                                        .with_partition_index(partition_index)
-                                        .with_error_code(
-                                            ResponseError::UnknownTopicOrPartition.code(),
-                                        );
-                                };
-
-                                let mut response = ListOffsetsPartitionResponse::default()
-                                    .with_partition_index(partition_index)
-                                    .with_offset(offset)
-                                    .with_timestamp(timestamp);
-                                if let Some(current_epoch) = maybe_current_epoch {
-                                    response = response.with_leader_epoch(current_epoch);
-                                }
-                                response
-                            },
-                        )
-                        .collect();
-
-                    ListOffsetsTopicResponse::default()
-                        .with_name(topic_name)
-                        .with_partitions(partitions)
-                })
-                .collect();
-
-            Ok(messages::ListOffsetsResponse::default().with_topics(response))
+            Ok(messages::ListOffsetsResponse::default().with_topics(topics))
         }
         .await;
 
