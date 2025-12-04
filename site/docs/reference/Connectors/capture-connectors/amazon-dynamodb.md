@@ -58,6 +58,7 @@ To use this connector, you'll need:
 - AWS Credentials.  One of the following types:
   - The AWS **access key** and **secret access key** for the user. See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
   - To authenticate using an AWS Role, you'll need the **region** and the **role arn**.  Follow the steps in the [AWS IAM guide](/guides/iam-auth/aws.md) to setup the role.
+    - The role's Max Session Duration should be set to 43200 seconds (12 hours). This is required; the default 1 hour will cause the capture to fail.
 
 ## Configuration
 
