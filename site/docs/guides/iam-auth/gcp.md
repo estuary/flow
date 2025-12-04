@@ -17,7 +17,9 @@ Give your workload identity pool your desired name, and select OpenID Connect (O
 | Field | Value |
 |---|---|
 | Provider Name | estuary-flow-google |
+| Issuer (US AWS east-1 data plane) | https://openid.estuary.dev/aws-us-east-1-c1.dp.estuary-data.com/ |
 | Issuer (US GCP central-1 data plane) | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
+| Issuer (US AWS west-2 data plane) | https://openid.estuary.dev/aws-us-west-2-c1.dp.estuary-data.com/ |
 | Issuer (EU AWS west-1 data plane) | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
 
 ![Workload Identity Provider Configuration](../guide-images/gcp-iam-1-provider.png)
@@ -36,7 +38,9 @@ Next, copy the IAM principal you see in the workload identity pool details page 
 
 | Data Plane | SUBJECT_ATTRIBUTE_VALUE |
 |---|---|
+| US east-1 AWS data plane | aws-us-east-1-c1.dp.estuary-data.com |
 | US central-1 GCP data plane | gcp-us-central1-c2.dp.estuary-data.com |
+| US west-2 AWS data plane | aws-us-west-2-c1.dp.estuary-data.com |
 | EU west-1 AWS data plane | aws-eu-west-1-c1.dp.estuary-data.com |
 
 ![Workload Identity Pool Principal](../guide-images/gcp-iam-3-principal.png)
