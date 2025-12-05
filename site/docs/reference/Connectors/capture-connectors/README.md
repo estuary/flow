@@ -137,6 +137,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Hubspot (Real-Time)
   - [Configuration](./HubSpot-real-time.md)
   - Package - ghcr.io/estuary/source-hubspot-native:dev
+- IBM Db2 Batch
+  - [Configuration](./db2-batch.md)
+  - Package - ghcr.io/estuary/source-db2-batch:dev
 - Intercom
   - [Configuration](./intercom-native.md)
   - Package - ghcr.io/estuary/source-intercom-native:dev
