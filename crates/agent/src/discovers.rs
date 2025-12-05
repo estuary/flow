@@ -339,7 +339,6 @@ mod test {
     use uuid::Uuid;
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn test_prepare_discover() {
         let harness =
             crate::integration_tests::harness::TestHarness::init("test_prepare_discover").await;

@@ -1,0 +1,31 @@
+[package]
+name = "config-encryption"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "flow-config-encryption"
+path = "src/main.rs"
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+async-process = { path = "../async-process" }
+
+aide = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

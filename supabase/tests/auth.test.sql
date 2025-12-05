@@ -1,16 +1,3 @@
--- Note that seed.sql installs fitures into auth.users (alice, bob, carol, dave)
--- having UUIDs like 1111*, 2222*, 3333*, etc.
-create function set_authenticated_context(test_user_id uuid)
-returns void as $$
-begin
-
-  set role postgres;
-  execute 'set session request.jwt.claim.sub to "' || test_user_id::text || '"';
-  set role authenticated;
-
-end
-$$ language plpgsql;
-
 -- Users can access their current authorization context.
 create function tests.test_auth_uid()
 returns setof text as $$

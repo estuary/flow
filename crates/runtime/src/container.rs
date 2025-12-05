@@ -29,10 +29,14 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
     if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
         return Ok(RuntimeProtocol::Materialize);
     }
+    if !image.ends_with(":local") {
+        docker_pull(image).await.context("pulling image")?;
+    }
 
     let inspect_output = docker_cmd(&["inspect", image])
         .await
         .context("inspecting image")?;
+
     let inspection = parse_image_inspection(&inspect_output)?;
     tracing::info!(
         %image,
@@ -194,8 +198,10 @@ pub async fn start(
 
         // Wait for a non-empty read of stderr to complete or EOF/error.
         // Note that `flow-connector-init` writes one whitespace byte on startup.
-        if let Ok(_buf) = stderr.fill_buf().await {
-            stderr.consume(1); // Discard whitespace byte.
+        if let Ok(buf) = stderr.fill_buf().await {
+            if buf.first() == Some(&b' ') {
+                stderr.consume(1); // Discard.
+            }
         }
         std::mem::drop(ready_tx); // Signal that we're ready.
 
@@ -387,6 +393,37 @@ where
     Ok(output.stdout)
 }
 
+async fn docker_pull(image: &str) -> anyhow::Result<()> {
+    const MAX_RETRIES: u32 = 3;
+    const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+    for attempt in 1..=MAX_RETRIES {
+        let Err(err) = docker_cmd(&["pull", image, "--quiet"]).await else {
+            return Ok(());
+        };
+
+        let err_str = format!("{err:#}");
+        let is_transient = err_str.contains("TLS handshake timeout")
+            || err_str.contains("connection reset")
+            || err_str.contains("i/o timeout")
+            || err_str.contains("unexpected EOF");
+
+        if is_transient && attempt < MAX_RETRIES {
+            tracing::warn!(
+                %image,
+                attempt,
+                max_retries = MAX_RETRIES,
+                error = %err,
+                "transient error pulling image (will retry)"
+            );
+            tokio::time::sleep(RETRY_DELAY).await;
+        } else {
+            return Err(err);
+        }
+    }
+    unreachable!()
+}
+
 async fn inspect_container_network(
     name: &str,
 ) -> anyhow::Result<(std::net::IpAddr, BTreeMap<u32, String>)> {
@@ -439,7 +476,7 @@ async fn inspect_container_network(
             // dual-stack port bindings (either `::1` or `0.0.0.0`).
             // `docker` will always emit a non-empty IP.
             let host_ip = if host_ip.is_empty() {
-                "::1".to_string()
+                "127.0.0.1".to_string()
             } else {
                 host_ip
             };
@@ -632,9 +669,7 @@ async fn inspect_image_and_copy(
     tmp_path: &std::path::Path,
 ) -> anyhow::Result<ImageInspection> {
     if !image.ends_with(":local") {
-        docker_cmd(&["pull", image, "--quiet"])
-            .await
-            .context("pulling image")?;
+        docker_pull(image).await.context("pulling image")?;
     }
 
     let inspect_content = docker_cmd(&["inspect", image])

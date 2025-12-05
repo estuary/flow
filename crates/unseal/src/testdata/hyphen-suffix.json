@@ -1,34 +1,28 @@
 {
 	"notsops": "bar",
+	"s2-sops": "ENC[AES256_GCM,data:Dtvnhmt8sPvK/dWn,iv:KcqKVbbBPGqKW+DN4sChC8cjKvjdhalEAHm+WOHCU5Q=,tag:BilqEGlnSd0tI6uNq6zP+A==,type:str]",
 	"stuff": {
-		"s1-sops": "ENC[AES256_GCM,data:+zlLc/EtsQ==,iv:UYapxOwjD5/6u3KiehxvIEf/Wr8vbQ6KHCjkYmqtXiA=,tag:6KYPdl9rwMYj2g7atddIjQ==,type:str]",
-		"other": true,
-		"nullish": null,
 		"array": [
 			42,
 			{
-				"inner-sops-sops": "ENC[AES256_GCM,data:LZDdHAoxJg0EDwJV9A==,iv:3I5mPX3HcHrC+ni8nd00Bq9w6RyAwlbqNXXreHxk84c=,tag:TU1yh2fab89FLfsn++FUcQ==,type:str]",
-				"frob": "bob"
-			}
-		]
-	},
-	"s2-sops": "ENC[AES256_GCM,data:0gfvgHsWhRuxvxzC,iv:Xzz3cSP4oDYKfVnplz5QL2X/c8B7gv5D2nF8fD+JlxI=,tag:eiKZCNcvfnbbBUeylLZhQg==,type:str]",
-	"sops": {
-		"kms": null,
-		"gcp_kms": [
-			{
-				"resource_id": "projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/CI-estuary-flow",
-				"created_at": "2021-11-28T19:17:34Z",
-				"enc": "CiQAW8BC2Lx55101CNYhok8Zk7hJuzPniI7CQB2vg8A4wYOV658SSQCnySJKmieqylqbSLD29qAf19zktmpD8XRwREVeNjUuOHkQAfG3LAei3OmgHwD0LA4/K228JWisf0GnarEfAQfxwiRMhmDfQpY="
+				"frob": "bob",
+				"inner-sops-sops": "ENC[AES256_GCM,data:Ht+6ujhGI5yX3J8+sA==,iv:fOTLHnJv9Zl5mMD2blTV3xda2fAQg07HdKuCTX5N2Sk=,tag:CoLNFf6tTdU/Dm2US6jvOw==,type:str]"
 			}
 		],
-		"azure_kv": null,
-		"hc_vault": null,
-		"age": null,
-		"lastmodified": "2021-11-28T19:19:48Z",
-		"mac": "ENC[AES256_GCM,data:q5ptIuwDpUSF9G69QqidBhDTY90xhuKYHtrFii32C4u4JSrw9AeulmwWCqw5ireCMTVrxibmcJGb7DIpdJV0BUf6nys4oh1xK0A1veE0BGd9bezamC89r4z7x8XoTTPOOIggpc854m3MVr+YjqJZfpVaTQ1ihgM9La5o3JZ+2Ss=,iv:g6TfjVIBYNy0gaX5kNAWEdAgMlfPFuLR5B2MAZFunkI=,tag:tw0CYcYYxQ4OE4UmO5EzDQ==,type:str]",
-		"pgp": null,
+		"nullish": null,
+		"other": true,
+		"s1-sops": "ENC[AES256_GCM,data:UwK9tzEjBQ==,iv:CmDjEfGhbYHR3KTfYi16766SLV62QBpHzofRZEObm14=,tag:iOv0Q4JczRdtGQ1GZw8FOQ==,type:str]"
+	},
+	"sops": {
+		"age": [
+			{
+				"recipient": "age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs",
+				"enc": "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBCUkVqdzV3UDh5N1BGczFQ\nRmtlS0NnRHBwR29WcnhOUnhKUkpEcEl2dGl3CkhtdDJkN3BCenFTZENodUtTclpl\nVTBVNkpGNitRelkzdS9BZmg4NXZsdmMKLS0tIGIxZC93T3pGZVN0aytTQTY2Nk53\nZmxYVUQ5ajFBWXdTNWp3NzFkQmpOazQKqvM7D2UvvmNhGEnHrvhEiRKKpPOaWDVg\nSsQ1v9TZ2ENYxY3Bkg6fRkbBETfxpa+tLQilme50UfXs2d0GnLAxqw==\n-----END AGE ENCRYPTED FILE-----\n"
+			}
+		],
+		"lastmodified": "2025-10-27T20:32:14Z",
+		"mac": "ENC[AES256_GCM,data:TavVpsz++2IzVj0qAq5w+AYxSBCiVeU1mNEnqpjxgYqr+XFQ7rIz7jCOIWiZMuWA3jOBrSTL/uhDLcNVc8NOvjtWEtlg33fLQxSmCNE1Sf1GQiAppE9XnWRiwIKEoi8o1jUx0b1kVaQAgdlUX5ZQAl9bBWsf8lGrrlxiFm/2M+g=,iv:QPSWu/AHAvhiGISGGulnNlaosRNaU19TxF7ndPOWKhI=,tag:l/CZgQ9NpepNmvZQyy58Wg==,type:str]",
 		"encrypted_suffix": "-sops",
-		"version": "3.7.1"
+		"version": "3.11.0"
 	}
 }

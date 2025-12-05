@@ -11,7 +11,6 @@ use models::{
 use uuid::Uuid;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_shard_failures_and_retries() {
     let mut harness = TestHarness::init("test_shard_failures_and_retries").await;
     let _user_id = harness.setup_tenant("pandas").await;

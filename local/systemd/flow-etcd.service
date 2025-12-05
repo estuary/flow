@@ -1,0 +1,26 @@
+[Unit]
+Description=Flow Etcd
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+
+EnvironmentFile=%h/flow-local/env/common.env
+
+Environment=ETCD_DATA_DIR=%h/flow-local/etcd/
+Environment=ETCD_LOG_LEVEL=info
+
+# Etcd listen addresses.
+Environment=ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+Environment=ETCD_ADVERTISE_CLIENT_URLS=http://etcd.flow.localhost:2379
+Environment=ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+
+# Single-node cluster configuration.
+Environment=ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd.flow.localhost:2380
+Environment=ETCD_INITIAL_CLUSTER=default=http://etcd.flow.localhost:2380
+
+# sh wrapper launches etcd using PATH from common.env.
+ExecStart=sh -c etcd
+
+Restart=on-failure
+RestartSec=5s

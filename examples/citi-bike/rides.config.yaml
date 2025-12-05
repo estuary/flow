@@ -1,23 +1,5 @@
 # The CitiBike tripdata bucket is public, and we don't require credentials.
 awsAccessKeyId: ""
 awsSecretAccessKey: ""
-# Name of the bucket managed by CitiBike.
 bucket: tripdata
-# We encrypt the region just to demonstrate the capability (this is "us-east-1").
-# We used a `sops` --encrypted-suffix "-sops" option to selectively encrypt only
-# some values of this configuration. Flow knows to strip this suffix.
-region-sops: ENC[AES256_GCM,data:OnrKzkp1aQGz,iv:NmUy9yeRdH1jvzVFuf/sKzMqAf6hEvOA5ohAsJ50O68=,tag:hUSkjQejD7cwzd4aPGlC1A==,type:str]
-sops:
-    kms: []
-    gcp_kms:
-        - resource_id: projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/CI-estuary-flow
-          created_at: "2021-11-28T18:53:06Z"
-          enc: CiQAW8BC2BxK/yEr2x2lxLHImGabYzMTzxkYEDdMzfm1mhf+RqUSSQCnySJKA68ysxRmzEdGr1bN7e+1bOOVkWlEpU+1mWz0+DAZePcqg5hukBDoV1j0UkD7HjeplHqryFjFDsF2GCkh3n7m18paBCc=
-    azure_kv: []
-    hc_vault: []
-    age: []
-    lastmodified: "2021-11-28T18:53:07Z"
-    mac: ENC[AES256_GCM,data:Z875+o/y+oVVLJt+uQpenNhJNldtRz8+nPQ29D3+9v0U5JFILYqeeHUNB5oAoJ/0x8zgHycQMaXZgioqoSlqFsIW7rHwu10a3uTaCA004WdndpHrO9SC+pPVqzVylJSj0YHYGQPHzMSdRea5bA26hc71rGW6vHs5R91DnJL3TS8=,iv:P4Gx5sOEnprdJDS2KhW0lC/+a3J8tRVH8Lpd2H+1Cqo=,tag:iw6FmnwP0ZHLTTUMBgHW8g==,type:str]
-    pgp: []
-    encrypted_suffix: -sops
-    version: 3.7.1
+region: us-east-1

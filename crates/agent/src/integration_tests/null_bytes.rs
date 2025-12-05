@@ -3,7 +3,6 @@ use models::publications::StatusType;
 use tables::InferredSchema;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_specs_with_null_bytes() {
     let mut harness = TestHarness::init("specs_with_null_bytes").await;
 

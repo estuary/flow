@@ -115,10 +115,9 @@ async fn load_draft_errors(draft_id: Id, db: &sqlx::PgPool) -> Vec<(String, Stri
 
 /// Facilitates writing integration tests.
 /// **Note:** integration tests require exclusive access to the database,
-/// so it's required to use the attribute: `#[serial_test::serial]` on every
-/// test that uses a `TestHarness`. Initializing a new harness will clear out
-/// (nearly) all data in the database, to ensure each test run starts with a
-/// clean slate.
+/// so it's required to serialize test runs (see .config/nextest.toml).
+/// Initializing a new harness will also clear out (nearly) all data in
+/// the database, to ensure each test run starts with a clean slate.
 pub struct TestHarness {
     pub control_plane: TestControlPlane,
     pub test_name: String,
@@ -190,7 +189,7 @@ impl HarnessBuilder {
 
         let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
         let publisher = Publisher::new(
-            "/not/a/real/bin/dir",
+            "/not/a/real/flowctl-go".into(),
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
             "some-connector-network",
             &logs_tx,

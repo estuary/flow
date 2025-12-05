@@ -4,7 +4,6 @@ use control_plane_api::Capability;
 use models::{CatalogType, Id};
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_user_publications() {
     let mut harness = TestHarness::init("test_publications").await;
 

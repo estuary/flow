@@ -1,0 +1,67 @@
+name: Platform Test
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "site/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform-test:
+    name: Platform Test
+    runs-on: ubuntu-2404-large
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true # Official JSON test data.
+          lfs: true # Test fixtures.
+
+      - name: Install build tools
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+      - run: rustup upgrade
+
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: ". -> ../../../cargo-target"
+
+      - name: Cache RocksDB
+        uses: actions/cache@v4
+        with:
+          key: rocksdb-${{ runner.os }}-${{ runner.arch }}-${{ env.ROCKSDB_VERSION }}
+          path: |
+            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/include/
+            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/lib/
+
+      - name: Cache/Restore Go workspace.
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+
+      # These steps are kept in lockstep with task `ci:platform-test`
+      - run: mise run local:supabase --no-block
+      - run: mise run build:rocksdb
+      - run: mise run ci:format-check
+      - run: mise run ci:musl-dev
+      - run: mise run ci:wasm-test --browser
+      - run: mise run local:supabase
+      - run: mise run ci:sql-tap
+      - run: mise run ci:gnu-dev
+      - run: mise run build:gazette
+      - run: mise run build:flowctl-go
+      - run: mise run ci:nextest-build
+      - run: mise run ci:nextest-run
+      - run: mise run ci:doctest
+      - run: mise run ci:gotest
+      - run: mise run ci:catalog-test
+      - run: mise run build:flow-schema

@@ -272,8 +272,9 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         let log_loop = async move {
             while let Some(log) = proxy_responses
                 .try_next()
+                .map_err(runtime::status_to_anyhow)
                 .await
-                .context("failed to read proxy response stream")?
+                .context("failed to read connector proxy log response stream")?
             {
                 if let Some(log) = log.log.as_ref() {
                     self.log_handler.log(log);
@@ -297,11 +298,12 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         ),
         response: Result<tonic::Response<tonic::Streaming<Response>>, tonic::Status>,
     ) -> anyhow::Result<()> {
-        let mut response_rx = response.map_err(runtime::status_to_anyhow)?.into_inner();
-
+        // Loop which processes all stream responses and errors.
         let response_loop = async move {
             // Drop on EOF to gracefully stop the proxy runtime and finish reading logs.
             let _guard = cancel_tx;
+
+            let mut response_rx = response.map_err(runtime::status_to_anyhow)?.into_inner();
 
             while let Some(response) = crate::timeout(
                 *CONNECTOR_TIMEOUT,
@@ -312,11 +314,24 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             {
                 () = co.yield_(response).await;
             }
-            Ok(())
+            Ok::<_, anyhow::Error>(())
         };
 
-        ((), ()) = futures::try_join!(response_loop, log_loop)?;
-        Ok(())
+        // Drive the response and log loops to completion:
+        // * The response loop drops `cancel_tx` on EOF or Error
+        // * This closes the tx side of the connector proxy RPC
+        // * The log loop reads the rx side of the connector proxy RPC until EOF,
+        //   ensuring late-arriving logs (after a response error) are processed.
+        let (response_loop, log_loop) = futures::join!(response_loop, log_loop);
+
+        match (response_loop, log_loop) {
+            (Err(response), Err(log)) => {
+                tracing::error!(?log, "failed to read connector proxy response stream");
+                Err(response)
+            }
+            (Ok(()), Err(err)) | (Err(err), Ok(())) => Err(err),
+            (Ok(()), Ok(())) => Ok(()),
+        }
     }
 }
 

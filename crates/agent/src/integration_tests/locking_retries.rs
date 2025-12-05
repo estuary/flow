@@ -10,7 +10,6 @@ use control_plane_api::publications::{
 };
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_publication_concurrent_commits() {
     let harness = TestHarness::init("test_publication_concurrent_commits").await;
 
@@ -97,7 +96,6 @@ async fn test_publication_concurrent_commits() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_publication_optimistic_locking_failures() {
     let mut harness = TestHarness::init("test_publication_optimistic_locking_failures").await;
 

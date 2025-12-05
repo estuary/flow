@@ -1,0 +1,127 @@
+name: Platform Build
+permissions:
+  contents: read
+
+on:
+  # TODO(johnny): Only run automatically on merges into the `master` branch.
+  # push:
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "site/**"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform-build:
+    strategy:
+      matrix:
+        runner: [ubuntu-2404-large, ubuntu-2404-arm-large]
+
+    name: Platform Build
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Must fetch full history and tags for `git describe --tags` to work correctly.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install build tools
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+      - run: rustup upgrade
+
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: ". -> ../../../cargo-target"
+
+      - name: Cache RocksDB
+        uses: actions/cache@v4
+        with:
+          key: rocksdb-${{ runner.os }}-${{ runner.arch }}-${{ env.ROCKSDB_VERSION }}
+          path: |
+            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/include/
+            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/lib/
+
+      - name: Cache/Restore Go workspace.
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+
+      # These steps are kept in lockstep with task `ci:platform-build`
+      - run: mise run build:rocksdb
+      - run: mise run ci:musl-opt
+      - run: mise run ci:gnu-opt
+      - run: mise run build:flowctl-go --release
+      - run: mise run ci:wasm-opt
+      - run: mise run ci:package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-build-${{ runner.os }}-${{ runner.arch }}
+          path: ~/flow-package/**/*
+          if-no-files-found: error
+
+  platform-package:
+    name: Platform Package
+    needs: [platform-build]
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: ~/flow-package/
+          merge-multiple: true
+
+      # Downloaded artifacts lose their prior permission settings
+      - name: Adjust binaries permissions
+        run: |
+          chmod +x ~/flow-package/arm64/*
+          chmod +x ~/flow-package/amd64/*
+
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - run: PUSH=true ./mise/tasks/ci/docker-images
+
+      - run: |
+          ln ~/flow-package/estuary-flow-web.tgz        estuary-flow-web.tgz
+          ln ~/flow-package/amd64/flow-connector-init   flow-connector-init-linux-x86_64
+          ln ~/flow-package/amd64/flowctl               flowctl-linux-x86_64
+          ln ~/flow-package/amd64/flowctl-go            flowctl-go-linux-x86_64
+          ln ~/flow-package/arm64/flow-connector-init   flow-connector-init-linux-aarch64
+          ln ~/flow-package/arm64/flowctl               flowctl-linux-aarch64
+          ln ~/flow-package/arm64/flowctl-go            flowctl-go-linux-aarch64
+
+      - name: Upload release assets
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            This is the latest development build, which gets updated on every successful build of the master branch.
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: true
+          tag_name: dev-next
+          generate_release_notes: false
+          files: |
+            estuary-flow-web.tgz
+            flow-connector-init-linux-aarch64
+            flow-connector-init-linux-x86_64
+            flowctl-go-linux-aarch64
+            flowctl-go-linux-x86_64
+            flowctl-linux-aarch64
+            flowctl-linux-x86_64

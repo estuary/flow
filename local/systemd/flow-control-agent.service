@@ -1,0 +1,19 @@
+[Unit]
+Description=Flow Control Plane Agent
+Documentation=https://github.com/estuary/flow
+After=flow-supabase.service
+Requires=flow-supabase.service
+PartOf=flow-control-plane.target
+
+[Service]
+Type=simple
+TimeoutStartSec=600
+
+EnvironmentFile=%h/flow-local/env/common.env
+EnvironmentFile=%h/flow-local/env/agent.env
+
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p agent'
+ExecStart=%h/cargo-target/debug/agent --allow-origin http://localhost:3000
+
+Restart=on-failure
+RestartSec=5s

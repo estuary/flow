@@ -162,7 +162,7 @@ async fn build_catalog<Conn: Connectors>(
 
 pub async fn data_plane(
     connector_network: &str,
-    bindir: &str,
+    flowctl_go: &std::path::Path,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     tmpdir: &path::Path,
@@ -174,7 +174,7 @@ pub async fn data_plane(
         "temp-data-plane",
         logs_tx,
         logs_token,
-        async_process::Command::new(format!("{bindir}/flowctl-go"))
+        async_process::Command::new(flowctl_go)
             .arg("temp-data-plane")
             .arg("--network")
             .arg(connector_network)
@@ -196,7 +196,7 @@ pub async fn data_plane(
 }
 
 pub async fn test_catalog(
-    bindir: &str,
+    flowctl_go: &std::path::Path,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     build_id: Id,
@@ -273,7 +273,7 @@ pub async fn test_catalog(
         "test",
         &logs_tx,
         logs_token,
-        async_process::Command::new(format!("{bindir}/flowctl-go"))
+        async_process::Command::new(flowctl_go)
             .arg("api")
             .arg("test")
             .arg("--build-id")

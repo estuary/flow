@@ -2,7 +2,7 @@ use anyhow::Context;
 use control_plane_api::{
     Id,
     connector_tags::{self, Row, fetch_connector_tag, resolve},
-    jobs, logs,
+    logs,
 };
 use proto_flow::flow;
 use runtime::{LogHandler, Runtime, RuntimeProtocol};
@@ -16,9 +16,7 @@ use tracing::info;
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,
-    PullFailed,
     SpecFailed,
-    OpenGraphFailed { error: String },
     ValidationFailed { error: ValidationError },
     Success,
     // Updating is a temporary state that means we're in the process of updating
@@ -105,11 +103,6 @@ impl automations::Executor for TagExecutor {
     }
 }
 
-/// This tag is used for local development of connectors. Any images having this tag will not be
-/// pulled from a registry, so that developers can simply `docker build` and then update
-/// connector_tags without having to push to a registry.
-pub const LOCAL_IMAGE_TAG: &str = ":local";
-
 impl TagExecutor {
     #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
     async fn process(&self, row: Row, pool: &sqlx::PgPool) -> anyhow::Result<JobStatus> {
@@ -132,25 +125,6 @@ impl TagExecutor {
                 return Ok(JobStatus::ValidationFailed {
                     error: ValidationError::InvalidDekafTag,
                 });
-            }
-        }
-
-        if row.image_tag != LOCAL_IMAGE_TAG
-            && !row.image_name.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
-        {
-            // Pull the image.
-            let pull = jobs::run(
-                "pull",
-                &self.logs_tx,
-                row.logs_token,
-                async_process::Command::new("docker")
-                    .arg("pull")
-                    .arg(&image_composed),
-            )
-            .await?;
-
-            if !pull.success() {
-                return Ok(JobStatus::PullFailed);
             }
         }
 

@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_inferred_schema_updates_no_cooldown() {
     let mut harness = HarnessBuilder::new("test_inferred_schema_updates")
         .build()
@@ -100,7 +99,6 @@ async fn test_inferred_schema_updates_no_cooldown() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn test_inferred_schema_updates_with_cooldown() {
     let publish_cooldown = chrono::Duration::minutes(5);
 

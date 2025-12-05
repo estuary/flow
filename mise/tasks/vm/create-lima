@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Create an Lima VM with a shared host directory"
+#USAGE arg "<name>" help="The name of the VM to create"
+#USAGE arg "<share_dir>" help="The directory to share with the VM. Cannot be your home directory (for security reasons)."
+#USAGE flag "--cpu <cpu>" help="Number of CPUs to allocate to the VM. Defaults to all host CPUs."
+#USAGE flag "--memory <memory>" help="Amount of memory (in GiB) to allocate to the VM. Defaults to 12GB of memory."
+
+[[ $# -lt 2 ]] && { echo "Error: VM name and share directory are required"; exit 1; }
+
+VM_NAME="${usage_name}"
+shift
+SHARE_DIR="${usage_share_dir}"
+shift
+
+# Determine the parent directory of this git checkout.
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# Convert SHARE_DIR to absolute path.
+SHARE_DIR="$(realpath "${SHARE_DIR}")"
+
+# Ensure REPO_DIR is a subdirectory of SHARE_DIR.
+if [[ "${REPO_DIR}" != "${SHARE_DIR}"* ]]; then
+    cat << EOF
+Error: The shared directory must be a parent directory of the MISE installation
+(at: ${REPO_DIR}), so that the VM can access MISE tasks and resources.
+EOF
+    exit 1
+fi
+
+# Ensure SHARE_DIR isn't the user's home directory.
+if [[ "${SHARE_DIR}" == "${HOME}" ]]; then
+    cat << EOF
+Error: Sharing your home directory is not allowed, as this exposes any production
+credentials of your host to the VM, and VMs are intended to be fully isolated
+environments with no ambient authorizations (other than those explicitly provided).
+
+Recommendation: create a dedicated "work" directory under your home directory
+which contains all of your working checkouts and files, and share it instead.
+EOF
+    exit 1
+fi
+
+# Detect OS and set defaults from host resources
+if [[ "$(uname)" == "Darwin" ]]; then
+    OS="mac"
+    CPU="${usage_cpu:-$(sysctl -n hw.ncpu)}"
+elif [[ "$(uname)" == "Linux" ]]; then
+    OS="linux"
+    CPU="${usage_cpu:-$(nproc)}"
+else
+    echo "Unsupported OS: $(uname)"; exit 1
+fi
+
+# Create VM share directory
+TEMP_CONFIG=$(mktemp /tmp/lima-config-yaml-XXXXXX)
+
+# Generate config
+cat > "${TEMP_CONFIG}" << EOF
+# Lima VM configuration for: ${VM_NAME}
+# Generated on: $(date) at ${TEMP_CONFIG}.
+
+# We use base template://_images/ubuntu-24.04 to bypass template://_default/mounts,
+# which mounts the entire home directory. We don't want this behavior
+# as we explicitly mount the desired share directory (only).
+base: [template://_images/ubuntu-24.04]
+EOF
+
+# Add OS-specific config
+if [[ "$OS" == "mac" ]]; then
+    cat >> "${TEMP_CONFIG}" << EOF
+vmType: vz
+
+# Note that in V2, this is moving under vmOpts->vz
+rosetta:
+  # Enable Rosetta for Intel containers under ARM host.
+  # Hint: try "softwareupdate --install-rosetta" if Lima gets stuck at "Installing rosetta..."
+  enabled: true
+  # Register rosetta to /proc/sys/fs/binfmt_misc
+  binfmt: true
+
+networks:
+  - vzNAT: true   # Fast (kernel), but host <=> VM only
+# - lima: user-v2 # Slow (user-space proxy), but VM <=> VM
+
+EOF
+fi
+
+if [[ "$OS" == "linux" ]]; then
+    cat >> "${TEMP_CONFIG}" << EOF
+vmType: qemu
+
+networks:
+  - lima: user-v2  # User-space proxy, allows VM <=> VM
+
+EOF
+fi
+
+# Add common config
+cat >> "${TEMP_CONFIG}" << EOF
+hostResolver:
+  ipv6: true
+
+cpus: ${CPU}
+memory: 12GiB
+disk: 128GiB
+
+ssh:
+  forwardAgent: false
+
+upgradePackages: true
+mountInotify: true
+
+user:
+  home: /${VM_NAME}
+  shell: /bin/bash
+
+containerd:
+  # Turn off automatic installation of nerdctl.
+  user: false
+
+mountType: virtiofs
+mounts:
+  - location: "${SHARE_DIR}"
+    writable: true
+
+provision:
+  - mode: user
+    script: ${REPO_DIR}/mise/install.sh
+  - mode: user
+    script: |
+      cd ${REPO_DIR}
+      /${VM_NAME}/.local/bin/mise trust
+      /${VM_NAME}/.local/bin/mise run vm:create-post
+EOF
+
+# Create the VM.
+limactl create --name=${VM_NAME} "${TEMP_CONFIG}"
+rm -f "${TEMP_CONFIG}"
+
+# Start the VM.
+limactl start ${VM_NAME}
+# Restart the user's session to reload groups.
+limactl shell ${VM_NAME} -- loginctl terminate-user ${USER} || true
+
+echo ""
+echo "VM created successfully!"
+echo ""
+echo "To start the VM:    limactl start ${VM_NAME}"
+echo "To get a shell:     limactl shell ${VM_NAME}"
+echo "To stop the VM:     limactl stop ${VM_NAME}"
+echo "To delete the VM:   limactl delete ${VM_NAME}"
+echo ""
+
