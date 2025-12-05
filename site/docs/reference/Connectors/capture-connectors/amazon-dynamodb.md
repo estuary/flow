@@ -16,9 +16,9 @@ To use this connector, you'll need:
   5. Click **Turn on stream**
 
 - An IAM user with the following [permissions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazondynamodb.html):
-  - `ListTables` on all resources
-  - `DescribeTable` on all resources (The connector discovers **all tables** in your account during setup. Even if you only want to capture specific tables, your IAM policy must allow `DescribeTable` on all tables, or discovery will fail with an `AccessDeniedException`.)
-  - `DescribeStream` on all resources
+  - `ListTables` on all resources you wish to capture
+  - `DescribeTable` on all resources returned by `ListTables`
+  - `DescribeStream` on all resources returned by `ListTables`
   - `Scan` on all tables used
   - `GetRecords` on all streams used
   - `GetShardIterator` on all streams used
@@ -39,6 +39,7 @@ To use this connector, you'll need:
                   "dynamodb:GetRecords",
                   "dynamodb:GetShardIterator",
                   "dynamodb:ListStreams",
+                  "dynamodb:ListTables",
                   "dynamodb:Scan",
                   "dynamodb:Query"
               ],
@@ -46,14 +47,10 @@ To use this connector, you'll need:
                   "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/*",
                   "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/*/stream/*"
               ]
-          },
-          {
-              "Effect": "Allow",
-              "Action": "dynamodb:ListTables",
-              "Resource": "*"
           }
       ]
   }
+  ```
 
 - AWS Credentials.  One of the following types:
   - The AWS **access key** and **secret access key** for the user. See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
