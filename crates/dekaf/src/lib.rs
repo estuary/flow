@@ -533,6 +533,14 @@ async fn handle_api(
                 session.offset_commit(request, header).await?,
             ))
         }
+        ApiKey::OffsetForLeaderEpoch => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header,
+                session.offset_for_leader_epoch(request).await?,
+            ))
+        }
         /*
         ApiKey::CreateTopics => Ok(K::CreateTopicsRequest(CreateTopicsRequest::decode(b, v)?)),
         ApiKey::ListGroups => Ok(K::ListGroupsRequest(ListGroupsRequest::decode(b, v)?)),
@@ -607,19 +615,54 @@ fn enc_resp<
 /// NOTE that the output of this function must be deterministic,
 /// that is: it cannot use a random nonce like you normally would
 /// when encrypting data.
-fn to_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
+fn to_upstream_topic_name(
+    topic: TopicName,
+    secret: String,
+    nonce: String,
+    backfill_counter: Option<u32>,
+) -> TopicName {
     let (cipher, nonce) = create_crypto(secret, nonce);
 
     let encrypted = cipher.encrypt(&nonce, topic.as_bytes()).unwrap();
-    let encoded = hex::encode(encrypted);
+    let mut encoded = hex::encode(encrypted);
+
+    // Append epoch suffix if provided for upstream topic isolation
+    if let Some(counter) = backfill_counter {
+        encoded.push_str(&format!("-e{}", counter));
+    }
+
     TopicName::from(StrBytes::from_string(encoded))
 }
 
+/// Detects if a topic name has an epoch suffix in the format `-e{digits}`.
+pub(crate) fn has_epoch_suffix(topic_str: &str) -> bool {
+    if let Some(pos) = topic_str.rfind("-e") {
+        !topic_str[pos + 2..].is_empty() && topic_str[pos + 2..].chars().all(|c| c.is_ascii_digit())
+    } else {
+        false
+    }
+}
+
+/// Strip epoch suffix from encrypted topic name if present.
+/// Format: `{encrypted-hex}-e{counter}` → `{encrypted-hex}`
+fn strip_epoch_suffix(topic: &TopicName) -> String {
+    let topic_str = topic.as_str();
+    if has_epoch_suffix(topic_str) {
+        if let Some(pos) = topic_str.rfind("-e") {
+            return topic_str[..pos].to_string();
+        }
+    }
+    topic_str.to_string()
+}
+
 /// Convert the output of [`to_upstream_topic_name`] back into
-/// its plain collection name format.
+/// its plain collection name format. Automatically strips epoch suffix if present.
 fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
     let (cipher, nonce) = create_crypto(secret, nonce);
-    let decoded = hex::decode(topic.as_bytes()).unwrap();
+
+    // Strip epoch suffix before decrypting
+    let topic_without_epoch = strip_epoch_suffix(&topic);
+    let decoded = hex::decode(topic_without_epoch.as_bytes()).unwrap();
     let decrypted = cipher.decrypt(&nonce, decoded.as_slice()).unwrap();
 
     TopicName::from(StrBytes::from_utf8(Bytes::from(decrypted)).unwrap())
@@ -683,7 +726,7 @@ fn dekaf_shard_template_id(task_name: &str) -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::{from_upstream_topic_name, to_upstream_topic_name};
+    use crate::{from_upstream_topic_name, has_epoch_suffix, to_upstream_topic_name};
     use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 
     #[test]
@@ -692,14 +735,34 @@ mod test {
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
+            Some(1),
         );
         let enc_2 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
+            Some(1),
         );
 
         assert_eq!(enc_1, enc_2);
+    }
+
+    #[test]
+    fn test_encryption_different_backfill_counters() {
+        let enc_1 = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+            Some(1),
+        );
+        let enc_2 = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+            Some(2),
+        );
+
+        assert_ne!(enc_1, enc_2);
     }
 
     #[test]
@@ -708,11 +771,84 @@ mod test {
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
+            None,
         );
 
         let decrypted =
             from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
 
         assert_eq!(decrypted.as_str(), "Test Topic");
+    }
+    #[test]
+    fn test_encrypt_decrypt_with_backfill() {
+        let encrypted = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+            Some(1),
+        );
+
+        let decrypted =
+            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
+
+        assert_eq!(decrypted.as_str(), "Test Topic");
+    }
+
+    #[test]
+    fn test_has_epoch_suffix() {
+        // Valid epoch suffixes
+        assert!(has_epoch_suffix("abc123-e5"));
+        assert!(has_epoch_suffix("topic-e123"));
+        assert!(has_epoch_suffix("foo-e0"));
+
+        // Invalid - no epoch suffix
+        assert!(!has_epoch_suffix("abc123"));
+        assert!(!has_epoch_suffix("topic"));
+
+        // Invalid - wrong format
+        assert!(!has_epoch_suffix("topic-e")); // no digits
+        assert!(!has_epoch_suffix("topic-ex")); // non-digit after e
+        assert!(!has_epoch_suffix("topic-e1x")); // non-digit mixed in
+
+        // Edge case - "-e" in middle is not a suffix
+        assert!(!has_epoch_suffix("topic-e-other"));
+    }
+
+    #[test]
+    fn test_different_nonces_produce_different_encryptions() {
+        let topic = TopicName::from(StrBytes::from_static_str("Test Topic"));
+        let secret = "secret".to_string();
+
+        let encrypted_with_token = to_upstream_topic_name(
+            topic.clone(),
+            secret.clone(),
+            "token_nonce".to_string(),
+            Some(1),
+        );
+
+        let encrypted_with_task = to_upstream_topic_name(
+            topic.clone(),
+            secret.clone(),
+            "task_name_nonce".to_string(),
+            Some(1),
+        );
+
+        // Different nonces should produce different encrypted values
+        assert_ne!(encrypted_with_token, encrypted_with_task);
+
+        // But both should decrypt correctly with their respective nonces
+        let decrypted_token = from_upstream_topic_name(
+            encrypted_with_token,
+            secret.clone(),
+            "token_nonce".to_string(),
+        );
+        let decrypted_task = from_upstream_topic_name(
+            encrypted_with_task,
+            secret.clone(),
+            "task_name_nonce".to_string(),
+        );
+
+        assert_eq!(decrypted_token.as_str(), "Test Topic");
+        assert_eq!(decrypted_task.as_str(), "Test Topic");
     }
 }
