@@ -1,4 +1,5 @@
 use super::Read;
+use anyhow::Context;
 use futures::{StreamExt, stream::BoxStream};
 use proto_flow::flow;
 use proto_gazette::consumer;
@@ -8,10 +9,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 // StreamingReader reads fixture documents line-by-line from a file.
 // Each line is either:
 // - A document: ["collection/name", {...document...}]
-// - An ack marker: {"ack": true}
+// - A commit marker: {"commit": true}
 //
-// The ack marker denotes a transaction boundary. All documents between
-// two ack markers (or between the start and first ack) belong to the same transaction.
+// The commit marker denotes a transaction boundary. All documents between
+// two commit markers (or between the start and first commit) belong to the same transaction.
 #[derive(Clone)]
 pub struct StreamingReader {
     pub path: std::path::PathBuf,
@@ -102,16 +103,10 @@ impl StreamingReader {
         let producer = crate::uuid::Producer([7, 19, 83, 3, 3, 17]);
         let path = self.path.clone();
 
-        coroutines::coroutine(move |mut co| async move {
-            let file = match tokio::fs::File::open(&path).await {
-                Ok(file) => file,
-                Err(err) => {
-                    let err = anyhow::Error::from(err)
-                        .context(format!("couldn't open streaming fixture file: {:?}", path));
-                    () = co.yield_(Err(err)).await;
-                    return;
-                }
-            };
+        coroutines::try_coroutine(move |mut co| async move {
+            let file = tokio::fs::File::open(&path)
+                .await
+                .context(format!("couldn't open streaming fixture file: {:?}", path))?;
 
             let reader = BufReader::new(file);
             let mut lines = reader.lines();
@@ -124,54 +119,32 @@ impl StreamingReader {
             let mut skipped = 0;
             while skipped < skip {
                 line_number += 1;
-                let line = match lines.next_line().await {
-                    Ok(Some(line)) => line,
-                    Ok(None) => return, // Reached end of file
-                    Err(err) => {
-                        () = co.yield_(Err(anyhow::Error::from(err))).await;
-                        return;
-                    }
+                let line = match lines.next_line().await? {
+                    Some(line) => line,
+                    None => return Ok(()), // Reached end of file
                 };
 
-                match is_ack_line(&line) {
-                    Ok(true) => skipped += 1,
-                    Ok(false) => {}
-                    Err(err) => {
-                        () = co.yield_(Err(err)).await;
-                        return;
-                    }
+                if is_commit_line(&line)? {
+                    skipped += 1;
                 }
             }
 
             loop {
                 line_number += 1;
-                let line = match lines.next_line().await {
-                    Ok(Some(line)) => line,
-                    Ok(None) => break, // End of file
-                    Err(err) => {
-                        () = co.yield_(Err(anyhow::Error::from(err))).await;
-                        return;
-                    }
+                let line = match lines.next_line().await? {
+                    Some(line) => line,
+                    None => break, // End of file
                 };
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
 
-                // Check if this is an ack marker
-                let is_ack = match is_ack_line(&line) {
-                    Ok(is_ack) => is_ack,
-                    Err(err) => {
-                        () = co.yield_(Err(err)).await;
-                        return;
-                    }
-                };
-
-                if is_ack {
-                    tracing::info!(line_number, txn, "detected ack, emitting checkpoint");
+                if is_commit_line(&line)? {
+                    tracing::info!(line_number, txn, "detected commit, emitting checkpoint");
                     // Emit a checkpoint for the completed transaction
                     () = co
-                        .yield_(Ok(Read::Checkpoint(consumer::Checkpoint {
+                        .yield_(Read::Checkpoint(consumer::Checkpoint {
                             sources: [(
                                 "fixture".to_string(),
                                 consumer::checkpoint::Source {
@@ -181,7 +154,7 @@ impl StreamingReader {
                             )]
                             .into(),
                             ack_intents: Default::default(),
-                        })))
+                        }))
                         .await;
 
                     txn += 1;
@@ -191,18 +164,10 @@ impl StreamingReader {
 
                 // Parse as document: [collection, doc]
                 let (collection, mut doc): (models::Collection, serde_json::Value) =
-                    match serde_json::from_str(&line) {
-                        Ok(parsed) => parsed,
-                        Err(err) => {
-                            let err = anyhow::Error::from(err).context(format!(
-                                "couldn't parse fixture line {} as [collection, document]: '{}'",
-                                line_number, line
-                            ));
-                            () = co.yield_(Err(err)).await;
-                            return;
-                        }
-                    };
-
+                    serde_json::from_str(&line).context(format!(
+                        "couldn't parse fixture line {} as [collection, document]: '{}'",
+                        line_number, line
+                    ))?;
                 let Some(bindings) = index.get(collection.as_str()) else {
                     offset += 1;
                     continue;
@@ -221,10 +186,10 @@ impl StreamingReader {
                         serde_json::json!(uuid.as_hyphenated());
 
                     () = co
-                        .yield_(Ok(Read::Document {
+                        .yield_(Read::Document {
                             binding: *binding as u32,
                             doc: doc.to_string().into(),
-                        }))
+                        })
                         .await;
                 }
 
@@ -244,7 +209,7 @@ impl StreamingReader {
             // emit a checkpoint for the last transaction
             if offset > 0 {
                 () = co
-                    .yield_(Ok(Read::Checkpoint(consumer::Checkpoint {
+                    .yield_(Read::Checkpoint(consumer::Checkpoint {
                         sources: [(
                             "fixture".to_string(),
                             consumer::checkpoint::Source {
@@ -254,21 +219,23 @@ impl StreamingReader {
                         )]
                         .into(),
                         ack_intents: Default::default(),
-                    })))
+                    }))
                     .await;
             }
+
+            Ok(())
         })
         .boxed()
     }
 }
 
-// Helper function to check if a line is an ack marker
-fn is_ack_line(line: &str) -> anyhow::Result<bool> {
-    // Try to parse as JSON object with "ack" field
+// Helper function to check if a line is an commit marker
+fn is_commit_line(line: &str) -> anyhow::Result<bool> {
+    // Try to parse as JSON object with "commit" field
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
         if let Some(obj) = val.as_object() {
-            if let Some(ack) = obj.get("ack") {
-                return Ok(ack.as_bool().unwrap_or(false));
+            if let Some(commit) = obj.get("commit") {
+                return Ok(commit.as_bool().unwrap_or(false));
             }
         }
     }

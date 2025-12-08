@@ -3,7 +3,6 @@ use proto_gazette::consumer;
 
 mod capture;
 mod derive;
-pub mod fixture;
 mod materialize;
 pub mod streaming_fixture;
 
