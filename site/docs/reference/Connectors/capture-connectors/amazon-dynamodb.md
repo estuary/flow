@@ -18,7 +18,7 @@ To use this connector, you'll need:
 - An IAM user with the following [permissions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazondynamodb.html):
   - `ListTables` on all tables in the region
   - `DescribeTable` on all tables in the region
-  - `DescribeStream` on all tables in the region
+  - `DescribeStream` on all tables used
   - `Scan` on all tables used
   - `GetRecords` on all streams used
   - `GetShardIterator` on all streams used
