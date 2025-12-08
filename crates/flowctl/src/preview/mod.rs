@@ -44,7 +44,7 @@ pub struct Preview {
     /// Path to a transactions fixture to use, instead of reading live collections.
     /// Fixtures are used only for derivations and materializations.
     /// The fixture format is newline-delimited JSON where each line is either a
-    /// document ["collection/name", {...document...}] or an ack marker {"ack": true}
+    /// document ["collection/name", {...document...}] or a commit marker {"commit": true}
     /// denoting a transaction boundary.
     #[clap(long)]
     fixture: Option<String>,
