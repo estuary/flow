@@ -3,9 +3,7 @@ permissions:
   contents: read
 
 on:
-  # TODO(johnny): Only run automatically on merges into the `master` branch.
-  # push:
-  pull_request:
+  push:
     branches: [master]
     paths-ignore:
       - "site/**"
