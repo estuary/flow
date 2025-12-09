@@ -644,9 +644,14 @@ impl Session {
                     }
                 };
 
-                match self.reads.get(&key) {
-                    Some((_, started_at))
-                        if started_at.elapsed() > std::time::Duration::from_secs(60 * 5) =>
+                let pending_info = self
+                    .reads
+                    .get(&key)
+                    .map(|(p, s)| (p.offset, p.leader_epoch, s.elapsed()));
+
+                match pending_info {
+                    Some((_, _, elapsed))
+                        if elapsed > std::time::Duration::from_secs(60 * 5) =>
                     {
                         metrics::counter!(
                             "dekaf_fetch_requests",
@@ -656,19 +661,51 @@ impl Session {
                             "state" => "read_expired"
                         )
                         .increment(1);
-                        tracing::debug!(lifetime=?started_at.elapsed(), topic_name=?key.0,partition_index=?key.1, "Restarting expired Read");
+                        tracing::debug!(lifetime=?elapsed, topic_name=?key.0,partition_index=?key.1, "Restarting expired Read");
                         self.reads.remove(&key);
                     }
-                    Some((pending, _)) if pending.offset == fetch_offset => {
-                        metrics::counter!(
-                            "dekaf_fetch_requests",
-                            "topic_name" => key.0.to_string(),
-                            "partition_index" => key.1.to_string(),
-                            "task_name" => task_name.to_string(),
-                            "state" => "read_pending"
-                        )
-                        .increment(1);
-                        continue; // Common case: fetch is at the pending offset.
+                    Some((pending_offset, pending_epoch, _)) if pending_offset == fetch_offset => {
+                        // Validate pending read's epoch is still current
+                        let auth = self.auth.as_ref().unwrap();
+                        let current_epoch = Collection::new(&auth, &key.0)
+                            .await?
+                            .map(|c| c.binding_backfill_counter as i32);
+
+                        match current_epoch {
+                            Some(epoch) if pending_epoch < epoch => {
+                                metrics::counter!(
+                                    "dekaf_fetch_requests",
+                                    "topic_name" => key.0.to_string(),
+                                    "partition_index" => key.1.to_string(),
+                                    "task_name" => task_name.to_string(),
+                                    "state" => "pending_read_epoch_stale"
+                                )
+                                .increment(1);
+                                tracing::info!(
+                                    topic_name=?key.0,
+                                    partition_index=?key.1,
+                                    pending_epoch,
+                                    current_epoch = epoch,
+                                    "Pending read epoch is stale, removing"
+                                );
+                                self.reads.remove(&key);
+                            }
+                            Some(_) => {
+                                metrics::counter!(
+                                    "dekaf_fetch_requests",
+                                    "topic_name" => key.0.to_string(),
+                                    "partition_index" => key.1.to_string(),
+                                    "task_name" => task_name.to_string(),
+                                    "state" => "read_pending"
+                                )
+                                .increment(1);
+                                continue; // Valid pending read at correct offset and epoch
+                            }
+                            None => {
+                                // Collection no longer exists
+                                self.reads.remove(&key);
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -956,45 +993,19 @@ impl Session {
 
                 let (read, batch) = (&mut pending.handle).await??;
 
-                // Re-fetch collection to check if epoch changed during the read
-                let auth = self.auth.as_ref().unwrap();
-                let Some(collection) = Collection::new(&auth, &key.0).await? else {
-                    partition_responses.push(
-                        PartitionData::default()
-                            .with_partition_index(partition_request.partition)
-                            .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
-                    );
-                    self.reads.remove(&key);
-                    continue;
-                };
-
-                // Check if epoch incremented while we were reading
-                if collection.binding_backfill_counter as i32 > pending.leader_epoch {
-                    tracing::info!(
-                        collection = ?&key.0,
-                        partition = partition_request.partition,
-                        old_epoch = pending.leader_epoch,
-                        new_epoch = collection.binding_backfill_counter,
-                        "Epoch changed during read, returning FENCED_LEADER_EPOCH"
-                    );
-                    partition_responses.push(
-                        PartitionData::default()
-                            .with_partition_index(partition_request.partition)
-                            .with_error_code(ResponseError::FencedLeaderEpoch.code())
-                            .with_current_leader(
-                                messages::fetch_response::LeaderIdAndEpoch::default()
-                                    .with_leader_id(messages::BrokerId(1))
-                                    .with_leader_epoch(collection.binding_backfill_counter as i32),
-                            ),
-                    );
-                    self.reads.remove(&key);
-                    continue;
-                }
-
                 let batch = match batch {
                     BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
                     BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
                     BatchResult::TimeoutNoData | BatchResult::Suspended => None,
+                    BatchResult::JournalNotFound => {
+                        partition_responses.push(
+                            PartitionData::default()
+                                .with_partition_index(partition_request.partition)
+                                .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
+                        );
+                        self.reads.remove(&key);
+                        continue;
+                    }
                 };
 
                 let mut partition_data = PartitionData::default()
@@ -1011,7 +1022,6 @@ impl Session {
                     SessionDataPreviewState::NotDataPreview => {
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
-                        pending.leader_epoch = collection.binding_backfill_counter as i32;
                         pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                             propagate_task_forwarder(read.next_batch(
                                 crate::read::ReadTarget::Bytes(
@@ -1040,7 +1050,7 @@ impl Session {
                             .with_current_leader(
                                 messages::fetch_response::LeaderIdAndEpoch::default()
                                     .with_leader_id(messages::BrokerId(1))
-                                    .with_leader_epoch(collection.binding_backfill_counter as i32),
+                                    .with_leader_epoch(pending.leader_epoch),
                             );
                         self.reads.remove(&key);
                     }
@@ -1948,9 +1958,22 @@ impl Session {
     {
         use messages::offset_for_leader_epoch_response::OffsetForLeaderTopicResult;
 
+        use messages::offset_for_leader_epoch_response::EpochEndOffset;
+
         let collection_name = from_downstream_topic_name(topic.topic.clone());
         let Some(collection) = Collection::new(auth, &collection_name).await? else {
-            return Ok(OffsetForLeaderTopicResult::default().with_topic(topic.topic));
+            let partitions = topic
+                .partitions
+                .iter()
+                .map(|p| {
+                    EpochEndOffset::default()
+                        .with_partition(p.partition)
+                        .with_error_code(ResponseError::UnknownTopicOrPartition.code())
+                })
+                .collect();
+            return Ok(OffsetForLeaderTopicResult::default()
+                .with_topic(topic.topic)
+                .with_partitions(partitions));
         };
 
         let current_epoch = collection.binding_backfill_counter as i32;
