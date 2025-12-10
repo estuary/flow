@@ -71,12 +71,25 @@ pub struct Cli {
     #[arg(long, default_value = "9094", env = "METRICS_PORT")]
     metrics_port: u16,
 
-    /// List of Kafka broker URLs to try connecting to for group management APIs
+    /// List of Kafka broker URLs to try connecting to for group management APIs.
+    ///
+    /// URL schemes control the connection type:
+    /// - `tcp://host:port` - plaintext connection (no TLS)
+    /// - `tls://host:port` - TLS-encrypted connection (default if no scheme provided)
     #[arg(long, env = "DEFAULT_BROKER_URLS", value_delimiter = ',')]
     default_broker_urls: Vec<String>,
-    /// The AWS region that the default broker lives in
-    #[arg(long, env = "DEFAULT_BROKER_MSK_REGION")]
-    default_broker_msk_region: String,
+    /// The AWS region that the default broker lives in.
+    /// Required unless --upstream-no-auth is set.
+    #[arg(
+        long,
+        env = "DEFAULT_BROKER_MSK_REGION",
+        required_unless_present = "upstream_no_auth"
+    )]
+    default_broker_msk_region: Option<String>,
+    /// Disable SASL authentication for upstream Kafka connections.
+    /// Use this for local testing with a plaintext Kafka broker.
+    #[arg(long, env = "UPSTREAM_NO_AUTH", action(clap::ArgAction::SetTrue))]
+    upstream_no_auth: bool,
 
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
@@ -147,26 +160,6 @@ struct TlsArgs {
     certificate_key_file: Option<PathBuf>,
 }
 
-impl Cli {
-    fn build_broker_urls(&self) -> anyhow::Result<Vec<String>> {
-        self.default_broker_urls
-            .clone()
-            .into_iter()
-            .map(|url| {
-                {
-                    let parsed = Url::parse(&url).expect("invalid broker URL {url}");
-                    Ok::<_, anyhow::Error>(format!(
-                        "tcp://{}:{}",
-                        parsed.host().context(format!("invalid broker URL {url}"))?,
-                        parsed.port().unwrap_or(9092)
-                    ))
-                }
-                .context(url)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()
-    }
-}
-
 fn main() {
     logging::install();
 
@@ -204,9 +197,9 @@ fn main() {
 }
 
 async fn async_main(cli: Cli) -> anyhow::Result<()> {
-    let upstream_kafka_urls = cli.build_broker_urls()?;
-
     test_kafka(&cli).await?;
+
+    let upstream_kafka_urls = cli.default_broker_urls.clone();
 
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
@@ -271,7 +264,16 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     let schema_router = dekaf::registry::build_router(app.clone());
 
-    let msk_region = cli.default_broker_msk_region.as_str();
+    // MSK region is optional when upstream_no_auth is set
+    let upstream_auth_config = if cli.upstream_no_auth {
+        None
+    } else {
+        Some(
+            cli.default_broker_msk_region
+                .clone()
+                .context("MSK region is required when upstream auth is enabled")?,
+        )
+    };
 
     // Setup TLS acceptor if TLS configuration is provided
     let tls_acceptor = if let Some(tls_cfg) = cli.tls {
@@ -357,7 +359,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                                 app.clone(),
                                 cli.encryption_secret.to_owned(),
                                 upstream_kafka_urls.clone(),
-                                msk_region.to_string(),
+                                upstream_auth_config.clone(),
                                 cli.read_buffer_chunk_limit,
                             ),
                             socket,
@@ -507,22 +509,18 @@ fn validate_certificate_name(
 
 #[tracing::instrument(skip(cli))]
 async fn test_kafka(cli: &Cli) -> anyhow::Result<()> {
-    let iam_creds = KafkaClientAuth::MSK {
-        aws_region: cli.default_broker_msk_region.clone(),
-        provider: aws_config::from_env()
-            .region(aws_types::region::Region::new(
-                cli.default_broker_msk_region.clone(),
-            ))
-            .load()
-            .await
-            .credentials_provider()
-            .unwrap(),
-        cached: None,
+    let msk_region = if cli.upstream_no_auth {
+        None
+    } else {
+        Some(
+            cli.default_broker_msk_region
+                .as_deref()
+                .context("MSK region is required when upstream auth is enabled")?,
+        )
     };
 
-    let broker_urls = cli.build_broker_urls()?;
-
-    KafkaApiClient::connect(broker_urls.as_slice(), iam_creds).await?;
+    let auth = KafkaClientAuth::from_msk_region(msk_region).await;
+    KafkaApiClient::connect(&cli.default_broker_urls, auth).await?;
 
     tracing::info!("Successfully connected to upstream kafka");
 
