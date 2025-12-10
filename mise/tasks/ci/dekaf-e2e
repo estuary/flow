@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run Dekaf E2E tests"
+#MISE depends=["local:stack", "local:dekaf-kafka"]
+#USAGE flag "--filter <filter>" help="Test filter pattern for nextest"
+
+FILTER="${usage_filter:-}"
+
+FLOW_LOCAL="${HOME}/flow-local"
+KAFKA_PORT=9092
+REGISTRY_PORT=9093
+UPSTREAM_PORT=29092
+
+# Wait for stack to be ready
+echo "Waiting for local stack..."
+TIMEOUT=120
+ELAPSED=0
+until curl -sf http://localhost:8675/health > /dev/null 2>&1; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: Local stack failed to become ready within ${TIMEOUT} seconds"
+        exit 1
+    fi
+done
+echo "Local stack is ready"
+
+# Build Dekaf
+echo "Building Dekaf..."
+cargo build -p dekaf --quiet
+
+# Start Dekaf in background
+echo "Starting Dekaf..."
+"${CARGO_TARGET_DIR:-${HOME}/cargo-target}/debug/dekaf" \
+    --local \
+    --advertise-host 127.0.0.1 \
+    --kafka-port "${KAFKA_PORT}" \
+    --schema-registry-port "${REGISTRY_PORT}" \
+    --metrics-port 9094 \
+    --default-broker-urls "tcp://localhost:${UPSTREAM_PORT}" \
+    --upstream-no-auth \
+    --encryption-secret "test-encryption-secret-32-bytes!" &
+DEKAF_PID=$!
+trap "kill $DEKAF_PID 2>/dev/null || true" EXIT
+
+# Wait for Dekaf to be ready
+echo "Waiting for Dekaf..."
+TIMEOUT=30
+ELAPSED=0
+until nc -z localhost ${KAFKA_PORT} 2>/dev/null; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: Dekaf failed to start within ${TIMEOUT} seconds"
+        exit 1
+    fi
+    # Check if Dekaf process is still alive
+    if ! kill -0 $DEKAF_PID 2>/dev/null; then
+        echo "Error: Dekaf process died unexpectedly"
+        exit 1
+    fi
+done
+echo "Dekaf is ready"
+
+echo "Running Dekaf E2E tests..."
+
+export DEKAF_BROKER="localhost:${KAFKA_PORT}"
+export DEKAF_REGISTRY="http://localhost:${REGISTRY_PORT}"
+
+NEXTEST_ARGS="--test 'e2e*'"
+if [ -n "${FILTER}" ]; then
+    NEXTEST_ARGS="${NEXTEST_ARGS} -E 'test(${FILTER})'"
+fi
+
+# Run ignored tests (E2E tests are marked #[ignore])
+PATH=${PATH}:${CARGO_TARGET_DIR:-${HOME}/cargo-target}/debug/ \
+cargo nextest run -p dekaf ${NEXTEST_ARGS} -- --ignored

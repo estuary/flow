@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start Dekaf against local stack"
+#MISE depends=["local:stack", "local:dekaf-kafka", "local:tls-cert"]
+#USAGE flag "--kafka-port <kafka_port>" help="Kafka protocol port (default: 9092)"
+#USAGE flag "--registry-port <registry_port>" help="Schema registry port (default: 9093)"
+#USAGE flag "--metrics-port <metrics_port>" help="Metrics port (default: 9094)"
+#USAGE flag "--upstream-port <upstream_port>" help="Upstream Kafka port (default: 29092)"
+#USAGE flag "--tls" help="Enable TLS for client connections"
+
+FLOW_LOCAL="${HOME}/flow-local"
+KAFKA_PORT="${usage_kafka_port:-9092}"
+REGISTRY_PORT="${usage_registry_port:-9093}"
+METRICS_PORT="${usage_metrics_port:-9094}"
+UPSTREAM_PORT="${usage_upstream_port:-29092}"
+USE_TLS="${usage_tls:-false}"
+
+# Build Dekaf
+echo "Building Dekaf..."
+cargo build -p dekaf --quiet
+
+TLS_ARGS=""
+if [ "${USE_TLS}" = "true" ]; then
+    TLS_ARGS="--certificate-file ${FLOW_LOCAL}/server.crt --certificate-key-file ${FLOW_LOCAL}/server.key"
+fi
+
+echo "Starting Dekaf..."
+echo "  Kafka port: ${KAFKA_PORT}"
+echo "  Schema registry port: ${REGISTRY_PORT}"
+echo "  Metrics port: ${METRICS_PORT}"
+echo "  Upstream Kafka: tcp://localhost:${UPSTREAM_PORT}"
+
+# Note: tcp:// scheme indicates plaintext connection to upstream Kafka
+exec "${CARGO_TARGET_DIR:-${HOME}/cargo-target}/debug/dekaf" \
+    --local \
+    --advertise-host 127.0.0.1 \
+    --kafka-port "${KAFKA_PORT}" \
+    --schema-registry-port "${REGISTRY_PORT}" \
+    --metrics-port "${METRICS_PORT}" \
+    --default-broker-urls "tcp://localhost:${UPSTREAM_PORT}" \
+    --upstream-no-auth \
+    --encryption-secret "test-encryption-secret-32-bytes!" \
+    ${TLS_ARGS}

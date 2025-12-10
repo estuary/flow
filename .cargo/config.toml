@@ -1,3 +1,6 @@
+[build]
+rustflags = ["-D", "warnings"]
+
 # This just provides a default value for FLOW_VERSION during development, so that you can compile
 # without this being set. If FLOW_VERSION is defined, then this has no effect.
 [env]

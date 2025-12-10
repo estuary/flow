@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start local Kafka for Dekaf consumer group testing"
+#MISE depends=["local:common"]
+#USAGE flag "--port <port>" help="Kafka port (default: 29092)"
+
+FLOW_LOCAL="${HOME}/flow-local"
+KAFKA_DATA="${FLOW_LOCAL}/kafka-data"
+KAFKA_PORT="${usage_port:-29092}"
+CONTAINER_NAME="dekaf-test-kafka"
+
+# Check if already running
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Kafka already running on port ${KAFKA_PORT}"
+    exit 0
+fi
+
+# Clean up any stopped container with the same name
+docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+
+mkdir -p "${KAFKA_DATA}"
+
+echo "Starting Kafka in KRaft mode on port ${KAFKA_PORT}..."
+
+# Start Kafka in KRaft mode (no Zookeeper)
+docker run -d \
+    --name "${CONTAINER_NAME}" \
+    --network host \
+    -e KAFKA_NODE_ID=1 \
+    -e KAFKA_PROCESS_ROLES=broker,controller \
+    -e KAFKA_LISTENERS="PLAINTEXT://0.0.0.0:${KAFKA_PORT},CONTROLLER://0.0.0.0:29093" \
+    -e KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://localhost:${KAFKA_PORT}" \
+    -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+    -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP="CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" \
+    -e KAFKA_CONTROLLER_QUORUM_VOTERS="1@localhost:29093" \
+    -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+    -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+    -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+    -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
+    -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+    -e CLUSTER_ID="MkU3OEVBNTcwNTJENDM2Qk" \
+    -v "${KAFKA_DATA}:/var/lib/kafka/data" \
+    confluentinc/cp-kafka:7.5.0
+
+# Wait for Kafka to be ready
+echo "Waiting for Kafka to be ready..."
+TIMEOUT=60
+ELAPSED=0
+until docker exec "${CONTAINER_NAME}" kafka-broker-api-versions \
+    --bootstrap-server localhost:${KAFKA_PORT} > /dev/null 2>&1; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: Kafka failed to start within ${TIMEOUT} seconds"
+        docker logs "${CONTAINER_NAME}"
+        exit 1
+    fi
+done
+
+echo "Kafka started on port ${KAFKA_PORT}"
