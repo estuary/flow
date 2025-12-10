@@ -1,6 +1,6 @@
 use super::{App, Collection, Read};
 use crate::{
-    DekafError, KafkaApiClient, SessionAuthentication, TaskState, api_client::KafkaClientAuth,
+    DekafError, KafkaApiClient, KafkaClientAuth, SessionAuthentication, TaskState,
     from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
     read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
 };
@@ -57,7 +57,7 @@ pub struct Session {
     auth: Option<SessionAuthentication>,
     data_preview_state: SessionDataPreviewState,
     broker_urls: Vec<String>,
-    msk_region: String,
+    upstream_auth: KafkaClientAuth,
     // Number of ReadResponses to buffer in PendingReads
     read_buffer_size: usize,
 }
@@ -67,14 +67,14 @@ impl Session {
         app: Arc<App>,
         secret: String,
         broker_urls: Vec<String>,
-        msk_region: String,
+        upstream_auth: KafkaClientAuth,
         read_buffer_size: usize,
     ) -> Self {
         Self {
             app,
             client: None,
             broker_urls,
-            msk_region,
+            upstream_auth,
             read_buffer_size,
             reads: HashMap::new(),
             auth: None,
@@ -122,30 +122,14 @@ impl Session {
         if let Some(ref mut client) = self.client {
             Ok(client)
         } else {
-            let (auth, urls) = match self.auth {
-                Some(SessionAuthentication::Task(_))
-                | Some(SessionAuthentication::Redirect { .. }) => (
-                    KafkaClientAuth::MSK {
-                        aws_region: self.msk_region.clone(),
-                        provider: aws_config::from_env()
-                            .region(aws_types::region::Region::new(self.msk_region.clone()))
-                            .load()
-                            .await
-                            .credentials_provider()
-                            .unwrap(),
-                        cached: None,
-                    },
-                    self.broker_urls.as_slice(),
-                ),
-                None => anyhow::bail!("Must be authenticated"),
-            };
+            if self.auth.is_none() {
+                anyhow::bail!("Must be authenticated");
+            }
+
             self.client.replace(
-                KafkaApiClient::connect(
-                    urls,
-                    auth,
-                ).await.context(
-                    "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
-                )?
+                KafkaApiClient::connect(&self.broker_urls, self.upstream_auth.clone())
+                    .await
+                    .context("failed to connect or authenticate to upstream Kafka broker used for serving group management APIs")?
             );
             Ok(self.client.as_mut().expect("guaranteed to exist"))
         }
