@@ -71,12 +71,16 @@ pub struct Cli {
     #[arg(long, default_value = "9094", env = "METRICS_PORT")]
     metrics_port: u16,
 
-    /// List of Kafka broker URLs to try connecting to for group management APIs
+    /// List of Kafka broker URLs to try connecting to for group management APIs.
+    ///
+    /// URL schemes control the connection type:
+    /// - `tcp://host:port` - plaintext connection (no TLS)
+    /// - `tls://host:port` - TLS-encrypted connection (default if no scheme provided)
     #[arg(long, env = "DEFAULT_BROKER_URLS", value_delimiter = ',')]
     default_broker_urls: Vec<String>,
-    /// The AWS region that the default broker lives in
-    #[arg(long, env = "DEFAULT_BROKER_MSK_REGION")]
-    default_broker_msk_region: String,
+
+    #[command(flatten)]
+    upstream_auth: UpstreamAuthArgs,
 
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
@@ -147,23 +151,44 @@ struct TlsArgs {
     certificate_key_file: Option<PathBuf>,
 }
 
-impl Cli {
-    fn build_broker_urls(&self) -> anyhow::Result<Vec<String>> {
-        self.default_broker_urls
-            .clone()
-            .into_iter()
-            .map(|url| {
-                {
-                    let parsed = Url::parse(&url).expect("invalid broker URL {url}");
-                    Ok::<_, anyhow::Error>(format!(
-                        "tcp://{}:{}",
-                        parsed.host().context(format!("invalid broker URL {url}"))?,
-                        parsed.port().unwrap_or(9092)
-                    ))
-                }
-                .context(url)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()
+/// Authentication strategy for upstream Kafka connections.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, clap::ValueEnum)]
+pub enum UpstreamAuth {
+    /// AWS MSK IAM authentication. Requires --default-broker-msk-region.
+    #[default]
+    Msk,
+    /// No authentication. Use for local testing with plaintext Kafka brokers.
+    None,
+}
+
+#[derive(Args, Debug, serde::Serialize)]
+#[group(id = "upstream_auth_group")]
+struct UpstreamAuthArgs {
+    /// Authentication strategy for upstream Kafka connections.
+    #[arg(long, env = "UPSTREAM_AUTH", value_enum, default_value = "msk")]
+    upstream_auth: UpstreamAuth,
+    /// The AWS region for MSK IAM authentication.
+    /// Required when --upstream-auth=msk.
+    #[arg(
+        long = "default-broker-msk-region",
+        env = "DEFAULT_BROKER_MSK_REGION",
+        required_if_eq("upstream_auth", "msk")
+    )]
+    msk_region: Option<String>,
+}
+
+impl UpstreamAuthArgs {
+    async fn build(&self) -> anyhow::Result<KafkaClientAuth> {
+        match self.upstream_auth {
+            UpstreamAuth::Msk => {
+                let region = self
+                    .msk_region
+                    .as_ref()
+                    .context("MSK region is required when --upstream-auth=msk")?;
+                KafkaClientAuth::from_msk_region(region).await
+            }
+            UpstreamAuth::None => Ok(KafkaClientAuth::None),
+        }
     }
 }
 
@@ -204,9 +229,9 @@ fn main() {
 }
 
 async fn async_main(cli: Cli) -> anyhow::Result<()> {
-    let upstream_kafka_urls = cli.build_broker_urls()?;
-
     test_kafka(&cli).await?;
+
+    let upstream_kafka_urls = cli.default_broker_urls.clone();
 
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
@@ -271,7 +296,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     let schema_router = dekaf::registry::build_router(app.clone());
 
-    let msk_region = cli.default_broker_msk_region.as_str();
+    let upstream_auth = cli.upstream_auth.build().await?;
 
     // Setup TLS acceptor if TLS configuration is provided
     let tls_acceptor = if let Some(tls_cfg) = cli.tls {
@@ -357,7 +382,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                                 app.clone(),
                                 cli.encryption_secret.to_owned(),
                                 upstream_kafka_urls.clone(),
-                                msk_region.to_string(),
+                                upstream_auth.clone(),
                                 cli.read_buffer_chunk_limit,
                             ),
                             socket,
@@ -507,22 +532,9 @@ fn validate_certificate_name(
 
 #[tracing::instrument(skip(cli))]
 async fn test_kafka(cli: &Cli) -> anyhow::Result<()> {
-    let iam_creds = KafkaClientAuth::MSK {
-        aws_region: cli.default_broker_msk_region.clone(),
-        provider: aws_config::from_env()
-            .region(aws_types::region::Region::new(
-                cli.default_broker_msk_region.clone(),
-            ))
-            .load()
-            .await
-            .credentials_provider()
-            .unwrap(),
-        cached: None,
-    };
+    let auth = cli.upstream_auth.build().await?;
 
-    let broker_urls = cli.build_broker_urls()?;
-
-    KafkaApiClient::connect(broker_urls.as_slice(), iam_creds).await?;
+    KafkaApiClient::connect(&cli.default_broker_urls, auth).await?;
 
     tracing::info!("Successfully connected to upstream kafka");
 
