@@ -31,6 +31,21 @@ pub mod registry;
 mod api_client;
 pub use api_client::{KafkaApiClient, KafkaClientAuth};
 
+#[derive(Clone, Debug)]
+pub enum UpstreamKafkaAuth {
+    Msk { region: String },
+    None,
+}
+
+impl UpstreamKafkaAuth {
+    pub async fn build_kafka_client_auth(&self) -> KafkaClientAuth {
+        match self {
+            UpstreamKafkaAuth::Msk { region } => KafkaClientAuth::from_msk_region(region).await,
+            UpstreamKafkaAuth::None => KafkaClientAuth::None,
+        }
+    }
+}
+
 /// Re-export the dekaf-connector crate so it can be used as `crate::connector`.
 pub use dekaf_connector as connector;
 
