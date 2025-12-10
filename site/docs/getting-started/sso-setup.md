@@ -16,6 +16,7 @@ To enable the SSO option on Estuary's end, [contact support](mailto:support@estu
 1. **Metadata URL or Metadata XML File**
 
    Using the metadata URL is the preferred method of configuring SSO. However, if your provider doesn't support metadata URLs, you may send a metadata XML file instead.
+   For example, see [Supabase's steps](https://supabase.com/docs/guides/platform/sso/azure#upload-saml-metadata) for working with metadata files and URLs for Azure.
 
 2. **Company Domain**
 

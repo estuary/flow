@@ -244,6 +244,7 @@ The exact meaning of a resource is up to the endpoint and its connector. For exa
 
 When you create capture or materialization, it connects a collection to a resource through a **binding**.
 A given capture or materialization may have multiple bindings, which connect multiple collections to different resources.
+For performance, it's recommended that any one task be limited to **500** bindings.
 
 ***
 

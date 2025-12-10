@@ -63,14 +63,14 @@ In the above example, the `customer_id` would be 9876543210.
 #### Multiple Customer Ids
 
 This Source allows for multiple Customer Ids to be selected.
-To allow this, simply add your `customer_id` followed by a comma.
+In the Customer Id field, provide Ids as a comma-delimited list.
 
 Example:
 
-Customer1 = 1234567890
-Customer2 = 9876543210
+* Customer1 = 1234567890
+* Customer2 = 9876543210
 
-customer_id = 1234567890,9876543210
+```customer_id: 1234567890,9876543210```
 
 ### Using OAuth2 to authenticate with Google in the Flow web app
 
@@ -196,6 +196,6 @@ If a query fails to validate against a given Google Ads account, it will be skip
 Due to Google Ads API limitations, ClickView stream queries are executed with a time range limited to one day.
 Also, data can only be requested for periods 90 days before the time of the request.
 
-In pratical terms, this means that you can only search ClickView data limited to 3 months ago. Anything before this is not returned.
+In practical terms, this means that you can only search ClickView data limited to 3 months ago. Anything before this is not returned.
 
 For more information, check [Google's Ads API documentation](https://developers.google.com/google-ads/api/fields/v15/click_view)

@@ -1,11 +1,15 @@
 
-# Klaviyo (deprecated)
+# Klaviyo (Deprecated)
 
 This connector captures data from Klaviyo into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-klaviyo:dev`](https://ghcr.io/estuary/source-klaviyo:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
+:::warning
+This connector is deprecated. For the best experience, we recommend using our native [Klaviyo connector](./klaviyo-native.md) instead.
+:::
 
 ## Supported data resources
 

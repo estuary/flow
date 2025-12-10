@@ -12,15 +12,32 @@ We use [Workload Identity Federation](https://cloud.google.com/iam/docs/workload
 
 ![Workload Identity Create Pool Button](../guide-images/gcp-iam-0-create-pool.png)
 
-Give your workload identity pool your desired name, and select OpenID Connect (OIDC) as the provider, with the details below. If you are using a private deployment or BYOC, your issuer address will be provided to you by our team. At this step, take note of the audience value as you will need this when configuring connectors with GCP IAM:
+Give your workload identity pool your desired name, and select OpenID Connect (OIDC) as the provider.
 
-| Field | Value |
+Set the **provider name** to `estuary-flow-google`.
+
+The **issuer** will depend on your chosen data plane in Estuary.
+
+To find the correct issuer value:
+
+1. Navigate to the [Admin section](https://dashboard.estuary.dev/admin) of your Estuary dashboard.
+
+2. Select the **Settings** tab.
+
+3. Find the **Data Planes** table and make sure you're viewing the correct tab for your data plane (either **public** or **private**).
+
+4. Copy the value from the **IAM OIDC** column. This should look something like: `https://openid.estuary.dev/your-data-plane-identifier.dp.estuary-data.com/`
+
+For example, these are the issuer values for a few common public data planes:
+
+| Data Plane | Issuer |
 |---|---|
-| Provider Name | estuary-flow-google |
-| Issuer (US AWS east-1 data plane) | https://openid.estuary.dev/aws-us-east-1-c1.dp.estuary-data.com/ |
-| Issuer (US GCP central-1 data plane) | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
-| Issuer (US AWS west-2 data plane) | https://openid.estuary.dev/aws-us-west-2-c1.dp.estuary-data.com/ |
-| Issuer (EU AWS west-1 data plane) | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
+| US east-1 AWS data plane | https://openid.estuary.dev/aws-us-east-1-c1.dp.estuary-data.com/ |
+| US central-1 GCP data plane | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
+| US west-2 AWS data plane | https://openid.estuary.dev/aws-us-west-2-c1.dp.estuary-data.com/ |
+| EU west-1 AWS data plane | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
+
+At this step, take note of the audience value as you will need this when configuring connectors with GCP IAM.
 
 ![Workload Identity Provider Configuration](../guide-images/gcp-iam-1-provider.png)
 
@@ -34,7 +51,8 @@ Finally set up provider attributes to the following values, replacing your tenan
 
 ![Workload Identity Provider Attributes Configuration](../guide-images/gcp-iam-2-provider-attributes.png)
 
-Next, copy the IAM principal you see in the workload identity pool details page and replace SUBJECT_ATTRIBUTE_VALUE with one of the following values depending on your data plane:
+Next, copy the IAM principal you see in the workload identity pool details page and replace SUBJECT_ATTRIBUTE_VALUE with your data plane domain name.
+This will be the second half of the OpenID issuer value you used before. For example:
 
 | Data Plane | SUBJECT_ATTRIBUTE_VALUE |
 |---|---|

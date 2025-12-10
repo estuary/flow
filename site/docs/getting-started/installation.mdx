@@ -63,6 +63,14 @@ Copy its information for use when setting up your storage bucket permissions:
 
    * For [S3 buckets](#amazon-s3-buckets), copy the **AWS IAM User ARN**.
 
+:::tip
+When setting up storage, disregard the [CIDR Blocks](/reference/allow-ip-addresses) column of the Data Planes table.
+These IPs can be allowlisted for connectors.
+
+Storage connected with public data planes should not limit access by IP.
+Storage for private data planes can use [PrivateLink](/private-byoc/privatelink) to restrict access.
+:::
+
 ## Google Cloud Storage buckets
 
 You'll need to grant Estuary Flow access to your GCS bucket.

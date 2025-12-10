@@ -1,9 +1,13 @@
 
-# Facebook Marketing (deprecated)
+# Facebook Marketing (Deprecated)
 
 This connector captures data from the Facebook Marketing API into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-facebook-marketing:dev`](https://ghcr.io/estuary/source-facebook-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+:::warning
+This connector is deprecated. For the best experience, we recommend using our native [Facebook Ads connector](./facebook-marketing-native.md) instead.
+:::
 
 ## Supported data resources
 

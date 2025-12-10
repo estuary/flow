@@ -12,7 +12,20 @@ For more information about role creation check the [IAM User Guide](https://docs
 
 ## Identity Provider for Estuary
 
-Next, you need to create an IAM OIDC (OpenID Connect) provider by heading to IAM -> Identity Providers and creating a new provider with the Audience set to the ARN of the role you just created and the issuer set to one of the following values:
+Next, you need to create an IAM OIDC (OpenID Connect) provider by heading to IAM -> Identity Providers and creating a new provider with the Audience set to the ARN of the role you just created.
+The **issuer** will depend on your chosen data plane in Estuary.
+
+To find the correct issuer value:
+
+1. Navigate to the [Admin section](https://dashboard.estuary.dev/admin) of your Estuary dashboard.
+
+2. Select the **Settings** tab.
+
+3. Find the **Data Planes** table and make sure you're viewing the correct tab for your data plane (either **public** or **private**).
+
+4. Copy the value from the **IAM OIDC** column. This should look something like: `https://openid.estuary.dev/your-data-plane-identifier.dp.estuary-data.com/`
+
+For example, these are the issuer values for a few common public data planes:
 
 | Data Plane | Issuer |
 |---|---|
