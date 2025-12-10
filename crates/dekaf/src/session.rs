@@ -46,7 +46,9 @@ pub struct Session {
     auth: Option<SessionAuthentication>,
     data_preview_state: SessionDataPreviewState,
     broker_urls: Vec<String>,
-    msk_region: String,
+    /// MSK region for upstream Kafka authentication.
+    /// When None, upstream connections use no SASL authentication (for local testing).
+    msk_region: Option<String>,
     // Number of ReadResponses to buffer in PendingReads
     read_buffer_size: usize,
 }
@@ -56,7 +58,7 @@ impl Session {
         app: Arc<App>,
         secret: String,
         broker_urls: Vec<String>,
-        msk_region: String,
+        msk_region: Option<String>,
         read_buffer_size: usize,
     ) -> Self {
         Self {
@@ -111,30 +113,15 @@ impl Session {
         if let Some(ref mut client) = self.client {
             Ok(client)
         } else {
-            let (auth, urls) = match self.auth {
-                Some(SessionAuthentication::Task(_))
-                | Some(SessionAuthentication::Redirect { .. }) => (
-                    KafkaClientAuth::MSK {
-                        aws_region: self.msk_region.clone(),
-                        provider: aws_config::from_env()
-                            .region(aws_types::region::Region::new(self.msk_region.clone()))
-                            .load()
-                            .await
-                            .credentials_provider()
-                            .unwrap(),
-                        cached: None,
-                    },
-                    self.broker_urls.as_slice(),
-                ),
-                None => anyhow::bail!("Must be authenticated"),
-            };
+            if self.auth.is_none() {
+                anyhow::bail!("Must be authenticated");
+            }
+
+            let auth = KafkaClientAuth::from_msk_region(self.msk_region.as_deref()).await;
             self.client.replace(
-                KafkaApiClient::connect(
-                    urls,
-                    auth,
-                ).await.context(
-                    "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
-                )?
+                KafkaApiClient::connect(&self.broker_urls, auth)
+                    .await
+                    .context("failed to connect or authenticate to upstream Kafka broker used for serving group management APIs")?
             );
             Ok(self.client.as_mut().expect("guaranteed to exist"))
         }
