@@ -189,3 +189,150 @@ pub fn combiner_perf() {
         trough_stats.counts.realloc_ops - start_stats.counts.realloc_ops,
     );
 }
+
+// This benchmark simulates a "history mode" combiner, which performs no
+// reductions. A worst case scenario is evaluated: Each segment contains many
+// documents with non-overlapping keys, but separate segments contain documents
+// with that same set of keys.
+
+// Number of document to generate in the history mode performance test. A single
+// segment contains about 215k documents, and at least 10 segments should be
+// generated to exercise the allocator freeing behavior. Change this to a much
+// larger value if evaluating this kind of combiner performance in detail.
+const HIST_ROUNDS: usize = 1000;
+
+#[test]
+pub fn combiner_perf_history_mode() {
+    let schema = build_schema(
+        &url::Url::parse("http://schema").unwrap(),
+        &json!({
+            "type": "object",
+            "required": ["id", "_meta"],
+            "reduce": {"strategy": "merge"},
+            "properties": {
+                "id": {"type": "integer"},
+                "_meta": {
+                    "type": "object",
+                    "reduce": {"strategy": "merge"},
+                    "required": ["source"],
+                    "properties": {
+                        "source": {
+                            "type": "object",
+                            "reduce": {"strategy": "lastWriteWins", "associative": false},
+                            "required": ["lsn"],
+                            "properties": {
+                                "lsn": {"type": "string"},
+                            }
+                        },
+                    }
+                },
+                // Some extra fields to increase allocation per document.
+                "stringField1": {"type": "string"},
+                "stringField2": {"type": "string"},
+                "stringField3": {"type": "string"},
+                "stringField4": {"type": "string"},
+                "stringField5": {"type": "string"},
+                "stringField6": {"type": "string"},
+                "stringField7": {"type": "string"},
+                "stringField8": {"type": "string"},
+                "stringField9": {"type": "string"},
+                "stringField10": {"type": "string"}
+            }
+        }),
+    )
+    .unwrap();
+
+    let spec = doc::combine::Spec::with_one_binding(
+        false,
+        vec![Extractor::new("/id", &doc::SerPolicy::noop())],
+        "source-name",
+        Vec::new(),
+        Validator::new(schema).unwrap(),
+    );
+    let mut accum = doc::combine::Accumulator::new(spec, tempfile::tempfile().unwrap()).unwrap();
+
+    let begin = Instant::now();
+    let mut segment_count = 1;
+    let mut document_id: u64 = 0;
+    let mut last_alloc_bytes: usize = 0;
+
+    let mut buf = Vec::new();
+    for round in 0..HIST_ROUNDS {
+        buf.clear();
+        write!(
+            &mut buf,
+            concat!(
+                "{{",
+                "\"id\":{},",
+                "\"_meta\":{{\"source\":{{\"lsn\":\"lsn_{}\"}}}},",
+                "\"stringField1\":\"value1\",",
+                "\"stringField2\":\"value2\",",
+                "\"stringField3\":\"value3\",",
+                "\"stringField4\":\"value4\",",
+                "\"stringField5\":\"value5\",",
+                "\"stringField6\":\"value6\",",
+                "\"stringField7\":\"value7\",",
+                "\"stringField8\":\"value8\",",
+                "\"stringField9\":\"value9\",",
+                "\"stringField10\":\"value10\"",
+                "}}"
+            ),
+            document_id, round,
+        )
+        .unwrap();
+
+        let memtable = accum.memtable().unwrap();
+        let alloc_bytes = memtable.alloc().allocated_bytes();
+
+        // Detect spills - memtable() creates new memtable after spill.
+        // Reset document_id so each segment has the same keys.
+        if alloc_bytes < last_alloc_bytes {
+            segment_count += 1;
+            document_id = 0;
+        }
+
+        let doc = doc::HeapNode::from_serde(
+            &mut serde_json::Deserializer::from_slice(&buf),
+            memtable.alloc(),
+        )
+        .unwrap();
+
+        memtable.add(0, doc, false).unwrap();
+        last_alloc_bytes = memtable.alloc().allocated_bytes();
+        document_id += 1;
+    }
+
+    let mut drained: usize = 0;
+    let mut shape = doc::Shape::nothing();
+
+    eprintln!("Draining {} segments...", segment_count);
+
+    for drained_doc in accum.into_drainer().unwrap() {
+        let drained_doc = drained_doc.unwrap();
+        drained += 1;
+        shape.widen_owned(&drained_doc.root);
+
+        // Periodically check current memory stats, since once the drainer is
+        // dropped its allocator is also dropped.
+        if drained % 100_000 == 0 {
+            let trough_stats = allocator::current_mem_stats();
+            eprintln!(
+                "Draining in progress: Drained: {} Memory: active {}MB allocated {}MB resident {}MB retained {}MB",
+                drained,
+                trough_stats.active / (1024 * 1024),
+                trough_stats.allocated / (1024 * 1024),
+                trough_stats.resident / (1024 * 1024),
+                trough_stats.retained / (1024 * 1024),
+            );
+        }
+    }
+
+    let duration = begin.elapsed();
+
+    eprintln!(
+        "Rounds: {}\nDrained: {}\nElapsed: {}s",
+        TOTAL_ROUNDS,
+        drained,
+        duration.as_secs_f64(),
+    );
+}
