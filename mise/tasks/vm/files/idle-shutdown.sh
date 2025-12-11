@@ -42,6 +42,13 @@ has_ssh_sessions() {
         return 0
     fi
 
+    # Check for sshd child processes (any connection, regardless of port).
+    # The listener process contains "[listener]", connection processes don't.
+    # This catches non-PTY connections like VS Code Remote SSH.
+    if pgrep -a sshd | grep -qv '\[listener\]'; then
+        return 0
+    fi
+
     return 1
 }
 
