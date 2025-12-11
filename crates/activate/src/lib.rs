@@ -859,6 +859,7 @@ fn map_shard_to_split(
     // LHS & RHS children.
     let (mut lhs_range, mut rhs_range) = (parent_range.clone(), parent_range.clone());
 
+    //
     if split_on_key {
         let pivot = ((parent_range.key_begin as u64 + parent_range.key_end as u64 + 1) / 2) as u32;
         (lhs_range.key_end, rhs_range.key_begin) = (pivot - 1, pivot);
