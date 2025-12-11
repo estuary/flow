@@ -1,4 +1,4 @@
-# Capture connectors
+# Capture Connectors
 
 Estuary's available capture connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name.
 
@@ -140,6 +140,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - IBM Db2 Batch
   - [Configuration](./db2-batch.md)
   - Package - ghcr.io/estuary/source-db2-batch:dev
+- Incident.io
+  - [Configuration](./incident-io.md)
+  - Package - ghcr.io/estuary/source-incident-io:dev
 - Intercom
   - [Configuration](./intercom-native.md)
   - Package - ghcr.io/estuary/source-intercom-native:dev
@@ -155,9 +158,6 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Jira
   - [Configuration](./jira-native.md)
   - Package - ghcr.io/estuary/source-jira-native:dev
-- Klaviyo (deprecated)
-  - [Configuration](./klaviyo.md)
-  - Package - ghcr.io/estuary/source-klaviyo:dev
 - Klaviyo
   - [Configuration](./klaviyo-native.md)
   - Package - ghcr.io/estuary/source-klaviyo-native:dev
@@ -197,6 +197,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - NetSuite
   - [Configuration](./netsuite-suiteanalytics.md)
   - Package - ghcr.io/estuary/source-netsuite:dev
+- OneDrive
+  - [Configuration](./onedrive.md)
+  - Package - ghcr.io/estuary/source-onedrive:dev
 - OracleDB
   - [Configuration](./OracleDB/)
   - Package - ghcr.io/estuary/source-oracle:dev
@@ -218,6 +221,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Qualtrics
   - [Configuration](./qualtrics.md)
   - Package - ghcr.io/estuary/source-qualtrics:dev
+- QuickBooks
+  - [Configuration](./quickbooks.md)
+  - Package - ghcr.io/estuary/source-quickbooks:dev
 - Sage Intacct
   - [Configuration](./sage-intacct.md)
   - Package — ghcr.io/estuary/source-sage-intacct:dev
@@ -233,6 +239,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - SFTP
   - [Configuration](./sftp.md)
   - Package - ghcr.io/estuary/source-sftp:dev
+- SharePoint
+  - [Configuration](./sharepoint.md)
+  - Package - ghcr.io/estuary/source-sharepoint:dev
 - Shopify
   - [Configuration](./shopify.md)
   - Package - ghcr.io/estuary/source-shopify:dev
@@ -290,9 +299,6 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Chargebee (deprecated)
   - [Configuration](./chargebee.md)
   - Package - ghcr.io/estuary/source-chargebee:dev
-- Chargebee Native
-  - [Configuration](./chargebee-native.md)
-  - Package - ghcr.io/estuary/source-chargebee-native:dev
 - Confluence
   - [Configuration](./confluence.md)
   - Package - ghcr.io/estuary/source-confluence:dev
@@ -320,9 +326,6 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Harvest
   - [Configuration](./harvest.md)
   - Package - ghcr.io/estuary/source-harvest:dev
-- Incident.io
-  - [Configuration](./incident-io.md)
-  - Package - ghcr.io/estuary/source-incident-io:dev
 - Instagram
   - [Configuration](./instagram.md)
   - Package - ghcr.io/estuary/source-instagram:dev
@@ -332,6 +335,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Jira (deprecated)
   - [Configuration](./jira.md)
   - Package - ghcr.io/estuary/source-jira:dev
+- Klaviyo (deprecated)
+  - [Configuration](./klaviyo.md)
+  - Package - ghcr.io/estuary/source-klaviyo:dev
 - LinkedIn Ads
   - [Configuration](./linkedin-ads.md)
   - Package - ghcr.io/estuary/source-linkedin-ads:dev

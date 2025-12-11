@@ -2,11 +2,16 @@
 slug: /reference/allow-ip-addresses/
 ---
 
-# Allowlisting IP Addresses for Estuary Flow
+# Allowlisting IP Addresses for Estuary
 
-When configuring systems that interact with Estuary Flow, it's crucial to ensure that the necessary IP addresses are
-allowlisted. This allows communication between Estuary Flow and your data systems.
+When configuring systems that interact with Estuary, it's crucial to ensure that the necessary IP addresses are
+allowlisted. This allows communication between Estuary and your data systems.
 The IP addresses you need to allowlist depend on the data plane you use.
+
+These fixed IPs can be used in conjunction with _connectors_.
+
+Note that Estuary's storage does not use fixed IPs.
+To limit IP access to collection storage, you will need to set up a [PrivateLink](/private-byoc/privatelink) connection instead.
 
 ## Data Plane IP Addresses
 
@@ -18,7 +23,7 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 
    Make sure to select the desired data plane when configuring a connector as well.
 
-   If you wish to use a public data plane, Estuary offers several options across US and EU regions with AWS and GCP.
+   If you wish to use a public data plane, Estuary offers several options across US, EU, and APAC regions with AWS and GCP.
 
 3. Find the **CIDR Blocks** column in the Data Planes table. This column includes a comma-separated list of IP addresses for that data plane.
 
@@ -51,3 +56,10 @@ While your dashboard is the best location to find accurate, up-to-date IP addres
 
 - `18.200.127.124/32`
 - `34.247.94.19/32`
+
+### APAC
+
+**AWS `ap-southeast-2 c1`:**
+
+- `15.134.198.216/32`
+- `3.24.170.247/32`
