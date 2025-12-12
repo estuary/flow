@@ -20,4 +20,5 @@ mise run ci:nextest-run
 mise run ci:doctest
 mise run ci:gotest
 mise run ci:catalog-test
+mise run ci:dekaf-e2e
 mise run build:flow-schema
