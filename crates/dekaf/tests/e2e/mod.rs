@@ -22,12 +22,8 @@ pub fn init_tracing() {
         .try_init();
 }
 
-/// Default access token for the local stack's system user (support@estuary.dev).
-/// This JWT is signed against the local supabase secret and expires in 2055.
-/// Can be overridden via FLOW_ACCESS_TOKEN environment variable.
-const DEFAULT_LOCAL_ACCESS_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU";
-
 /// Create a flowctl command configured for local stack.
+/// Requires FLOW_ACCESS_TOKEN environment variable to be set.
 fn flowctl_command() -> anyhow::Result<async_process::Command> {
     // Try to find flowctl in cargo-target/debug first (where `cargo build` puts it),
     // falling back to locate_bin (which checks alongside the test binary and PATH).
@@ -42,10 +38,10 @@ fn flowctl_command() -> anyhow::Result<async_process::Command> {
     };
 
     let home = std::env::var("HOME").unwrap();
-    let ca_cert = std::env::var("SSL_CERT_FILE")
-        .unwrap_or_else(|_| format!("{}/flow-local/ca.crt", home));
+    let ca_cert =
+        std::env::var("SSL_CERT_FILE").unwrap_or_else(|_| format!("{}/flow-local/ca.crt", home));
     let access_token = std::env::var("FLOW_ACCESS_TOKEN")
-        .unwrap_or_else(|_| DEFAULT_LOCAL_ACCESS_TOKEN.to_string());
+        .context("FLOW_ACCESS_TOKEN environment variable must be set for e2e tests")?;
 
     let mut cmd = async_process::Command::new(flowctl);
     cmd.env("FLOW_ACCESS_TOKEN", access_token);
@@ -124,19 +120,15 @@ impl DekafTestEnv {
         let temp_file = tempfile::NamedTempFile::new()?;
         std::fs::write(temp_file.path(), &rewritten)?;
 
-        tracing::info!(path = ?temp_file.path(), "Publishing fixture via flowctl");
-
-        let output = async_process::output(
-            flowctl_command()?.args([
-                "catalog",
-                "publish",
-                "--auto-approve",
-                "--init-data-plane",
-                "ops/dp/public/local-cluster",
-                "--source",
-                temp_file.path().to_str().unwrap(),
-            ]),
-        )
+        let output = async_process::output(flowctl_command()?.args([
+            "catalog",
+            "publish",
+            "--auto-approve",
+            "--init-data-plane",
+            "ops/dp/public/local-cluster",
+            "--source",
+            temp_file.path().to_str().unwrap(),
+        ]))
         .await?;
 
         if !output.status.success() {
@@ -184,9 +176,13 @@ impl DekafTestEnv {
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
 
         loop {
-            let output = async_process::output(
-                flowctl_command()?.args(["raw", "list-shards", "--task", task_name, "-ojson"]),
-            )
+            let output = async_process::output(flowctl_command()?.args([
+                "raw",
+                "list-shards",
+                "--task",
+                task_name,
+                "-ojson",
+            ]))
             .await?;
 
             if output.status.success() {
@@ -196,18 +192,26 @@ impl DekafTestEnv {
                 let status_codes: Vec<_> = shard.status.iter().map(|s| s.code()).collect();
                 tracing::debug!(?status_codes, "Shard status");
 
-                if shard.status.iter().any(|s| {
-                    s.code() == proto_gazette::consumer::replica_status::Code::Primary
-                }) {
+                if shard
+                    .status
+                    .iter()
+                    .any(|s| s.code() == proto_gazette::consumer::replica_status::Code::Primary)
+                {
                     tracing::info!(%task_name, "Shard is primary");
                     return Ok(());
                 }
 
-                if shard.status.iter().any(|s| {
-                    s.code() == proto_gazette::consumer::replica_status::Code::Failed
-                }) {
-                    tracing::error!(?shard.status, "Shard failed");
-                    anyhow::bail!("shard failed: {:?}", shard.status);
+                if let Some(failed) = shard
+                    .status
+                    .iter()
+                    .find(|s| s.code() == proto_gazette::consumer::replica_status::Code::Failed)
+                {
+                    // Extract and format error messages cleanly
+                    let errors: Vec<&str> = failed.errors.iter().map(|s| s.as_str()).collect();
+                    for (i, error) in errors.iter().enumerate() {
+                        tracing::error!(%task_name, error_num = i + 1, error = %error, "Shard error");
+                    }
+                    anyhow::bail!("shard {task_name} failed:\n{}", errors.join("\n"));
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -219,7 +223,91 @@ impl DekafTestEnv {
                 anyhow::bail!("timeout waiting for {task_name} to become primary");
             }
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    /// Wait for at least one fragment to be persisted for the collection.
+    /// This is needed for timestamp-based offset queries which rely on persisted
+    /// fragment mod_times.
+    pub async fn wait_for_fragments(
+        &self,
+        collection: &str,
+        min_fragments: usize,
+        timeout: Duration,
+    ) -> anyhow::Result<FragmentInfo> {
+        tracing::info!(%collection, min_fragments, "Waiting for fragments to be persisted");
+        let deadline = std::time::Instant::now() + timeout;
+
+        loop {
+            let output = async_process::output(flowctl_command()?.args([
+                "collections",
+                "list-fragments",
+                "--collection",
+                collection,
+                "-o",
+                "json",
+            ]))
+            .await?;
+
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // Parse JSON output - each line is a JSON object
+                let fragments: Vec<FragmentResponse> = stdout
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|line| {
+                        serde_json::from_str(line)
+                            .with_context(|| format!("failed to parse fragment JSON: {line}"))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                tracing::debug!(
+                    fragment_count = fragments.len(),
+                    ?fragments,
+                    "Found fragments"
+                );
+
+                if fragments.len() >= min_fragments {
+                    let parsed_fragments: Vec<Fragment> = fragments
+                        .iter()
+                        .filter_map(|f| {
+                            f.spec.as_ref().map(|s| Fragment {
+                                begin: s.begin,
+                                end: s.end,
+                                mod_time: s.mod_time,
+                            })
+                        })
+                        .collect();
+
+                    let persisted_count =
+                        parsed_fragments.iter().filter(|f| f.is_persisted()).count();
+
+                    tracing::info!(
+                        %collection,
+                        total = parsed_fragments.len(),
+                        persisted = persisted_count,
+                        "Fragments found"
+                    );
+
+                    return Ok(FragmentInfo {
+                        fragments: parsed_fragments,
+                    });
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::debug!(%stderr, "list-fragments failed (may not have fragments yet)");
+            }
+
+            if std::time::Instant::now() > deadline {
+                tracing::error!(%collection, "Timeout waiting for fragments");
+                anyhow::bail!(
+                    "timeout waiting for {} fragments for {collection}",
+                    min_fragments
+                );
+            }
+
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
     }
 
@@ -232,9 +320,13 @@ impl DekafTestEnv {
         let capture = self.capture.as_ref().context("no capture in fixture")?;
 
         // Get shard endpoint from flowctl
-        let output = async_process::output(
-            flowctl_command()?.args(["raw", "list-shards", "--task", capture, "-ojson"]),
-        )
+        let output = async_process::output(flowctl_command()?.args([
+            "raw",
+            "list-shards",
+            "--task",
+            capture,
+            "-ojson",
+        ]))
         .await?;
 
         let shard: proto_gazette::consumer::list_response::Shard =
@@ -311,25 +403,48 @@ impl DekafTestEnv {
         kafka::KafkaConsumerBuilder::new(&info.broker, &info.registry, &info.username, token)
     }
 
-    /// Cleanup test resources explicitly.
-    /// Normally not needed due to timestamped namespaces, but useful for
-    /// interactive development or long-running test sessions.
-    pub async fn cleanup(&self) -> anyhow::Result<()> {
-        let _ = async_process::output(
-            flowctl_command()?.args([
-                "catalog",
-                "delete",
-                "--prefix",
-                &self.namespace,
-                "--captures=true",
-                "--collections=true",
-                "--materializations=true",
-                "--dangerous-auto-approve",
-            ]),
-        )
-        .await;
+    /// Cleanup test resources.
+    fn cleanup_sync(&self) {
+        // Build the command - if this fails, we can't clean up but shouldn't panic in Drop
+        let cmd = match flowctl_command() {
+            Ok(mut cmd) => {
+                cmd.args([
+                    "catalog",
+                    "delete",
+                    "--prefix",
+                    &self.namespace,
+                    "--dangerous-auto-approve",
+                ]);
+                cmd
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, namespace = %self.namespace, "Failed to create cleanup command");
+                return;
+            }
+        };
 
-        Ok(())
+        // Run cleanup synchronously using std::process::Command
+        let result = std::process::Command::new(cmd.get_program())
+            .args(cmd.get_args())
+            .envs(cmd.get_envs().filter_map(|(k, v)| v.map(|v| (k, v))))
+            .output();
+
+        match result {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(namespace = %self.namespace, %stderr, "Test cleanup failed");
+            }
+            Err(e) => {
+                tracing::warn!(namespace = %self.namespace, error = %e, "Test cleanup command failed");
+            }
+        }
+    }
+}
+
+impl Drop for DekafTestEnv {
+    fn drop(&mut self) {
+        self.cleanup_sync();
     }
 }
 
@@ -340,6 +455,90 @@ pub struct ConnectionInfo {
     pub registry: String,
     pub username: String,
     pub collections: Vec<String>,
+}
+
+/// Information about fragments for a collection.
+#[derive(Debug, Clone)]
+pub struct FragmentInfo {
+    /// All fragments found.
+    pub fragments: Vec<Fragment>,
+}
+
+/// A single fragment's information.
+#[derive(Debug, Clone)]
+pub struct Fragment {
+    /// Begin offset (inclusive). None for first fragment.
+    pub begin: Option<i64>,
+    /// End offset (exclusive).
+    pub end: Option<i64>,
+    /// Modification time in Unix seconds. None or 0 means unpersisted/open fragment.
+    pub mod_time: Option<i64>,
+}
+
+impl Fragment {
+    /// Returns true if this fragment has been persisted to storage.
+    /// Unpersisted (open) fragments have mod_time of 0 or None.
+    pub fn is_persisted(&self) -> bool {
+        self.mod_time.map_or(false, |t| t > 0)
+    }
+}
+
+impl FragmentInfo {
+    /// Number of fragments.
+    pub fn count(&self) -> usize {
+        self.fragments.len()
+    }
+
+    /// Number of persisted fragments (those with mod_time > 0).
+    pub fn persisted_count(&self) -> usize {
+        self.fragments.iter().filter(|f| f.is_persisted()).count()
+    }
+
+    /// Returns the first persisted fragment, if any.
+    pub fn first_persisted(&self) -> Option<&Fragment> {
+        self.fragments.iter().find(|f| f.is_persisted())
+    }
+}
+
+/// JSON response from `flowctl collections list-fragments -o json`.
+/// Mirrors the Gazette FragmentsResponse.Fragment proto.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FragmentResponse {
+    spec: Option<FragmentSpec>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FragmentSpec {
+    #[serde(default, deserialize_with = "deserialize_option_i64_or_string")]
+    begin: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_option_i64_or_string")]
+    end: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_option_i64_or_string")]
+    mod_time: Option<i64>,
+}
+
+/// Deserialize an optional i64 that may be represented as a string (common in protobuf JSON).
+fn deserialize_option_i64_or_string<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt {
+        String(String),
+        Int(i64),
+    }
+
+    Option::<StringOrInt>::deserialize(deserializer)?
+        .map(|v| match v {
+            StringOrInt::String(s) => s.parse().map_err(serde::de::Error::custom),
+            StringOrInt::Int(i) => Ok(i),
+        })
+        .transpose()
 }
 
 /// Rewrite fixture names to include test namespace.
@@ -384,7 +583,10 @@ fn rewrite_fixture(namespace: &str, yaml: &str) -> anyhow::Result<(String, Vec<S
     }
 
     // Rewrite materialization names and sources
-    if let Some(mats) = doc.get_mut("materializations").and_then(|v| v.as_mapping_mut()) {
+    if let Some(mats) = doc
+        .get_mut("materializations")
+        .and_then(|v| v.as_mapping_mut())
+    {
         let keys: Vec<_> = mats.keys().cloned().collect();
         for key in keys {
             if let Some(mut value) = mats.remove(&key) {

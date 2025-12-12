@@ -32,9 +32,8 @@ async fn test_basic_roundtrip() -> anyhow::Result<()> {
     let records = consumer.fetch().await?;
     tracing::info!(count = records.len(), "Received");
 
+    assert_eq!(records.len(), 2, "should receive both injected documents");
     insta::assert_json_snapshot!(snapshot_records(&records));
-
-    env.cleanup().await?;
 
     Ok(())
 }

@@ -64,4 +64,5 @@ jobs:
       - run: mise run ci:doctest
       - run: mise run ci:gotest
       - run: mise run ci:catalog-test
+      - run: mise run ci:dekaf-e2e
       - run: mise run build:flow-schema

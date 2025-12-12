@@ -13,6 +13,7 @@ FLOW_LOCAL="${HOME}/flow-local"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
 KAFKA_PORT=9092
 REGISTRY_PORT=9093
+BROKER_PORT=8080
 
 # System user access token for local stack (support@estuary.dev)
 # This JWT is signed against the local supabase secret and expires in 2055.
@@ -68,8 +69,8 @@ fi
 # Use --no-capture to stream test output in real-time
 if [ -n "${FILTER}" ]; then
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
-    cargo nextest run -p dekaf --test 'e2e_*' --no-capture -E "test(${FILTER})" -- --ignored
+    cargo nextest run -p dekaf --test 'e2e_*' --no-capture --failure-output=immediate --success-output=immediate -E "test(${FILTER})" -- --ignored
 else
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
-    cargo nextest run -p dekaf --test 'e2e_*' --no-capture -- --ignored
+    cargo nextest run -p dekaf --test 'e2e_*' -j 2 --no-capture -- --ignored
 fi

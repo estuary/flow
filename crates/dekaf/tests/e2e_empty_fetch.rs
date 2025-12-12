@@ -42,6 +42,8 @@ async fn test_empty_fetch_valid_message_set_size() -> anyhow::Result<()> {
     tracing::info!("Fetching initial documents");
     let records = consumer.fetch().await?;
     tracing::info!(count = records.len(), "Received");
+
+    assert_eq!(records.len(), 2, "should receive 2 initial documents");
     insta::assert_json_snapshot!("initial_fetch", snapshot_records(&records));
 
     // Fetch again when caught up. Should return empty since no new documents.
@@ -57,9 +59,9 @@ async fn test_empty_fetch_valid_message_set_size() -> anyhow::Result<()> {
     tracing::info!("Fetching after injecting 1 more document");
     let more_records = consumer.fetch().await?;
     tracing::info!(count = more_records.len(), "Received");
-    insta::assert_json_snapshot!("after_empty_fetch", snapshot_records(&more_records));
 
-    env.cleanup().await?;
+    assert_eq!(more_records.len(), 1, "should receive 1 document after reinject");
+    insta::assert_json_snapshot!("after_empty_fetch", snapshot_records(&more_records));
 
     Ok(())
 }
