@@ -21,8 +21,9 @@ To use this connector, you'll need:
 * A [MotherDuck](https://motherduck.com/) account and [Service
   Token](https://motherduck.com/docs/authenticating-to-motherduck#fetching-the-service-token).
 * An S3 bucket for staging temporary files, or a GCS bucket for staging
-  temporary files. An S3 bucket in `us-east-1` is recommended for best
-  performance and costs, since MotherDuck is currently hosted in that region.
+  temporary files.  Cloudflare R2 can also be used via its S3-compatible API.
+  An S3 bucket in `us-east-1` is recommended for best performance and costs,
+  since MotherDuck is currently hosted in that region.
 
 To use an S3 bucket for staging temporary files:
 * See [this
@@ -34,6 +35,15 @@ To use an S3 bucket for staging temporary files:
   access key**. See the [AWS
   blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for
   help finding these credentials.
+
+To use a Cloudflare R2 bucket for staging temporary files:
+* Create a new bucket following [this guide][r2-create-buckets].
+* Create an [API token][r2-api-tokens] with read and write permission to the
+  bucket.  Make sure to take note of the credentials for S3 clients, you will
+  need the `Access Key ID` and `Secret Access Key`.
+* Configure the connector to use S3 for the staging bucket, and set the
+  `endpoint` to the S3 API URL from the R2 object storage overview page.  You
+  can set the region to `auto` as this value is not used by R2.
 
 To use a GCS bucket for staging temporary files:
 * See [this guide](https://cloud.google.com/storage/docs/creating-buckets) for
@@ -69,6 +79,7 @@ more of your Flow collections to your desired tables in the database.
 | `stagingBucket/awsSecretAccessKey`    | Secret Access Key        | AWS Secret Access Key for reading and writing data to the S3 staging bucket.                                                                                     | string  |                  |
 | `stagingBucket/region`                | S3 Bucket Region         | Region of the S3 staging bucket.                                                                                                                                 | string  |                  |
 | `stagingBucket/bucketPathS3`          | Bucket Path              | A prefix that will be used to store objects in S3.                                                                                                               | string  |                  |
+| `stagingBucket/endpoint`              | Custom Endpoint          | Custom endpoint for S3-compatible storage.                                                                                                                       | string  |                  |
 | `stagingBucket/bucketGCS`             | GCS Staging Bucket       | Name of the GCS bucket to use for staging data loads.                                                                                                            | string  |                  |
 | `stagingBucket/credentialsJSON`       | Service Account JSON     | The JSON credentials of the service account to use for authorizing to the staging bucket.                                                                        | string  |                  |
 | `stagingBucket/gcsHMACAccessID`       | HMAC Access ID           | HMAC access ID for the service account.                                                                                                                          | string  |                  |
@@ -134,3 +145,6 @@ You can enable delta updates on a per-binding basis:
         delta_updates: true
     source: ${PREFIX}/${COLLECTION_NAME}
 ```
+
+[r2-create-buckets]: https://developers.cloudflare.com/r2/buckets/create-buckets/
+[r2-api-tokens]: https://developers.cloudflare.com/r2/api/tokens/
