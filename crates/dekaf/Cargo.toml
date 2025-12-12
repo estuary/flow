@@ -94,5 +94,7 @@ apache-avro = { workspace = true }
 insta = { workspace = true }
 rdkafka = { workspace = true }
 schema_registry_converter = { workspace = true }
+serde_yaml = { workspace = true }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }

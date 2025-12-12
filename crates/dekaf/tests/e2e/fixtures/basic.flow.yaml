@@ -1,0 +1,35 @@
+collections:
+    test_data:
+        schema:
+            type: object
+            properties:
+                id: { type: string }
+                value: { type: string }
+            required: [id]
+        key: [/id]
+
+captures:
+    source_ingest:
+        endpoint:
+            connector:
+                image: ghcr.io/estuary/source-http-ingest:dev
+                config:
+                    paths: ["/data"]
+        bindings:
+            - resource: { path: "/data", stream: "/data" }
+              target: test_data
+
+materializations:
+    dekaf_test:
+        endpoint:
+            dekaf:
+                variant: testing
+                config:
+                    token: "test-token-12345"
+                    strict_topic_names: false
+        bindings:
+            - source: test_data
+              resource: { topic_name: test_topic }
+              fields:
+                  recommended: true
+                  exclude: [flow_published_at]

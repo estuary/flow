@@ -20,7 +20,9 @@ ExecStart=%h/cargo-target/debug/dekaf \
     --metrics-port ${DEKAF_METRICS_PORT} \
     --default-broker-urls tcp://localhost:${DEKAF_UPSTREAM_PORT} \
     --upstream-no-auth \
-    --encryption-secret ${DEKAF_ENCRYPTION_SECRET}
+    --encryption-secret ${DEKAF_ENCRYPTION_SECRET} \
+    --data-plane-access-key ${DATA_PLANE_ACCESS_KEY} \
+    --task-refresh-interval 5s
 
 Restart=on-failure
 RestartSec=5s

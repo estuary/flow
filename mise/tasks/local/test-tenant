@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Provision test/ tenant for integration tests"
+#MISE depends=["local:stack"]
+
+# This script idempotently provisions the test/ tenant with:
+# 1. Storage mappings pointing to the local data plane
+# 2. User grants for support@estuary.dev
+# 3. Role grants so tasks can read/write within the test/ prefix
+
+PGURL="postgresql://postgres:postgres@localhost:5432/postgres"
+
+echo "Provisioning test/ tenant..."
+
+# Get the data plane name (should be ops/dp/public/local-cluster)
+DATA_PLANE_NAME="ops/dp/public/local-cluster"
+
+# Insert storage mappings (ON CONFLICT DO NOTHING for idempotency)
+psql "${PGURL}" -c "
+INSERT INTO public.storage_mappings (catalog_prefix, spec)
+VALUES
+  ('test/', '{\"stores\": [{\"provider\": \"GCS\", \"bucket\": \"estuary-trial\", \"prefix\": \"collection-data/\"}], \"data_planes\": [\"${DATA_PLANE_NAME}\"]}'),
+  ('recovery/test/', '{\"stores\": [{\"provider\": \"GCS\", \"bucket\": \"estuary-trial\"}]}')
+ON CONFLICT (catalog_prefix) DO NOTHING;
+"
+
+# Grant admin access to support@estuary.dev for test/ prefix
+psql "${PGURL}" -c "
+INSERT INTO public.user_grants (user_id, object_role, capability)
+VALUES ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'test/', 'admin')
+ON CONFLICT (user_id, object_role) DO NOTHING;
+"
+
+# Grant role permissions so tasks within test/ can read/write to each other
+psql "${PGURL}" -c "
+INSERT INTO public.role_grants (subject_role, object_role, capability)
+VALUES ('test/', 'test/', 'admin')
+ON CONFLICT (subject_role, object_role) DO NOTHING;
+"
+
+echo "test/ tenant provisioned successfully."
