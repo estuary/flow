@@ -857,15 +857,15 @@ fn map_shard_to_split(
 
     // Pick a split point of the parent range, which will divide the future
     // LHS & RHS children.
-    let (mut lhs_range, mut rhs_range) = (parent_range.clone(), parent_range.clone());
+    let (mut _lhs_range, mut rhs_range) = (parent_range.clone(), parent_range.clone());
 
     if split_on_key {
         let pivot = ((parent_range.key_begin as u64 + parent_range.key_end as u64 + 1) / 2) as u32;
-        (lhs_range.key_end, rhs_range.key_begin) = (pivot - 1, pivot);
+        (_lhs_range.key_end, rhs_range.key_begin) = (pivot - 1, pivot);
     } else {
         let pivot =
             ((parent_range.r_clock_begin as u64 + parent_range.r_clock_end as u64 + 1) / 2) as u32;
-        (lhs_range.r_clock_end, rhs_range.r_clock_begin) = (pivot - 1, pivot);
+        (_lhs_range.r_clock_end, rhs_range.r_clock_begin) = (pivot - 1, pivot);
     }
 
     // Deep-copy parent labels for the desired LHS / RHS updates.
