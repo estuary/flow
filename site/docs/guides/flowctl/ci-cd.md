@@ -8,7 +8,7 @@ While Estuary's UI is a convenient way to create and manage resources, some user
 This allows resource specifications to be checked into your own version control system with a clearly logged history of changes.
 You can then set your infra-as-code repositories up with a CI/CD pipeline to automate deployment.
 
-This guide will show you how to configure Estuary Flow resources programmatically for use in CI/CD workflows or other automation.
+This guide will show you how to configure Estuary resources programmatically for use in CI/CD workflows or other automation.
 
 For instructions on using the UI instead, see information on Estuary's [web application](../../concepts/web-app.md).
 
@@ -467,7 +467,7 @@ You can add options to the `pull-specs` command to target certain resources or c
 * `--captures`, `--collections`, `--materializations`: Only pull specifications from a specific type of resource
 * `--name <NAME>`: Pull the specification for a single, named resource
 * `--target <TARGET>`: Local root specification to write to (defaults to `flow.yaml`)
-* `--overwrite`: Determine whether existing specs are overwritten by copies from the Flow control plane; useful if existing local copies have gotten out of date
+* `--overwrite`: Determine whether existing specs are overwritten by copies from Estuary's control plane; useful if existing local copies have gotten out of date
 * `--flat`: Determine whether specs are written to a single specification file or follow a canonical layout
 
 :::tip

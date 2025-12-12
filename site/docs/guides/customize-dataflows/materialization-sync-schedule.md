@@ -12,7 +12,7 @@ minutes rather than many smaller queries every few seconds.
 
 :::note
 Syncing data less frequently to your destination system does _not_ affect the
-cost for running the materialization connector within Estuary Flow. But it can
+cost for running the materialization connector within Estuary. But it can
 reduce the costs incurred in the destination from the actions the connector
 takes to load data to it.
 :::
@@ -27,7 +27,7 @@ These materialization connectors support configuring a sync schedule:
 
 ## How transactions are used to sync data to a destination
 
-Estuary Flow processes data in
+Estuary processes data in
 [transactions](/concepts/advanced/shards/#transactions). Materialization
 connectors use the [materialization
 protocol](/reference/Connectors/materialization-protocol) to process transactions and
@@ -44,7 +44,7 @@ The sync schedule is configured in terms of these **transactions**: For less
 frequent updates, processing of additional transactions is delayed by some
 amount of time. This extra delay is only applied when the materialization is
 fully caught up - backfills always run as fast as possible. And while a
-transaction is delayed, Estuary Flow will continue batching and combining new
+transaction is delayed, Estuary will continue batching and combining new
 documents so that the next transaction contains all of the latest data.
 
 You can read about [how continuous materialization
@@ -138,7 +138,7 @@ Here are some examples of valid inputs for **Fast Sync Enabled Days**:
 ## Timing of syncs
 
 In technical terms, timing of syncs is controlled by the materialization
-connector sending a transaction acknowledgement to the Flow runtime at computed
+connector sending a transaction acknowledgement to Estuary's runtime at computed
 times. Practically this means that at these times the prior transaction will
 complete and have its statistics recorded, and the next transaction will begin.
 

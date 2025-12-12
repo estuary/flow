@@ -4,7 +4,7 @@ sidebar_position: 12
 
 # Web Application
 
-Flow's web application is at [dashboard.estuary.dev](https://dashboard.estuary.dev).
+Estuary's web application is at [dashboard.estuary.dev](https://dashboard.estuary.dev).
 
 The web app is the central, low-code environment for creating, managing, and monitoring Data Flows.
 
@@ -13,7 +13,7 @@ The web app is the central, low-code environment for creating, managing, and mon
 The web app and [flowctl](./flowctl.md) are designed to work together as a complete platform.
 You can use either, or both, to work on your Data Flows, depending on your preference.
 
-With the Flow web app, you can perform most common workflows, including:
+With Estuary's web app, you can perform most common workflows, including:
 
 * Creating end-to-end Data Flows: **capturing** data from source systems and **materializing** it to destinations.
 * Creating, viewing, and editing individual captures and materializations.
@@ -31,11 +31,11 @@ it provides a quicker and easier path to create captures and materializations. Y
 
 ## Signing in
 
-You use a Google, Microsoft, or GitHub account to sign into Flow. Alternatively, [contact us](https://estuary.dev/contact-us) about Single Sign-On (SSO) options.
+You use a Google, Microsoft, or GitHub account to sign into Estuary. Alternatively, [contact us](https://estuary.dev/contact-us) about [Single Sign-On (SSO) options](/getting-started/sso-setup).
 
 ![](<./webapp-images/login-screen.png>)
 
-If you've never used Flow before, you'll be prompted to register before being issued a trial account. If you want to use Flow for production workflows or collaborate with team members, you'll need an organizational account.
+If you've never used Estuary before, you'll be prompted to register before being issued a trial account. If you want to use Estuary for production workflows or collaborate with team members, you'll need an organizational account.
 [Contact Estuary](mailto:support@estuary.dev) to create a new organizational account or join an existing organization.
 
 ## Navigating the web app
@@ -54,12 +54,12 @@ import Mermaid from '@theme/Mermaid';
 `}/>
 
 While you may choose to [use the tabs in this sequence](../guides/create-dataflow.md), it's not necessary.
-All Flow entities exist individually, outside of the context of a complete Data Flow.
+All Estuary entities exist individually, outside of the context of a complete Data Flow.
 You can use the different pages in the web app to monitor and manage your items in a number of other ways, as described below.
 
 ## Captures page
 
-The **Captures** page shows you a table of existing Flow [captures](./captures.md) to which you have [access](/reference/authentication).
+The **Captures** page shows you a table of existing [captures](./captures.md) to which you have [access](/reference/authentication).
 The **New Capture** button is also visible.
 You can use the table to monitor your captures.
 
@@ -82,7 +82,7 @@ you can find it by filtering for `acmeCo*source-postgres`.
 **5:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this capture.
 
 * **Primary (Green)**: Data is actively flowing through the capture.
-* **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Flow backfills historical data.
+* **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Estuary backfills historical data.
 * **Failed (Red)**: The capture has failed with an unrecoverable error.
 * **Disabled (Hollow circle)**: The capture is disabled.
 * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
@@ -161,7 +161,7 @@ Click the time interval in the header to select from **Today**, **Yesterday**, *
 
 ## Materializations page
 
-The **Materializations** page shows you a table of existing Flow [materializations](/concepts/materialization) to which you have [access](/reference/authentication).
+The **Materializations** page shows you a table of existing [materializations](/concepts/materialization) to which you have [access](/reference/authentication).
 The **New Materialization** button is also visible.
 
 You can use the table to monitor your materializations. It's nearly identical to the table on the [Captures page](#captures-page), with a few exceptions.
@@ -182,7 +182,7 @@ you can find it by filtering for `acmeCo*mysql`.
 **4:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
 
 * **Primary (Green)**: Data is actively flowing through the materialization.
-* **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Flow backfills historical data.
+* **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Estuary backfills historical data.
 * **Failed (Red)**: The materialization has failed with an unrecoverable error.
 * **Disabled (Hollow circle)**: The materialization is disabled.
 * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
@@ -220,7 +220,7 @@ There are three ways to begin creating a materialization:
 When you initiate the workflow in any of these ways, all available materialization connectors are displayed.
 Select a connector to reveal the full form with configuration options specific to your desired destination.
 
-Fill out the **Endpoint Config** form and in the **Source Collections** section use the **Collection Selector** to map Flow collections to resources in the destination system.
+Fill out the **Endpoint Config** form and in the **Source Collections** section use the **Collection Selector** to map collections to resources in the destination system.
 
 Note that if you entered the workflow from the Captures page or after publishing a capture, collections will be pre-populated for you.
 
@@ -356,11 +356,11 @@ Here, you are able to configure which email address(es) will receive [notificati
 
 #### Cloud Storage
 
-This section provides a table of the cloud storage locations that back your Flow collections.
+This section provides a table of the cloud storage locations that back your collections.
 You're able to view the table if you're an admin.
 
-Each top-level Flow [prefix](./catalogs.md#namespace) is backed by one or more cloud storage bucket that you own.
-You typically have just one prefix: your organization name, which you provided when configuring your Flow organizational account.
+Each top-level Estuary [prefix](./catalogs.md#namespace) is backed by one or more cloud storage bucket that you own.
+You typically have just one prefix: your organization name, which you provided when configuring your Estuary organizational account.
 If you're a trial user, your data is stored temporarily in Estuary's cloud storage bucket for your trial period.
 
 [Learn more about storage mappings.](./storage-mappings.md)
@@ -386,4 +386,4 @@ If a connector you need is missing, you can [request it](https://github.com/estu
 
 ### CLI-API
 
-The **CLI-API** tab provides the access token required to [authenticate with flowctl](/reference/authentication/#authenticating-flow-using-the-cli). You can also revoke old tokens.
+The **CLI-API** tab provides the access token required to [authenticate with flowctl](/reference/authentication/#authenticating-estuary-using-the-cli). You can also revoke old tokens.

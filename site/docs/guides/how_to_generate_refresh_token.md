@@ -1,4 +1,4 @@
-# How to Generate an Estuary Flow Refresh Token
+# How to Generate an Estuary Refresh Token
 
 To generate a Refresh Token, navigate to the Admin page, then head over to the CLI-API section.
 

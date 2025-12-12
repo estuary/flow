@@ -9,16 +9,16 @@ import TabItem from '@theme/TabItem';
 
 PostgreSQL supports *materialized views*: database objects that contain the result of a query, usually a focused subset of a large dataset.
 
-In this tutorial, you'll use Flow and your Postgres instance to create something that's not possible in Postgres alone:
+In this tutorial, you'll use Estuary and your Postgres instance to create something that's not possible in Postgres alone:
 a materialized view that updates continuously based on a real-time data feed.
 
 ## Prerequisites
 
-* An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
+* An Estuary account. If you don't have one, visit the [Estuary web app](https://dashboard.estuary.dev) to register for free.
 
 * `flowctl` [installed and authenticated](/guides/get-started-with-flowctl)
 
-* A Postgres database set up to [allow connections from Flow](/reference/Connectors/materialization-connectors/PostgreSQL/#setup).
+* A Postgres database set up to [allow connections from Estuary](/reference/Connectors/materialization-connectors/PostgreSQL/#setup).
 Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and self-hosted databases are supported.
 
 ## Introduction
@@ -27,7 +27,7 @@ Materialized views in Postgres give you a powerful way to narrow down a huge dat
 But if your data is updating in real-time, traditional materialized views introduce latency. They're batch workflows — the query is run at a set interval.
 
 To get around this, you'll need to perform a real-time transformation elsewhere.
-Flow [derivations](../../concepts/README.md#derivations) are a great way to do this.
+Estuary [derivations](../../concepts/README.md#derivations) are a great way to do this.
 
 For this example, you'll use Estuary's public data collection of recent changes to Wikipedia,
 captured from the [Wikimedia Foundation's event stream](https://www.mediawiki.org/wiki/API:Recent_changes_stream).
@@ -48,7 +48,7 @@ You'll then materialize both the raw and transformed datasets to your Postgres i
 
 ## Check out the source data
 
-1. Got the the [collections page](https://dashboard.estuary.dev/collections) of the Flow web app.
+1. Got the the [collections page](https://dashboard.estuary.dev/collections) of Estuary's web app.
 
 2. Search for `demo/wikipedia/recentchange` and click on its name.
 
@@ -61,7 +61,7 @@ You'll then materialize both the raw and transformed datasets to your Postgres i
    To save on performance, you can also perform this tutorial using the smaller `demo/wikipedia/recentchange-sampled` collection. Apart from the collection name, all other steps are the same.
    :::
 
-   *Learn more about [Flow collections](../../concepts/collections.md) and [schemas](../../concepts/schemas.md).*
+   *Learn more about [Estuary's collections](../../concepts/collections.md) and [schemas](../../concepts/schemas.md).*
 
    Now you'll create the derivation. A derivation is a new collection that's defined by a transformation.
    First, you'll define the collection's schema. Then, you'll write the transformation to shape the data to that schema.
@@ -144,7 +144,7 @@ Open the nested folders to find the deepest-nested `flow.yaml` file, in the `dem
 
    In the `transforms` stanza, we specify that we want to [shuffle](/concepts/derivations/#shuffles) on the `user` key.
    Since we're working with a large dataset, this ensures that each user is processed by the same task **shard**.
-   This way, you'll prevent Flow from creating multiple counts for a given user and date combination.
+   This way, you'll prevent Estuary from creating multiple counts for a given user and date combination.
 
 5. With the derivation specification in place, we need to generate the associated SQL transformation files.
 This will hold the function that will shape the source data to fit the new schema.
@@ -214,7 +214,7 @@ Your transformation will continue in real time based on the raw dataset, which i
 
 Now, you'll materialize your new fact table to Postgres. You'll also materialize the source dataset to compare performance.
 
-1. Go to the [Destinations page](https://dashboard.estuary.dev/materializations) in the Flow web app.
+1. Go to the [Destinations page](https://dashboard.estuary.dev/materializations) in Estuary's web app.
 
 2. Click **New Materialization**.
 

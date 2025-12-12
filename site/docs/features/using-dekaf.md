@@ -4,26 +4,26 @@ slug: /guides/dekaf_reading_collections_from_kafka/
 
 # Connecting to Kafka Using Dekaf
 
-**Dekaf** is Estuary Flow's Kafka API compatibility layer, allowing consumers to read data from Estuary Flow collections
+**Dekaf** is Estuary's Kafka API compatibility layer, allowing consumers to read data from Estuary collections
 as if they were Kafka topics. Additionally, Dekaf provides a schema registry API for managing schemas. This guide will
-walk you through the steps to connect to Estuary Flow using Dekaf and its schema registry.
+walk you through the steps to connect to Estuary using Dekaf and its schema registry.
 
 ## Overview
 
-- **Collections** represent datasets within Estuary Flow. All captured documents are written to a collection, and all
+- **Collections** represent datasets within Estuary. All captured documents are written to a collection, and all
   materialized documents are read from a collection.
 - **Dekaf** enables you to interact with these collections as though they were Kafka topics, providing seamless
   integration with existing Kafka-based tools and workflows.
 
 ## Key Features
 
-- **Kafka Topic Emulation**: Access Estuary Flow collections as if they were Kafka topics.
-- **Schema Registry Emulation**: Manage and retrieve schemas assigned to Estuary Flow collections, emulating Confluent's
+- **Kafka Topic Emulation**: Access Estuary collections as if they were Kafka topics.
+- **Schema Registry Emulation**: Manage and retrieve schemas assigned to Estuary collections, emulating Confluent's
   Schema Registry.
 
 ## Connection Details
 
-To connect to Estuary Flow via Dekaf, use the following connection details in conjunction with a
+To connect to Estuary via Dekaf, use the following connection details in conjunction with a
 [Dekaf materialization connector](/reference/Connectors/materialization-connectors/Dekaf):
 
 - **Broker Address**: `dekaf.estuary-data.com`
@@ -107,7 +107,7 @@ finally:
 ```
 
 You can also use [kcat](https://github.com/edenhill/kcat) (formerly known as kafkacat) to test reading messages from an
-Estuary Flow collection as if it were a Kafka topic.
+Estuary collection as if it were a Kafka topic.
 
 ```shell
 kcat -C \

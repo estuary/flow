@@ -8,7 +8,7 @@ There are various options for more securely connecting to your endpoints dependi
 
 ## Configure connections with SSH tunneling
 
-Flow connects to certain types of endpoints — generally databases — using their IP address and port.
+Estuary connects to certain types of endpoints — generally databases — using their IP address and port.
 For added security, you can configure [SSH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), also known as port forwarding.
 You configure this in the `networkTunnel` section of applicable capture or materialization definitions, but
 before you can do so, you need a properly configured SSH server on your internal network or cloud hosting platform.
@@ -199,7 +199,7 @@ autossh -o 'ConnectTimeout=5s' \
     ssh://tunnel@bastion.your-bastion-host.com:2222
 ```
 
-Once the port is exposed, you can establish a tunnel to the same bastion when setting up your task on the Estuary Flow web app, specifying the bastion's connection string and key, and using `localhost:8080` as the address of your endpoint (since the port will be opened on the `localhost` of the bastion).
+Once the port is exposed, you can establish a tunnel to the same bastion when setting up your task on the Estuary web app, specifying the bastion's connection string and key, and using `localhost:8080` as the address of your endpoint (since the port will be opened on the `localhost` of the bastion).
 
 ## Configure connections with PrivateLink
 

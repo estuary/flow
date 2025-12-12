@@ -5,13 +5,13 @@ import Mermaid from '@theme/Mermaid';
 
 # flowctl
 
-There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
+There are two ways to work with Estuary: through the web app, and using the flowctl command-line interface.
 flowctl gives you more direct control over the files and directories that comprise your Data Flows.
 You can work with any catalog to which you have [access](/reference/authentication), regardless of whether it was created from the command line or in the web app.
 
-You can also authorize Flow users and roles and generate TypeScript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
+You can also authorize Estuary users and roles and generate TypeScript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
 
-flowctl is the only Flow binary that you need to work with,
+flowctl is the only Estuary binary that you need to work with,
 so distribution and upgrades are all simple.
 
 ## Installation and setup
@@ -39,7 +39,7 @@ flowctl binaries for MacOS and Linux are available. For Windows, [install Window
    You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
 
-2. To connect to your Flow account and start a session, [use an authentication token](/reference/authentication/#authenticating-flow-using-the-cli) from the web app.
+2. To connect to your Estuary account and start a session, [use an authentication token](/reference/authentication/#authenticating-estuary-using-the-cli) from the web app.
 
 ## User guides
 
@@ -51,13 +51,13 @@ flowctl includes several top-level subcommands representing different functional
 Important top-level flowctl subcommands are described below.
 
 * `auth` allows you to authenticate your development session in your local development environment.
-It's also how you provision Flow roles and users. Learn more about [authentication](/reference/authentication).
+It's also how you provision Estuary roles and users. Learn more about [authentication](/reference/authentication).
 
 * `catalog` allows you to work with your organization's current active catalog entities. You can investigate the current Data Flows,
 pull specifications for local editing, test and publish specifications that you wrote or edited locally,
 and delete entities from the catalog.
 
-* `collections` allows you to work with your Flow collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
+* `collections` allows you to work with your Estuary collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
 
 * `discover` allows you to discover all currently available bindings for a specific capture.
 This resource discovery mimics discovery in the UI. [Learn more about capture discovery](/concepts/captures/#discovery).
@@ -126,12 +126,12 @@ Adding the `--overwrite` flag will pull the new versions of conflicting files in
 
 ## Development directories
 
-Flow specifications and other files are written to your working directory when you run `flowctl draft develop` or `flowctl catalog pull-specs`.
+Data Flow specifications and other files are written to your working directory when you run `flowctl draft develop` or `flowctl catalog pull-specs`.
 
 They typically include:
 
 * `flow.yaml`:
-  The main specification file that imports all other Flow specification files created in a single operation.
+  The main specification file that imports all other Data Flow specification files created in a single operation.
   As part of local development, you may add new specifications that you create as imports.
 
 * `flow_generated/`:
@@ -146,7 +146,7 @@ They typically include:
   You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
   [npmDependencies](./import.md#importing-derivation-resources)
-  of your Flow specification source files, if any exist.
+  of your specification source files, if any exist.
 
 When you run commands like `flowctl catalog publish` or `flowctl draft author`, you can use the `--source-dir` flag
 to push specifications from a directory other than your current working directory,
@@ -154,10 +154,10 @@ for example, `flowctl draft author --source-dir ../AcmeCoNew/marketing`.
 
 ### TypeScript code generation
 
-TypeScript files are used in the Flow catalog both as part of the automatic build process,
+TypeScript files are used in the Estuary catalog both as part of the automatic build process,
 and to define lambdas functions for [derivations](./derivations.md), which requires your input.
 
-As part of the Data Flow build process, Flow translates your
+As part of the Data Flow build process, Estuary translates your
 [schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
 These definitions live within `flow_generated/` in your Data Flow's build directory,
@@ -181,9 +181,9 @@ Most endpoint systems require credentials of some kind,
 such as a username or password.
 
 Sensitive credentials should be protected while not in use.
-The only time a credential needs to be directly accessed is when Flow initiates the connector.
+The only time a credential needs to be directly accessed is when Estuary initiates the connector.
 
-Flow integrates with Mozilla’s [sops](https://github.com/mozilla/sops) tool,
+Estuary integrates with Mozilla’s [sops](https://github.com/mozilla/sops) tool,
 which can encrypt and protect credentials.
 It stores a `sops`-protected configuration in its encrypted form,
 and decrypts it only when invoking a connector on your behalf.
@@ -191,12 +191,12 @@ and decrypts it only when invoking a connector on your behalf.
 sops, short for “Secrets Operations,” is a tool that encrypts the values of a JSON or YAML document
 against a key management system (KMS) such as Google Cloud Platform KMS, Azure Key Vault, or AWS Key Management Service.
 Encryption or decryption of a credential with `sops` is an active process:
-it requires that the user (or the Flow runtime identity) have a current authorization to the required KMS,
+it requires that the user (or the Estuary runtime identity) have a current authorization to the required KMS,
 and creates a request trace which can be logged and audited.
 It's also possible to revoke access to the KMS,
 which immediately and permanently removes access to the protected credential.
 
-When you use the Flow web application or `flowctl`, Flow automatically
+When you use Estuary's web application or `flowctl`, Estuary automatically
 adds `sops` protection to sensitive fields on your behalf.
 
 Most workflows can make use of this built-in encryption mechanism.
@@ -225,7 +225,7 @@ Estuary will encrypt the configuration as part of the `draft author` command, an
 
 ### Controlling encryption with `sops`
 
-You can also implement `sops` manually if you are writing a Flow specification locally.
+You can also implement `sops` manually if you are writing a Data Flow specification locally.
 
 This can be useful if you need to maintain strict control over how credentials
 are encrypted. In this case, you own the KMS key and grant Estuary access for
@@ -235,7 +235,7 @@ been encrypted.
 Estuary supports customers encrypting secrets with keys from AWS Key Management Service, Google Cloud Platform KMS, and Azure Key Vault.
 
 :::important
-When deploying catalogs onto the managed Flow runtime, you must grant access to
+When deploying catalogs onto the managed Estuary runtime, you must grant access to
 decrypt your KMS key to the appropriate identity for your data plane and KMS.
 These identities vary by data plane, find yours under
 [Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
@@ -279,8 +279,8 @@ sops:
   version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flow specification.
-The Flow runtime knows that this document is protected by `sops`
+You then use this `config.yaml` within your Data Flow specification.
+The Estuary runtime knows that this document is protected by `sops`
 will continue to store it in its protected form,
 and will attempt a decryption only when invoking a connector on your behalf.
 
@@ -328,8 +328,8 @@ sops:
   version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flow specification.
-Flow looks for and understands the `encrypted_suffix`,
+You then use this `config.yaml` within your Data Flow specification.
+Estuary looks for and understands the `encrypted_suffix`,
 and will remove this suffix from configuration keys before passing them to the connector.
 
 ## Troubleshooting
@@ -338,7 +338,7 @@ If you're developing locally with `flowctl`, watch out for these errors:
 
 * `Failed to locate sops`: sops may not be installed correctly. See these [installation instructions](https://github.com/getsops/sops/releases) and ensure sops is on your PATH. For details on working with sops, see [Protecting secrets](#protecting-secrets) above.
 
-* `Decrypting sops document failed`: ensure you have correctly applied a KMS key using sops to your configuration file. See above for [examples](#example-protect-a-configuration). Note that you will not be able to decrypt credentials entered via the Flow web app.
+* `Decrypting sops document failed`: ensure you have correctly applied a KMS key using sops to your configuration file. See above for [examples](#example-protect-a-configuration). Note that you will not be able to decrypt credentials entered via Estuary's web app.
 
 Since updates are released regularly, make sure you're using the latest version of `flowctl`. You can see the latest versions and changelogs on the [Flow releases](https://github.com/estuary/flow/releases) page.
 

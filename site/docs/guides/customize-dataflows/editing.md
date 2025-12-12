@@ -4,15 +4,15 @@ slug: /reference/editing/
 
 # Editing Considerations
 
-You can edit the components of your Data Flows in the Flow web app and with flowctl, but before you do so, it's important to consider the implications of your changes.
+You can edit the components of your Data Flows in Estuary's web app and with flowctl, but before you do so, it's important to consider the implications of your changes.
 
-Though Flow entities like captures, collections, and materializations are discrete components, they depend on one another to form complete Data Flows. Changing a configuration or a name can have adverse effects downstream.
+Though Estuary entities like captures, collections, and materializations are discrete components, they depend on one another to form complete Data Flows. Changing a configuration or a name can have adverse effects downstream.
 
 As you edit, you'll also have to account for any updates to the configuration for the connector used.
 
-## How to edit Flow entities
+## How to edit Estuary entities
 
-In the Flow web app, you can edit captures and materializations, and use the **Schema Inference** tool to edit collection schemas.
+In Estuary's web app, you can edit captures and materializations, and use the **Schema Inference** tool to edit collection schemas.
 
 * [Editing captures and associated collections](/guides/edit-data-flows/#edit-a-capture)
 * [Editing materializations and associated collections](/guides/edit-data-flows/#edit-a-materialization)
@@ -26,10 +26,10 @@ You do this by pulling the desired specification locally, editing, and re-publis
 
 A common reason to edit a capture or materialization is to fix a broken endpoint configuration:
 for example, if a database is now accessed through a different port.
-Changes that prevent Flow from finding the source system immediately cause the capture or materialization to fail.
+Changes that prevent Estuary from finding the source system immediately cause the capture or materialization to fail.
 
 By contrast, certain credential changes might not cause issues *unless* you attempt to edit the capture or materialization.
-Because Flow tasks run continuously, the connector doesn't have to re-authenticate and an outdated credential won't cause failure.
+Because Estuary tasks run continuously, the connector doesn't have to re-authenticate and an outdated credential won't cause failure.
 Editing, however, requires the task to re-start, so you'll need to provide current credentials to the endpoint configuration.
 Before editing, take note of any changed credentials, even if the task is still running successfully.
 

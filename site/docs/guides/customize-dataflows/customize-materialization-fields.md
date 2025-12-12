@@ -4,7 +4,7 @@ slug: /guides/customize-materialization-fields/
 
 # Customize Materialized Fields
 
-Estuary Flow can auto-discover data resources and schemas, and implements a priority-based system that intelligently selects fields to materialize.
+Estuary can auto-discover data resources and schemas, and implements a priority-based system that intelligently selects fields to materialize.
 However, you may wish to override these defaults to customize the final format of your materialized tables.
 For example, columns you require may be missing or may need specific names to work with downstream systems.
 Or you might wish to keep columns with sensitive data from materializing entirely.
@@ -17,7 +17,7 @@ First, you modify the source collection **schema**.
 You can change column names by adding **[projections](/concepts/advanced/projections)**:
 JSON pointers that turn locations in a document's JSON structure into custom named fields.
 
-Then, you add the `fields` stanza to the materialization specification, telling Flow which fields to materialize.
+Then, you add the `fields` stanza to the materialization specification, telling Estuary which fields to materialize.
 
 You can manage both of these options through Estuary's dashboard or modify them directly in the resource specification file.
 
@@ -42,7 +42,7 @@ Use caution and be mindful of any edit's consequences before publishing.
 
 If the collection you're using was captured directly, follow these steps.
 
-1. Go to the [Captures](https://dashboard.estuary.dev/captures) page of the Flow web app
+1. Go to the [Captures](https://dashboard.estuary.dev/captures) page of Estuary's web app
 and locate the capture that produced the collection.
 
 2. Select your capture and click the **Edit** button.
@@ -146,7 +146,7 @@ Every included field will be mapped to a table column or equivalent in the endpo
    * **Conflict**: The field matches criteria for both selection and rejection.
    Symbolized by a warning sign. The outcome tooltip provides detailed information on the conflict.
 
-5. Choose whether to start with one of Flow's field selection **modes**. You can customize individual fields later. Modes include and exclude fields based on field depth:
+5. Choose whether to start with one of Estuary's field selection **modes**. You can customize individual fields later. Modes include and exclude fields based on field depth:
 
    * **Depth Zero:** Only selects top-level fields
    * **Depth One:** Selects object fields with one degree of nesting

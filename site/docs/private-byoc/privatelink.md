@@ -100,4 +100,4 @@ Once you have your Private Link Service set up, we need these details from you t
 * The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`; this can be found by navigating to the private link service's details page in your Azure Portal and copying the URL
 * Location for the private endpoint, like `westus`
 
-After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary Flow web app.
+After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary web app.

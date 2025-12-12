@@ -14,9 +14,9 @@ This tutorial will show you how to implement a stateless transformation using Ty
 
 ## Setting up your development environment<a id="setting-up-your-development-environment"></a>
 
-In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
+In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Estuary installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
 
-Before continuing, sign in to the Estuary Flow dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
+Before continuing, sign in to the Estuary dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
 
 Execute the below command to display the documents in the `demo/wikipedia/recentchange-sampled` collection:
 
@@ -111,7 +111,7 @@ collections:
 ```
  
 
-The Flow consists of just one collection, which is what you define here, called `Dani/derivation-tutorial/recentchange-filtered-typescript`.
+The Data Flow consists of just one collection, which is what you define here, called `Dani/derivation-tutorial/recentchange-filtered-typescript`.
 
 Let’s go over this in a bit more detail.
 
@@ -156,7 +156,7 @@ key:
   - /_meta/offset
 ```
 
-Every Flow collection must declare a key which is used to group its documents. Keys are specified as an array of JSON pointers to document locations. The important detail here is to know that a collection key instructs Flow how documents of a collection are to be reduced, such as while being materialized to an endpoint. For this tutorial, you are just going to reuse the key definition of the base collection.
+Every Estuary collection must declare a key which is used to group its documents. Keys are specified as an array of JSON pointers to document locations. The important detail here is to know that a collection key instructs Estuary how documents of a collection are to be reduced, such as while being materialized to an endpoint. For this tutorial, you are just going to reuse the key definition of the base collection.
 
 The final section is where you specify that this collection is derived from another collection.
 
@@ -173,7 +173,7 @@ derive:
 
 Here you configure the name of the Typescript file that will contain the code for the actual transformation (don’t worry about the file not existing yet!) and give a name to the transformation. 
 
-The `source: demo/wikipedia/recentchange-sampled` property lets Flow know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any scaled-out instance of the derivation.
+The `source: demo/wikipedia/recentchange-sampled` property lets Estuary know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Estuary how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any scaled-out instance of the derivation.
 
 Alright, the configuration required for the derivation is in place, all that’s left is to write some TypeScript!
 
@@ -275,7 +275,7 @@ You can use `flowctl` to quickly verify your derivation before publishing it. Us
 ^C
 ```
 
-As you can see, the output format matches the defined schema.  The last step would be to publish your derivation to Flow, which you can also do using `flowctl`.
+As you can see, the output format matches the defined schema.  The last step would be to publish your derivation to Estuary, which you can also do using `flowctl`.
 
 :::warning
 Publishing the derivation will initialize the transformation on the live, real-time Wikipedia stream, make sure to delete it after completing the tutorial.

@@ -6,24 +6,24 @@ sidebar_position: 3
 Once you're familiar with creating a basic [Data Flow](../../concepts/README.md#essential-concepts), you can take things a step further
 and transform your data with [derivations](../../concepts/derivations.md).
 
-A **derivation** is a kind of Flow collection that results from the transformation of one or more other collections.
+A **derivation** is a kind of collection in Estuary that results from the transformation of one or more other collections.
 This transformed stream of data keeps the order of the source data intact,
 and can then be **materialized** to an outside system or further transformed with another derivation.
-When you master derivations, you unlock the full flexibility and power of Flow.
+When you master derivations, you unlock the full flexibility and power of Estuary.
 
 ## Prerequisites
 
-* A Flow account and access to the web app.
+* An Estuary account and access to the web app.
 If you don't have an account yet, [go to the web app](https://dashboard.estuary.dev) to register for free.
 
-* An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
+* An existing Estuary **collection**. Typically, you create this through a **capture** in Estuary's web application.
 If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
 
 * The `flowctl` CLI [installed and authenticated](/guides/get-started-with-flowctl).
 
    You can authorize `flowctl` with a refresh token:
 
-   1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
+   1. [Generate an Estuary refresh token](/guides/how_to_generate_refresh_token).
 
    2. Run `flowctl auth token --token <paste-token-here>`
 
@@ -101,7 +101,7 @@ You will first need to sync your local copy with the global draft:
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
-just as you would any other Flow collection.
+just as you would any other Estuary collection.
 
 ## Create a derivation locally
 
@@ -162,7 +162,7 @@ For this example, we will add our new derived collection to our source collectio
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
-just as you would any other Flow collection.
+just as you would any other Estuary collection.
 
 ## Add a SQL derivation
 
@@ -249,7 +249,7 @@ The main [derivations page](/concepts/derivations) includes many other examples 
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
-just as you would any other Flow collection.
+just as you would any other Estuary collection.
 
 ## Add a TypeScript derivation
 
@@ -315,7 +315,7 @@ The main [derivations page](../../concepts/derivations.md) includes many other e
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
-just as you would any other Flow collection.
+just as you would any other Estuary collection.
 
 ## Updating an existing derivation
 
@@ -323,4 +323,4 @@ Derivations are applied on a go-forward basis only.
 
 If you would like to make an update to an existing derivation (for example, adding columns to the derived collection), you can add a new transform by changing the name of your existing transform to a new name, and at the same time updating your lambda or TypeScript module.
 
-From the Flow's perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.
+From Estuary's perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.

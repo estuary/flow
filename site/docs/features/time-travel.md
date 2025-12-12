@@ -10,13 +10,13 @@ Time travel functionality allows you to restrict the data materialization proces
 
 ## How to configure time travel
 
-In the Flow web app, either navigate to an existing materialization or create a new one. Under **Source Collections** scroll to the bottom of a **Resource Configuration** for a specific collection. If you are working with a new materialization, you must link a collection to the materialization before continuing.
+In Estuary's web app, either navigate to an existing materialization or create a new one. Under **Source Collections** scroll to the bottom of a **Resource Configuration** for a specific collection. If you are working with a new materialization, you must link a collection to the materialization before continuing.
 
 You'll find two optional date-time fields for implementing time travel: `notBefore` and `notAfter`. Click on either field to open a date/time picker that you can use to set the values. It's not mandatory to select values for both fields for time travel to take effect. However, selecting values for both fields will ensure that only data meeting both criteria is materialized. In other words, new data must fall before the `notAfter` date and after the `notBefore` date to be included in the materialization.
 
 ### Specification
 
-Alternatively, both fields can be defined in the Flow specification file with the following format:
+Alternatively, both fields can be defined in the Data Flow specification file with the following format:
 
 ```yaml
 materializations:
@@ -41,14 +41,14 @@ materializations:
           name: acmeCo/example/collection
           # Lower bound date-time for documents which should be processed.
           # Source collection documents published before this date-time are filtered.
-          # `notBefore` is *only* a filter. Updating its value will not cause Flow
+          # `notBefore` is *only* a filter. Updating its value will not cause Estuary
           # to re-process documents that have already been read.
           # Optional. Default is to process all documents.
           notBefore: 2023-01-23T01:00:00Z
           # Upper bound date-time for documents which should be processed.
           # Source collection documents published after this date-time are filtered.
           # Like `notBefore`, `notAfter` is *only* a filter. Updating its value will
-          # not cause Flow to re-process documents that have already been read.
+          # not cause Estuary to re-process documents that have already been read.
           # Optional. Default is to process all documents.
           notAfter: 2023-01-23T02:00:00Z
 ```

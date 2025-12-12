@@ -6,7 +6,7 @@ sidebar_position: 30
 
 # Composing with conditionals
 
-Reduction strategies are JSON Schema [annotations](https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.7.7). As such, their applicability at a given document location can be controlled through the use of [conditional](https://json-schema.org/understanding-json-schema/reference/conditionals.html) keywords within the schema, like `oneOf` or `if/then/else`. This means Flow’s built-in strategies can be combined with schema conditionals to construct a wider variety of custom reduction behaviors.
+Reduction strategies are JSON Schema [annotations](https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.7.7). As such, their applicability at a given document location can be controlled through the use of [conditional](https://json-schema.org/understanding-json-schema/reference/conditionals.html) keywords within the schema, like `oneOf` or `if/then/else`. This means Estuary’s built-in strategies can be combined with schema conditionals to construct a wider variety of custom reduction behaviors.
 
 For example, here’s a reset-able counter:
 

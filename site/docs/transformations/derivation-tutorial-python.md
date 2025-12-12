@@ -17,9 +17,9 @@ This tutorial will show you how to implement a stateless transformation using Py
 
 ## Setting up your development environment<a id="setting-up-your-development-environment"></a>
 
-In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you'll need to set up your development environment. You'll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
+In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you'll need to set up your development environment. You'll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Estuary installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
 
-Before continuing, sign in to the Estuary Flow dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
+Before continuing, sign in to the Estuary dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
 
 Execute the below command to display the documents in the `demo/wikipedia/recentchange-sampled` collection:
 
@@ -104,7 +104,7 @@ collections:
           shuffle: any
 ```
 
-The Flow consists of just one collection, which is what you define here, called `AcmeCo/derivation-tutorial/wiki-edit-events`.
+The Data Flow consists of just one collection, which is what you define here, called `AcmeCo/derivation-tutorial/wiki-edit-events`.
 
 Let's go over this in a bit more detail.
 
@@ -159,7 +159,7 @@ key:
   - /edit_id
 ```
 
-Every Flow collection must declare a key which is used to group its documents. Keys are specified as an array of JSON pointers to document locations. Since each Wikipedia edit has a unique `id` field, you'll use the transformed `edit_id` as the key. This ensures each edit event is uniquely identifiable in your collection.
+Every Estuary collection must declare a key which is used to group its documents. Keys are specified as an array of JSON pointers to document locations. Since each Wikipedia edit has a unique `id` field, you'll use the transformed `edit_id` as the key. This ensures each edit event is uniquely identifiable in your collection.
 
 The final section is where you specify that this collection is derived from another collection.
 
@@ -176,7 +176,7 @@ derive:
 
 Here you configure the name of the Python file that will contain the transformation code and give a name to the transformation: `enrichEvents`.
 
-The `source: demo/wikipedia/recentchange-sampled` property specifies the source collection, while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any scaled-out instance of the derivation.
+The `source: demo/wikipedia/recentchange-sampled` property specifies the source collection, while `shuffle` tells Estuary how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any scaled-out instance of the derivation.
 
 Now that you have both `flow.yaml` and `wiki-edit-events.schema.yaml` created, you're ready to generate the Python scaffolding.
 
@@ -230,7 +230,7 @@ class Document(pydantic.BaseModel):
     edit_url: typing.Optional[str] = None
 ```
 
-Flow has automatically generated Pydantic models based on your collection schemas. These models give you full type safety and IDE autocomplete while writing your transformation code. Notice how these match the schema you defined - clean, structured fields for analytics.
+Estuary has automatically generated Pydantic models based on your collection schemas. These models give you full type safety and IDE autocomplete while writing your transformation code. Notice how these match the schema you defined - clean, structured fields for analytics.
 
 You'll also see types for reading from source collections:
 
@@ -322,7 +322,7 @@ class Derivation(IDerivation):
 
 Let's break down what's happening here:
 
-1. **Async Iterator**: The method is defined as an async generator using `async def` and `yield`. This allows Flow to process documents efficiently in an asynchronous manner.
+1. **Async Iterator**: The method is defined as an async generator using `async def` and `yield`. This allows Estuary to process documents efficiently in an asynchronous manner.
 
 2. **Type Safety**: The `read` parameter is typed as `Request.ReadEnrichEvents`, which is a Pydantic model. This gives you autocomplete in your IDE and catches type errors early.
 
@@ -355,7 +355,7 @@ derive:
       shuffle: any
 ```
 
-Flow uses [uv](https://docs.astral.sh/uv/), a fast Python package manager, to automatically install and manage your dependencies. The `pydantic` and `pyright` packages are always included automatically.
+Estuary uses [uv](https://docs.astral.sh/uv/), a fast Python package manager, to automatically install and manage your dependencies. The `pydantic` and `pyright` packages are always included automatically.
 
 
 ## Verify<a id="verify"></a>
@@ -391,7 +391,7 @@ After successfully publishing your derivation, head over to the Collections page
 
 In this guide you learned how to write your first stateless Python derivation to transform raw events into enriched, analytics-ready data. You've seen how:
 
-* Flow automatically generates Pydantic models from your JSON schemas
+* Estuary automatically generates Pydantic models from your JSON schemas
 * Python derivations use async generators to efficiently process documents
 * You can extract and transform data using simple Python logic
 * Type safety helps catch errors during development
