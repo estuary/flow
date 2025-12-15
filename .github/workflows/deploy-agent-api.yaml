@@ -27,7 +27,15 @@ jobs:
       - name: Build `agent`
         run: cargo build --release -p agent
 
-      - run: mv target/release/agent crates/agent/
+      - name: Prepare deployment artifacts
+        run: |
+          mkdir -p crates/agent/amd64
+          mv target/release/agent crates/agent/amd64/
+          cp docker/control-plane-agent.Dockerfile crates/agent/Dockerfile
+
+          # Install sops for secrets management
+          curl -L https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 -o crates/agent/amd64/sops
+          chmod +x crates/agent/amd64/sops
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2
