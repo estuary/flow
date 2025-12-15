@@ -650,9 +650,7 @@ impl Session {
                     .map(|(p, s)| (p.offset, p.leader_epoch, s.elapsed()));
 
                 match pending_info {
-                    Some((_, _, elapsed))
-                        if elapsed > std::time::Duration::from_secs(60 * 5) =>
-                    {
+                    Some((_, _, elapsed)) if elapsed > std::time::Duration::from_secs(60 * 5) => {
                         metrics::counter!(
                             "dekaf_fetch_requests",
                             "topic_name" => key.0.to_string(),
@@ -1912,7 +1910,14 @@ impl Session {
 
             if let Some(backfill_counter) = maybe_backfill_counter {
                 for partition in topic.partitions.iter_mut() {
-                    partition.committed_leader_epoch = backfill_counter as i32;
+                    // Only set epoch for partitions that have committed offsets.
+                    // When committed_offset is -1 (no offset), committed_leader_epoch
+                    // must be -1 per Kafka protocol semantics.
+                    if partition.committed_offset >= 0 {
+                        partition.committed_leader_epoch = backfill_counter as i32;
+                    } else {
+                        partition.committed_leader_epoch = -1;
+                    }
                 }
             }
         }
