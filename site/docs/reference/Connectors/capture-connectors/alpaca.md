@@ -1,9 +1,9 @@
 
 # Alpaca
 
-This connector captures stock trade data from the [Alpaca Market Data API](https://alpaca.markets/docs/market-data/) into a Flow collection.
+This connector captures stock trade data from the [Alpaca Market Data API](https://alpaca.markets/docs/market-data/) into an Estuary collection.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-alpaca:dev`](https://ghcr.io/estuary/source-alpaca:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-alpaca:dev`](https://ghcr.io/estuary/source-alpaca:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Real-time and historical trade data
 
@@ -24,10 +24,10 @@ See [limitations](#limitations) to learn more about reconciling historical and r
 
 ## Supported data resources
 
-Alpaca supports over 8000 stocks and ETFs. You simply supply a list of [symbols](https://eoddata.com/symbols.aspx) to Flow when you configure the connector.
+Alpaca supports over 8000 stocks and ETFs. You simply supply a list of [symbols](https://eoddata.com/symbols.aspx) to Estuary when you configure the connector.
 To check whether Alpaca supports a symbol, you can use the [Alpaca Broker API](https://alpaca.markets/docs/api-references/broker-api/assets/#retrieving-an-asset-by-symbol).
 
-You can use this connector to capture data from up to 20 stock symbols into Flow collections in a single capture
+You can use this connector to capture data from up to 20 stock symbols into an Estuary collection in a single capture
 (to add more than 20, set up multiple captures).
 For a given capture, data from all symbols is captured to a single collection.
 
@@ -43,7 +43,7 @@ To use this connector, you'll need:
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Alpaca source connector.
 
 ### Properties
@@ -104,11 +104,11 @@ Support for a larger number of symbols in a single capture is planned for a futu
 
 As discussed [above](#real-time-and-historical-trade-data), the connector captures historical and real-time data in two different streams.
 As the historical data stream catches up to the present, it will overlap with the beginning of the real-time data stream, resulting in some duplicated documents.
-These will have [identical properties from Alpaca](https://alpaca.markets/docs/api-references/market-data-api/stock-pricing-data/historical/#response-object-properties), but different [metadata from Flow](../../../concepts/collections.md#documents).
+These will have [identical properties from Alpaca](https://alpaca.markets/docs/api-references/market-data-api/stock-pricing-data/historical/#response-object-properties), but different [metadata from Estuary](../../../concepts/collections.md#documents).
 
 There are several ways to resolve this:
 
-* If you plan to materialize to an endpoint for which standard (non-delta) updates are supported, Flow will resolve the duplicates during the materialization process.
+* If you plan to materialize to an endpoint for which standard (non-delta) updates are supported, Estuary will resolve the duplicates during the materialization process.
 Unless otherwise specified in their [documentation page](../materialization-connectors/README.md), materialization connectors run in standard updates mode.
 If a connector supports both modes, it will default to standard updates.
 

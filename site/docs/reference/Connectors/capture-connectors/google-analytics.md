@@ -5,20 +5,20 @@ This connector previously captured data from a view in Google Universal Analytic
 
 :::danger
 
-This connector and Universal Analytics are now **deprecated** along with the Google Analytics Universal Analytics API - ([see Google announcement](https://support.google.com/analytics/answer/11583528?hl=en).
+This connector and Universal Analytics are now **deprecated** along with the Google Analytics Universal Analytics API - ([see Google announcement](https://support.google.com/analytics/answer/11583528?hl=en)).
 
 Google Analytics 4 is supported by a [separate connector](./google-analytics-4.md).
 
 :::
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-ua:dev`](https://ghcr.io/estuary/source-google-analytics-ua:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-ua:dev`](https://ghcr.io/estuary/source-google-analytics-ua:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 
 ## Supported data resources
 
-The following data resources are captured to Flow collections by default:
+The following data resources are captured to Estuary collections by default:
 
 * Website overview
 * Traffic sources
@@ -31,7 +31,7 @@ The following data resources are captured to Flow collections by default:
 * Daily active users
 * Devices
 
-Each resource is mapped to a Flow collection through a separate binding.
+Each resource is mapped to an Estuary collection through a separate binding.
 
 You can also configure [custom reports](#custom-reports).
 
@@ -40,10 +40,10 @@ You can also configure [custom reports](#custom-reports).
 There are two ways to authenticate with Google when capturing data from a Google Analytics view: using OAuth2, and manually, by generating a service account key.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the service account key method is the only supported method using the command line.
 
-### Using OAuth2 to authenticate with Google in the Flow web app
+### Using OAuth2 to authenticate with Google in the Estuary web app
 
 * The View ID for your Google Analytics account.
 You can find this using Google's [Account Explorer](https://ga-dev-tools.web.app/account-explorer/) tool.
@@ -76,7 +76,7 @@ You'll copy the contents of the downloaded key file into the Service Account Cre
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors.
 The values and specification sample below provide configuration details specific to the Google Analytics source connector.
 
@@ -84,7 +84,7 @@ The values and specification sample below provide configuration details specific
 
 #### Endpoint
 
-The following properties reflect the Service Account Key authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-flow-web-app), so some of these properties aren't required.
+The following properties reflect the Service Account Key authentication method. If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-estuary-web-app), so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|

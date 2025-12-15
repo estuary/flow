@@ -4,9 +4,9 @@ sidebar_position: 6
 
 # Amazon RDS for PostgreSQL
 
-This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
+This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported versions and platforms
 
@@ -30,12 +30,12 @@ You'll need a PostgreSQL database setup with the following:
 
 ## Setup
 
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
 
       - [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-      - Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+      - Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
@@ -80,7 +80,7 @@ under the name of the root table) but is not required.
 
 When the PostgreSQL capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Estuary.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
@@ -126,7 +126,7 @@ disk if a replication slot stops advancing. There are two ways to address this:
 
 When the `max_slot_wal_keep_size` limit is exceeded, Postgres will terminate any active
 replication connections using that slot and invalidate the replication slot so that it
-can no longer be used. If Postgres invalidates the replication slot, the Flow capture
+can no longer be used. If Postgres invalidates the replication slot, the Estuary capture
 using that slot will fail and manual intervention will be required to restart the capture
 and re-backfill all tables.
 
@@ -160,8 +160,8 @@ for more information.
 
 To enable read-only operation:
 
-- In the Flow web app: Select the "Read-Only Capture" checkbox in the "Advanced Options" section of the capture configuration.
-- In the YAML configuration: Set read_only_capture: true in the advanced section of the config.
+- In the Estuary web app: Select the "Read-Only Capture" checkbox in the "Advanced Options" section of the capture configuration.
+- In the YAML configuration: Set `read_only_capture: true` in the advanced section of the config.
 
 ### Capturing from Read-Only Standbys
 
@@ -208,7 +208,7 @@ You can verify whether the setting is enabled by running `SHOW hot_standby_feedb
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
 
 ### Properties
@@ -242,7 +242,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 
 #### SSL Mode
 
-Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Estuary. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
 
 ### Sample
 
@@ -284,11 +284,11 @@ As a result, the connector emits a row update with the value omitted, which migh
 unexpected results in downstream catalog tasks if adjustments are not made.
 
 The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/captures.md#discovery)
-or use the [Flow UI](/concepts/web-app.md) to create your capture.
+or use the [Estuary UI](/concepts/web-app.md) to create your capture.
 It uses [merge](/reference/reduction-strategies/merge) [reductions](/concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 
-However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
+However, due to the event-driven nature of certain tasks in Estuary, it's still possible to see unexpected results in your data flow, specifically:
 
 - When you materialize the captured data to another system using a connector that requires [delta updates](/concepts/materialization/#delta-updates)
 - When you perform a [derivation](/concepts/derivations.md) that uses TOASTed values

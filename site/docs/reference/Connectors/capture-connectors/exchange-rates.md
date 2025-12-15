@@ -2,12 +2,12 @@
 # Exchange Rates API
 
 This connector captures data from the [Exchange Rates API](https://exchangeratesapi.io/).
-It creates a Flow collection with daily exchange rate data for a variety of supported currencies.
+It creates an Estuary collection with daily exchange rate data for a variety of supported currencies.
 This simple connector is useful for educational and demonstration purposes.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-exchange-rates:dev`](https://ghcr.io/estuary/source-exchange-rates:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-exchange-rates:dev`](https://ghcr.io/estuary/source-exchange-rates:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ After you sign up, your API key can be found on your account page.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Exchange Rates source connector.
 
 ### Properties
@@ -35,7 +35,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Data stream from which Flow captures data. Always set to `exchange_rates`. | string | Required |
+| **`/stream`** | Stream | Data stream from which Estuary captures data. Always set to `exchange_rates`. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample

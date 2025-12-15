@@ -1,7 +1,7 @@
 
 # Google Firestore
 
-This connector captures data from your Google Firestore collections into Flow collections.
+This connector captures data from your Google Firestore collections into Estuary collections.
 
 [`ghcr.io/estuary/source-firestore:dev`](https://ghcr.io/estuary/source-firestore:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -27,9 +27,9 @@ users
 
 The connector works by identifying documents associated with a particular sequence of Firestore collection names,
 regardless of documents that split the hierarchy.
-These document groupings are mapped to Flow collections using a [path](#bindings) in the pattern `collection/*/subcollection`.
+These document groupings are mapped to Estuary collections using a [path](#bindings) in the pattern `collection/*/subcollection`.
 
-In this example, we'd end up with `users` and `users/*/messages` Flow collections, with the latter contain messages from both users.
+In this example, we'd end up with `users` and `users/*/messages` Estuary collections, with the latter contain messages from both users.
 The `/_meta/path` property for each document contains its full, original path, so we'd still know which messages were Alice's and which were Bob's.
 
 ## Prerequisites
@@ -45,7 +45,7 @@ You'll need:
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
+You configure connectors either in the Estuary web app, or by directly editing the Data Flow specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Firestore source connector.
 
 ### Properties
@@ -119,7 +119,7 @@ There are three options:
 The second progressively ingests historical data in chunks. This mode is most reliable for Firestore collections of all sizes but provides slightly weaker guarantees against data duplication.
 
    The connector uses a [reduction](../../../concepts/schemas.md#reductions) to reconcile changes to the same document found on the parallel threads.
-   The version with the most recent timestamp the document metadata will be preserved (`{"strategy": "maximize", "key": "/_meta/mtime"}`). For most collections, this produces an accurate copy of your Firestore collections in Flow.
+   The version with the most recent timestamp the document metadata will be preserved (`{"strategy": "maximize", "key": "/_meta/mtime"}`). For most collections, this produces an accurate copy of your Firestore collections in Estuary.
 
 * `sync`: Request that Firestore stream all changes to the collection since its creation, in order.
 

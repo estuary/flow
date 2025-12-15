@@ -1,11 +1,11 @@
 
 # GitHub
 
-This connector captures data from GitHub repositories and organizations into Flow collections via GitHub's REST API.
+This connector captures data from GitHub repositories and organizations into Estuary collections via GitHub's REST API.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-github:dev`](https://ghcr.io/estuary/source-github:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-github:dev`](https://ghcr.io/estuary/source-github:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -41,7 +41,7 @@ From your selection, the following data resources are captured:
 | | [Workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository)|
 | | [Workflows](https://docs.github.com/en/rest/actions/workflows#list-repository-workflows)|
 
-Each resource is mapped to a Flow collection through a separate binding.
+Each resource is mapped to an Estuary collection through a separate binding.
 
 :::info
 The `/start_date` [field](#endpoint) is not applicable to the following resources:
@@ -60,13 +60,13 @@ The `/start_date` [field](#endpoint) is not applicable to the following resource
 
 ## Prerequisites
 
-There are two ways to authenticate with GitHub when capturing data into Flow: using OAuth2, and manually, by generating a personal access token.
+There are two ways to authenticate with GitHub when capturing data into Estuary: using OAuth2, and manually, by generating a personal access token.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. Github has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization.
 
-### Using OAuth2 to authenticate with GitHub in the Flow web app
+### Using OAuth2 to authenticate with GitHub in the Estuary web app
 
 * A GitHub user account with access to the repositories of interest, and which is a member of organizations of interest.
 
@@ -83,14 +83,14 @@ You may use multiple tokens to balance the load on your API quota.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GitHub source connector.
 
 ### Properties
 
 #### Endpoint
 
-The properties in the table below reflect the manual authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-github-in-the-flow-web-app), so some of these properties aren't required.
+The properties in the table below reflect the manual authentication method. If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-github-in-the-estuary-web-app), so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|

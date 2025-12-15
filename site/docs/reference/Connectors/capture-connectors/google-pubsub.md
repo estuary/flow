@@ -1,7 +1,7 @@
 
 # Google Cloud Pub/Sub
 
-This connector captures messages in JSON format into Flow collections from
+This connector captures messages in JSON format into Estuary collections from
 Google Cloud Pub/Sub topics.
 
 During setup, this connector will discover all topics it has access to. Each
@@ -48,19 +48,19 @@ Here's how to provision a suitable service account:
 Service Account Keys are used to authenticate as Google Service Accounts. To be
 able to utilize the permissions granted to the Service Account in the previous
 step, you'll need to provide its Service Account Key when creating the capture.
-It is a good practice, though not required, to create a new key for Flow even if
+It is a good practice, though not required, to create a new key for Estuary even if
 you're reusing a preexisting account.
 
 To create a new key for a service account, follow Google Cloud Platform's
 instructions for [Creating a Service Account
 Key](https://cloud.google.com/iam/docs/keys-create-delete#creating). Be sure to
 create the key in JSON format. Once the linked instructions have been followed
-you should have a key file, which will need to be uploaded to Flow when setting
+you should have a key file, which will need to be uploaded to Estuary when setting
 up your capture.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the
+You configure connectors either in the Estuary web app, or by directly editing the
 catalog specification file. See
 [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 about using connectors.
@@ -84,15 +84,15 @@ about using connectors.
 ### At-Least-Once Message Capture
 
 Received messages are acknowledged to Pub/Sub after they have been durably
-committed to your Flow collection. After Pub/Sub receives acknowledgement of
+committed to your Estuary collection. After Pub/Sub receives acknowledgement of
 messages, it will not attempt to re-deliver messages to subscribers if
 subscriptions are created with "exactly-once delivery", which this connector
 does set when it creates subscriptions. Occasionally messages will be captured
-to your Flow collection more than once if the connector is restarted after it
+to your Estuary collection more than once if the connector is restarted after it
 has durably committed the document to the collection but before it has
 acknowledged the message to Pub/Sub.
 
-In this way the committing of the message to your Flow collection is considered
+In this way the committing of the message to your Estuary collection is considered
 a "side effect" of processing the message, and [Pub/Sub does not provide
 guarantees around exactly-once side
 effects](https://cloud.google.com/blog/products/data-analytics/cloud-pub-sub-exactly-once-delivery-feature-is-now-ga).

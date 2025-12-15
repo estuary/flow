@@ -4,7 +4,7 @@ Neon's logical replication feature allows you to replicate data from your Neon P
 
 ## Prerequisites
 
-- An [Estuary Flow account](https://dashboard.estuary.dev/register) (start free, no credit card required)
+- An [Estuary account](https://dashboard.estuary.dev/register) (start free, no credit card required)
 - A [Neon account](https://console.neon.tech/)
 
 ## Setup
@@ -88,19 +88,19 @@ The `publish_via_partition_root`
 
 Refer to the [Postgres docs](https://www.postgresql.org/docs/current/sql-alterpublication.html) if you need to add or remove tables from your publication. Alternatively, you also can create a publication `FOR ALL TABLES`.
 
-Upon start-up, the Estuary Flow connector for Postgres will automatically create the [replication slot](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-REPLICATION-SLOTS) required for ingesting data change events from Postgres. The slot's name will be prefixed with `estuary_`, followed by a unique identifier.
+Upon start-up, the Estuary connector for Postgres will automatically create the [replication slot](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-REPLICATION-SLOTS) required for ingesting data change events from Postgres. The slot's name will be prefixed with `estuary_`, followed by a unique identifier.
 
 To prevent storage bloat, **Neon automatically removes _inactive_ replication slots after a period of time if there are other _active_ replication slots**. If you have or intend on having more than one replication slot, please see [Unused replication slots](https://docs.neon.tech/docs/logical-replication-neon#unused-replication-slots) to learn more.
 
 ## Allow Inbound Traffic
 
-If you are using Neon's **IP Allow** feature to limit the IP addresses that can connect to Neon, you will need to allow inbound traffic from Estuary Flow's IP addresses.
-Refer to the [Estuary Flow documentation](/reference/allow-ip-addresses) for the list of IPs that need to be allowlisted for the Estuary Flow region of your account.
+If you are using Neon's **IP Allow** feature to limit the IP addresses that can connect to Neon, you will need to allow inbound traffic from Estuary's IP addresses.
+Refer to the [Estuary documentation](/reference/allow-ip-addresses) for the list of IPs that need to be allowlisted for your data plane.
 For information about configuring allowed IPs in Neon, see [Configure IP Allow](https://neon.tech/docs/introduction/ip-allow).
 
-## Create a Postgres Source Connector in Estuary Flow
+## Create a Postgres Source Connector in Estuary
 
-1. In the Estuary Flow web UI, select **Sources** from the left navigation bar and click **New Capture**.
+1. In the Estuary web UI, select **Sources** from the left navigation bar and click **New Capture**.
 2. In the connector catalog, choose **Neon PostgreSQL** and click **Connect**.
 3. Enter the connection details for your Neon database. You can get these details from your Neon connection string, which you'll find in the **Connection Details** widget on the **Dashboard** of your Neon project. Your connection string will look like this:
 
@@ -115,7 +115,7 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
    - Password: `AbC123dEf` in the example, or your own value based on the connection string.
    - Database: dbname
 
-3. Click **Next**. Estuary Flow will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
+3. Click **Next**. Estuary will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
 Optionally, you can change the name of the destination name for each table. You can also take a look at the schema of each stream by clicking on the **Collection** tab.
 
 4. Click **Save and Publish** to provision the connector and kick off the automated backfill process.
@@ -124,14 +124,14 @@ Optionally, you can change the name of the destination name for each table. You 
 
 When the PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Estuary.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
 
 ### Properties
@@ -202,11 +202,11 @@ As a result, the connector emits a row update with the value omitted, which migh
 unexpected results in downstream catalog tasks if adjustments are not made.
 
 The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/captures.md#discovery)
-or use the [Flow UI](/concepts/web-app.md) to create your capture.
+or use the [Estuary UI](/concepts/web-app.md) to create your capture.
 It uses [merge](/reference/reduction-strategies/merge) [reductions](../../../../concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 
-However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
+However, due to the event-driven nature of certain tasks in Estuary, it's still possible to see unexpected results in your data flow, specifically:
 
 - When you materialize the captured data to another system using a connector that requires [delta updates](/concepts/materialization/#delta-updates)
 - When you perform a [derivation](../../../../concepts/derivations.md) that uses TOASTed values

@@ -1,8 +1,8 @@
 # Gladly
 
-This connector captures data from Gladly into Flow collections.
+This connector captures data from Gladly into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gladly:dev`](https://ghcr.io/estuary/source-gladly:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gladly:dev`](https://ghcr.io/estuary/source-gladly:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -16,7 +16,7 @@ This connector can be used to sync the following [Event entity types](https://de
 * **PAYMENT_REQUEST**
 * **TASK**
 
-By default, each entity type is mapped to a Flow collection through a separate binding.
+By default, each entity type is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ To set up the Gladly source connector, you'll need a Gladly account with an [API
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Gladly source connector.
 
 ### Properties

@@ -1,13 +1,13 @@
 
 # AlloyDB
 
-This connector uses change data capture (CDC) to continuously capture table updates in an AlloyDB database into one or more Flow collections.
+This connector uses change data capture (CDC) to continuously capture table updates in an AlloyDB database into one or more Estuary collections.
 
 AlloyDB is a fully managed, PostgreSQL-compatible database available in the Google Cloud platform.
 This connector is derived from the [PostgreSQL capture connector](/reference/Connectors/capture-connectors/PostgreSQL/),
 so the same configuration applies, but the setup steps look somewhat different.
 
-It's available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-alloydb:dev`](https://github.com/estuary/connectors/pkgs/container/source-alloydb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It's available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-alloydb:dev`](https://github.com/estuary/connectors/pkgs/container/source-alloydb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -52,14 +52,14 @@ in the same Google Cloud project as your instance.
 
 When the AlloyDB capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Estuary.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
 
 ### Properties

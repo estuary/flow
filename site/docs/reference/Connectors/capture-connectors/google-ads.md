@@ -1,7 +1,7 @@
 
 # Google Ads
 
-This connector captures data from [resources](https://developers.google.com/google-ads/api/fields/v11/overview) in one or more Google Ads accounts into Flow collections via the Google Ads API.
+This connector captures data from [resources](https://developers.google.com/google-ads/api/fields/v11/overview) in one or more Google Ads accounts into Estuary collections via the Google Ads API.
 
 [`ghcr.io/estuary/source-google-ads:dev`](https://ghcr.io/estuary/source-google-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -27,16 +27,16 @@ Resources ending in `_report` represent legacy resources from the [Google Adword
 * [display_topics_performance_report](https://developers.google.com/google-ads/api/docs/migration/mapping#display_topics_performance)
 * [shopping_performance_report](https://developers.google.com/google-ads/api/docs/migration/mapping#shopping_performance)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 You may also generate custom resources using [GAQL queries](#custom-queries).
 
 ## Prerequisites
 
-There are two ways to authenticate with Google when capturing data into Flow: using OAuth2, and manually with the `flowctl` CLI, using tokens and secret credentials.
+There are two ways to authenticate with Google when capturing data into Estuary: using OAuth2, and manually with the `flowctl` CLI, using tokens and secret credentials.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the manual method is the only supported method using the command line.
 
 ### Customer Id & Login Customer Id
@@ -72,7 +72,7 @@ Example:
 
 ```customer_id: 1234567890,9876543210```
 
-### Using OAuth2 to authenticate with Google in the Flow web app
+### Using OAuth2 to authenticate with Google in the Estuary web app
 
 * One or more Google Ads accounts.
 
@@ -108,7 +108,7 @@ Be sure to carefully review Google's requirements before submitting an applicati
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
+You configure connectors either in the Estuary web app, or by directly editing the Data Flow specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Google Ads source connector.
 
 ### Properties
@@ -116,7 +116,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-flow-web-app),
+If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-estuary-web-app),
 so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
@@ -184,7 +184,7 @@ captures:
 ## Custom queries
 
 You can create custom resources using Google Analytics Query Language (GAQL) queries.
-Each generated resource will be mapped to a Flow collection.
+Each generated resource will be mapped to an Estuary collection.
 For help generating a valid query, see [Google's query builder documentation](https://developers.google.com/google-ads/api/fields/v11/overview_query_builder).
 
 If a query fails to validate against a given Google Ads account, it will be skipped.

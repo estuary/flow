@@ -5,11 +5,11 @@ This connector captures data from a Hubspot account.
 
 Estuary offers a in-house real time version of this connector. For more information take a look at our [HubSpot Real-Time](/reference/Connectors/capture-connectors/HubSpot-real-time.md) docs.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
-By default, each resource associated with your Hubspot account is mapped to a Flow collection through a separate binding.
+By default, each resource associated with your Hubspot account is mapped to an Estuary collection through a separate binding.
 
 The following data resources are supported for all subscription levels:
 
@@ -48,10 +48,10 @@ The following data resources are supported for pro accounts (set **Subscription 
 There are two ways to authenticate with Hubspot when capturing data: using OAuth2 or with a private app access token.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the access token method is the only supported method using the command line.
 
-### Using OAuth2 to authenticate with Hubspot in the Flow web app
+### Using OAuth2 to authenticate with Hubspot in the Estuary web app
 
 * A Hubspot account
 
@@ -69,7 +69,7 @@ To create a private app in Hubspot and generate its access token, do the followi
 
 2. In Hubspot, create a [new private app](https://developers.hubspot.com/docs/api/private-apps#create-a-private-app).
 
-   1. Name the app "Estuary Flow," or choose another name that is memorable to you.
+   1. Name the app "Estuary," or choose another name that is memorable to you.
 
    2. Grant the new app **Read** access for all available scopes.
 
@@ -77,7 +77,7 @@ To create a private app in Hubspot and generate its access token, do the followi
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Hubspot source connector.
 
 ### Properties

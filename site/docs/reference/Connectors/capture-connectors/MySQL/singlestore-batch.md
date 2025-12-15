@@ -1,6 +1,6 @@
 # SingleStore Batch Query Connector
 
-This connector captures data from SingleStore into Flow collections by periodically executing queries and translating
+This connector captures data from SingleStore into Estuary collections by periodically executing queries and translating
 the results into JSON documents. It leverages SingleStore's MySQL wire compatibility to interact with the database.
 
 **This connector periodically re-executes the query**. The default polling interval is set

@@ -1,11 +1,11 @@
 
 # GitLab
 
-This connector captures data from GitLab repositories and organizations into Flow collections via GitLabs's API V4. It can also work with self-hosted GitLab.
+This connector captures data from GitLab repositories and organizations into Estuary collections via GitLabs's API V4. It can also work with self-hosted GitLab.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gitlab:dev`](https://ghcr.io/estuary/source-gitlab:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gitlab:dev`](https://ghcr.io/estuary/source-gitlab:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -35,17 +35,17 @@ From your selection, the following data resources are captured:
  - [Epics](https://docs.gitlab.com/ee/api/epics.html) (only available for GitLab Ultimate and GitLab.com Gold accounts)
  - [Epic Issues](https://docs.gitlab.com/ee/api/epic_issues.html) (only available for GitLab Ultimate and GitLab.com Gold accounts)
 
-Each resource is mapped to a Flow collection through a separate binding.
+Each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-There are two ways to authenticate with GitLab when capturing data into Flow: using OAuth2, and manually, by generating a personal access token.
+There are two ways to authenticate with GitLab when capturing data into Estuary: using OAuth2, and manually, by generating a personal access token.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. GitLab has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization.
 
-### Using OAuth2 to authenticate with GitLab in the Flow web app
+### Using OAuth2 to authenticate with GitLab in the Estuary web app
 
 * A GitLab user account with [access](https://docs.gitlab.com/ee/user/permissions.html) to the repositories of interest, and which is a member of organizations of interest.  [How to add a member](https://docs.gitlab.com/ee/user/project/members/#add-users-to-a-project).
 
@@ -57,7 +57,7 @@ the access token method is the only supported method using the command line. Whi
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GitHub source connector.
 
 ### Setup

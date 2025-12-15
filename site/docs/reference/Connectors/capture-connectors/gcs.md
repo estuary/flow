@@ -3,7 +3,7 @@
 
 This connector captures data from a Google Cloud Storage (GCS) bucket.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ To use this connector, either your GCS bucket must be public, or you must have a
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GCS source connector.
 
 ### Properties
@@ -88,7 +88,7 @@ Your capture definition may be more complex, with additional bindings for differ
 ### Advanced: Parsing cloud storage data
 
 Cloud storage platforms like GCS can support a wider variety of file types
-than other data source systems. For each of these file types, Flow must parse
+than other data source systems. For each of these file types, Estuary must parse
 and translate data into collections with defined fields and JSON schemas.
 
 By default, the parser will automatically detect the type and shape of the data in your bucket,
@@ -120,7 +120,7 @@ Options are:
    * **W3C Extended Log**
 
    :::info
-   At this time, Flow only supports GCS captures with data of a single file type.
+   At this time, Estuary only supports GCS captures with data of a single file type.
    Support for multiple file types, which can be configured on a per-binding basis,
    will be added in the future.
 
@@ -130,7 +130,7 @@ Options are:
 #### CSV configuration
 
 CSV files include several additional properties that are important to the parser.
-In most cases, Flow is able to automatically determine the correct values,
+In most cases, Estuary is able to automatically determine the correct values,
 but you may need to specify for unusual datasets. These properties are:
 
 * **Delimiter**. Options are:
@@ -178,10 +178,10 @@ The sample specification [above](#sample) includes these fields.
 As part of your Google IAM management, you may have configured one service account to [impersonate another service account](https://cloud.google.com/iam/docs/impersonating-service-accounts).
 You may find this useful when you want to easily control access to multiple service accounts with only one set of keys.
 
-If necessary, you can configure this authorization model for a GCS capture in Flow using the GitOps workflow.
+If necessary, you can configure this authorization model for a GCS capture in Estuary using the GitOps workflow.
 To do so, you'll enable sops encryption and impersonate the target account with JSON credentials.
 
-Before you begin, make sure you're familiar with [how to encrypt credentials in Flow using sops](./../../../concepts/flowctl.md#protecting-secrets).
+Before you begin, make sure you're familiar with [how to encrypt credentials in Estuary using sops](./../../../concepts/flowctl.md#protecting-secrets).
 
 Use the following sample as a guide to add the credentials JSON to the capture's endpoint configuration.
 The sample uses the [encrypted suffix feature](../../../concepts/flowctl.md#example-protect-portions-of-a-configuration) of sops to encrypt only the sensitive credentials, but you may choose to encrypt the entire configuration.
