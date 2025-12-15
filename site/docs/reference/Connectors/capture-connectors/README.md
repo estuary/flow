@@ -194,9 +194,12 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Navan
   - [Configuration](./navan.md)
   - Package - ghcr.io/estuary/source-navan:dev
-- NetSuite
+- NetSuite SuiteAnalytics
   - [Configuration](./netsuite-suiteanalytics.md)
-  - Package - ghcr.io/estuary/source-netsuite:dev
+  - Package - ghcr.io/estuary/source-netsuite-v2:dev
+- NetSuite SuiteQL
+  - [Configuration](./netsuite-suiteql.md)
+  - Package - ghcr.io/estuary/source-netsuite-suiteql:dev
 - OneDrive
   - [Configuration](./onedrive.md)
   - Package - ghcr.io/estuary/source-onedrive:dev
