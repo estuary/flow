@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start Dekaf against local stack"
-#MISE depends=["local:stack", "local:dekaf-kafka", "local:tls-cert"]
+#MISE depends=["local:dekaf-kafka", "local:tls-cert"]
 
 FLOW_LOCAL="${HOME}/flow-local"
 

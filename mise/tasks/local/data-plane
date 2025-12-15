@@ -91,7 +91,19 @@ EOF
     fi
 
     systemctl --user daemon-reload
-    systemctl --user start "flow-plane-link@${DATA_PLANE}.service"
+
+    if systemctl --user is-active --quiet "flow-plane-link@${DATA_PLANE}.service"; then
+        echo "flow-plane-link@${DATA_PLANE} already running, skipping"
+    else
+        if ! systemctl --user start "flow-plane-link@${DATA_PLANE}.service"; then
+            echo "flow-plane-link@${DATA_PLANE} failed to start. Logs:"
+            journalctl --user -u "flow-plane-link@${DATA_PLANE}.service" --no-pager
+            echo ""
+            echo "Agent logs (last 200 lines):"
+            journalctl --user -u "flow-control-agent.service" --no-pager -n 200
+            exit 1
+        fi
+    fi
 fi
 
 STATUS="systemctl --user list-dependencies flow-plane@${DATA_PLANE}.target"
