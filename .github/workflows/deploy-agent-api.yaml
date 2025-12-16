@@ -19,7 +19,7 @@ jobs:
         run: |
           TAG="dev-next"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "image=ghcr.io/estuary/control-plane-agent:${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/control-plane-agent:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2

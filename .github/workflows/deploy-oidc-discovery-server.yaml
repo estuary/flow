@@ -29,7 +29,7 @@ jobs:
             TAG=$(git describe --tags --always)
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "image=ghcr.io/estuary/oidc-discovery-server:${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/oidc-discovery-server:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2
