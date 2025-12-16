@@ -9,6 +9,7 @@ use anyhow::Context;
 use std::time::Duration;
 
 pub mod kafka;
+pub mod raw_kafka;
 
 /// Initialize tracing for tests. Call this at the start of each test.
 pub fn init_tracing() {
