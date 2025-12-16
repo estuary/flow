@@ -28,8 +28,9 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
+proto-grpc = { path = "../proto-grpc", features = ["capture_client", "shuffle_client"] }
 runtime = { path = "../runtime" }
+shuffle = { path = "../shuffle" }
 simd-doc = { path = "../simd-doc" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
@@ -67,6 +68,7 @@ size = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
