@@ -223,6 +223,7 @@ async fn sasl_auth(
     let sasl = SASLClient::new(sasl_config.clone());
 
     let mechanisms = get_supported_sasl_mechanisms(broker_url).await?;
+    tracing::debug!(?mechanisms, "Discovered SASL mechanisms");
 
     let offered_mechanisms = mechanisms
         .iter()
@@ -234,7 +235,7 @@ async fn sasl_auth(
 
     let selected_mechanism = session.get_mechname().as_str().to_owned();
 
-    tracing::debug!(mechamism=?selected_mechanism, "Starting SASL request with handshake");
+    tracing::debug!(mechanism=?selected_mechanism, "Starting SASL request with handshake");
 
     // Now we know which mechanism we want to request
     let handshake_req = messages::SaslHandshakeRequest::default().with_mechanism(
@@ -255,26 +256,45 @@ async fn sasl_auth(
 
     let mut state_buf = BufWriter::new(Vec::new());
     let mut state = session.step(None, &mut state_buf)?;
+    // Flush the BufWriter to ensure all data is written to the underlying Vec
+    let mut state_data = state_buf.into_inner()?;
 
-    // SASL can happen over multiple steps
-    while state.is_running() {
-        let authenticate_request = messages::SaslAuthenticateRequest::default()
-            .with_auth_bytes(Bytes::from(state_buf.into_inner()?));
+    tracing::debug!(
+        is_running = state.is_running(),
+        buf_len = state_data.len(),
+        state = ?state,
+        "SASL state after first step"
+    );
+
+    // SASL mechanisms may return Finished(Yes) after writing data, meaning data
+    // was written and must be sent, but no further steps are needed.
+    // We need to send data if either:
+    // 1. state.is_running() - more steps are expected
+    // 2. state_data is not empty - data was written that must be sent
+    while state.is_running() || !state_data.is_empty() {
+        let authenticate_request =
+            messages::SaslAuthenticateRequest::default().with_auth_bytes(Bytes::from(state_data));
 
         let auth_resp = send_request(conn, authenticate_request, None).await?;
 
         if auth_resp.error_code > 0 {
-            let err = kafka_protocol::ResponseError::try_from_code(handshake_resp.error_code)
+            let err = kafka_protocol::ResponseError::try_from_code(auth_resp.error_code)
                 .map(|code| format!("{code:?}"))
-                .unwrap_or(format!("Unknown error {}", handshake_resp.error_code));
+                .unwrap_or(format!("Unknown error {}", auth_resp.error_code));
             bail!(
                 "Error performing SASL authentication: {err} {:?}",
                 auth_resp.error_message
             )
         }
+
+        if !state.is_running() {
+            break;
+        }
+
         let data = Some(auth_resp.auth_bytes.to_vec());
         state_buf = BufWriter::new(Vec::new());
         state = session.step(data.as_deref(), &mut state_buf)?;
+        state_data = state_buf.into_inner()?;
     }
 
     tracing::debug!("Successfully completed SASL flow");
@@ -775,6 +795,13 @@ impl KafkaClientAuth {
             provider,
             cached: None,
         })
+    }
+
+    pub fn plain(username: &str, password: &str) -> Self {
+        KafkaClientAuth::NonRefreshing(
+            SASLConfig::with_credentials(None, username.to_string(), password.to_string())
+                .expect("PLAIN config should build"),
+        )
     }
 
     async fn sasl_config(&mut self) -> anyhow::Result<Option<Arc<SASLConfig>>> {
