@@ -1,4 +1,6 @@
-use crate::publish::TENANT_METADATA_KEY;
+use crate::publish::{
+    BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY, TENANT_METADATA_KEY,
+};
 use num_format::{Locale, ToFormattedString};
 use serde::{Serialize, de::DeserializeOwned};
 use std::ops::{Deref, DerefMut};
@@ -120,6 +122,14 @@ impl Invoice {
     }
     pub fn status(&self) -> Option<stripe::InvoiceStatus> {
         self.0.status.clone()
+    }
+
+    pub fn period_start(&self) -> Option<String> {
+        self.0
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(BILLING_PERIOD_START_KEY))
+            .cloned()
     }
 
     pub fn to_table_row(&self) -> Vec<comfy_table::Cell> {
