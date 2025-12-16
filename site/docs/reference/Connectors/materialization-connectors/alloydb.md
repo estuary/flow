@@ -1,13 +1,13 @@
 
 # AlloyDB
 
-This connector materializes Flow collections into tables in an AlloyDB database.
+This connector materializes Estuary collections into tables in an AlloyDB database.
 
 AlloyDB is a fully managed, PostgreSQL-compatible database available in the Google Cloud platform.
 This connector is derived from the [PostgreSQL materialization connector](/reference/Connectors/materialization-connectors/PostgreSQL/),
 so the same configuration applies, but the setup steps look somewhat different.
 
-It's available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-alloydb:dev`](https://ghcr.io/estuary/materialize-alloydb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It's available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-alloydb:dev`](https://ghcr.io/estuary/materialize-alloydb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -21,8 +21,8 @@ in the same Google Cloud project as your instance.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure an AlloyDB materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure an AlloyDB materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -95,9 +95,9 @@ materializations:
 ## Reserved words
 
 PostgreSQL has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
+Estuary considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
 
-These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 |Reserved words| | | | |
 |---|---|---|---|---|

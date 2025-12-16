@@ -1,13 +1,13 @@
 
 # ClickHouse
 
-This connector materializes Flow collections as Kafka-compatible messages that a ClickHouse Kafka consumer can read. [ClickHouse](https://clickhouse.com/) is a real-time analytical database and warehouse.
+This connector materializes Estuary collections as Kafka-compatible messages that a ClickHouse Kafka consumer can read. [ClickHouse](https://clickhouse.com/) is a real-time analytical database and warehouse.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * **[ClickHouse Cloud](https://clickhouse.com/) account** with permissions to configure ClickPipes for data ingestion
 
 ## Variants
@@ -20,13 +20,13 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to ClickPipes in ClickHouse Cloud
+## Connecting Estuary to ClickPipes in ClickHouse Cloud
 
 1. **Set Up ClickPipes**:
     - In ClickHouse Cloud, go to **Integrations** and select **Apache Kafka** as the data source.
 
 2. **Enter Connection Details**:
-    - Use the following connection parameters to configure access to Estuary Flow.
+    - Use the following connection parameters to configure access to Estuary.
         * **Broker Address**: `dekaf.estuary-data.com:9092`
         * **Schema Registry Address**: `https://dekaf.estuary-data.com`
         * **Security Protocol**: `SASL_SSL`
@@ -38,15 +38,15 @@ Once the connector is created, note the full materialization name, such as `YOUR
 
 3. **Map Data Fields**:
     - Ensure that ClickHouse can parse the incoming data properly. Use ClickHouse’s mapping interface to align fields
-      between Estuary Flow collections and ClickHouse tables.
+      between Estuary collections and ClickHouse tables.
 
 4. **Provision the ClickPipe**:
     - Kick off the integration and allow ClickPipes to set up the pipeline. This should complete within a few seconds.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

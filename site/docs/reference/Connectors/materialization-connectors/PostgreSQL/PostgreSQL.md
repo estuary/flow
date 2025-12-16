@@ -1,8 +1,8 @@
 # PostgreSQL
 
-This connector materializes Flow collections into tables in a PostgreSQL database.
+This connector materializes Estuary collections into tables in a PostgreSQL database.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ To use this connector, you'll need:
 
 - A Postgres database to which to materialize, and user credentials.
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
-- At least one Flow collection
+- At least one Estuary collection
 
 ## Setup
 
@@ -23,7 +23,7 @@ To meet these requirements, follow the steps for your hosting type.
 
 In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances. Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported. You may use other cloud platforms, but Estuary doesn't guarantee performance.
 
-To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
+To connect securely, you can either enable direct access for Estuary's IP or use an SSH tunnel.
 
 :::tip Configuration Tip
 To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
@@ -37,14 +37,14 @@ You can find the host and port in the following locations in each platform's con
 
 ### Azure Database for PostgreSQL
 
-- **Connect Directly With Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+- **Connect Directly With Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses).
 
 - **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Postgres materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Postgres materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -71,7 +71,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 
 #### SSL Mode
 
-Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Estuary. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
 
 ### Sample
 
@@ -101,9 +101,9 @@ The default is to use standard updates.
 ## Reserved words
 
 PostgreSQL has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
+Estuary considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
 
-These reserve words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserve words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 | Reserved words                  |                                  |                      |                 |                 |
 | ------------------------------- | -------------------------------- | -------------------- | --------------- | --------------- |
@@ -215,7 +215,7 @@ This version includes breaking changes to materialized table columns.
 These provide more consistent column names and types, but tables created from previous versions of the connector may
 not be compatible with this version.
 
-- Capitalization is now preserved when fields in Flow are converted to Postgres column names.
+- Capitalization is now preserved when fields in Estuary are converted to Postgres column names.
   Previously, fields containing uppercase letters were converted to lowercase.
 
 - Field names and values of types `date`, `duration`, `ipv4`, `ipv6`, `macaddr`, `macaddr8`, and `time` are now converted into

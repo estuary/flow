@@ -1,8 +1,8 @@
 
 # WooCommerce
-This connector captures data from WooCommerce into Flow collections.
+This connector captures data from WooCommerce into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-woocommerce:dev`](https://ghcr.io/estuary/source-woocommerce:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-woocommerce:dev`](https://ghcr.io/estuary/source-woocommerce:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 To set up the WooCommerce source connector you need:
@@ -20,9 +20,9 @@ Follow the steps below to set up the WooCommerce source connector.
 2. Obtain Customer key and Customer Secret.
 
 
-### Set up the WooCommerce connector in Estuary Flow
+### Set up the WooCommerce connector in Estuary
 
-1. Log into your Estuary Flow account.
+1. Log into your Estuary account.
 2. In the left navigation bar, click on "Captures". In the top-left corner, click "Connector Search".
 3. Enter the name for the WooCommerce connector and select "WooCommerce" from the dropdown.
 4. Fill in "Customer key" and "Customer Secret" with the data from Step 1 of this guide.
@@ -30,7 +30,7 @@ Follow the steps below to set up the WooCommerce source connector.
 6. Choose the start date you want to start syncing data from.
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the WooCommerce source connector.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the WooCommerce source connector.
 
 ### Properties
 
@@ -62,7 +62,7 @@ You configure connectors either in the Flow web app, or by directly editing the 
 ```
 
 ## Supported Streams
-The WooCommerce source connector in Estuary Flow supports the following streams:
+The WooCommerce source connector in Estuary supports the following streams:
 
 * Coupons (Incremental)
 * Customers (Incremental)

@@ -1,6 +1,6 @@
 # Apache Iceberg
 
-This connector materializes Flow collections into Iceberg tables. It
+This connector materializes Estuary collections into Iceberg tables. It
 orchestrates Spark jobs running on your configured compute system to merge
 updates into materialized tables as new data is available in the source
 collections.
@@ -672,9 +672,9 @@ about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Iceberg Column Types
 
-Flow collection fields are written to Iceberg table columns based on the data type of the field.
+Estuary collection fields are written to Iceberg table columns based on the data type of the field.
 Iceberg [V2 primitive type](https://iceberg.apache.org/spec/#primitive-types) columns are created
-for these Flow collection fields:
+for these Estuary collection fields:
 
 | Collection Field Data Type                  | Iceberg Column Type                          |
 |---------------------------------------------|----------------------------------------------|
@@ -690,7 +690,7 @@ for these Flow collection fields:
 | **string** with `{format: number}`          | **double**                                   |
 | **string** (all others)                     | **string**                                   |
 
-Flow collection fields with `{type: string, format: time}` and `{type: string, format: uuid}` are
+Estuary collection fields with `{type: string, format: time}` and `{type: string, format: uuid}` are
 materialized as **string** columns rather than **time** and **uuid** columns for compatibility with
 Apache Spark. **[Nested types](https://iceberg.apache.org/spec/#nested-types)** are not currently
 supported.

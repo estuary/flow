@@ -1,9 +1,9 @@
 
 # Rockset (Deprecated)
 
-This Flow connector materializes [delta updates](/concepts/materialization/#delta-updates) of your Flow collections into Rockset collections.
+This connector materializes [delta updates](/concepts/materialization/#delta-updates) of your Estuary collections into Rockset collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-rockset:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-rockset) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-rockset:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-rockset) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 :::warning
 This connector is deprecated. For the best experience, we recommend using one of our other [materialization connectors](/reference/Connectors/materialization-connectors).
@@ -19,7 +19,7 @@ To use this connector, you'll need:
     * Optional; if none exist, one will be created by the connector.
 * A Rockset collection
     * Optional; if none exist, one will be created by the connector.
-* At least one Flow collection
+* At least one Estuary collection
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
@@ -27,8 +27,8 @@ If you haven't yet captured your data from its external source, start at the beg
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Rockset materialization, which will direct one or more of your Estuary collections to your desired Rockset collections.
 
 ### Properties
 
@@ -84,13 +84,13 @@ materializations:
 ## Delta updates and reduction strategies
 
 The Rockset connector operates only in [delta updates](/concepts/materialization/#delta-updates) mode.
-This means that Rockset, rather than Flow, performs the document merge.
+This means that Rockset, rather than Estuary, performs the document merge.
 In some cases, this will affect how materialized views look in Rockset compared to other systems that use standard updates.
 
-Rockset merges documents by the key defined in the Flow collection schema, and always uses the semantics of [RFC 7396 - JSON merge](https://datatracker.ietf.org/doc/html/rfc7396).
-This differs from how Flow would reduce documents, most notably in that Rockset will _not_ honor any reduction strategies defined in your Flow schema.
+Rockset merges documents by the key defined in the Estuary collection schema, and always uses the semantics of [RFC 7396 - JSON merge](https://datatracker.ietf.org/doc/html/rfc7396).
+This differs from how Estuary would reduce documents, most notably in that Rockset will _not_ honor any reduction strategies defined in your Estuary schema.
 For consistent output of a given collection across Rockset and other materialization endpoints, it's important that that collection's reduction annotations
-in Flow mirror Rockset's semantics.
+in Estuary mirror Rockset's semantics.
 
 To accomplish this, ensure that your collection schema has the following [data reductions](../../../concepts/schemas.md#reductions) defined in its schema:
 

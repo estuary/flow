@@ -3,7 +3,7 @@ import ReactPlayer from "react-player";
 
 # Microsoft Azure Fabric Warehouse
 
-This connector materializes Flow collections into tables in Microsoft Azure
+This connector materializes Estuary collections into tables in Microsoft Azure
 Fabric Warehouse.
 
 [`ghcr.io/estuary/materialize-azure-fabric-warehouse:dev`](https://ghcr.io/estuary/materialize-azure-fabric-warehouse:dev)
@@ -46,7 +46,7 @@ To use this connector, you'll need:
 ## Configuration
 
 Use the below properties to configure the materialization, which will direct one or more of your
-Flow collections to your tables.
+Estuary collections to your tables.
 
 ### Properties
 
@@ -107,7 +107,7 @@ This connector supports both standard (merge) and [delta
 updates](/concepts/materialization/#delta-updates). The default is to
 use standard updates.
 
-Enabling delta updates will prevent Flow from querying for documents in your
+Enabling delta updates will prevent Estuary from querying for documents in your
 tables, which can reduce latency and costs for large datasets. If you're certain
 that all events will have unique keys, enabling delta updates is a simple way to
 improve performance with no effect on the output. However, enabling delta

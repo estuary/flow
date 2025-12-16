@@ -1,17 +1,17 @@
 ---
-description: This connector materializes delta updates of Flow collections into files in an S3 bucket per the CSV format described in RFC-4180.
+description: This connector materializes delta updates of Estuary collections into files in an S3 bucket per the CSV format described in RFC-4180.
 ---
 
 # CSV Files in Amazon S3
 
 This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
-Flow collections into files in an S3 bucket per the CSV format described in
+Estuary collections into files in an S3 bucket per the CSV format described in
 [RFC-4180](https://www.rfc-editor.org/rfc/rfc4180.html). The CSV files are compressed using Gzip
 compression.
 
-The delta updates are batched within Flow, converted to CSV files, and then pushed to the S3 bucket
+The delta updates are batched within Estuary, converted to CSV files, and then pushed to the S3 bucket
 at a time interval that you set. Files are limited to a configurable maximum size. Each materialized
-Flow collection will produce many separate files.
+Estuary collection will produce many separate files.
 
 [`ghcr.io/estuary/materialize-s3-csv:dev`](https://ghcr.io/estuary/materialize-s3-csv:dev) provides
 the latest connector image. You can also follow the link in your browser to see past image versions.
@@ -36,7 +36,7 @@ To use this connector, you'll need:
 ## Configuration
 
 Use the below properties to configure the materialization, which will direct one or more of your
-Flow collections to your bucket.
+Estuary collections to your bucket.
 
 ### Properties
 
@@ -103,7 +103,7 @@ starting back over from 0.
 ## Eventual Consistency
 
 In rare circumstances, recently materialized files may be re-written by files with the same name if
-the materialization shard is interrupted in the middle of processing a Flow transaction and the
+the materialization shard is interrupted in the middle of processing a transaction and the
 transaction must be re-started. Files that were committed as part of a completed transaction will
 never be re-written. In this way, eventually all collection data will be written to files
 effectively-once, although inconsistencies are possible when accessing the most recently written

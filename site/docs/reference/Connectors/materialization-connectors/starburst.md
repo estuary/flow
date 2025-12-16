@@ -1,6 +1,6 @@
 # Starburst
 
-This connector transactionally materializes Flow collections into Iceberg or Delta Lake tables using AWS S3 storage in [Starburst Galaxy](https://www.starburst.io/platform/starburst-galaxy/).
+This connector transactionally materializes Estuary collections into Iceberg or Delta Lake tables using AWS S3 storage in [Starburst Galaxy](https://www.starburst.io/platform/starburst-galaxy/).
 The Starburst Galaxy connector supports only standard (merge) updates.
 
 The connector makes use of S3 AWS storage for temporarily storing data during the materialization process.
@@ -16,7 +16,7 @@ To use this connector, you'll need:
   * A [schema](https://docs.starburst.io/starburst-galaxy/data-engineering/working-with-data-lakes/table-formats/index.html#create-schema) which is a logical grouping of tables
   * Storage on S3 for temporary data with `awsAccessKeyId` and `awsSecretAccessKey` which should correspond to the chosen catalog
   * A user with a role assigned that grants access to create, modify, and drop tables in the specified Amazon S3 catalog
-* At least one Flow collection
+* At least one Estuary collection
 
 ### Setup
 
@@ -26,8 +26,8 @@ You will also need to grant access to temporary storage (Roles and privileges ->
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Starburst materialization, which will direct one or more of your Flow collections to new Starburst tables.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Starburst materialization, which will direct one or more of your Estuary collections to new Starburst tables.
 
 ### Properties
 
@@ -89,7 +89,7 @@ about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## Reserved words
 
-Starburst Galaxy has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Trino's documentation [here](https://trino.io/docs/current/language/reserved.html) and in the table below.
+Starburst Galaxy has a list of reserved words that must be quoted in order to be used as an identifier. Estuary automatically quotes fields that are in the reserved words list. You can find this list in Trino's documentation [here](https://trino.io/docs/current/language/reserved.html) and in the table below.
 
 :::caution
 In Starburst Galaxy, objects created with quoted identifiers must always be referenced exactly as created, including the quotes. Otherwise, SQL statements and queries can result in errors. See the [Trino docs](https://trino.io/docs/current/language/reserved.html#language-identifiers).

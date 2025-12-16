@@ -1,8 +1,8 @@
 # MySQL
 
-This connector materializes Flow collections into tables in a MySQL database.
+This connector materializes Estuary collections into tables in a MySQL database.
 
-It is available for use in the Flow web application. For local development or
+It is available for use in the Estuary web application. For local development or
 open-source workflows,
 [`ghcr.io/estuary/materialize-mysql:dev`](https://ghcr.io/estuary/materialize-mysql:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -16,7 +16,7 @@ To use this connector, you'll need:
     so user credentials must have access to create new tables.
   - The `local_infile` global variable must be enabled. You can enable this
     setting by running `SET GLOBAL local_infile = true` in your database.
-- At least one Flow collection
+- At least one Estuary collection
 
 ## Setup
 
@@ -28,21 +28,21 @@ To meet these requirements, follow the steps for your hosting type.
 
 In addition to standard MySQL, this connector supports cloud-based MySQL instances. Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported. You may use other cloud platforms, but Estuary doesn't guarantee performance.
 
-To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
+To connect securely, you can either enable direct access for Estuarys's IP or use an SSH tunnel.
 
 ### Azure Database for MySQL
 
 You must configure your database to allow connections from Estuary.
-There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
-- **Connect Directly With Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses)
+- **Connect Directly With Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses)
 
 - **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a MySQL materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a MySQL materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -67,7 +67,7 @@ MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.
 
 If you intend to materialize collections including fields of with `format: date-time` or `format: time`,
 and `time_zone` is set to `SYSTEM`,
-Flow won't be able to detect the time zone and convert datetimes to the
+Estuary won't be able to detect the time zone and convert datetimes to the
 appropriate timezone when materializing.
 To avoid this, you must explicitly set the time zone for your database.
 
@@ -145,7 +145,7 @@ materializations:
 ## MySQL on managed cloud platforms
 
 In addition to standard MySQL, this connector supports cloud-based MySQL instances.
-To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
+To connect securely, you can either enable direct access for Estuary's IP or use an SSH tunnel.
 
 Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported.
 You may use other cloud platforms, but Estuary doesn't guarantee performance.
@@ -153,7 +153,7 @@ You may use other cloud platforms, but Estuary doesn't guarantee performance.
 ### Setup
 
 You must configure your database to allow connections from Estuary.
-There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
 - **Connect directly with Amazon RDS or Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
 
@@ -162,7 +162,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
   2.  Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
       create a new inbound rule and a new outbound rule that allow all traffic from [Estuary's IP addresses](/reference/allow-ip-addresses).
 
-- **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses. See the instructions below to use SSH Tunneling instead of enabling public access.
+- **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add [Estuary IP addresses](/reference/allow-ip-addresses) as authorized IP addresses. See the instructions below to use SSH Tunneling instead of enabling public access.
 
 - **Connect with SSH tunneling**
 
@@ -197,9 +197,9 @@ persisted as UTC `DATETIME` in MySQL.
 ## Reserved words
 
 MySQL has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words in the official [MySQL documentation](https://dev.mysql.com/doc/refman/8.0/en/keywords.html).
+Estuary considers all the reserved words in the official [MySQL documentation](https://dev.mysql.com/doc/refman/8.0/en/keywords.html).
 
-These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 | Reserved words |               |               |               |               |
 | -------------- | ------------- | ------------- | ------------- | ------------- |

@@ -2,7 +2,7 @@ import ReactPlayer from "react-player";
 
 # Dekaf
 
-This connector materializes Flow collections as Kafka-compatible messages that Kafka consumers can read.
+This connector materializes Estuary collections as Kafka-compatible messages that Kafka consumers can read.
 
 If you want to send messages to your own Kafka broker, see the [Kafka](../apache-kafka.md) materialization connector instead.
 
@@ -12,7 +12,7 @@ If you want to send messages to your own Kafka broker, see the [Kafka](../apache
 
 To use this connector, you'll need:
 
-- At least one Flow collection
+- At least one Estuary collection
 - At least one Kafka consumer
 
 ## Variants
@@ -51,8 +51,8 @@ To subscribe to a particular topic, use a binding's topic name. By default, this
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

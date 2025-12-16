@@ -1,12 +1,12 @@
 ---
-description: This connector materializes Flow collections into tables in a Amazon RDS for MySQL database.
+description: This connector materializes Estuary collections into tables in a Amazon RDS for MySQL database.
 ---
 
 # Amazon RDS for MySQL
 
-This connector materializes Flow collections into tables in a MySQL database.
+This connector materializes Estuary collections into tables in a MySQL database.
 
-It is available for use in the Flow web application. For local development or
+It is available for use in the Estuary web application. For local development or
 open-source workflows,
 [`ghcr.io/estuary/materialize-mysql:dev`](https://ghcr.io/estuary/materialize-mysql:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -20,12 +20,12 @@ To use this connector, you'll need:
     so user credentials must have access to create new tables.
   - The `local_infile` global variable must be enabled. You can enable this
     setting by running `SET GLOBAL local_infile = true` in your database.
-- At least one Flow collection
+- At least one Estuary collection
 
 ## Setup
 
 You must configure your database to allow connections from Estuary.
-There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
 ### Connecting Directly With Amazon RDS
 
@@ -34,7 +34,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
    1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
 
    2. Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
-      create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+      create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary IP addresses](/reference/allow-ip-addresses).
 
 ### Connect With SSH Tunneling
 
@@ -88,8 +88,8 @@ You can find the host and port in the following locations in each platform's con
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a MySQL materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a MySQL materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -114,7 +114,7 @@ MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.
 
 If you intend to materialize collections including fields of with `format: date-time` or `format: time`,
 and `time_zone` is set to `SYSTEM`,
-Flow won't be able to detect the time zone and convert datetimes to the
+Estuary won't be able to detect the time zone and convert datetimes to the
 appropriate timezone when materializing.
 To avoid this, you must explicitly set the time zone for your database.
 
@@ -203,9 +203,9 @@ persisted as UTC `DATETIME` in MySQL.
 ## Reserved words
 
 MySQL has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words in the official [MySQL documentation](https://dev.mysql.com/doc/refman/8.0/en/keywords.html).
+Estuary considers all the reserved words in the official [MySQL documentation](https://dev.mysql.com/doc/refman/8.0/en/keywords.html).
 
-These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 | Reserved words |               |               |               |               |
 | -------------- | ------------- | ------------- | ------------- | ------------- |

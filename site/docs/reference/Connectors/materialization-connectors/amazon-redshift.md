@@ -1,6 +1,6 @@
 # Amazon Redshift
 
-This connector materializes Flow collections into tables in an Amazon Redshift database.
+This connector materializes Estuary collections into tables in an Amazon Redshift database.
 
 The connector uses your AWS account to materialize to Redshift tables by way of files in an S3
 bucket. The files in the bucket as as a temporary staging area for data storage and retrieval.
@@ -30,7 +30,7 @@ To use this connector, you'll need:
 ## Configuration
 
 Use the below properties to configure an Amazon Redshift materialization, which will direct one or
-more of your Flow collections to your desired tables in the database.
+more of your Estuary collections to your desired tables in the database.
 
 ### Properties
 
@@ -89,7 +89,7 @@ about how to configure this [here](/reference/materialization-sync-schedule).
 
 You must configure your cluster to allow connections from Estuary. This can be accomplished by
 making your cluster accessible over the internet for the
-[Estuary Flow IP addresses](/reference/allow-ip-addresses), or using an SSH tunnel. Connecting to the S3
+[Estuary IP addresses](/reference/allow-ip-addresses), or using an SSH tunnel. Connecting to the S3
 staging bucket does not use the network tunnel and connects over HTTPS only.
 
 Instructions for making a cluster accessible over the internet can be found
@@ -112,7 +112,7 @@ For allowing secure connections via SSH tunneling:
 Redshift has requirements for [names and
 identifiers](https://docs.aws.amazon.com/redshift/latest/dg/r_names.html) and this connector will
 automatically apply quoting when needed. All table identifiers and column identifiers (corresponding
-to Flow collection fields) are treated as lowercase, unless the
+to Estuary collection fields) are treated as lowercase, unless the
 [enable_case_sensitive_identifier](https://docs.aws.amazon.com/redshift/latest/dg/r_enable_case_sensitive_identifier.html)
 configuration is enabled on the cluster being materialized to. Table names for bindings must be
 unique on a case-insensitive basis, as well as field names of the source collection. If any names

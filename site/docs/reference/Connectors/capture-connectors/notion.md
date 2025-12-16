@@ -1,11 +1,11 @@
 
 # Notion
 
-This connector captures data from Notion into Flow collections via the [Notion API](https://developers.notion.com/reference/intro).
+This connector captures data from Notion into Estuary collections via the [Notion API](https://developers.notion.com/reference/intro).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-notion:dev`](https://ghcr.io/estuary/source-notion:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-notion:dev`](https://ghcr.io/estuary/source-notion:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -17,11 +17,11 @@ The following data resources are supported:
 * [Pages](https://developers.notion.com/reference/retrieve-a-page)
 * [Users](https://developers.notion.com/reference/get-user)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-To use this connector, you'll need a Notion account with an [integration](https://developers.notion.com/docs/authorization) created to connect with Flow.
+To use this connector, you'll need a Notion account with an [integration](https://developers.notion.com/docs/authorization) created to connect with Estuary.
 
 Before you create your integration, choose how you'll authenticate with Notion.
 There are two ways: using OAuth to sign in directly in the web app,
@@ -50,7 +50,7 @@ OAuth is recommended in the web app; only manual configuration is supported when
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Notion source connector.
 
 ### Properties
@@ -58,7 +58,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#setup-for-oauth-authentication),
+If you're working in the Estuary web app, you'll use [OAuth2](#setup-for-oauth-authentication),
 so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |

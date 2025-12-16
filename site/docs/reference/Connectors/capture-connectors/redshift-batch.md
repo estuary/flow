@@ -1,6 +1,6 @@
 # Amazon Redshift Batch Query Connector
 
-This connector captures data from Amazon Redshift databases into Flow collections by
+This connector captures data from Amazon Redshift databases into Estuary collections by
 periodically executing queries and translating the results into JSON documents.
 
 ## When to use this connector
@@ -31,7 +31,7 @@ You'll need:
 
 ### Creating a capture user
 
-We recommend creating a dedicated user for Flow captures:
+We recommend creating a dedicated user for Estuary captures:
 
 ```sql
 CREATE USER flow_capture WITH PASSWORD 'secret';
@@ -116,7 +116,7 @@ Tables without a primary key use `/_meta/row_id` as the collection key.
 
 ## Configuration
 
-Configure this connector in the Flow web app or using YAML config files with
+Configure this connector in the Estuary web app or using YAML config files with
 [flowctl CLI](/guides/flowctl/). See [connectors](/concepts/connectors/#using-connectors)
 to learn more about using connectors.
 

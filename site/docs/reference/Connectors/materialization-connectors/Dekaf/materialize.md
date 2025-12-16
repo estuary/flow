@@ -1,14 +1,14 @@
 
 # Materialize
 
-This connector materializes Flow collections as Kafka-compatible messages that a Materialize Kafka consumer can read. [Materialize](https://materialize.com/) is an operational data warehouse for real-time analytics that uses standard SQL
+This connector materializes Estuary collections as Kafka-compatible messages that a Materialize Kafka consumer can read. [Materialize](https://materialize.com/) is an operational data warehouse for real-time analytics that uses standard SQL
 for defining transformations and queries.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * A Materialize account
 
 ## Variants
@@ -21,10 +21,10 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to Materialize
+## Connecting Estuary to Materialize
 
 1. In your Materialize dashboard, use the SQL shell to create a new secret and connection using the Kafka source
-   connector. Use the following SQL commands to configure the connection to Estuary Flow:
+   connector. Use the following SQL commands to configure the connection to Estuary:
 
    ```sql
    CREATE
@@ -49,11 +49,11 @@ Once the connector is created, note the full materialization name, such as `YOUR
    ```
 
 2. **Create a source in Materialize** to read from the Kafka topic. Use the following SQL command,
-   replacing `<name-of-your-flow-collection>` with the name of a collection you added to your Estuary Flow materialization:
+   replacing `<name-of-your-estuary-collection>` with the name of a collection you added to your Estuary materialization:
 
    ```sql
    CREATE SOURCE materialize_source
-   FROM KAFKA CONNECTION estuary_connection (TOPIC '<name-of-your-flow-collection>')
+   FROM KAFKA CONNECTION estuary_connection (TOPIC '<name-of-your-estuary-collection>')
    FORMAT AVRO USING CONFLUENT SCHEMA REGISTRY CONNECTION csr_estuary_connection
    ENVELOPE UPSERT;
    ```
@@ -74,8 +74,8 @@ the [Materialize documentation](https://materialize.com/docs/).
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

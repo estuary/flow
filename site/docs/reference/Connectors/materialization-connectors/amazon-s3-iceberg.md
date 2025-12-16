@@ -1,5 +1,5 @@
 ---
-description: This connector materializes delta updates of Flow collections into Apache Iceberg tables using Amazon S3 for object storage and AWS Glue as the Iceberg catalog.
+description: This connector materializes delta updates of Estuary collections into Apache Iceberg tables using Amazon S3 for object storage and AWS Glue as the Iceberg catalog.
 ---
 
 import ReactPlayer from "react-player";
@@ -7,11 +7,11 @@ import ReactPlayer from "react-player";
 # Apache Iceberg Tables in Amazon S3  (delta updates)
 
 This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
-Flow collections into Apache Iceberg tables using Amazon S3 for object storage and [AWS
+Estuary collections into Apache Iceberg tables using Amazon S3 for object storage and [AWS
 Glue](https://docs.aws.amazon.com/glue/latest/dg/aws-glue-programming-etl-format-iceberg.html) as
 the Iceberg catalog.
 
-The delta updates are batched within Flow, converted to parquet files, and then append to Iceberg
+The delta updates are batched within Estuary, converted to parquet files, and then append to Iceberg
 tables at a time interval that you set.
 
 [`ghcr.io/estuary/materialize-s3-iceberg:dev`](https://ghcr.io/estuary/materialize-s3-iceberg:dev)
@@ -49,7 +49,7 @@ If using the **REST Catalog**:
 ## Configuration
 
 Use the below properties to configure the materialization, which will direct one or more of your
-Flow collections to your tables.
+Estuary collections to your tables.
 
 ### Properties
 
@@ -103,9 +103,9 @@ materializations:
 
 ## Iceberg Column Types
 
-Flow collection fields are written to Iceberg table columns based on the data type of the field.
+Estuary collection fields are written to Iceberg table columns based on the data type of the field.
 Iceberg [V2 primitive type](https://iceberg.apache.org/spec/#primitive-types) columns are created
-for these Flow collection fields:
+for these Estuary collection fields:
 
 | Collection Field Data Type                  | Iceberg Column Type                          |
 |---------------------------------------------|----------------------------------------------|
@@ -121,7 +121,7 @@ for these Flow collection fields:
 | **string** with `{format: number}`          | **double**                                   |
 | **string** (all others)                     | **string**                                   |
 
-Flow collection fields with `{type: string, format: time}` and `{type: string, format: uuid}` are
+Estuary collection fields with `{type: string, format: time}` and `{type: string, format: uuid}` are
 materialized as **string** columns rather than **time** and **uuid** columns for compatibility with
 Apache Spark. **[Nested types](https://iceberg.apache.org/spec/#nested-types)** are not currently
 supported.

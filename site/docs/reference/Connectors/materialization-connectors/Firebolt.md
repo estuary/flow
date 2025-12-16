@@ -2,14 +2,14 @@
 
 # Firebolt
 
-This Flow connector materializes [delta updates](/concepts/materialization/#delta-updates) of Flow collections into Firebolt `FACT` or `DIMENSION` tables.
+This connector materializes [delta updates](/concepts/materialization/#delta-updates) of Estuary collections into Firebolt `FACT` or `DIMENSION` tables.
 
-To interface between Flow and Firebolt, the connector uses Firebolt's method for [loading data](https://docs.firebolt.io/Guides/loading-data/loading-data.html):
+To interface between Estuary and Firebolt, the connector uses Firebolt's method for [loading data](https://docs.firebolt.io/Guides/loading-data/loading-data.html):
 First, it stores data as JSON documents in an S3 bucket.
 It then references the S3 bucket to create a [Firebolt _external table_](https://docs.firebolt.io/Guides/loading-data/working-with-external-tables.html),
 which acts as a SQL interface between the JSON documents and the destination table in Firebolt.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ To use this connector, you'll need:
 * An S3 bucket where JSON documents will be stored prior to loading
   * The bucket must be in a [supported AWS region](https://docs.firebolt.io/Reference/available-regions.html) matching your Firebolt database.
   * The bucket may be public, or may be accessible by an IAM user. To configure your IAM user, see the [steps below](#setup).
-* At least one Flow [collection](../../../concepts/collections.md)
+* At least one Estuary [collection](../../../concepts/collections.md)
 
 :::tip
  If you haven't yet captured your data from its external source,
@@ -45,8 +45,8 @@ See the [Amazon docs](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Firebolt materialization, which will direct Flow data to your desired Firebolt tables via an external table.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Firebolt materialization, which will direct Estuary data to your desired Firebolt tables via an external table.
 
 ### Properties
 
