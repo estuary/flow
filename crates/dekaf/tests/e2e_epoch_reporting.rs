@@ -9,7 +9,7 @@ mod e2e;
 use e2e::{
     DekafTestEnv,
     raw_kafka::{
-        TestKafkaClient, fetch_current_leader_epoch, fetch_partition_error, is_no_error,
+        TestKafkaClient, fetch_current_leader_epoch, fetch_partition_error,
         list_offsets_partition_error, metadata_leader_epoch,
     },
 };
@@ -111,7 +111,7 @@ async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
     tracing::info!(?error_code, "ListOffsets error code");
 
     assert!(
-        error_code.map_or(false, is_no_error),
+        error_code.map_or(false, |s| s == 0),
         "ListOffsets should succeed with current epoch, got error: {:?}",
         error_code
     );
@@ -222,7 +222,7 @@ async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
     tracing::info!(?error_code, "Fetch error code");
 
     assert!(
-        error_code.map_or(false, is_no_error),
+        error_code.map_or(false, |s| s == 0),
         "Fetch should succeed with current epoch, got error: {:?}",
         error_code
     );

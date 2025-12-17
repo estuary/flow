@@ -5,7 +5,7 @@
 //! `FENCED_LEADER_EPOCH` and `UNKNOWN_LEADER_EPOCH`.
 
 use dekaf::{KafkaApiClient, KafkaClientAuth};
-use kafka_protocol::{error::ResponseError, messages, protocol::StrBytes};
+use kafka_protocol::{messages, protocol::StrBytes};
 
 /// Helper to create a TopicName from a string.
 fn topic_name(s: &str) -> messages::TopicName {
@@ -216,27 +216,75 @@ pub struct OffsetForEpochResult {
     pub end_offset: i64,
 }
 
-/// Check if an error code is `FENCED_LEADER_EPOCH`.
-pub fn is_fenced_leader_epoch(code: i16) -> bool {
-    code == ResponseError::FencedLeaderEpoch.code()
-}
+/// Wait for Dekaf to report a leader epoch greater than `previous_epoch` AND have partitions available.
+///
+/// This polls the metadata endpoint until both conditions are met:
+/// 1. The epoch changes (spec refresh completed)
+/// 2. The topic has at least one partition (journal listing completed)
+///
+/// The second condition is needed because after a collection reset, there's a delay between
+/// the spec refresh (epoch change) and the new journal being listed by Gazette.
+pub async fn wait_for_epoch_change(
+    client: &mut TestKafkaClient,
+    topic: &str,
+    partition: i32,
+    previous_epoch: i32,
+    timeout: std::time::Duration,
+) -> anyhow::Result<i32> {
+    let deadline = std::time::Instant::now() + timeout;
 
-/// Check if an error code is `UNKNOWN_LEADER_EPOCH`.
-pub fn is_unknown_leader_epoch(code: i16) -> bool {
-    code == ResponseError::UnknownLeaderEpoch.code()
-}
+    tracing::info!(
+        %topic,
+        partition,
+        previous_epoch,
+        timeout_secs = timeout.as_secs(),
+        "Waiting for epoch change and partitions"
+    );
 
-/// Check if an error code indicates no error.
-pub fn is_no_error(code: i16) -> bool {
-    code == 0
-}
+    loop {
+        match client.metadata(&[topic]).await {
+            Ok(metadata) => {
+                if let Some(epoch) = metadata_leader_epoch(&metadata, topic, partition) {
+                    // Check if partitions exist (not just epoch change)
+                    let has_partitions = metadata
+                        .topics
+                        .iter()
+                        .find(|t| t.name.as_ref().map(|n| n.as_str()) == Some(topic))
+                        .map(|t| !t.partitions.is_empty())
+                        .unwrap_or(false);
 
-/// Get the numeric code for `FENCED_LEADER_EPOCH`.
-pub fn fenced_leader_epoch_code() -> i16 {
-    ResponseError::FencedLeaderEpoch.code()
-}
+                    if epoch > previous_epoch && has_partitions {
+                        tracing::info!(
+                            %topic,
+                            partition,
+                            previous_epoch,
+                            new_epoch = epoch,
+                            "Epoch changed and partitions available"
+                        );
+                        return Ok(epoch);
+                    }
+                    tracing::debug!(
+                        %topic,
+                        partition,
+                        current_epoch = epoch,
+                        previous_epoch,
+                        has_partitions,
+                        "Waiting for epoch change and/or partitions"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "Metadata request failed, will retry");
+            }
+        }
 
-/// Get the numeric code for `UNKNOWN_LEADER_EPOCH`.
-pub fn unknown_leader_epoch_code() -> i16 {
-    ResponseError::UnknownLeaderEpoch.code()
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!(
+                "timeout waiting for epoch to change from {previous_epoch} for {topic}:{partition}"
+            );
+        }
+
+        // Poll interval - should be tuned based on SPEC_TTL setting
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
 }

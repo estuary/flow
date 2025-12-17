@@ -64,6 +64,8 @@ pub struct DekafTestEnv {
     pub capture: Option<String>,
     /// Collection names mapped from fixture names
     pub collections: Vec<String>,
+    /// The rewritten catalog as serde_yaml::Value for modification in disable/enable/reset operations
+    catalog_yaml: serde_yaml::Value,
 }
 
 impl DekafTestEnv {
@@ -140,16 +142,17 @@ impl DekafTestEnv {
 
         tracing::info!("Publish succeeded");
 
-        // Extract rewritten names from the parsed fixture
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&rewritten)?;
-        let materialization = parsed["materializations"]
+        // Parse the rewritten fixture as serde_yaml::Value for later modification
+        let catalog_yaml: serde_yaml::Value = serde_yaml::from_str(&rewritten)?;
+
+        let materialization = catalog_yaml["materializations"]
             .as_mapping()
             .and_then(|m| m.keys().next())
             .and_then(|k| k.as_str())
             .map(String::from)
             .context("no materialization in fixture")?;
 
-        let capture = parsed["captures"]
+        let capture = catalog_yaml["captures"]
             .as_mapping()
             .and_then(|m| m.keys().next())
             .and_then(|k| k.as_str())
@@ -160,6 +163,7 @@ impl DekafTestEnv {
             materialization,
             capture,
             collections,
+            catalog_yaml,
         };
 
         // Wait for capture shard to be ready (materializations are shardless)
@@ -402,6 +406,179 @@ impl DekafTestEnv {
     pub fn kafka_consumer_builder(&self, token: &str) -> kafka::KafkaConsumerBuilder {
         let info = self.connection_info();
         kafka::KafkaConsumerBuilder::new(&info.broker, &info.registry, &info.username, token)
+    }
+
+    /// Publish a serde_yaml::Value catalog to the control plane.
+    async fn publish_yaml(&self, yaml_value: &serde_yaml::Value) -> anyhow::Result<()> {
+        let yaml = serde_yaml::to_string(yaml_value)?;
+        let temp_file = tempfile::NamedTempFile::new()?;
+        std::fs::write(temp_file.path(), &yaml)?;
+
+        let output = async_process::output(flowctl_command()?.args([
+            "catalog",
+            "publish",
+            "--auto-approve",
+            "--source",
+            temp_file.path().to_str().unwrap(),
+        ]))
+        .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::error!(%stderr, "flowctl publish failed");
+            anyhow::bail!("flowctl publish failed: {}", stderr);
+        }
+
+        Ok(())
+    }
+
+    /// Disable the capture task by publishing with `shards.disable = true`.
+    ///
+    /// This stops the capture from writing to collections.
+    pub async fn disable_capture(&self) -> anyhow::Result<()> {
+        let capture_name = self.capture.as_ref().context("no capture in fixture")?;
+        tracing::info!(%capture_name, "Disabling capture");
+
+        // Clone the capture def from the stored catalog and add shards.disable = true
+        let mut catalog = serde_yaml::Mapping::new();
+        let mut captures = serde_yaml::Mapping::new();
+
+        let original_capture = self.catalog_yaml["captures"][capture_name.as_str()].clone();
+        let mut modified_capture = original_capture
+            .as_mapping()
+            .context("capture is not a mapping")?
+            .clone();
+
+        // Add or update the shards section
+        let mut shards = modified_capture
+            .get(&serde_yaml::Value::String("shards".into()))
+            .and_then(|v| v.as_mapping())
+            .cloned()
+            .unwrap_or_default();
+        shards.insert(
+            serde_yaml::Value::String("disable".into()),
+            serde_yaml::Value::Bool(true),
+        );
+        modified_capture.insert(
+            serde_yaml::Value::String("shards".into()),
+            serde_yaml::Value::Mapping(shards),
+        );
+
+        captures.insert(
+            serde_yaml::Value::String(capture_name.clone()),
+            serde_yaml::Value::Mapping(modified_capture),
+        );
+        catalog.insert(
+            serde_yaml::Value::String("captures".into()),
+            serde_yaml::Value::Mapping(captures),
+        );
+
+        self.publish_yaml(&serde_yaml::Value::Mapping(catalog))
+            .await?;
+        tracing::info!(%capture_name, "Capture disabled");
+        Ok(())
+    }
+
+    /// Re-enable the capture task by publishing with `shards.disable = false`.
+    ///
+    /// After enabling, use `wait_for_primary()` to wait for the capture to be ready.
+    pub async fn enable_capture(&self) -> anyhow::Result<()> {
+        let capture_name = self.capture.as_ref().context("no capture in fixture")?;
+        tracing::info!(%capture_name, "Enabling capture");
+
+        // Clone the capture def from the stored catalog and set shards.disable = false
+        let mut catalog = serde_yaml::Mapping::new();
+        let mut captures = serde_yaml::Mapping::new();
+
+        let original_capture = self.catalog_yaml["captures"][capture_name.as_str()].clone();
+        let mut modified_capture = original_capture
+            .as_mapping()
+            .context("capture is not a mapping")?
+            .clone();
+
+        // Add or update the shards section
+        let mut shards = modified_capture
+            .get(&serde_yaml::Value::String("shards".into()))
+            .and_then(|v| v.as_mapping())
+            .cloned()
+            .unwrap_or_default();
+        shards.insert(
+            serde_yaml::Value::String("disable".into()),
+            serde_yaml::Value::Bool(false),
+        );
+        modified_capture.insert(
+            serde_yaml::Value::String("shards".into()),
+            serde_yaml::Value::Mapping(shards),
+        );
+
+        captures.insert(
+            serde_yaml::Value::String(capture_name.clone()),
+            serde_yaml::Value::Mapping(modified_capture),
+        );
+        catalog.insert(
+            serde_yaml::Value::String("captures".into()),
+            serde_yaml::Value::Mapping(captures),
+        );
+
+        self.publish_yaml(&serde_yaml::Value::Mapping(catalog))
+            .await?;
+        tracing::info!(%capture_name, "Capture enabled");
+        Ok(())
+    }
+
+    /// Reset collections by publishing with `reset: true`.
+    ///
+    /// This increments the backfill counter for the collection, which Dekaf maps
+    /// to a new leader epoch.
+    ///
+    /// **IMPORTANT**: For proper reset behavior, you should:
+    /// 1. Disable the capture first (`disable_capture()`)
+    /// 2. Reset the collection(s)
+    /// 3. Re-enable the capture (`enable_capture()`)
+    /// 4. Wait for the capture to be primary (`wait_for_primary()`)
+    /// 5. Wait for Dekaf to pick up the new epoch (`wait_for_epoch_change()`)
+    ///
+    /// If `collection_name` is None, resets all collections in `self.collections`.
+    pub async fn reset_collection(&self, collection_name: Option<&str>) -> anyhow::Result<()> {
+        let collections_to_reset: Vec<&str> = match collection_name {
+            Some(name) => vec![name],
+            None => self.collections.iter().map(|s| s.as_str()).collect(),
+        };
+
+        tracing::info!(?collections_to_reset, "Resetting collections");
+
+        // Build a catalog with reset: true for each collection
+        let mut catalog = serde_yaml::Mapping::new();
+        let mut collections = serde_yaml::Mapping::new();
+
+        for coll_name in &collections_to_reset {
+            let original_collection = self.catalog_yaml["collections"][*coll_name].clone();
+            let mut modified_collection = original_collection
+                .as_mapping()
+                .context(format!("collection {coll_name} is not a mapping"))?
+                .clone();
+
+            // Add reset: true
+            modified_collection.insert(
+                serde_yaml::Value::String("reset".into()),
+                serde_yaml::Value::Bool(true),
+            );
+
+            collections.insert(
+                serde_yaml::Value::String(coll_name.to_string()),
+                serde_yaml::Value::Mapping(modified_collection),
+            );
+        }
+
+        catalog.insert(
+            serde_yaml::Value::String("collections".into()),
+            serde_yaml::Value::Mapping(collections),
+        );
+
+        self.publish_yaml(&serde_yaml::Value::Mapping(catalog))
+            .await?;
+        tracing::info!(?collections_to_reset, "Collections reset published");
+        Ok(())
     }
 
     /// Cleanup test resources.
