@@ -73,6 +73,8 @@ Run the following command in your terminal:
 claude mcp add estuary https://estuary.mcp.kapa.ai
 ```
 
+Then run the `/mcp` command in Claude Code and follow the steps in your browser to authenticate.
+
 For more information, see the [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp).
 
 </TabItem>
