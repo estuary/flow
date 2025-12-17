@@ -95,9 +95,18 @@ pub async fn do_authorize_dekaf<'a>(
         },
     ) {
         Ok((exp, (ops_logs_journal, ops_stats_journal, redirect_fqdn))) => {
-            let (spec_type, built_spec) = fetch_spec(task_name.to_string())
-                .await
-                .context("failed to fetch task spec")?;
+            let (spec_type, built_spec) = match fetch_spec(task_name.to_string()).await {
+                Ok(spec) => spec,
+                Err(sqlx::Error::RowNotFound) => {
+                    return Err(anyhow::anyhow!("spec for task {} not found", task_name)
+                        .with_status(StatusCode::NOT_FOUND));
+                }
+                Err(err) => {
+                    return Err(anyhow::anyhow!(err)
+                        .context(format!("failed to fetch spec for task {}", task_name))
+                        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+                }
+            };
 
             if !matches!(spec_type, models::CatalogType::Materialization) {
                 return Err(anyhow::anyhow!("Unexpected spec type {:?}", spec_type)
