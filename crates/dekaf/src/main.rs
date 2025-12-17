@@ -99,6 +99,10 @@ pub struct Cli {
     #[arg(long, env = "TASK_REQUEST_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     task_request_timeout: std::time::Duration,
 
+    /// How long to cache a MaterializationSpec before re-fetching it, even if the token is still valid
+    #[arg(long, env = "SPEC_TTL", value_parser = humantime::parse_duration, default_value = "2m")]
+    spec_ttl: std::time::Duration,
+
     /// Timeout for TLS handshake completion
     #[arg(long, env = "TLS_HANDSHAKE_TIMEOUT", value_parser = humantime::parse_duration, default_value = "10s")]
     tls_handshake_timeout: std::time::Duration,
@@ -253,6 +257,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     let task_manager = Arc::new(TaskManager::new(
         cli.task_refresh_interval,
         cli.task_request_timeout,
+        cli.spec_ttl,
         client_base.clone(),
         cli.data_plane_fqdn.clone(),
         signing_token.clone(),

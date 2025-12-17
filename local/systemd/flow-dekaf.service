@@ -22,7 +22,8 @@ ExecStart=%h/cargo-target/debug/dekaf \
     --upstream-auth none \
     --encryption-secret ${DEKAF_ENCRYPTION_SECRET} \
     --data-plane-access-key ${DATA_PLANE_ACCESS_KEY} \
-    --task-refresh-interval 5s
+    --task-refresh-interval 10s \
+    --spec-ttl 10s
 
 Restart=on-failure
 RestartSec=5s
