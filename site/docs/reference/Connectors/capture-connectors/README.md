@@ -15,6 +15,9 @@ These connectors are created by Estuary. We prioritize high-scale technology sys
 All Estuary connectors capture data in real time, as it appears in the source system.
 
 - Airtable
+  - [Configuration](./airtable-native.md)
+  - Package - ghcr.io/estuary/source-airtable-native:dev
+- Airtable (deprecated)
   - [Configuration](./airtable.md)
   - Package - ghcr.io/estuary/source-airtable:dev
 - AlloyDB
