@@ -70,6 +70,8 @@ const config = {
       "data-modal-example-questions": "How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?",
       "data-uncertain-answer-callout": "I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack).",
       "data-user-analytics-cookie-enabled": false,
+      "data-mcp-enabled": "true",
+      "data-mcp-server-url": "https://estuary.mcp.kapa.ai",
     },
   ],
 
