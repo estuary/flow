@@ -1,5 +1,5 @@
 
-# Airtable
+# Airtable (deprecated)
 
 This connector captures data from Airtable into Flow collections.
 
