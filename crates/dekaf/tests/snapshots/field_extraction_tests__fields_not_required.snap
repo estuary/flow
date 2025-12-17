@@ -1,0 +1,38 @@
+---
+source: crates/dekaf/tests/field_extraction_tests.rs
+assertion_line: 349
+expression: output?
+---
+Record(
+    [
+        (
+            "key",
+            String(
+                "first",
+            ),
+        ),
+        (
+            "field_a",
+            Union(
+                1,
+                Null,
+            ),
+        ),
+        (
+            "flow_published_at",
+            Union(
+                0,
+                Record(
+                    [
+                        (
+                            "json",
+                            String(
+                                "null",
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ),
+    ],
+)
