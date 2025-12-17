@@ -12,11 +12,11 @@ in very different ways.
 To accumulate in the external database, you'll define a collection having a
 reducible schema with a stateless derivation. The derivation can be written
 in either SQL or Typescript, but for these examples we use Typescript. The
-Flow runtime uses the provided annotations to reduce new documents into the
+Estuary runtime uses the provided annotations to reduce new documents into the
 collection, and ultimately keep the materialized table up to date.
 
 A key insight is that the database is the _only_ stateful system in this
-scenario, and that Flow is making use of reductions in two places:
+scenario, and that Estuary is making use of reductions in two places:
 
 1. To combine many published documents into partial "delta" states,
    which are the literal documents written to the collection.
@@ -32,10 +32,10 @@ For example, consider a collection that's summing a value:
 | T3   | **6** | publish()         |
 
 This works especially well when materializing into a transactional database.
-Flow couples its processing transactions with corresponding DB transactions,
+Estuary couples its processing transactions with corresponding DB transactions,
 ensuring end-to-end "exactly once" semantics.
 
-When materializing into a non-transactional store, Flow is only able
+When materializing into a non-transactional store, Estuary is only able
 to provide weaker "at least once" semantics: it's possible that a document
 may be combined into a DB value more than once. Whether that's a concern
 depends a bit on the task at hand. Some reductions can be applied repeatedly
@@ -43,14 +43,14 @@ without changing the result ("idempotent"), and some use cases are fine with
 _close enough_. For our counter above, it could give an incorrect result.
 
 When materializing into a pub/sub topic, there _is_ no store to hold final values,
-and Flow will publish delta states: each a partial update of the (unknown)
+and Estuary will publish delta states: each a partial update of the (unknown)
 final value.
 
 ### Accumulate in derivation state
 
 Accumulating in derivation state involves a `sqlite` derivation having one
 or more tables, which are created by `migrations`. These tables can be shared
-and updated by the various transforms of the derivation. The Flow runtime
+and updated by the various transforms of the derivation. Estuary's runtime
 transactionally persists modifications to these tables.
 
 When using a stateful derivation, the typical pattern is to use `INSERT ... ON
@@ -137,7 +137,7 @@ to this:
 {"entity_id": "1", "first_name": "Fred", "last_name": "Flintstone"}
 ```
 
-This is super easy to do in Flow. The key is to use `reduce: { strategy: merge }`
+This is super easy to do in Estuary. The key is to use `reduce: { strategy: merge }`
 in the derivation's schema.
 
 See [entity-attribute-values.flow.yaml](entity-attribute-values.flow.yaml)

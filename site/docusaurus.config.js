@@ -42,7 +42,7 @@ function sortSidebarAlphabetically(items) {
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Estuary Flow Documentation',
+  title: 'Estuary Documentation',
   tagline: 'Fast, configurable ETL your way',
   url: URL,
   baseUrl: BASE_URL,
@@ -67,7 +67,7 @@ const config = {
       "data-project-logo": "https://docs.estuary.dev/img/estuary-new.png",
       "data-modal-example-questions-title": "Try asking me...",
       "data-modal-disclaimer": "This AI assistant answers questions using Estuary's [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can't find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us).",
-      "data-modal-example-questions": "How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary Flow scalable?",
+      "data-modal-example-questions": "How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?",
       "data-uncertain-answer-callout": "I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack).",
       "data-user-analytics-cookie-enabled": false,
     },
@@ -139,9 +139,9 @@ const config = {
     ({
       image: 'img/estuary-new.png',
       navbar: {
-        title: 'Estuary Flow',
+        title: 'Estuary',
         logo: {
-          alt: 'Estuary Flow Logo',
+          alt: 'Estuary Logo',
           src: 'img/estuary-new.png',
         },
         items: [
