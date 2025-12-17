@@ -2,13 +2,12 @@
 
 mod e2e;
 
-use e2e::{DekafTestEnv, kafka::snapshot_records};
+use e2e::DekafTestEnv;
 use serde_json::json;
 
 const FIXTURE: &str = include_str!("e2e/fixtures/basic.flow.yaml");
 
 /// Basic roundtrip test: publish specs, inject documents, consume via Dekaf.
-#[ignore] // Requires local stack: mise run local:stack
 #[tokio::test]
 async fn test_basic_roundtrip() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -33,7 +32,10 @@ async fn test_basic_roundtrip() -> anyhow::Result<()> {
     tracing::info!(count = records.len(), "Received");
 
     assert_eq!(records.len(), 2, "should receive both injected documents");
-    insta::assert_json_snapshot!(snapshot_records(&records));
+    assert_eq!(records[0].value["id"], "doc-1");
+    assert_eq!(records[0].value["value"], "hello");
+    assert_eq!(records[1].value["id"], "doc-2");
+    assert_eq!(records[1].value["value"], "world");
 
     Ok(())
 }

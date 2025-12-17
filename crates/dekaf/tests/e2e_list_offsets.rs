@@ -25,7 +25,6 @@ const BASIC_FIXTURE: &str = include_str!("e2e/fixtures/basic.flow.yaml");
 /// 1. Flex versioning is correctly detected and parsed (PR #1693)
 /// 2. Earliest offset returns the first fragment's begin offset
 /// 3. Latest offset returns the write_head (PR #1758)
-#[ignore] // Requires local stack: mise run local:stack
 #[tokio::test]
 async fn test_list_offsets_earliest_and_latest() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -97,7 +96,6 @@ async fn test_list_offsets_earliest_and_latest() -> anyhow::Result<()> {
 /// 2. Persisted fragments - have mod_time>0, filtered by begin_mod_time in query
 ///
 /// Uses a fixture with 1-minute flush interval.
-// #[ignore] // Requires local stack: mise run local:stack
 // #[tokio::test]
 // async fn test_list_offsets_by_timestamp() -> anyhow::Result<()> {
 //      Omitted because it requires a way to force a fragment refresh.
@@ -108,7 +106,6 @@ async fn test_list_offsets_earliest_and_latest() -> anyhow::Result<()> {
 /// When a client requests offsets for a partition that doesn't exist,
 /// Dekaf should return UnknownTopicOrPartition error code, which librdkafka
 /// surfaces as an error from fetch_watermarks.
-#[ignore] // Requires local stack: mise run local:stack
 #[tokio::test]
 async fn test_list_offsets_unknown_partition() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -139,7 +136,6 @@ async fn test_list_offsets_unknown_partition() -> anyhow::Result<()> {
 /// When no data changes between queries, offsets should remain stable.
 /// This exercises the ListOffsets path multiple times to catch any
 /// state leakage or drift between calls.
-#[ignore] // Requires local stack: mise run local:stack
 #[tokio::test]
 async fn test_list_offsets_multiple_queries() -> anyhow::Result<()> {
     e2e::init_tracing();

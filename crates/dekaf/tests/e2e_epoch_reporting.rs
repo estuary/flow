@@ -22,7 +22,6 @@ const FIXTURE: &str = include_str!("e2e/fixtures/basic.flow.yaml");
 /// Dekaf maps the binding's backfill counter to Kafka's leader epoch.
 /// Since we add 1 to avoid epoch 0 (which consumers handle poorly),
 /// the epoch should always be >= 1.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -56,15 +55,6 @@ async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
         "leader_epoch should be >= 1 (got {epoch}), since Dekaf adds 1 to backfill counter"
     );
 
-    // Snapshot the relevant metadata fields
-    let snapshot = serde_json::json!({
-        "topic": "test_topic",
-        "partition": 0,
-        "leader_epoch": epoch,
-        "epoch_valid": epoch >= 1,
-    });
-    insta::assert_json_snapshot!("metadata_epoch", snapshot);
-
     Ok(())
 }
 
@@ -72,7 +62,6 @@ async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
 ///
 /// When requesting earliest (-2) or latest (-1) offsets, the response
 /// should include the current leader epoch.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -161,20 +150,17 @@ async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
         earliest_partition.leader_epoch
     );
 
-    // Snapshot the results
-    let snapshot = serde_json::json!({
-        "topic": "test_topic",
-        "partition": 0,
-        "latest": {
-            "leader_epoch": partition.leader_epoch,
-            "offset_valid": partition.offset >= 0,
-        },
-        "earliest": {
-            "leader_epoch": earliest_partition.leader_epoch,
-            "offset_valid": earliest_partition.offset >= 0,
-        },
-    });
-    insta::assert_json_snapshot!("list_offsets_epoch", snapshot);
+    // Verify offsets are valid
+    assert!(
+        partition.offset >= 0,
+        "latest offset should be >= 0, got {}",
+        partition.offset
+    );
+    assert!(
+        earliest_partition.offset >= 0,
+        "earliest offset should be >= 0, got {}",
+        earliest_partition.offset
+    );
 
     Ok(())
 }
@@ -183,7 +169,6 @@ async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
 ///
 /// When fetching data, the response should include the current_leader field
 /// with the leader_epoch, allowing consumers to detect epoch changes.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -263,16 +248,12 @@ async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
         "Fetch partition data"
     );
 
-    // Snapshot the results
-    let snapshot = serde_json::json!({
-        "topic": "test_topic",
-        "partition": 0,
-        "leader_epoch": epoch,
-        "epoch_matches_metadata": epoch == current_epoch,
-        "has_records": has_records,
-        "high_watermark_valid": partition.high_watermark >= 0,
-    });
-    insta::assert_json_snapshot!("fetch_epoch", snapshot);
+    assert!(has_records, "fetch should return records");
+    assert!(
+        partition.high_watermark >= 0,
+        "high_watermark should be >= 0, got {}",
+        partition.high_watermark
+    );
 
     Ok(())
 }

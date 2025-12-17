@@ -36,7 +36,6 @@ const EPOCH_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// The response also includes the current leader epoch in `current_leader`, allowing
 /// the consumer to know what the new epoch is.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_fenced_leader_epoch_on_stale_consumer() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -122,13 +121,6 @@ async fn test_fenced_leader_epoch_on_stale_consumer() -> anyhow::Result<()> {
         error
     );
 
-    // Snapshot the test results
-    let snapshot = serde_json::json!({
-        "initial_epoch": initial_epoch,
-        "new_epoch": new_epoch,
-    });
-    insta::assert_json_snapshot!("fenced_epoch_on_stale_consumer", snapshot);
-
     Ok(())
 }
 
@@ -136,7 +128,6 @@ async fn test_fenced_leader_epoch_on_stale_consumer() -> anyhow::Result<()> {
 ///
 /// Both Fetch and ListOffsets validate the `current_leader_epoch` parameter.
 /// This ensures consumers can't get offset information for a stale epoch.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_list_offsets_fenced_epoch() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -208,13 +199,6 @@ async fn test_list_offsets_fenced_epoch() -> anyhow::Result<()> {
         "expected FENCED_LEADER_EPOCH for stale epoch in ListOffsets, got error code {error}"
     );
 
-    // Snapshot
-    let snapshot = serde_json::json!({
-        "initial_epoch": initial_epoch,
-        "new_epoch": new_epoch,
-    });
-    insta::assert_json_snapshot!("list_offsets_fenced_epoch", snapshot);
-
     Ok(())
 }
 
@@ -223,7 +207,6 @@ async fn test_list_offsets_fenced_epoch() -> anyhow::Result<()> {
 /// When a consumer sends an epoch that is greater than the current epoch,
 /// Dekaf returns `UNKNOWN_LEADER_EPOCH`. This shouldn't happen in normal
 /// operation but protects against corrupted consumer state.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_unknown_leader_epoch_for_future_epoch() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -274,15 +257,6 @@ async fn test_unknown_leader_epoch_for_future_epoch() -> anyhow::Result<()> {
         "expected UNKNOWN_LEADER_EPOCH for future epoch in ListOffsets, got error code {list_error}"
     );
 
-    // Snapshot
-    let snapshot = serde_json::json!({
-        "current_epoch": current_epoch,
-        "future_epoch": future_epoch,
-        "fetch_error": "UNKNOWN_LEADER_EPOCH",
-        "list_offsets_error": "UNKNOWN_LEADER_EPOCH",
-    });
-    insta::assert_json_snapshot!("unknown_leader_epoch_for_future", snapshot);
-
     Ok(())
 }
 
@@ -291,7 +265,6 @@ async fn test_unknown_leader_epoch_for_future_epoch() -> anyhow::Result<()> {
 /// After receiving `FENCED_LEADER_EPOCH`, consumers call `OffsetForLeaderEpoch`
 /// to find the end offset for their old epoch. Dekaf returns `end_offset=0` for
 /// old epochs, indicating the consumer should reset to the beginning.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_offset_for_leader_epoch_returns_zero_for_old_epoch() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -374,15 +347,6 @@ async fn test_offset_for_leader_epoch_returns_zero_for_old_epoch() -> anyhow::Re
         "should return current epoch in response"
     );
 
-    // Snapshot
-    let snapshot = serde_json::json!({
-        "old_epoch": initial_epoch,
-        "new_epoch": new_epoch,
-        "end_offset_for_old_epoch": result.end_offset,
-        "returned_leader_epoch": result.leader_epoch,
-    });
-    insta::assert_json_snapshot!("offset_for_old_epoch_returns_zero", snapshot);
-
     Ok(())
 }
 
@@ -391,7 +355,6 @@ async fn test_offset_for_leader_epoch_returns_zero_for_old_epoch() -> anyhow::Re
 /// When querying `OffsetForLeaderEpoch` for the current epoch, Dekaf should
 /// return the actual high watermark, not 0. This ensures that only old epochs
 /// trigger reset-to-beginning behavior.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_offset_for_leader_epoch_returns_highwater_for_current() -> anyhow::Result<()> {
     e2e::init_tracing();
@@ -477,14 +440,6 @@ async fn test_offset_for_leader_epoch_returns_highwater_for_current() -> anyhow:
         result.leader_epoch, current_epoch,
         "should return current epoch in response"
     );
-
-    // Snapshot
-    let snapshot = serde_json::json!({
-        "current_epoch": current_epoch,
-        "end_offset": result.end_offset,
-        "high_watermark": high_watermark,
-    });
-    insta::assert_json_snapshot!("offset_for_current_epoch_returns_highwater", snapshot);
 
     Ok(())
 }

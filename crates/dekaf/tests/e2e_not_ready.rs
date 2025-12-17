@@ -33,7 +33,6 @@ const SPEC_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 /// that require partition data, signaling clients to retry.
 ///
 /// This test verifies: Metadata, ListOffsets, Fetch, and OffsetForLeaderEpoch.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_all_operations_return_leader_not_available_when_no_journals() -> anyhow::Result<()> {
     e2e::init_tracing();

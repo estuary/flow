@@ -64,13 +64,13 @@ if [ "${UPDATE_SNAPSHOTS}" = "true" ]; then
     export INSTA_UPDATE=always
 fi
 
-# Run ignored tests (E2E tests are marked #[ignore])
+# Run E2E tests using the dekaf-e2e nextest profile
 # Add cargo-target/debug to PATH so the test harness finds flowctl
 # Use --no-capture to stream test output in real-time
 if [ -n "${FILTER}" ]; then
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
-    cargo nextest run -p dekaf --test 'e2e_*' --no-capture --failure-output=immediate --success-output=immediate -E "test(${FILTER})" -- --ignored
+    cargo nextest run --profile dekaf-e2e -p dekaf --no-capture --failure-output=immediate --success-output=immediate -E "test(${FILTER})"
 else
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
-    cargo nextest run -p dekaf --test 'e2e_*' -j 2 --no-capture -- --ignored
+    cargo nextest run --profile dekaf-e2e -p dekaf -j 2 --no-capture
 fi
