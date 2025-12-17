@@ -4,11 +4,11 @@ sidebar_position: 1
 
 # MCP Integration
 
-Connect to Estuary Flow's documentation directly from your IDE or AI tool using the Model Context Protocol (MCP).
+Connect to Estuary's documentation directly from your IDE or AI tool using the Model Context Protocol (MCP).
 
 ## Overview
 
-The Model Context Protocol (MCP) allows AI assistants in your development environment to access Estuary Flow's documentation contextually. This means you can ask questions about Estuary Flow directly in your IDE and get accurate, documentation-backed answers without leaving your workflow.
+The Model Context Protocol (MCP) allows AI assistants in your development environment to access Estuary's documentation contextually. This means you can ask questions about Estuary directly in your IDE and get accurate, documentation-backed answers without leaving your workflow.
 
 ## Setup
 
@@ -142,7 +142,7 @@ Most clients accept the standard MCP JSON configuration format:
 
 ## What you can do
 
-Once connected, you can ask context-aware questions about Estuary Flow from within your editor. For example:
+Once connected, you can ask context-aware questions about Estuary from within your editor. For example:
 
 - "How do I set up a PostgreSQL CDC capture?"
 - "What's the difference between captures and materializations?"
