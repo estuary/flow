@@ -320,3 +320,34 @@ async fn test_number_or_string_format_number() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_field_selection_flow_document() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/field_selection_flow_document.yaml".to_string();
+    let docs = vec![json!({
+        "key": "first",
+        "field_a": "foo",
+        "field_b": "bar"
+    })];
+
+    for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {
+        insta::assert_debug_snapshot!(output?);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fields_not_required() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/fields_not_required.yaml".to_string();
+    let docs = vec![json!({
+        "key": "first"
+        // field_a intentionally omitted to test optional field handling
+    })];
+
+    for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {
+        insta::assert_debug_snapshot!(output?);
+    }
+
+    Ok(())
+}
