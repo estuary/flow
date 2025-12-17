@@ -53,6 +53,13 @@ func NewTaskService(
 		return nil, fmt.Errorf("creating logging pipe: %w", err)
 	}
 	config.LogFileFd = int32(wDescriptor)
+	// Log so that we can know the association between tasks and log file descriptors,
+	// for troubleshooting issues with missing logs.
+	logrus.WithFields(logrus.Fields{
+		"task_name":     config.TaskName,
+		"logs_write_fd": wDescriptor,
+		"log_read_fd":   logReader.Fd(),
+	}).Info("created new pipe for task logs")
 
 	// Rust services produce canonical JSON encodings of ops::Log into `wDescriptor`.
 	// Parse each and pass to our `publisher`.
