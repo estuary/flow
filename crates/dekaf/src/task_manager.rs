@@ -128,6 +128,11 @@ impl TaskStateListener {
     }
 }
 
+enum TaskManagerLoopResult {
+    Immediate,
+    Interval,
+}
+
 /// TaskManager manages Dekaf's communication with the rest of Flow, _except_ for Read requests.
 /// Many Sessions may ask for the same information, so instead of each one independently fetching
 /// it, the TaskManager coordinates periodically fetching it and then distributing it to all the Sessions.
@@ -296,7 +301,7 @@ impl TaskManager {
 
             let mut has_been_migrated = false;
 
-            let loop_result: Result<()> = async {
+            let loop_result: Result<TaskManagerLoopResult> = async {
                 let dekaf_auth = get_or_refresh_dekaf_auth(
                     cached_dekaf_auth.take(),
                     &self.client,
@@ -330,7 +335,7 @@ impl TaskManager {
                             spec,
                         }))));
 
-                        Ok(())
+                        Ok(TaskManagerLoopResult::Interval)
                     }
                     DekafTaskAuth::Auth {
                         token: access_token,
@@ -351,6 +356,22 @@ impl TaskManager {
                             self.timeout,
                         )
                         .await?;
+
+                        // If we can't find any journals for a cached collection's template,
+                        // invalidate the spec cache to detect spec deletion or update the
+                        // template on the next iteration (e.g., after a collection reset
+                        // where partition_template.name changed).
+                        let has_missing_journals =
+                            partitions_and_clients.values().any(|result| {
+                                matches!(result, Ok((_, _, partitions)) if partitions.is_empty())
+                            });
+                        if has_missing_journals {
+                            tracing::warn!(
+                                "No journals found for a collection's partition template, invalidating spec cache"
+                            );
+                            cached_dekaf_auth = None;
+                            return Ok(TaskManagerLoopResult::Immediate);
+                        }
 
                         let logs_client_result = get_or_refresh_journal_client(
                             &self.client,
@@ -434,15 +455,28 @@ impl TaskManager {
                             "Successful task manager run"
                         );
 
-                        Ok(())
+                        Ok(TaskManagerLoopResult::Interval)
                     }
                 } // End of match
             }
             .await;
 
-            if let Err(e) = loop_result {
-                tracing::error!(task_name, error=%e, "Error in task manager loop");
-                let _ = sender.send(Some(Err(SharedError::from(e))));
+            match loop_result {
+                Ok(TaskManagerLoopResult::Immediate) => {
+                    if stop_signal.is_cancelled() {
+                        tracing::info!(task_name, "signalled to stop");
+                        break;
+                    }
+                    // Delay a short period of time to avoid a tight retry loop
+                    tokio::time::sleep(Duration::from_millis(rand::rng().random_range(100..500)))
+                        .await;
+                    continue;
+                }
+                Ok(TaskManagerLoopResult::Interval) => {}
+                Err(e) => {
+                    tracing::error!(task_name, error=%e, "Error in task manager loop");
+                    let _ = sender.send(Some(Err(SharedError::from(e.clone()))));
+                }
             }
 
             tokio::select! {
