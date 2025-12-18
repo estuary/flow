@@ -371,7 +371,9 @@ mod tests {
         let snapshot = Snapshot::build_fixture(Some(taken));
         let snapshot = std::sync::RwLock::new(snapshot);
 
-        claims.iat = taken.timestamp() as u64;
+        // Set iat to 1 second before snapshot.taken so the server definitively has
+        // newer knowledge and returns a terminal error.
+        claims.iat = taken.timestamp() as u64 - 1;
         claims.exp = taken.timestamp() as u64 + 100;
 
         let request_token = jsonwebtoken::encode(

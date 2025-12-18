@@ -527,7 +527,9 @@ mod tests {
         mut claims: proto_gazette::Claims,
     ) -> Result<(String, proto_gazette::Claims), crate::server::error::ApiError> {
         let taken = chrono::Utc::now();
-        let snapshot = Snapshot::build_fixture(Some(taken));
+        // Snapshot is 1 second ahead of `taken` so that iat=0 (using `taken`) is
+        // "before snapshot" and iat=1 is "same second as snapshot"
+        let snapshot = Snapshot::build_fixture(Some(taken + chrono::Duration::seconds(1)));
         let snapshot = std::sync::RwLock::new(snapshot);
 
         claims.iat = claims.iat + taken.timestamp() as u64;
