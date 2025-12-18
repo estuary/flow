@@ -467,7 +467,7 @@ expression: schema
                 "skipLines": {
                   "description": "Skip a number of lines at the beginning of the file before parsing begins.\nThis is useful for skipping over metadata that is sometimes added to the top of files.",
                   "type": "integer",
-                  "format": "uint",
+                  "format": "uint64",
                   "minimum": 0
                 }
               }

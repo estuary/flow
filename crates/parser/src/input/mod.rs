@@ -83,7 +83,7 @@ impl Input {
         }
     }
 
-    pub fn skip_lines(self, lines: usize) -> io::Result<Self> {
+    pub fn skip_lines(self, lines: u64) -> io::Result<Self> {
         let mut reader = self.into_buffered_stream(8192);
         let mut ignore_buf = Vec::new();
         let mut skipped_bytes = 0;
