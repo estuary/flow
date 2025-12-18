@@ -171,6 +171,13 @@ impl Config {
                 config.user_refresh_token = Some(token);
             }
         }
+
+        // Allow overriding access token via environment variable for CI/automation.
+        if let Ok(token) = std::env::var(FLOW_ACCESS_TOKEN) {
+            tracing::info!("using access token from environment variable {FLOW_ACCESS_TOKEN}");
+            config.user_access_token = Some(token);
+        }
+
         config.is_local = profile == "local";
 
         Ok(config)
@@ -226,3 +233,5 @@ impl Config {
 
 // Environment variable which is inspected for a base64-encoded refresh token.
 const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";
+// Environment variable which is inspected for an access token (for CI/automation).
+const FLOW_ACCESS_TOKEN: &str = "FLOW_ACCESS_TOKEN";
