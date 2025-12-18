@@ -70,7 +70,7 @@ For more details, see the [VS Code MCP documentation](https://code.visualstudio.
 Run the following command in your terminal:
 
 ```bash
-claude mcp add estuary https://estuary.mcp.kapa.ai
+claude mcp add --transport http estuary https://estuary.mcp.kapa.ai
 ```
 
 Then run the `/mcp` command in Claude Code and follow the steps in your browser to authenticate.
