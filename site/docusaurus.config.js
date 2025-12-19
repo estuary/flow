@@ -48,11 +48,16 @@ const config = {
   baseUrl: BASE_URL,
   onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'throw',
   favicon: 'img/favicon-2.ico',
   organizationName: 'estuary',
   projectName: 'flow',
   trailingSlash: true,
+
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks:'throw',
+    },
+  },
 
   scripts: [
     {
@@ -89,13 +94,71 @@ const config = {
       {
         redirects: [
           {
-            to: '/guides/flowctl/create-derivation/',
             from: '/guides/create-derivation/',
+            to: '/guides/flowctl/create-derivation/',
           },
           {
-            to: '/getting-started/tutorials/dataflow-s3-snowflake/',
             from: '/guides/system-specific-dataflows/s3-to-snowflake/',
+            to: '/getting-started/tutorials/dataflow-s3-snowflake/',
           },
+          {
+            from : '/reference/Connectors/materialization-connectors/Redshift/',
+            to: '/reference/Connectors/materialization-connectors/amazon-redshift/',
+          },
+          {
+            from : '/reference/Connectors/capture-connectors/netsuite-odbc/',
+            to: '/reference/Connectors/capture-connectors/netsuite-suiteanalytics/',
+          },
+          {
+            from: '/reference/Connectors/capture-connectors/hubspot-real-time/',
+            to: '/reference/Connectors/capture-connectors/HubSpot-real-time/'
+          },
+          {
+            from: '/guides/configure-cloud-storage/',
+            to: '/getting-started/installation/'
+          },
+          {
+            from: '/reference/catalog-reference/schemas-and-data-reductions/',
+            to: '/reference/reduction-strategies/'
+          },
+          {
+            from: '/reference/Connectors/capture-connectors/OracleDB/flashback/',
+            to: '/reference/Connectors/capture-connectors/OracleDB/'
+          },
+          {
+            from: '/guides/byoc/',
+            to: '/private-byoc/byoc-deployments/'
+          },
+          {
+            from: '/guides/byoc/azure/',
+            to: '/private-byoc/byoc-deployments/azure-byoc/'
+          },
+          {
+            from: '/reference/Connectors/dekaf/dekaf-bytewax/',
+            to: '/reference/Connectors/materialization-connectors/Dekaf/bytewax/'
+          },
+          {
+            from: '/reference/Connectors/dekaf/dekaf-tinybird/',
+            to: '/reference/Connectors/materialization-connectors/Dekaf/tinybird/'
+          },
+          {
+            to: '/getting-started/comparisons/',
+            from: '/overview/comparisons/',
+          },
+          {
+            to: '/getting-started/who-should-use-flow/',
+            from: '/overview/who-should-use-flow/',
+          },
+          {
+            from: '/reference/Connectors/materialization-connectors/Parquet/',
+            to: '/reference/Connectors/materialization-connectors/amazon-s3-parquet/'
+          },
+          
+          // Waiting on https://github.com/estuary/flow/pull/2559/
+          // {
+          //   from : '/reference/Connectors/capture-connectors/netsuite-suitetalk/',
+          //   to: '/reference/Connectors/capture-connectors/netsuite-suiteql/',
+          // },
         ],
       },
     ],
