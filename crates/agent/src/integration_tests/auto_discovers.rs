@@ -537,7 +537,7 @@ async fn test_auto_discovers_no_evolution() {
     let firing_alert = harness
         .assert_alert_firing("mules/capture", AlertType::AutoDiscoverFailed)
         .await;
-    insta::assert_snapshot!("firing-alert-error", firing_alert.error);
+    insta::assert_debug_snapshot!("firing-alert-error", firing_alert.error_arg_value());
 
     // Now simulate the discovered key going back to normal and assert that it succeeds
     harness.set_auto_discover_due("mules/capture").await;
@@ -991,14 +991,13 @@ async fn test_auto_discovers_update_only() {
     let alert_state = harness
         .assert_alert_firing("pikas/capture", AlertType::AutoDiscoverFailed)
         .await;
-    assert_eq!(3, alert_state.count);
+    assert_eq!(Some(3), alert_state.count_arg_value());
     assert!(
         alert_state
-            .error
-            .contains("auto-discover publication failed"),
+            .error_arg_value()
+            .is_some_and(|e| e.contains("auto-discover publication failed")),
         "unexpected alert state: {alert_state:?}"
     );
-    assert_eq!(models::CatalogType::Capture, alert_state.spec_type);
 
     let status = harness.status_summary("pikas/capture").await;
     assert_eq!(StatusSummaryType::Error, status.status);
