@@ -98,9 +98,11 @@ jobs:
       - run: |
           ln ~/flow-package/estuary-flow-web.tgz        estuary-flow-web.tgz
           ln ~/flow-package/amd64/flow-connector-init   flow-connector-init-linux-x86_64
+          ln ~/flow-package/amd64/flow-parser           flow-parser-linux-x86_64
           ln ~/flow-package/amd64/flowctl               flowctl-linux-x86_64
           ln ~/flow-package/amd64/flowctl-go            flowctl-go-linux-x86_64
           ln ~/flow-package/arm64/flow-connector-init   flow-connector-init-linux-aarch64
+          ln ~/flow-package/arm64/flow-parser           flow-parser-linux-aarch64
           ln ~/flow-package/arm64/flowctl               flowctl-linux-aarch64
           ln ~/flow-package/arm64/flowctl-go            flowctl-go-linux-aarch64
 
@@ -119,6 +121,8 @@ jobs:
             estuary-flow-web.tgz
             flow-connector-init-linux-aarch64
             flow-connector-init-linux-x86_64
+            flow-parser-linux-aarch64
+            flow-parser-linux-x86_64
             flowctl-go-linux-aarch64
             flowctl-go-linux-x86_64
             flowctl-linux-aarch64
