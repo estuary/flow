@@ -51,7 +51,7 @@ impl AlertType {
         }
     }
 
-    fn all() -> &'static [AlertType] {
+    pub fn all() -> &'static [AlertType] {
         &[
             AlertType::AutoDiscoverFailed,
             AlertType::ShardFailed,
@@ -61,6 +61,20 @@ impl AlertType {
             AlertType::FreeTrialStalled,
             AlertType::MissingPaymentMethod,
         ]
+    }
+
+    /// For alerts that are evaluated by querying a database view, this returns the
+    /// view name. Returns None for alerts that are evaluated by controllers.
+    pub fn view_name(&self) -> Option<&'static str> {
+        match *self {
+            AlertType::AutoDiscoverFailed => None,
+            AlertType::DataMovementStalled => Some("alert_data_movement_stalled"),
+            AlertType::FreeTrial => Some("tenant_alerts"),
+            AlertType::FreeTrialEnding => Some("tenant_alerts"),
+            AlertType::FreeTrialStalled => Some("tenant_alerts"),
+            AlertType::MissingPaymentMethod => Some("tenant_alerts"),
+            AlertType::ShardFailed => None,
+        }
     }
 
     pub fn from_str(name: &str) -> Option<AlertType> {

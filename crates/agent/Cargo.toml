@@ -20,6 +20,7 @@ coroutines = { path = "../coroutines" }
 dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
 migrate = { path = "../migrate" }
+notifications = { path = "../notifications" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
@@ -56,6 +57,7 @@ lazy_static = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+resend-rs = { workspace = true }
 rustls = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

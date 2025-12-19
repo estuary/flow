@@ -150,7 +150,7 @@ impl sqlx::Decode<'_, sqlx::postgres::Postgres> for Id {
 }
 
 /// Generates unique IDs that are compatible with the `flowid` generation in postgres.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct IdGenerator {
     shard: u16,
     seq: u16,

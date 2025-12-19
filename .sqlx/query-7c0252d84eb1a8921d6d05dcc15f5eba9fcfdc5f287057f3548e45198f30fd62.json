@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            id as \"id: models::Id\",\n            catalog_name,\n            alert_type as \"alert_type: AlertType\",\n            fired_at,\n            arguments as \"arguments: Json<ArgsObject>\"\n        from alert_history\n        where resolved_at is null\n        and alert_type = any($1::alert_type[])\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "alert_type: AlertType",
+        "type_info": {
+          "Custom": {
+            "name": "alert_type",
+            "kind": {
+              "Enum": [
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method",
+                "data_movement_stalled",
+                "data_not_processed_in_interval",
+                "auto_discover_failed",
+                "shard_failed"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fired_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "arguments: Json<ArgsObject>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "alert_type[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "alert_type",
+                  "kind": {
+                    "Enum": [
+                      "free_trial",
+                      "free_trial_ending",
+                      "free_trial_stalled",
+                      "missing_payment_method",
+                      "data_movement_stalled",
+                      "data_not_processed_in_interval",
+                      "auto_discover_failed",
+                      "shard_failed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7c0252d84eb1a8921d6d05dcc15f5eba9fcfdc5f287057f3548e45198f30fd62"
+}
