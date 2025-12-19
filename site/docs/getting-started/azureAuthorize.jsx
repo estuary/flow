@@ -1,19 +1,51 @@
 import React from "react";
 
+const SETTINGS = {
+    appId: "42cb0c6c-dab0-411f-9c21-16d5a2b1b025",
+    redirectUri: "https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/azure-dpc-oauth",
+    resourceId: 'https://storage.azure.com',
+    responseType: 'code',
+    stateKey: 'state',
+    storageKey: 'docs_est:azure_oauth_state'
+}
+
+const generateAuthorizeUrl = (theirTenant) => {
+    const state = crypto.randomUUID()
+    sessionStorage.setItem(SETTINGS.storageKey, state);
+
+    const params = new URLSearchParams({
+      client_id: SETTINGS.appId,
+      redirect_uri: SETTINGS.redirectUri,
+      resource_id: SETTINGS.resourceId,
+      response_type: SETTINGS.responseType,
+      [SETTINGS.stateKey]: state,
+    });
+
+    return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/authorize?${params}`
+};
+
 export const AzureAuthorizeComponent = () => {
-    const ourAppId = "42cb0c6c-dab0-411f-9c21-16d5a2b1b025";
-    const redirectUri = "https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/azure-dpc-oauth";
-    const resourceId = "https://storage.azure.com";
-
-    const generateAuthorizeUrl = (theirTenant) =>
-        `https://login.microsoftonline.com/${theirTenant}/oauth2/authorize?client_id=${ourAppId}&response_type=code&redirect_uri=${encodeURIComponent(
-            redirectUri
-        )}&resource_id=${encodeURIComponent(resourceId)}`;
-
     const [tenant, setTenant] = React.useState("");
 
+    // Try to get the auth code but first ensure the states match
+    //  if there is an issue this will fail silently (Q4 2025)
     const authCode = React.useMemo(() => {
-        return new URLSearchParams(window.location.search.slice(1)).get("code");
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get(SETTINGS.responseType);
+        const returnedState = params.get(SETTINGS.stateKey);
+        const storedState = sessionStorage.getItem(SETTINGS.storageKey);
+
+        if (code) {
+            sessionStorage.removeItem(SETTINGS.storageKey);
+
+            if (!returnedState || !storedState || returnedState !== storedState) {
+                return null;
+            }
+
+            return code;
+        }
+
+        return null;
     }, []);
 
     if (authCode) {
