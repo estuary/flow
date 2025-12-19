@@ -21,7 +21,7 @@ const generateAuthorizeUrl = (theirTenant) => {
       [SETTINGS.stateKey]: state,
     });
 
-    return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/authorize?${params}`
+    return `https://login.microsoftonline.com/${encodeURIComponent(theirTenant)}/oauth2/authorize?${params}`
 };
 
 export const AzureAuthorizeComponent = () => {
