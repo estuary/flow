@@ -1,5 +1,7 @@
 ---
 source: crates/agent/src/integration_tests/auto_discovers.rs
-expression: firing_alert.error
+expression: firing_alert.error_arg_value()
 ---
-auto-discover publication failed: mules/hey: location /invalid-key is unknown in schema schema://bundle
+Some(
+    "auto-discover publication failed: mules/hey: location /invalid-key is unknown in schema schema://bundle",
+)

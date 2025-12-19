@@ -471,11 +471,18 @@ async fn test_backoff_repeated_shard_failures(
             let alert_status = harness
                 .assert_alert_firing(catalog_name, AlertType::ShardFailed)
                 .await;
-            assert_eq!(i + 1, alert_status.count, "failure count should match");
+
+            assert_eq!(
+                Some(3),
+                alert_status.count_arg_value(),
+                "failure count should remain at 3, since alert arguments don't get updated"
+            );
             assert!(
-                alert_status.error.ends_with("a test error"),
-                "unexpected alert error: '{}'",
-                alert_status.error
+                alert_status
+                    .error_arg_value()
+                    .is_some_and(|e| e.ends_with("a test error")),
+                "unexpected alert error: '{:?}'",
+                alert_status.error_arg_value()
             );
         }
     }
