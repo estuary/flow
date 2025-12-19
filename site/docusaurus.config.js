@@ -149,18 +149,15 @@ const config = {
             to: '/getting-started/who-should-use-flow/',
             from: '/overview/who-should-use-flow/',
           },
+          {
+            from: '/reference/Connectors/materialization-connectors/Parquet/',
+            to: '/reference/Connectors/materialization-connectors/amazon-s3-parquet/'
+          },
           
           // Waiting on https://github.com/estuary/flow/pull/2559/
           // {
           //   from : '/reference/Connectors/capture-connectors/netsuite-suitetalk/',
           //   to: '/reference/Connectors/capture-connectors/netsuite-suiteql/',
-          // },
-
-          // There is no longer a landing page. Will need to make one or select a specific
-          //  parquet connector now. 
-          // {
-          //   from: '/reference/Connectors/materialization-connectors/Parquet/',
-          //   to: '???'
           // },
         ],
       },
