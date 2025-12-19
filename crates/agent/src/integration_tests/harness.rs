@@ -1,3 +1,4 @@
+mod alerts;
 pub mod connectors;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -25,7 +26,7 @@ use control_plane_api::{
 use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
 use models::status::connector::ConfigUpdate;
-use models::status::{AlertState, AlertType, ControllerAlert, ShardRef};
+use models::status::{AlertState, AlertType, ShardRef};
 use models::{Capability, CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
@@ -42,6 +43,52 @@ const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/
 
 pub fn set_of(names: &[&str]) -> BTreeSet<String> {
     names.into_iter().map(|n| n.to_string()).collect()
+}
+
+#[derive(Debug)]
+pub struct TestAlert {
+    pub alert: control_plane_api::alerts::Alert,
+    pub notifications: Vec<notifications::NotificationEmail>,
+    pub notification_state: serde_json::Value,
+}
+
+impl TestAlert {
+    pub fn error_arg_value(&self) -> Option<&str> {
+        self.alert.arguments.0.get("error").and_then(|e| e.as_str())
+    }
+
+    pub fn count_arg_value(&self) -> Option<i64> {
+        self.alert.arguments.0.get("count").and_then(|e| e.as_i64())
+    }
+
+    pub fn expect_notification_state(&self) -> crate::alerts::NotifierState {
+        assert!(
+            self.notification_state.is_object(),
+            "expected a non-null notification state for alert: {}",
+            self.alert.id
+        );
+        serde_json::from_value(self.notification_state.clone())
+            .expect("failed to deserialize notification state")
+    }
+
+    pub fn assert_emails_sent(&self, expect_emails: &[&str]) {
+        assert_eq!(
+            expect_emails.len(),
+            self.notifications.len(),
+            "expected {} emails to have been sent, got: {:?}",
+            expect_emails.len(),
+            self.notifications
+        );
+        for expect_email in expect_emails {
+            assert!(
+                self.notifications
+                    .iter()
+                    .any(|n| n.recipient.email == *expect_email),
+                "expected an email to be sent to {expect_email} but got none, other sent emails: {:?}",
+                self.notifications,
+            );
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +175,7 @@ pub struct TestHarness {
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
+    pub alert_sender: self::alerts::TestSender,
     // Control plane API app instance for GraphQL queries
     control_plane_app: Option<Arc<control_plane_api::server::App>>,
 }
@@ -183,7 +231,6 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        let id_gen = models::IdGenerator::new(1);
         let mock_connectors = connectors::MockDiscoverConnectors::default();
         let discover_handler = DiscoverHandler::new(mock_connectors.clone());
 
@@ -194,7 +241,7 @@ impl HarnessBuilder {
             "some-connector-network",
             &logs_tx,
             pool.clone(),
-            id_gen.clone(),
+            models::IdGenerator::new(1),
             builder,
         )
         .with_skip_all_tests();
@@ -203,7 +250,6 @@ impl HarnessBuilder {
             pool.clone(),
             system_user_id,
             publisher.clone(),
-            id_gen.clone(),
             discover_handler.clone(),
             logs_tx.clone(),
             std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
@@ -226,6 +272,7 @@ impl HarnessBuilder {
             controller_exec,
             directive_exec,
             control_plane_app: None,
+            alert_sender: alerts::TestSender::new(),
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -349,6 +396,9 @@ impl TestHarness {
                     '{secret-key}',
                     false
                 ) on conflict do nothing
+            ),
+            add_alert_tasks as (
+                insert into internal.tasks (task_type, wake_at) values (10, now()), (11, now())
             )
             select 1 as "something: bool";
             "##).fetch_one(&self.pool).await.expect("failed to setup test connectors");
@@ -794,32 +844,127 @@ impl TestHarness {
         .unwrap();
     }
 
+    pub async fn send_automation_message<T: serde::Serialize>(
+        &mut self,
+        to_task: models::Id,
+        from_task: models::Id,
+        message: T,
+    ) {
+        sqlx::query!(
+            r#"select internal.send_to_task($1::flowid, $2::flowid, $3::json)"#,
+            to_task as models::Id,
+            from_task as models::Id,
+            sqlx::types::Json(message) as sqlx::types::Json<T>,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to send message to task");
+    }
+
     /// Asserts that the given alert type is firing for the given
     /// `catalog_name`, and returns the alert status for further assertions.
-    pub async fn assert_alert_firing(
-        &mut self,
-        catalog_name: &str,
-        alert: AlertType,
-    ) -> ControllerAlert {
-        let state = self.get_controller_state(catalog_name).await;
-        let Some(alert_status) = state
-            .current_status
-            .alerts_status()
-            .and_then(|alerts| alerts.get(&alert))
-        else {
-            panic!("expected alert {alert}, but no alert status was found for: {catalog_name}");
+    pub async fn assert_alert_firing(&mut self, catalog_name: &str, alert: AlertType) -> TestAlert {
+        let open_alerts = control_plane_api::alerts::fetch_open_alerts_by_catalog_name(
+            &[catalog_name],
+            &self.pool,
+        )
+        .await
+        .unwrap();
+        let Some(open_alert) = open_alerts.into_iter().find(|a| a.alert_type == alert) else {
+            panic!("no open '{alert}' alert found in alert_history for '{catalog_name}'");
         };
+        let notification_task_id = open_alert.id;
+
+        self.set_min_task_wake_at(notification_task_id).await;
+        let ran_task = self
+            .run_automation_task(automations::task_types::ALERT_NOTIFICATIONS)
+            .await;
         assert_eq!(
-            AlertState::Firing,
-            alert_status.state,
-            "expected alert {alert} to be firing, but was: {alert_status:?}"
+            Some(notification_task_id),
+            ran_task,
+            "sanity check that notification task was correct"
         );
-        alert_status.clone()
+        let notifications = self.alert_sender.take_sent().await;
+
+        let notification_state = self.get_task_state(notification_task_id).await;
+
+        TestAlert {
+            alert: open_alert,
+            notifications,
+            notification_state,
+        }
+    }
+
+    /// Asssert that the alert for the given `id` has been resolved, and runs the notification task,
+    /// returning any notifications that may have been sent.
+    pub async fn assert_alert_resolved(&mut self, notification_task_id: models::Id) -> TestAlert {
+        let Some(alert) =
+            control_plane_api::alerts::fetch_alert_by_id(notification_task_id, &self.pool)
+                .await
+                .unwrap()
+        else {
+            panic!("no alert_history row found for notification_task_id: '{notification_task_id}'");
+        };
+
+        assert!(
+            alert.resolved_at.is_some(),
+            "expected alert to be resolved, got: {alert:?}"
+        );
+
+        // Run the notification task and see what gets sent
+        self.set_min_task_wake_at(notification_task_id).await;
+        let ran_task = self
+            .run_automation_task(automations::task_types::ALERT_NOTIFICATIONS)
+            .await;
+        assert_eq!(
+            Some(notification_task_id),
+            ran_task,
+            "sanity check that notification task was correct"
+        );
+
+        let state_result = sqlx::query!(
+            r#"select
+            inner_state as "state: sqlx::types::Json<serde_json::Value>"
+            from internal.tasks
+            where task_id = $1::flowid"#,
+            notification_task_id as models::Id,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap();
+
+        let notifications = self.alert_sender.take_sent().await;
+        TestAlert {
+            alert,
+            notifications,
+            notification_state: state_result
+                .and_then(|r| r.state.map(|j| j.0))
+                .unwrap_or(serde_json::Value::Null),
+        }
+    }
+
+    /// Sets the `wake_at` time of the given task to the smallest possible value.
+    /// Panics if the task does not exist.
+    pub async fn set_min_task_wake_at(&mut self, task_id: models::Id) {
+        sqlx::query!(
+            r#"update internal.tasks
+            set wake_at = '0001-01-01T00:00:00Z'::timestamptz
+            where task_id = $1::flowid
+            returning 1 as "must_exist: bool"
+            "#,
+            task_id as models::Id,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("update internal.tasks should touch one row");
     }
 
     /// Asserts that the given alert type is not currently firing for the given
     /// `catalog_name`. The alert could have cleared, or else never fired in the
-    /// first place.
+    /// first place. This does not make any assertions about any resolution
+    /// notifications being sent, so generally `assert_alert_resolved` should be
+    /// used in cases where it's expected that an alert had previously fired and
+    /// is now resolved.
     pub async fn assert_alert_clear(&mut self, catalog_name: &str, alert: AlertType) {
         let state = self.get_controller_state(catalog_name).await;
         let alert_status = state
@@ -916,6 +1061,18 @@ impl TestHarness {
         );
     }
 
+    pub async fn get_task_wake_at(&mut self, task_id: models::Id) -> Option<DateTime<Utc>> {
+        sqlx::query_scalar!(
+            r#"select wake_at as "wake: DateTime<Utc>"
+            from internal.tasks
+            where task_id = $1"#,
+            task_id as models::Id,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to query task wake_at")
+    }
+
     async fn get_controller_wake_at(&mut self, catalog_name: &str) -> Option<DateTime<Utc>> {
         sqlx::query_scalar!(
             r#"select t.wake_at
@@ -977,6 +1134,19 @@ impl TestHarness {
                 handler: self.discover_handler.clone(),
             }),
             task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
+            task_types::DATA_MOVEMENT_ALERT_EVALS => Server::new().register(
+                crate::alerts::new_data_movement_alerts_executor(std::time::Duration::from_mins(5)),
+            ),
+            task_types::TENANT_ALERT_EVALS => Server::new().register(
+                crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
+            ),
+            task_types::ALERT_NOTIFICATIONS => Server::new().register(
+                crate::alerts::AlertNotifications::new(
+                    "http://estuary.test/",
+                    self.alert_sender.clone(),
+                )
+                .expect("failed to create AlertNotifications"),
+            ),
             _ => panic!("unsupported task type: {:?}", task_type),
         };
         let mut next = automations::server::dequeue_tasks(
@@ -1351,6 +1521,23 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .expect("failed to upsert connector status");
+    }
+
+    pub async fn get_task_state<T: serde::de::DeserializeOwned>(
+        &mut self,
+        task_id: models::Id,
+    ) -> T {
+        let row = sqlx::query!(
+            r#"select
+            inner_state as "state!:  sqlx::types::Json<serde_json::Value>"
+            from internal.tasks where task_id = $1"#,
+            task_id as models::Id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect(&format!("failed to get task state for id: '{task_id}'"));
+
+        serde_json::from_value(row.state.0).expect("failed to deserialize task state")
     }
 
     pub async fn status_summary(&mut self, catalog_name: &str) -> models::status::Summary {
