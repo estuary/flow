@@ -114,10 +114,6 @@ const config = {
             to: '/reference/Connectors/capture-connectors/HubSpot-real-time/'
           },
           {
-            from: '/overview/comparisons/',
-            to: '/getting-started/comparisons/'
-          },
-          {
             from: '/guides/configure-cloud-storage/',
             to: '/getting-started/installation/'
           },
