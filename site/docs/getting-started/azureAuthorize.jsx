@@ -39,7 +39,7 @@ export const AzureAuthorizeComponent = () => {
             sessionStorage.removeItem(SETTINGS.storageKey);
 
             if (!returnedState || !storedState || returnedState !== storedState) {
-                return null;
+                return "error";
             }
 
             return code;
@@ -48,47 +48,55 @@ export const AzureAuthorizeComponent = () => {
         return null;
     }, []);
 
+    if (authCode === "error") {
+        return (
+            <span style={{ color: "red" }}>
+                We were unable to verify this worked. Please contact support.
+            </span>
+        ); 
+    }
+
     if (authCode) {
         return (
             <span style={{ color: "green" }}>
                 You have successfully added the application to your tenant
             </span>
         );
-    } else {
-        return (
-            <>
-                <span>
-                    Input your <b>Tenant ID</b> into the field below. Then click the <b>Authorize</b> button
-                    to begin the OAuth process that will add our application to your tenant:
-                </span>
-                <br />
-                <br />
-                <center>
-                    <input
-                        placeholder="Your Azure Tenant ID"
-                        value={tenant}
-                        onChange={(e) => setTenant(e.target.value)}
-                        style={{
-                            padding: 8
-                        }}
-                    />
-                    <a
-                        style={{
-                            marginLeft: 8,
-                            padding: 10,
-                            color: "white",
-                            backgroundColor: tenant.length < 1 ? "lightgray" : "#3B43FE",
-                            fontWeight: tenant.length < 1 ? "inherit" : "bold",
-                            borderRadius: 20
-                        }}
-                        href={
-                            tenant.length > 0 ? generateAuthorizeUrl(tenant) : null
-                        }
-                    >
-                        Authorize
-                    </a>
-                </center>
-            </>
-        );
-    }
+    } 
+
+    return (
+        <>
+            <span>
+                Input your <b>Tenant ID</b> into the field below. Then click the <b>Authorize</b> button
+                to begin the OAuth process that will add our application to your tenant:
+            </span>
+            <br />
+            <br />
+            <center>
+                <input
+                    placeholder="Your Azure Tenant ID"
+                    value={tenant}
+                    onChange={(e) => setTenant(e.target.value)}
+                    style={{
+                        padding: 8
+                    }}
+                />
+                <a
+                    style={{
+                        marginLeft: 8,
+                        padding: 10,
+                        color: "white",
+                        backgroundColor: tenant.length < 1 ? "lightgray" : "#3B43FE",
+                        fontWeight: tenant.length < 1 ? "inherit" : "bold",
+                        borderRadius: 20
+                    }}
+                    href={
+                        tenant.length > 0 ? generateAuthorizeUrl(tenant) : null
+                    }
+                >
+                    Authorize
+                </a>
+            </center>
+        </>
+    );
 };
