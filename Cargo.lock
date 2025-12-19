@@ -2601,6 +2601,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "serde_yaml",
  "simd-doc",
  "socket2 0.6.0",
  "tables",
@@ -2620,6 +2621,7 @@ dependencies = [
  "tuple",
  "unseal",
  "url",
+ "uuid 1.18.1",
  "webpki",
 ]
 

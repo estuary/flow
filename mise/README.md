@@ -234,6 +234,8 @@ mise tasks
 | `local:data-plane <name> <port>` | Start a data plane |
 | `local:supabase` | Start Supabase only |
 | `local:stop` | Stop all services and clean up |
+| `local:dekaf` | Start Dekaf against local stack |
+| `local:dekaf-kafka` | Start local Kafka for Dekaf consumer group testing |
 
 ### CI Tasks
 | Task | Description |
@@ -243,6 +245,7 @@ mise tasks
 | `ci:sql-tap` | Run pgTAP SQL tests |
 | `ci:nextest-run` | Run Rust tests via nextest |
 | `ci:gotest` | Run Go tests |
+| `ci:dekaf-e2e` | Run Dekaf E2E tests |
 
 ### VM Tasks
 | Task | Description |

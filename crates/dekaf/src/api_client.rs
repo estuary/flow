@@ -1,4 +1,4 @@
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
 use kafka_protocol::{
@@ -19,50 +19,74 @@ use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 use tokio_rustls::rustls;
 use tokio_util::codec;
+use tokio_util::either::Either;
 use tracing::instrument;
 use url::Url;
 
-type BoxedKafkaConnection = Pin<
-    Box<
-        tokio_util::codec::Framed<
-            tokio_rustls::client::TlsStream<tokio::net::TcpStream>,
-            codec::LengthDelimitedCodec,
-        >,
-    >,
->;
+/// A stream that may or may not be TLS-encrypted.
+/// Uses `tokio_util::either::Either` which implements AsyncRead/AsyncWrite
+/// when both variants do.
+type MaybeTlsStream =
+    Either<tokio::net::TcpStream, tokio_rustls::client::TlsStream<tokio::net::TcpStream>>;
+
+type BoxedKafkaConnection =
+    Pin<Box<tokio_util::codec::Framed<MaybeTlsStream, codec::LengthDelimitedCodec>>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConnectionScheme {
+    Plaintext,
+    Tls,
+}
+
+/// Parse a broker URL to extract the connection scheme, host, and port.
+///
+/// Supported schemes:
+/// - `tcp://` - plaintext connection (no TLS)
+/// - `tls://` - TLS-encrypted connection (default if no scheme provided)
+fn parse_broker_url(broker_url: &str) -> anyhow::Result<(ConnectionScheme, String, u16)> {
+    // Default to tls:// if no scheme is provided
+    let url_with_scheme = if broker_url.contains("://") {
+        broker_url.to_string()
+    } else {
+        format!("tls://{broker_url}")
+    };
+
+    let parsed = Url::parse(&url_with_scheme)
+        .with_context(|| format!("invalid broker URL: {broker_url}"))?;
+
+    let scheme = match parsed.scheme() {
+        "tcp" => ConnectionScheme::Plaintext,
+        "tls" => ConnectionScheme::Tls,
+        other => anyhow::bail!("unknown broker scheme: {other} (expected 'tcp' or 'tls')"),
+    };
+    let host = parsed
+        .host()
+        .context("missing host in broker URL")?
+        .to_string();
+    let port = parsed.port().unwrap_or(9092);
+    Ok((scheme, host, port))
+}
 
 static ROOT_CERT_STORE: OnceCell<Arc<RootCertStore>> = OnceCell::const_new();
 
+fn kafka_codec() -> codec::LengthDelimitedCodec {
+    // https://kafka.apache.org/protocol.html#protocol_common
+    // All requests and responses originate from the following:
+    // > RequestOrResponse => Size (RequestMessage | ResponseMessage)
+    // >   Size => int32
+    tokio_util::codec::LengthDelimitedCodec::builder()
+        .big_endian()
+        .length_field_length(4)
+        .max_frame_length(1 << 27) // 128 MiB
+        .new_codec()
+}
+
 #[tracing::instrument(skip_all)]
 async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection> {
-    // Establish a TCP connection to the Kafka broker
+    let (scheme, host, port) = parse_broker_url(broker_url)?;
 
-    let parsed_url = Url::parse(broker_url)?;
-
-    let root_certs = ROOT_CERT_STORE
-        .get_or_try_init(|| async {
-            let mut certs = rustls::RootCertStore::empty();
-            certs.add_parsable_certificates(
-                rustls_native_certs::load_native_certs().expect("failed to load native certs"),
-            );
-            Ok::<Arc<RootCertStore>, anyhow::Error>(Arc::new(certs))
-        })
-        .await?;
-
-    let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_certs.to_owned())
-        .with_no_client_auth();
-
-    let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
-
-    let hostname = parsed_url
-        .host()
-        .ok_or(anyhow!("Broker URL must contain a hostname"))?;
-    let port = parsed_url.port().unwrap_or(9092);
-    let dnsname = rustls::pki_types::ServerName::try_from(hostname.to_string())?;
-
-    tracing::debug!(port = port,host = ?hostname, "Attempting to connect");
-    let tcp_stream = tokio::net::TcpStream::connect(format!("{hostname}:{port}")).await?;
+    tracing::debug!(port, host = ?host, ?scheme, "Attempting to connect");
+    let tcp_stream = tokio::net::TcpStream::connect(format!("{host}:{port}")).await?;
 
     // Let's keep this stream alive
     let sock_ref = socket2::SockRef::from(&tcp_stream);
@@ -71,22 +95,33 @@ async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection>
         .with_interval(Duration::from_secs(20));
     sock_ref.set_tcp_keepalive(&ka)?;
 
-    let stream = tls_connector.connect(dnsname, tcp_stream).await?;
-    tracing::debug!(port = port,host = ?hostname, "Connection established");
+    let stream: MaybeTlsStream = match scheme {
+        ConnectionScheme::Plaintext => Either::Left(tcp_stream),
+        ConnectionScheme::Tls => {
+            let root_certs = ROOT_CERT_STORE
+                .get_or_try_init(|| async {
+                    let mut certs = rustls::RootCertStore::empty();
+                    certs.add_parsable_certificates(
+                        rustls_native_certs::load_native_certs()
+                            .expect("failed to load native certs"),
+                    );
+                    Ok::<Arc<RootCertStore>, anyhow::Error>(Arc::new(certs))
+                })
+                .await?;
 
-    // https://kafka.apache.org/protocol.html#protocol_common
-    // All requests and responses originate from the following:
-    // > RequestOrResponse => Size (RequestMessage | ResponseMessage)
-    // >   Size => int32
-    let framed = tokio_util::codec::Framed::new(
-        stream,
-        tokio_util::codec::LengthDelimitedCodec::builder()
-            .big_endian()
-            .length_field_length(4)
-            .max_frame_length(1 << 27) // 128 MiB
-            .new_codec(),
-    );
+            let tls_config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_certs.to_owned())
+                .with_no_client_auth();
 
+            let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
+            let dnsname = rustls::pki_types::ServerName::try_from(host.clone())?;
+
+            let tls_stream = tls_connector.connect(dnsname, tcp_stream).await?;
+            Either::Right(tls_stream)
+        }
+    };
+
+    let framed = tokio_util::codec::Framed::new(stream, kafka_codec());
     Ok(Box::pin(framed))
 }
 
@@ -190,6 +225,7 @@ async fn sasl_auth(
     let sasl = SASLClient::new(sasl_config.clone());
 
     let mechanisms = get_supported_sasl_mechanisms(broker_url).await?;
+    tracing::debug!(?mechanisms, "Discovered SASL mechanisms");
 
     let offered_mechanisms = mechanisms
         .iter()
@@ -201,7 +237,7 @@ async fn sasl_auth(
 
     let selected_mechanism = session.get_mechname().as_str().to_owned();
 
-    tracing::debug!(mechamism=?selected_mechanism, "Starting SASL request with handshake");
+    tracing::debug!(mechanism=?selected_mechanism, "Starting SASL request with handshake");
 
     // Now we know which mechanism we want to request
     let handshake_req = messages::SaslHandshakeRequest::default().with_mechanism(
@@ -222,26 +258,46 @@ async fn sasl_auth(
 
     let mut state_buf = BufWriter::new(Vec::new());
     let mut state = session.step(None, &mut state_buf)?;
+    // Flush the BufWriter to ensure all data is written to the underlying Vec
+    let mut state_data = state_buf.into_inner()?;
 
-    // SASL can happen over multiple steps
-    while state.is_running() {
-        let authenticate_request = messages::SaslAuthenticateRequest::default()
-            .with_auth_bytes(Bytes::from(state_buf.into_inner()?));
+    tracing::debug!(
+        is_running = state.is_running(),
+        buf_len = state_data.len(),
+        state = ?state,
+        "SASL state after first step"
+    );
+
+    // SASL mechanisms may return Finished(Yes) after writing data, meaning data
+    // was written and must be sent, but no further steps are needed.
+    // We need to send data if either:
+    // 1. state.is_running() - more steps are expected
+    // 2. state_data is not empty - data was written that must be sent
+    while state.is_running() || !state_data.is_empty() {
+        let authenticate_request =
+            messages::SaslAuthenticateRequest::default().with_auth_bytes(Bytes::from(state_data));
 
         let auth_resp = send_request(conn, authenticate_request, None).await?;
 
         if auth_resp.error_code > 0 {
-            let err = kafka_protocol::ResponseError::try_from_code(handshake_resp.error_code)
+            let err = kafka_protocol::ResponseError::try_from_code(auth_resp.error_code)
                 .map(|code| format!("{code:?}"))
-                .unwrap_or(format!("Unknown error {}", handshake_resp.error_code));
+                .unwrap_or(format!("Unknown error {}", auth_resp.error_code));
             bail!(
                 "Error performing SASL authentication: {err} {:?}",
                 auth_resp.error_message
             )
         }
+
+        // If mechanism is done, don't call step again
+        if !state.is_running() {
+            break;
+        }
+
         let data = Some(auth_resp.auth_bytes.to_vec());
         state_buf = BufWriter::new(Vec::new());
         state = session.step(data.as_deref(), &mut state_buf)?;
+        state_data = state_buf.into_inner()?;
     }
 
     tracing::debug!("Successfully completed SASL flow");
@@ -318,10 +374,14 @@ impl KafkaApiClient {
             .await
             .context("Failed to establish TCP connection")?;
 
-        tracing::debug!("Authenticating connection");
-        sasl_auth(&mut conn, url, auth.sasl_config().await?)
-            .await
-            .context("SASL authentication failed")?;
+        if let Some(sasl_config) = auth.sasl_config().await? {
+            tracing::debug!("Authenticating connection via SASL");
+            sasl_auth(&mut conn, url, sasl_config)
+                .await
+                .context("SASL authentication failed")?;
+        } else {
+            tracing::debug!("Skipping SASL authentication (no auth configured)");
+        }
 
         let versions = get_versions(&mut conn)
             .await
@@ -572,8 +632,9 @@ impl KafkaApiClient {
                         );
                         continue;
                     }
-                    Some(err @ kafka_protocol::ResponseError::TopicAuthorizationFailed) => {
-                        // This is likely a transient auth error due to ACL propagation delay. Try again
+                    Some(err @ kafka_protocol::ResponseError::TopicAuthorizationFailed)
+                    | Some(err @ kafka_protocol::ResponseError::UnknownTopicOrPartition) => {
+                        // This is likely a transient error due to eventual consistency. Try again
                         if retriable_error.is_none() {
                             retriable_error = Some((result.error_code, format!("{:?}", err)));
                         }
@@ -711,7 +772,11 @@ impl KafkaApiClient {
 
 #[derive(Clone)]
 pub enum KafkaClientAuth {
+    /// No authentication - for local testing with plaintext Kafka brokers.
+    None,
+    /// Static SASL configuration that doesn't refresh.
     NonRefreshing(Arc<SASLConfig>),
+    /// AWS MSK IAM authentication with automatic token refresh.
     MSK {
         aws_region: String,
         provider: aws_credential_types::provider::SharedCredentialsProvider,
@@ -720,9 +785,33 @@ pub enum KafkaClientAuth {
 }
 
 impl KafkaClientAuth {
-    async fn sasl_config(&mut self) -> anyhow::Result<Arc<SASLConfig>> {
+    pub async fn from_msk_region(region: &str) -> Self {
+        let provider = aws_config::from_env()
+            .region(aws_types::region::Region::new(region.to_owned()))
+            .load()
+            .await
+            .credentials_provider()
+            .expect("AWS credentials provider should be available");
+
+        KafkaClientAuth::MSK {
+            aws_region: region.to_owned(),
+            provider,
+            cached: None,
+        }
+    }
+
+    pub fn plain(username: &str, password: &str) -> Self {
+        KafkaClientAuth::NonRefreshing(
+            SASLConfig::with_credentials(None, username.to_string(), password.to_string())
+                .expect("PLAIN config should build"),
+        )
+    }
+
+    /// Returns the SASL configuration for authentication, or None if no auth is needed.
+    async fn sasl_config(&mut self) -> anyhow::Result<Option<Arc<SASLConfig>>> {
         match self {
-            KafkaClientAuth::NonRefreshing(cfg) => Ok(cfg.clone()),
+            KafkaClientAuth::None => Ok(None),
+            KafkaClientAuth::NonRefreshing(cfg) => Ok(Some(cfg.clone())),
             KafkaClientAuth::MSK {
                 aws_region,
                 provider,
@@ -732,7 +821,7 @@ impl KafkaClientAuth {
                     let now_seconds = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
                     // Use a 30-second buffer before expiration to refresh the token.
                     if *exp as u64 > now_seconds + 30 {
-                        return Ok(cfg.clone());
+                        return Ok(Some(cfg.clone()));
                     }
                 }
 
@@ -751,7 +840,7 @@ impl KafkaClientAuth {
 
                 cached.replace((cfg.clone(), exp));
 
-                Ok(cfg)
+                Ok(Some(cfg))
             }
         }
     }

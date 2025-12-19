@@ -1,0 +1,35 @@
+[Unit]
+Description=Flow Dekaf Kafka (upstream for consumer groups)
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+TimeoutStartSec=120
+
+EnvironmentFile=%h/flow-local/env/common.env
+
+# Clean up any existing container, then start Kafka in KRaft mode
+ExecStartPre=-/usr/bin/docker rm -f dekaf-test-kafka
+ExecStart=/usr/bin/docker run --rm \
+    --name dekaf-test-kafka \
+    --network host \
+    --tmpfs /var/lib/kafka/data:uid=1000,gid=1000 \
+    -e KAFKA_NODE_ID=1 \
+    -e KAFKA_PROCESS_ROLES=broker,controller \
+    -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093 \
+    -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:29092 \
+    -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+    -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+    -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:29093 \
+    -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+    -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+    -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+    -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
+    -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+    -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
+    confluentinc/cp-kafka:7.5.0
+
+ExecStop=/usr/bin/docker stop dekaf-test-kafka
+
+Restart=on-failure
+RestartSec=5s
