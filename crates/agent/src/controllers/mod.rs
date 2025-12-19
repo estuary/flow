@@ -27,7 +27,7 @@ pub use executor::{Event, Inbox, LiveSpecControllerExecutor};
 pub const CONTROLLER_VERSION: i32 = 2;
 
 /// Represents the state of a specific controller and catalog_name.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct ControllerState {
     pub live_spec_id: Id,
     pub catalog_name: String,

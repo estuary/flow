@@ -1,10 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        select\n            alert_type as \"alert_type!: AlertType\",\n            catalog_name as \"catalog_name!: String\",\n            fired_at,\n            resolved_at,\n            arguments as \"arguments!: crate::TextJson<async_graphql::Value>\"\n        from alert_history a\n        where starts_with(a.catalog_name, $1)\n            and (\n                a.fired_at < $2::timestamptz\n                or (a.fired_at = $2::timestamptz and a.alert_type < $3::alert_type)\n                or (a.fired_at = $2::timestamptz and a.alert_type = $3::alert_type and a.catalog_name::text < $4)\n            )\n            and (\n                $5::boolean is null\n                or ($5::boolean = true and a.resolved_at is null)\n                or ($5::boolean = false and a.resolved_at is not null)\n            )\n        order by a.fired_at desc, a.alert_type desc, a.catalog_name desc\n        limit $6\n        ",
+  "query": "\n        select\n            id as \"id: models::Id\",\n            alert_type as \"alert_type!: AlertType\",\n            catalog_name as \"catalog_name!: String\",\n            fired_at,\n            resolved_at,\n            arguments as \"arguments!: sqlx::types::Json<crate::alerts::ArgsObject>\"\n        from alert_history a\n        where starts_with(a.catalog_name, $1)\n            and (\n                $2::boolean is null\n                or ($2::boolean = true and a.resolved_at is null)\n                or ($2::boolean = false and a.resolved_at is not null)\n            )\n            and (\n                a.fired_at > $3::timestamptz\n                or (a.fired_at = $3::timestamptz and a.alert_type > $4::alert_type)\n                or (a.fired_at = $3::timestamptz and a.alert_type = $4::alert_type and a.catalog_name::text > $5)\n            )\n        order by a.fired_at asc, a.alert_type asc, a.catalog_name asc\n        limit $6\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
         "name": "alert_type!: AlertType",
         "type_info": {
           "Custom": {
@@ -25,29 +30,30 @@
         }
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "catalog_name!: String",
         "type_info": "Text"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "fired_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "resolved_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
-        "name": "arguments!: crate::TextJson<async_graphql::Value>",
+        "ordinal": 5,
+        "name": "arguments!: sqlx::types::Json<crate::alerts::ArgsObject>",
         "type_info": "Jsonb"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
+        "Bool",
         "Timestamptz",
         {
           "Custom": {
@@ -67,7 +73,6 @@
           }
         },
         "Text",
-        "Bool",
         "Int8"
       ]
     },
@@ -75,9 +80,10 @@
       false,
       false,
       false,
+      false,
       true,
       false
     ]
   },
-  "hash": "822ad494c896cb051bfff881ad5e630cc39f483af397047c56145bf51b18e295"
+  "hash": "7ca23ef428b578f58205cd9f4382da7d48f8243bf91d56fcf10a46ee22c7672d"
 }

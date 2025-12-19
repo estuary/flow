@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            asub.email as \"email!: String\",\n            u.raw_user_meta_data->>'full_name' as \"full_name: String\"\n        from alert_subscriptions asub\n        left join auth.users u on asub.email = u.email and u.is_sso_user is false\n        where $1 ^@ asub.catalog_prefix\n        and $2::alert_type = any(asub.include_alert_types)\n        and asub.email is not null\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "full_name: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "alert_type",
+            "kind": {
+              "Enum": [
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method",
+                "data_movement_stalled",
+                "data_not_processed_in_interval",
+                "auto_discover_failed",
+                "shard_failed"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "a7160e6f695386d54aec56e4520c3996c960e9230ea290be51e91e92064c6dc6"
+}
