@@ -110,7 +110,7 @@ type proxyChunk struct {
 // serveRead evaluates a client's Read RPC against the local replica index.
 func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, index *fragment.Index) error {
 	var (
-		buffer = make([]byte, chunkSize)
+		buffer []byte // allocated on first use
 		ctx    = stream.Context()
 		reader io.ReadCloser
 	)
@@ -157,6 +157,9 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 		// Loop over chunks read from |reader|, sending each to the client.
 		var n int
 		var readErr error
+		if buffer == nil {
+			buffer = make([]byte, chunkSize)
+		}
 
 		for readErr == nil {
 			if n, readErr = reader.Read(buffer); n == 0 {
