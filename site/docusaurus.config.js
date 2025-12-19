@@ -145,6 +145,14 @@ const config = {
             from: '/reference/Connectors/dekaf/dekaf-tinybird/',
             to: '/reference/Connectors/materialization-connectors/Dekaf/tinybird/'
           },
+          {
+            to: '/getting-started/comparisons/',
+            from: '/overview/comparisons/',
+          },
+          {
+            to: '/getting-started/who-should-use-flow/',
+            from: '/overview/who-should-use-flow/',
+          },
           
           // Waiting on https://github.com/estuary/flow/pull/2559/
           // {
