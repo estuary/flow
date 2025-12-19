@@ -24,6 +24,7 @@ ExecStart=%h/cargo-target/debug/dekaf \
     --data-plane-access-key ${DATA_PLANE_ACCESS_KEY} \
     --task-refresh-interval 10s \
     --spec-ttl 10s
+    --idle-session-timeout 60s
 
 Restart=on-failure
 RestartSec=5s
