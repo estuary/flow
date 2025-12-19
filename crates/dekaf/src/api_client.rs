@@ -572,8 +572,9 @@ impl KafkaApiClient {
                         );
                         continue;
                     }
-                    Some(err @ kafka_protocol::ResponseError::TopicAuthorizationFailed) => {
-                        // This is likely a transient auth error due to ACL propagation delay. Try again
+                    Some(err @ kafka_protocol::ResponseError::TopicAuthorizationFailed)
+                    | Some(err @ kafka_protocol::ResponseError::UnknownTopicOrPartition) => {
+                        // This is likely a transient error due to eventual consistency. Try again
                         if retriable_error.is_none() {
                             retriable_error = Some((result.error_code, format!("{:?}", err)));
                         }
