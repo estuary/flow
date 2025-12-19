@@ -28,7 +28,6 @@ export const AzureAuthorizeComponent = () => {
     const [tenant, setTenant] = React.useState("");
 
     // Try to get the auth code but first ensure the states match
-    //  if there is an issue this will fail silently (Q4 2025)
     const authCode = React.useMemo(() => {
         const params = new URLSearchParams(window.location.search);
         const code = params.get(SETTINGS.responseType);
