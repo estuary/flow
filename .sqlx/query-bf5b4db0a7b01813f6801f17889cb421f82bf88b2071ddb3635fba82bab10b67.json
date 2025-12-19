@@ -1,10 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            alert_type as \"alert_type: AlertType\",\n            catalog_name,\n            fired_at,\n            resolved_at,\n            arguments as \"arguments: crate::TextJson<async_graphql::Value>\"\n        from alert_history\n        where catalog_name = any($1::text[])\n        and resolved_at is null\n        order by fired_at desc\n            ",
+  "query": "select\n        notification_task_id as \"notification_task_id: models::Id\",\n        alert_type as \"alert_type: AlertType\",\n        catalog_name,\n        fired_at,\n        resolved_at,\n        arguments as \"arguments: Json<ArgsObject>\"\n    from alert_history\n    where catalog_name = any($1::text[])\n    and resolved_at is null\n    order by fired_at desc\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "notification_task_id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
         "name": "alert_type: AlertType",
         "type_info": {
           "Custom": {
@@ -25,23 +30,23 @@
         }
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "catalog_name",
         "type_info": "Text"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "fired_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "resolved_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
-        "name": "arguments: crate::TextJson<async_graphql::Value>",
+        "ordinal": 5,
+        "name": "arguments: Json<ArgsObject>",
         "type_info": "Jsonb"
       }
     ],
@@ -51,6 +56,7 @@
       ]
     },
     "nullable": [
+      true,
       false,
       false,
       false,
@@ -58,5 +64,5 @@
       false
     ]
   },
-  "hash": "57ebc2036cb193685ebc3a1767f9bdc6cfddc10aaa4671fcfe3ffcf181c87665"
+  "hash": "bf5b4db0a7b01813f6801f17889cb421f82bf88b2071ddb3635fba82bab10b67"
 }

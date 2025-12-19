@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update alert_history\n        set notification_task_id = null\n        where notification_task_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1640230992b65d371e7a5318b008e02526d22fa45183b025488b69ecf4e9e027"
+}

@@ -10,12 +10,16 @@ use std::collections::VecDeque;
 
 use crate::{
     ControlPlane,
+    alerts::{AlertViewRow, evaluate_alert_actions},
     controllers::{RetryableError, fallback_backoff_next_run, fetch_controller_state},
 };
 use anyhow::Context;
 use automations::{Action, Executor, TaskType};
-use control_plane_api::live_specs;
-use models::{Id, status::ControllerStatus};
+use control_plane_api::{alerts, live_specs};
+use models::{
+    Id,
+    status::{AlertType, ControllerStatus},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{CONTROLLER_VERSION, ControllerState, NextRun, controller_update};
@@ -77,7 +81,7 @@ pub struct State {
 pub struct Outcome {
     live_spec_id: models::Id,
     /// The next status of the controller.
-    status: ControllerStatus,
+    next_status: ControllerStatus,
     /// When to run the controller next. This will account for any backoff after errors.
     next_run: Option<NextRun>,
     /// Counts of _consecutive_ failures of the controller, which resets to 0 on
@@ -89,17 +93,20 @@ pub struct Outcome {
     /// `tasks`, and `controller_jobs` rows will be deleted after a successful
     /// controller run.
     live_spec_deleted: bool,
+    /// Changes to alert states as a result of this controller run
+    alert_actions: Vec<alerts::AlertAction>,
 }
 
 impl automations::Outcome for Outcome {
     async fn apply(self, txn: &mut sqlx::PgConnection) -> anyhow::Result<Action> {
         let Outcome {
             live_spec_id,
-            status,
+            next_status: status,
             next_run,
             failures,
             mut error,
             live_spec_deleted,
+            alert_actions,
         } = self;
 
         if live_spec_deleted && error.is_none() {
@@ -147,6 +154,10 @@ impl automations::Outcome for Outcome {
             return Err(anyhow::Error::from(error)).context("failed to update controller status");
         }
 
+        control_plane_api::alerts::apply_alert_actions(alert_actions, txn)
+            .await
+            .context("applying alert actions")?;
+
         let action = next_run
             .map(|n| Action::Sleep(n.compute_duration()))
             .unwrap_or(Action::Suspend);
@@ -178,12 +189,13 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
                 failures: 0,
                 next_run: None,
                 error: None,
-                status: ControllerStatus::Uninitialized, // ignored
+                next_status: ControllerStatus::Uninitialized, // ignored
+                alert_actions: Vec::default(),
             });
         };
         // Note that `failures` here only counts the number of _consecutive_
         // failures, and resets to 0 on any sucessful update.
-        let (status, failures, error, next_run) = run_controller(
+        let (next_status, failures, error, next_run) = run_controller(
             state,
             inbox,
             task_id,
@@ -192,15 +204,87 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
         )
         .await;
 
+        let alert_actions = {
+            use rand::Rng;
+            let id_gen_shard = rand::rng().random_range(1u16..1024u16);
+            let mut id_gen = models::IdGenerator::new(id_gen_shard);
+            let alert_status = next_status.alerts_status();
+            evaluate_controller_alerts(
+                controller_state.catalog_name.as_str(),
+                alert_status,
+                pool,
+                &mut id_gen,
+            )
+            .await
+            .context("evaluating controller alerts")?
+        };
+
         Ok(Outcome {
             live_spec_id: controller_state.live_spec_id,
-            status,
+            next_status,
             failures,
             error,
             next_run,
+            alert_actions,
             live_spec_deleted: controller_state.live_spec.is_none(),
         })
     }
+}
+
+async fn evaluate_controller_alerts(
+    catalog_name: &str,
+    alerts_status: Option<&models::status::Alerts>,
+    pool: &sqlx::PgPool,
+    id_gen: &mut models::IdGenerator,
+) -> anyhow::Result<Vec<alerts::AlertAction>> {
+    // Start by fetching all of the _controller-managed_ open alerts for this
+    // task. Alert types with an associated view name are managed outside of
+    // controllers.
+    let controller_alert_types = models::status::AlertType::all()
+        .into_iter()
+        .filter(|ty| ty.view_name().is_none())
+        .map(|ty| *ty)
+        .collect::<std::collections::HashSet<AlertType>>();
+    let open_alerts = alerts::fetch_open_alerts_by_catalog_name(&[catalog_name], pool)
+        .await
+        .context("querying for open alerts")?
+        .into_iter()
+        .filter(|alert| controller_alert_types.contains(&alert.alert_type))
+        .collect::<Vec<_>>();
+
+    let current_alerts = if let Some(status) = alerts_status {
+        to_alert_view(catalog_name, status)?
+    } else {
+        Vec::new()
+    };
+
+    let eval_time = chrono::Utc::now();
+    Ok(evaluate_alert_actions(
+        eval_time,
+        id_gen,
+        open_alerts,
+        current_alerts,
+    ))
+}
+
+fn to_alert_view(
+    catalog_name: &str,
+    alert_status: &models::status::Alerts,
+) -> anyhow::Result<Vec<AlertViewRow>> {
+    let mut results = Vec::with_capacity(alert_status.len());
+    for (key, status_alert) in alert_status.iter() {
+        // Convert the controller's alert status into alert arguments, by detouring through a sj::Value.
+        let args_val = serde_json::to_value(status_alert.clone())?;
+        let arguments = serde_json::from_value::<alerts::ArgsObject>(args_val)?;
+        let firing = status_alert.state == models::status::AlertState::Firing;
+        results.push(AlertViewRow {
+            catalog_name: catalog_name.to_string(),
+            alert_type: *key,
+            base_arguments: Some(sqlx::types::Json(arguments)),
+            firing,
+        });
+    }
+    Ok(results)
 }
 
 #[tracing::instrument(skip_all, fields(

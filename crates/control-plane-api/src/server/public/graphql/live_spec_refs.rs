@@ -5,9 +5,12 @@ use async_graphql::{
 
 use std::sync::Arc;
 
-use crate::server::{
-    App, ControlClaims,
-    public::graphql::{PgDataLoader, alerts, live_specs, publication_history, status},
+use crate::{
+    alerts::Alert,
+    server::{
+        App, ControlClaims,
+        public::graphql::{PgDataLoader, alerts, live_specs, publication_history, status},
+    },
 };
 
 const DEFAULT_PAGE_SIZE: usize = 50;
@@ -67,10 +70,7 @@ impl LiveSpecRef {
     }
 
     /// Returns all alerts that are currently firing for this live spec.
-    async fn active_alerts(
-        &self,
-        ctx: &Context<'_>,
-    ) -> async_graphql::Result<Option<Vec<alerts::Alert>>> {
+    async fn active_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<Alert>>> {
         if self.user_capability.is_none() {
             return Ok(None);
         }

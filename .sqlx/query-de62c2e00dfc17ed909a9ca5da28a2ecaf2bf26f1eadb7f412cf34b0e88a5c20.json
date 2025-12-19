@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with history as (\n            update alert_history\n            set resolved_at = $3,\n            resolved_arguments = $4\n            where catalog_name = $1::catalog_name\n            and alert_type = $2\n            returning notification_task_id\n        )\n        select internal.send_to_task(notification_task_id, '0000000000000000'::flowid, '{\"event\": \"resolved\"}')\n        from history\n        where notification_task_id is not null\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "send_to_task",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "alert_type",
+            "kind": {
+              "Enum": [
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method",
+                "data_movement_stalled",
+                "data_not_processed_in_interval",
+                "auto_discover_failed",
+                "shard_failed"
+              ]
+            }
+          }
+        },
+        "Timestamptz",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "de62c2e00dfc17ed909a9ca5da28a2ecaf2bf26f1eadb7f412cf34b0e88a5c20"
+}
