@@ -16,7 +16,10 @@ This bucket or prefix must be either be:
 
 * Publicly accessible and allowing anonymous reads.
 
-* Accessible via a root or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html).
+* Accessible via a root or [IAM user][] or [IAM role][].
+
+[IAM user]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html
+[IAM role]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html
 
 In either case, you'll need an [access policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_controlling.html).
 Policies in AWS are JSON objects that define permissions. You attach them to _resources_, which include both IAM users and S3 buckets.
@@ -48,17 +51,17 @@ For a public bucket, the bucket access policy must allow anonymous reads on the 
 
 3. Confirm that the **Block public access** setting on the bucket is [disabled](https://docs.aws.amazon.com/AmazonS3/latest/userguide/WebsiteAccessPermissionsReqd.html).
 
-### Setup: Accessing with a user account
+### Setup: Accessing with a user or role.
 
-For buckets accessed by a user account, you'll need the AWS **access key** and **secret access key** for the user.
-You'll also need to apply an access policy to the user to grant access to the specific bucket or prefix.
+For buckets accessed by a user account, you'll need the AWS **access key** and **secret access key** for the user.  For bucket access using a IAM role, you will need the **role ARN**.
+You'll also need to attach an access policy to the user or role to grant access to the specific bucket or prefix.
 
-1. [Create an IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html) if you don't yet have one to use with Flow.
+1. [Create an IAM user][IAM create-user] or follow the [AWS IAM Guide](/guides/iam-auth/aws.md) to setup an IAM role and Identity Provider.  If you already have a user or role for use with Estuary, it can be reused.
 
 2. Note the user's access key and secret access key.
 See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
 
-3. Create an IAM policy using the templates below.
+3. [Create an IAM policy][IAM create-policy] using the templates below.
 
 <Tabs>
 <TabItem value="IAM user access policy - Full bucket" default>
@@ -75,9 +78,10 @@ See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access
 </TabItem>
 </Tabs>
 
-4. [Add the policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html#access_policies_create-json-editor) to AWS.
+5. [Attach the policy to the IAM user or role](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html#add-policies-console).
 
-5. [Attach the policy to the IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html#add-policies-console).
+[IAM create-user]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html
+[IAM create-policy]: https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html#access_policies_create-json-editor
 
 ## Configuration
 
@@ -88,62 +92,46 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| `/advanced` |  | Options for advanced users. You should not typically need to modify these. | object |  |
-| `/advanced/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors.| boolean | `false` |
-| `/advanced/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Use if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
-| `/awsAccessKeyId` | AWS Access Key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
-| `/awsSecretAccessKey` | AWS Secret Access Key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
-| **`/bucket`** | Bucket | Name of the S3 bucket | string | Required |
-| `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
-| `/parser` | Parser Configuration | Configures how files are parsed (optional, see below) | object |  |
-| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
-| `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
-| `/parser/format/type` | Type |  | string |  |
-| `/prefix` | Prefix | Prefix within the bucket to capture from. Use this to limit the data in your capture. | string |  |
-| **`/region`** | AWS Region | The name of the AWS region where the S3 bucket is located. &quot;us-east-1&quot; is a popular default you can try, if you&#x27;re unsure what to put here. | string | Required, `"us-east-1"` |
+| Property                  | Title                   | Description                                                                                                   | Type    | Required/Default |
+| ------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------- | ------- | ---------------- |
+| **`/region`**             | AWS Region              | The name of the AWS region where the S3 bucket is located. `us-east-1` is a popular default you can try, if you're unsure what to put here. | string | Required, `"us-east-1"` |
+| **`/bucket`**             | Bucket                  | Name of the S3 bucket                                                                                         | string  | Required |
+| `/prefix`                 | Prefix                  | Prefix within the bucket to capture from. Use this to limit the data in your capture.                         | string  |  |
+| `/matchKeys`              | Match Keys              | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use `.*\\.json` to only capture json files. | string |  |
+| **`/credentials`**        | Credentials             | Credentials for authentication.                                                                               | [Credentials](#credentials) | Required |
+| `/parser`                 | Parser Configuration    | Configures how files are parsed (optional, see below)                                                         | [Parser](#parser) |  |
+| `/parser/compression`     | Compression             | Determines how to decompress the contents. The default, 'Auto', will try to determine the compression automatically.   | null, string | `null` |
+| `/parser/format`          | Format                  | Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
+| `/parser/format/type`     | Type                    |                                                                                                               | string |  |
+| `/advanced`               |                         | Options for advanced users. You should not typically need to modify these.                                    | object |  |
+| `/advanced/ascendingKeys` | Ascending Keys          | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors.| boolean | `false` |
+| `/advanced/endpoint`      | AWS Endpoint            | The AWS endpoint URI to connect to. Use if you're capturing from a S3-compatible API that isn't provided by AWS | string |  |
 
-#### Bindings
+#### Credentials
 
-| Property | Title| Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/stream`** | Prefix | Path to dataset in the bucket, formatted as `bucket-name/prefix-name`. | string | Required |
+Credentials for authenticating.  Use one of the following sets of options:
 
-### Sample
+| Property                                 | Title                   | Description                                                    | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Use `AWSAccessKey` to authenticate with a user account.        | string  | Required: `AWSAccessKey` |
+| **`/credentials/aws_access_key_id`**     | AWS Access Key ID       | AWS Access Key ID.                                             | string  | Required                 |
+| **`/credentials/aws_secret_access_key`** | AWS Secret Access key   | AWS Secret Access Key.                                         | string  | Required                 |
 
-```yaml
-captures:
-  ${PREFIX}/${CAPTURE_NAME}:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/source-s3:dev
-        config:
-          bucket: "my-bucket"
-          parser:
-            compression: zip
-            format:
-              type: csv
-              config:
-                delimiter: ","
-                encoding: UTF-8
-                errorThreshold: 5
-                headers: [ID, username, first_name, last_name]
-                lineEnding: "\\r"
-                quote: "\""
-          region: "us-east-1"
-    bindings:
-      - resource:
-          stream: my-bucket/${PREFIX}
-        target: ${PREFIX}/${COLLECTION_NAME}
+| Property                                 | Title                   | Description                                                    | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Use `AWSIAM` to authenticate as an IAM role.                   | string  | Required: `AWSIAM`       |
+| **`/credentials/aws_role_arn`**          | AWS Role ARN            | IAM Role to assume.                                            | string  | Required                 |
+| **`/credentials/aws_region`**            | AWS Region              | AWS Region to authenticate in.                                 | string  | Required                 |
 
-```
+| Property                                 | Title                   | Description                                                    | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Use `AWSAnonymous` to do anonymous authenciation               | string  | Required: `AWSAnonymous` |
 
 Your capture definition may be more complex, with additional bindings for different S3 prefixes within the same bucket.
 
 [Learn more about capture definitions.](../../../concepts/captures.md)
 
-### Advanced: Parsing cloud storage data
+#### Parser
 
 Cloud storage platforms like S3 can support a wider variety of file types
 than other data source systems. For each of these file types, Flow must parse
@@ -230,3 +218,41 @@ but you may need to specify for unusual datasets. These properties are:
   * Auto
 
 The sample specification [above](#sample) includes these fields.
+
+#### Bindings
+
+| Property | Title| Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/stream`** | Prefix | Path to dataset in the bucket, formatted as `bucket-name/prefix-name`. | string | Required |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-s3:dev
+        config:
+          bucket: "my-bucket"
+          region: "us-east-1"
+          credentials:
+            auth_type: "AWSAccessKey"
+            aws_access_key_id: "example-aws-access-key-id"
+            aws_secret_access_key: "example-aws-secret-access-key"
+          parser:
+            compression: zip
+            format:
+              type: csv
+              config:
+                delimiter: ","
+                encoding: UTF-8
+                errorThreshold: 5
+                headers: [ID, username, first_name, last_name]
+                lineEnding: "\\r"
+                quote: "\""
+    bindings:
+      - resource:
+          stream: my-bucket/${PREFIX}
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
