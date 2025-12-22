@@ -50,7 +50,7 @@ export const AzureAuthorizeComponent = () => {
     if (authCode === "error") {
         return (
             <span style={{ color: "red" }}>
-                We were unable to verify this worked. Please contact support.
+                We were unable to verify this worked. Try again and if the issue persists please contact support.
             </span>
         ); 
     }
