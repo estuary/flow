@@ -77,6 +77,14 @@ For nested pointers, you'll probably want to change the field name to omit slash
 
    3. Click **Apply**.
 
+   If you would like to remove fields entirely or hash their values, you can [redact](/security/redaction) them:
+
+   1. In the Schema table, click the **Redact** button for the field you wish to change.
+
+   2. In the **Redact Field** modal, select your desired redaction strategy.
+
+   3. Click **Apply**.
+
 6. Repeat steps 3 through 5 with other collections, if necessary.
 
 7. You can [backfill](/reference/backfilling-data) affected collections to ensure historical data is populated with your new projections.
