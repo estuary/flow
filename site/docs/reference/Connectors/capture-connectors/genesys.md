@@ -1,8 +1,8 @@
 # Genesys
 
-This connector captures data from Genesys into Flow collections.
+This connector captures data from Genesys into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-genesys:dev`](https://ghcr.io/estuary/source-genesys:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-genesys:dev`](https://ghcr.io/estuary/source-genesys:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -16,7 +16,7 @@ The following data resources are supported through the Genesys API:
 * [Teams](https://developer.genesys.cloud/devapps/api-explorer#post-api-v2-teams-search)
 * [Users](https://developer.genesys.cloud/useragentman/users/#get-api-v2-users)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -25,13 +25,13 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ### Authentication
 
-Genesys requires an OAuth client for authentication. To create an OAuth client in your Genesys account that will allow Flow to access data, follow the steps below or refer to [Genesys' documentation](https://help.mypurecloud.com/articles/create-an-oauth-client/).
+Genesys requires an OAuth client for authentication. To create an OAuth client in your Genesys account that will allow Estuary to access data, follow the steps below or refer to [Genesys' documentation](https://help.mypurecloud.com/articles/create-an-oauth-client/).
 
 1. Log into your [Genesys account](https://login.mypurecloud.com/#/authenticate).
 2. Click **Admin**.
 3. Under the **Integrations** section, click **OAuth**.
 4. Click the **+ Add Client** button.
-5. Enter an **App Name**, like "Estuary Flow OAuth Client".
+5. Enter an **App Name**, like "Estuary OAuth Client".
 6. Under **Grant Types**, select **Client Credentials**.
 7. In the **Roles** tab, select the appropriate role for the OAuth app.
 8. Click **Save**.
@@ -39,7 +39,7 @@ Genesys requires an OAuth client for authentication. To create an OAuth client i
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification files.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification files.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Genesys source connector.
 
 ### Properties

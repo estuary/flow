@@ -7,7 +7,7 @@ sidebar_position: 5
 After your account has been activated through the [web app](../concepts/web-app.md), you can begin to work with your data flows from the command line.
 This is not required, but it enables more advanced workflows or might simply be your preference.
 
-Flow has a single binary, **flowctl**.
+Estuary has a single binary, **flowctl**.
 
 flowctl is available for:
 
@@ -43,7 +43,7 @@ The flowctl source files are also on GitHub [here](https://go.estuary.dev/flowct
 
 Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
 
-1. Ensure that you have an Estuary account and have signed into the Flow web app before.
+1. Ensure that you have an Estuary account and have signed into the Estuary web app before.
 
 2. In the terminal of your local development environment, run:
 

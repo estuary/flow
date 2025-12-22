@@ -4,7 +4,7 @@ slug: /reference/openmetrics-api/
 
 # OpenMetrics API
 
-Estuary's OpenMetrics API exposes detailed metrics data on your captures, derivations, and materializations. This allows you to track your Estuary Flow usage and pipeline activity in depth.
+Estuary's OpenMetrics API exposes detailed metrics data on your captures, derivations, and materializations. This allows you to track your Estuary usage and pipeline activity in depth.
 Integrating the API with monitoring platforms like Prometheus or Datadog also allows you to implement alerts with greater specificity than Estuary currently offers natively.
 
 ## Using the OpenMetrics API

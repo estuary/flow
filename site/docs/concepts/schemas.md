@@ -3,17 +3,17 @@ sidebar_position: 9
 ---
 # Schemas
 
-Flow documents and [collections](collections.md) always have an associated schema
+Estuary's documents and [collections](collections.md) always have an associated schema
 that defines the structure, representation, and constraints
 of your documents.
 Collections must have one schema, but [may have two distinct schemas](#write-and-read-schemas): one for when documents are added to the collection, and one for when documents are read from that collection.
 
 Schemas are a powerful tool for data quality.
-Flow verifies every document against its schema whenever it's read or written,
+Estuary verifies every document against its schema whenever it's read or written,
 which provides a strong guarantee that your collections hold only "clean" data,
 and that bugs and invalid documents are caught before they can impact downstream data products.
 
-In most cases, Flow generates a functioning schema on your behalf during the [discovery](./captures.md#discovery)
+In most cases, Estuary generates a functioning schema on your behalf during the [discovery](./captures.md#discovery)
 phase of capture.
 In advanced use cases, however, customizing your schema becomes more important.
 
@@ -21,7 +21,7 @@ In advanced use cases, however, customizing your schema becomes more important.
 
 [JSON Schema](https://json-schema.org/understanding-json-schema/)
 is an expressive open standard for defining the schema and structure of documents.
-Flow uses it for all schemas defined in Flow specifications.
+Estuary uses it for all schemas defined in Data Flow specifications.
 
 JSON Schema goes well beyond basic type information and can model
 [tagged unions](https://en.wikipedia.org/wiki/Tagged\_union),
@@ -39,19 +39,19 @@ before they can impact your production data products.
 ### Generation
 
 When capturing data from an external system,
-Flow can usually generate suitable JSON schemas on your behalf.
+Estuary can usually generate suitable JSON schemas on your behalf.
 
 [Learn more about using connectors](connectors.md#using-connectors)
 
-For systems like relational databases, Flow will typically generate a complete JSON schema by introspecting the table definition.
+For systems like relational databases, Estuary will typically generate a complete JSON schema by introspecting the table definition.
 
-For systems that store unstructured data, Flow will typically generate a very minimal schema, and will rely on schema inference to fill in the details. See [continuous schema inference](#continuous-schema-inference) for more information.
+For systems that store unstructured data, Estuary will typically generate a very minimal schema, and will rely on schema inference to fill in the details. See [continuous schema inference](#continuous-schema-inference) for more information.
 
 ### Translations
 
-You must only provide Flow
+You must only provide Estuary
 a model of a given dataset _one time_, as a JSON schema.
-Having done that, Flow leverages static inference over your schemas
+Having done that, Estuary leverages static inference over your schemas
 to perform many build-time validations of your catalog entities,
 helping you catch potential problems early.
 
@@ -63,7 +63,7 @@ Schema inference is also used to provide translations into other schema flavors:
   in your endpoint system.
   A SQL connector will create table definitions with appropriate
   columns, types, and constraints.
-* Flow generates TypeScript definitions from schemas to provide
+* Estuary generates TypeScript definitions from schemas to provide
   compile-time type checks of user lambda functions.
   These checks are immensely helpful for surfacing mismatched expectations around,
   for example, whether a field could ever be null or is misspelt —
@@ -83,8 +83,8 @@ properties:
     description: A description of myField
 ```
 
-Flow extends JSON Schema with additional annotation keywords,
-which provide Flow with further instruction for how documents should be processed.
+Estuary extends JSON Schema with additional annotation keywords,
+which provide Estuary with further instruction for how documents should be processed.
 In particular, the [`reduce`](#reduce-annotations) and [`default`](#default-annotations) keywords
 help you define merge behaviors and avoid null values at your destination systems, respectively.
 
@@ -112,7 +112,7 @@ Your schema can be quite permissive or as strict as you wish.
 There are a few things to know, however.
 
 * The top-level type must be `object`.
-  Flow adds a bit of metadata to each of your documents under the `_meta` property,
+  Estuary adds a bit of metadata to each of your documents under the `_meta` property,
   which can only be done with a top-level object.
 
 * Any fields that are part of the collection's `key` must provably exist
@@ -143,7 +143,7 @@ To fix the above schema, change `required` to `[id, value]`.
 ### Organization
 
 JSON schema has a `$ref` keyword which is used to reference a schema stored elsewhere.
-Flow resolves `$ref` as a relative URL of the current file,
+Estuary resolves `$ref` as a relative URL of the current file,
 and also supports
 [JSON fragment pointers](https://datatracker.ietf.org/doc/html/rfc6901#section-6)
 for referencing a specific schema within a larger schema document,
@@ -232,7 +232,7 @@ You can safely experiment with the read schema at your convenience, knowing the 
 To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
 Make sure that the field used as the collection key is defined in both schemas.
 
-You can either perform this manually, or use Flow's **Schema Inference** tool to infer a read schema.
+You can either perform this manually, or use Estuary's **Schema Inference** tool to infer a read schema.
 Schema Inference is available in the web app when you [edit a capture or materialization](/guides/edit-data-flows) and [create a materialization](../guides/create-dataflow.md#create-a-materialization).
 
 **Before separating your write and read schemas, have the following in mind:**
@@ -272,28 +272,28 @@ collections:
 
 ## Reductions
 
-Flow collections have keys, and multiple documents
+Estuary's collections have keys, and multiple documents
 may be added to collections that share a common key.
-When this happens, Flow will opportunistically merge all such documents
+When this happens, Estuary will opportunistically merge all such documents
 into a single representative document for that key through a process
 known as _reduction_.
 
-Flow's default is simply to retain the most recent document of a given key,
+Estuary's default is simply to retain the most recent document of a given key,
 which is often the behavior that you're after.
 Schema `reduce` annotations allow for far more powerful behaviors.
 
-The Flow runtime performs reductions frequently and continuously
+The Estuary runtime performs reductions frequently and continuously
 to reduce the overall movement and cost of data transfer and storage.
 A torrent of input collection documents can often become a trickle
 of reduced updates that must be stored or materialized into your
 endpoints.
 
 :::info
-Flow never delays processing in order to batch or combine more documents,
+Estuary never delays processing in order to batch or combine more documents,
 as some systems do (commonly known as _micro-batches_, or time-based _polling_).
 Every document is processed as quickly as possible, from end to end.
 
-Instead Flow uses optimistic transaction pipelining to do as much useful work as possible,
+Instead Estuary uses optimistic transaction pipelining to do as much useful work as possible,
 while it awaits the commit of a previous transaction.
 This natural back-pressure affords plenty of opportunity for
 data reductions while minimizing latency.
@@ -304,13 +304,13 @@ data reductions while minimizing latency.
 Reduction behaviors are defined by `reduce`
 [JSON schema annotations](#annotations)
 within your document schemas.
-These annotations provide Flow with the specific reduction strategies
+These annotations provide Estuary with the specific reduction strategies
 to use at your various document locations.
 
 If you're familiar with the _map_ and _reduce_ primitives present in
 Python, Javascript, and many other languages, this should feel familiar.
 When multiple documents map into a collection with a common key,
-Flow reduces them on your behalf by using your `reduce` annotations.
+Estuary reduces them on your behalf by using your `reduce` annotations.
 
 Here's an example that sums an integer:
 
@@ -343,7 +343,7 @@ Today you would commonly consider a unique event ID to be its natural key.
 You would load all events into your warehouse and perform query-time aggregation.
 When that becomes too slow, you periodically refresh materialized views for fast-but-stale queries.
 
-With Flow, you instead use a collection key of your _fact table dimensions_,
+With Estuary, you instead use a collection key of your _fact table dimensions_,
 and use `reduce` annotations to define your metric aggregations.
 A materialization of the collection then maintains a
 database table which is keyed on your dimensions,
@@ -376,11 +376,11 @@ You can combine schema conditionals with annotations to build
 
 ## Continuous schema inference
 
-Flow automatically infers a JSON schema for every captured collection. This schema is updated automatically as data is captured.
+Estuary automatically infers a JSON schema for every captured collection. This schema is updated automatically as data is captured.
 
-For some systems, like relational databases, Flow is able to determine a complete JSON schema for each collection up front, before even starting the capture. But many other systems are not able to provide detailed and accurate information about the data before it's captured. Often, this is because the source system data is unstructured or loosely structured. For these systems, the schema can only be known after the data is captured. Continuous schema inference is most useful in these scenarios.
+For some systems, like relational databases, Estuary is able to determine a complete JSON schema for each collection up front, before even starting the capture. But many other systems are not able to provide detailed and accurate information about the data before it's captured. Often, this is because the source system data is unstructured or loosely structured. For these systems, the schema can only be known after the data is captured. Continuous schema inference is most useful in these scenarios.
 
-For example, say you're capturing from MongoDB. MongoDB documents must all have an `_id` field, but that is essentially the only requirement. You can't know what other fields may exist on MongoDB documents until you've read them. When you set up a capture from MongoDB using the Flow web app, the collection specifications will look something like this:
+For example, say you're capturing from MongoDB. MongoDB documents must all have an `_id` field, but that is essentially the only requirement. You can't know what other fields may exist on MongoDB documents until you've read them. When you set up a capture from MongoDB using Estuary's web app, the collection specifications will look something like this:
 
 ```yaml
 key: [ /_id ]

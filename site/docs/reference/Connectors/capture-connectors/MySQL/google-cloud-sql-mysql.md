@@ -6,7 +6,7 @@ sidebar_position: 5
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -25,11 +25,11 @@ To use this connector, you'll need a MySQL database setup with the following.
 
 ## Setup
 
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
 
-      - [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
+      - [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add [Estuary IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
@@ -47,7 +47,7 @@ To use this connector, you'll need a MySQL database setup with the following.
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
+  COMMENT 'User account for Estuary MySQL data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 ```
@@ -66,7 +66,7 @@ MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.
 
 If you intend to capture tables including columns of the type `DATETIME`,
 and `time_zone` is set to `SYSTEM`,
-Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+Estuary won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
 To avoid this, you must explicitly set the time zone for your database.
 
 You can:
@@ -96,14 +96,14 @@ If you are unable to set the `time_zone` in the database and need to capture tab
 
 When the MySQL capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Estuary.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
@@ -203,4 +203,4 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 
 ### Empty Collection Key
 
-Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).
+Every Estuary collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).

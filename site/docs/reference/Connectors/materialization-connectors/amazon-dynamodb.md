@@ -2,9 +2,9 @@
 
 # Amazon DynamoDB
 
-This connector materializes Flow collections into tables in an Amazon DynamoDB.
+This connector materializes Estuary collections into tables in an Amazon DynamoDB.
 
-It is available for use in the Flow web application. For local development or open-source workflows,
+It is available for use in the Estuary web application. For local development or open-source workflows,
 [`ghcr.io/estuary/materialize-dynamodb:dev`](https://ghcr.io/estuary/materialize-dynamodb:dev)
 provides the latest version of the connector as a Docker image. You can also follow the link in your
 browser to see past image versions.
@@ -53,7 +53,7 @@ collection and materialize that collection instead.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog
+You configure connectors either in the Estuary web app, or by directly editing the catalog
 specification file. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 about using connectors. The values and specification sample below provide configuration details
 specific to the DynamoDB materialization connector.

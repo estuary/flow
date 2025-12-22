@@ -1,27 +1,27 @@
 # Reduction Types
 
-Flow implements a number of reduction strategies for use within schemas,
-which tell Flow how two instances of a document can be meaningfully
+Estuary implements a number of reduction strategies for use within schemas,
+which tell Estuary how two instances of a document can be meaningfully
 combined together.
 
 ## Guarantees
 
-In Flow, documents having the same collection key and written to the same
+In Estuary, documents having the same collection key and written to the same
 logical partition have a "total order", meaning that one document is
 universally understood to have been written _before_ the other.
 
 This doesn't hold for documents of the same key written to _different_
 logical partitions. These documents can be considered "mostly" ordered:
-Flow uses timestamps to understand the relative ordering of these documents,
+Estuary uses timestamps to understand the relative ordering of these documents,
 and while this largely does the "Right Thing", small amounts of re-ordering
 are possible and even likely.
 
-Flow guarantees exactly-once semantics within derived collections and
+Estuary guarantees exactly-once semantics within derived collections and
 materializations (so long as the target system supports transactions),
 and a document reduction will be applied exactly one time.
 
-Flow does _not_ guarantee that documents are reduced in sequential order,
-directly into a "base" document. For example, documents of a single Flow
+Estuary does _not_ guarantee that documents are reduced in sequential order,
+directly into a "base" document. For example, documents of a single Data Flow
 ingest transaction are combined together into one document per collection key
 at ingestion time -- and that document may be again combined with still others,
 and so on until a final reduction into the base document occurs.
@@ -151,7 +151,7 @@ and as such their
 applicability at a given document location can be controlled through the use
 of [conditional](https://json-schema.org/understanding-json-schema/reference/conditionals.html)
 keywords within the schema like `oneOf` or `if/then/else`.
-This means Flow's built-in strategies below can be combined with schema
+This means Estuary's built-in strategies below can be combined with schema
 conditionals to construct a wider variety of custom reduction behaviors.
 
 For example, see [reset_counter.flow.yaml](reset_counter.flow.yaml) for a reset-able counter.

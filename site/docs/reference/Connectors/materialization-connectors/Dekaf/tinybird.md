@@ -1,13 +1,13 @@
 
 # Tinybird
 
-This connector materializes Flow collections as Kafka-compatible messages that a Tinybird Kafka consumer can read. [Tinybird](https://www.tinybird.co/) is a data platform for user-facing analytics.
+This connector materializes Estuary collections as Kafka-compatible messages that a Tinybird Kafka consumer can read. [Tinybird](https://www.tinybird.co/) is a data platform for user-facing analytics.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * A Tinybird account
 
 ## Variants
@@ -20,7 +20,7 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to Tinybird
+## Connecting Estuary to Tinybird
 
 When you create a new workspace in Tinybird, you may be able to choose between [**Tinybird Classic**](#classic-workspaces) and [**Tinybird Forward**](#forward-workspaces).
 Classic is based on UI configuration while Forward is based on CLI configuration, so each type of workspace requires different setup steps.
@@ -87,7 +87,7 @@ You will then be able to view your Dekaf data in your Tinybird workspace.
 
 In a Tinybird Classic workspace, create a new Data Source using the Kafka Connector.
 
-![Configure Estuary Flow Data Source](../../connector-images/tinybird-dekaf-connection.png)
+![Configure Estuary Data Source](../../connector-images/tinybird-dekaf-connection.png)
 
 To configure the connection details, use the following settings.
 
@@ -102,7 +102,7 @@ Tick the "Decode Avro messages with Schema Registry" box, and use the following 
 * Username: The same as your SASL username
 * Password: The same as your SASL password
 
-![Configure Estuary Flow Schema Registry](../../connector-images/tinybird-schema-registry-setup.png)
+![Configure Estuary Schema Registry](../../connector-images/tinybird-schema-registry-setup.png)
 
 Click Next and you will see a list of topics. These topics are the collections you added to your materialization.
 Select the collection you want to ingest into Tinybird, and click Next.
@@ -112,13 +112,13 @@ Configure your consumer group as needed.
 Finally, you will see a preview of the Data Source schema. Feel free to make any modifications as required, then click
 Create Data Source.
 
-This will complete the connection with Tinybird, and new data from the Estuary Flow collection will arrive in your
+This will complete the connection with Tinybird, and new data from the Estuary collection will arrive in your
 Tinybird Data Source in real-time.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 
@@ -156,7 +156,7 @@ materializations:
 
 ## Configuring support for deletions
 
-Many Flow connectors capture a stream of change data which can include deletions, represented by the [`_meta/op` field](/reference/deletions). By default, the schema that Tinybird infers from your data won't include support for these deletions documents. The reason for this is that we frequently don't include the entire document that got deleted, and instead simply include its key. This will violate non-null constraints that get inferred at dataflow creation time.
+Many Estuary connectors capture a stream of change data which can include deletions, represented by the [`_meta/op` field](/reference/deletions). By default, the schema that Tinybird infers from your data won't include support for these deletions documents. The reason for this is that we frequently don't include the entire document that got deleted, and instead simply include its key. This will violate non-null constraints that get inferred at dataflow creation time.
 
 Enabling deletions will require using the connector's CDC deletion mode.
 

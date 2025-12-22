@@ -1,14 +1,14 @@
 
 # StarTree
 
-This connector materializes Flow collections as Kafka-compatible messages that a StarTree Kafka consumer can read. [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
+This connector materializes Estuary collections as Kafka-compatible messages that a StarTree Kafka consumer can read. [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
 low-latency analytics on large-scale data.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * A StarTree account
 
 ## Variants
@@ -21,7 +21,7 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to StarTree
+## Connecting Estuary to StarTree
 
 1. In the StarTree UI, navigate to the **Data Sources** section and choose **Add New Data Source**.
 
@@ -45,8 +45,8 @@ Once the connector is created, note the full materialization name, such as `YOUR
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

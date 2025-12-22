@@ -1,15 +1,15 @@
 ---
-description: This connector materializes delta updates of Flow collections into an S3 bucket in the Apache Parquet format.
+description: This connector materializes delta updates of Estuary collections into an S3 bucket in the Apache Parquet format.
 ---
 
 # Apache Parquet Files in Amazon S3
 
 This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
-Flow collections into an S3 bucket in the Apache Parquet format.
+Estuary collections into an S3 bucket in the Apache Parquet format.
 
-The delta updates are batched within Flow, converted to Parquet files, and then pushed to the S3 bucket
+The delta updates are batched within Estuary, converted to Parquet files, and then pushed to the S3 bucket
 at a time interval that you set. Files are limited to a configurable maximum size. Each materialized
-Flow collection will produce many separate files.
+Estuary collection will produce many separate files.
 
 [`ghcr.io/estuary/materialize-s3-parquet:dev`](https://ghcr.io/estuary/materialize-s3-parquet:dev)
 provides the latest connector image. You can also follow the link in your browser to see past image
@@ -35,7 +35,7 @@ To use this connector, you'll need:
 ## Configuration
 
 Use the below properties to configure the materialization, which will direct one or more of your
-Flow collections to your bucket.
+Estuary collections to your bucket.
 
 ### Properties
 
@@ -85,7 +85,7 @@ materializations:
 
 ## Parquet Data Types
 
-Flow collection fields are written to Parquet files based on the data type of the field. Depending
+Estuary collection fields are written to Parquet files based on the data type of the field. Depending
 on the field data type, the Parquet data type may be a [primitive Parquet
 type](https://parquet.apache.org/docs/file-format/types/), or a primitive Parquet type extended by a
 [logical Parquet type](https://github.com/apache/parquet-format/blob/master/LogicalTypes.md).
@@ -127,7 +127,7 @@ starting back over from 0.
 ## Eventual Consistency
 
 In rare circumstances, recently materialized files may be re-written by files with the same name if
-the materialization shard is interrupted in the middle of processing a Flow transaction and the
+the materialization shard is interrupted in the middle of processing a transaction and the
 transaction must be re-started. Files that were committed as part of a completed transaction will
 never be re-written. In this way, eventually all collection data will be written to files
 effectively-once, although inconsistencies are possible when accessing the most recently written

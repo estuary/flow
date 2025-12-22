@@ -1,12 +1,12 @@
 # Salesforce — Historical data (deprecated)
 
-This connector captures data from Salesforce objects into Flow collections.
+This connector captures data from Salesforce objects into Estuary collections.
 It uses batch processing and is ideal for syncing your historical Salesforce data.
 
 [A separate connector is available for real-time Salesforce data capture](./salesforce-real-time.md).
 For help using both connectors in parallel, [contact your Estuary account manager](mailto:info@estuary.dev).
 
-This connector is available for use in the Flow web application.
+This connector is available for use in the Estuary web application.
 For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce:dev`](https://ghcr.io/estuary/source-salesforce:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 :::warning
@@ -53,9 +53,9 @@ remove the bindings for objects you don't want to capture.
 
 ## Prerequisites
 
-### Using OAuth2 to authenticate with Salesforce in the Flow web app
+### Using OAuth2 to authenticate with Salesforce in the Estuary web app
 
-If you're using the Flow web app, you'll be prompted to authenticate with Salesforce using OAuth. You'll need the following:
+If you're using the Estuary web app, you'll be prompted to authenticate with Salesforce using OAuth. You'll need the following:
 
 * A Salesforce organization on the Enterprise tier, or with an equivalent [API request allocation](https://developer.salesforce.com/docs/atlas.en-us.salesforce_app_limits_cheatsheet.meta/salesforce_app_limits_cheatsheet/salesforce_app_limits_platform_api.htm).
 
@@ -66,7 +66,7 @@ If you're using the Flow web app, you'll be prompted to authenticate with Salesf
 If you're working with flowctl and writing specifications in a local development environment,
 you'll need to manually supply OAuth credentials. You'll need:
 
-* The items required to [set up with OAuth2](#using-oauth2-to-authenticate-with-salesforce-in-the-flow-web-app).
+* The items required to [set up with OAuth2](#using-oauth2-to-authenticate-with-salesforce-in-the-estuary-web-app).
 
 * A Salesforce developer application with a generated client ID, client secret, and refresh token. [See setup steps.](#create-a-developer-application-and-generate-authorization-tokens)
 
@@ -74,15 +74,15 @@ you'll need to manually supply OAuth credentials. You'll need:
 
 #### Create a read-only Salesforce user
 
-Creating a dedicated read-only Salesforce user is a simple way to specify which objects Flow will capture.
+Creating a dedicated read-only Salesforce user is a simple way to specify which objects Estuary will capture.
 This is useful if you have a large amount of data in your Salesforce organization.
 
 1. While signed in as an administrator, create a [new profile](https://help.salesforce.com/s/articleView?id=sf.users_profiles_cloning.htm&type=5) by cloning the standard [Minimum Access](https://help.salesforce.com/s/articleView?id=sf.standard_profiles.htm&type=5) profile.
 
-2. [Edit the new profile's permissions](https://help.salesforce.com/s/articleView?id=sf.perm_sets_object_perms_edit.htm&type=5). Grant it read access to all the standard and custom objects you'd like to capture with Flow.
+2. [Edit the new profile's permissions](https://help.salesforce.com/s/articleView?id=sf.perm_sets_object_perms_edit.htm&type=5). Grant it read access to all the standard and custom objects you'd like to capture with Estuary.
 
 3. [Create a new user](https://help.salesforce.com/s/articleView?id=sf.adding_new_users.htm&type=5), applying the profile you just created.
-You'll use this user's email address and password to authenticate Salesforce in Flow.
+You'll use this user's email address and password to authenticate Salesforce in Estuary.
 
 #### Create a developer application and generate authorization tokens
 
@@ -101,7 +101,7 @@ Through this process, you'll obtain the client ID, client secret, and refresh to
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
+You configure connectors either in the Estuary web app, or by directly editing the Data Flow specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the batch Salesforce source connector.
 
 ### Formula Fields
@@ -154,14 +154,14 @@ reduce:
   strategy: merge
 ```
 
-5. If the above line was missing you must also run the command `flowctl catalog publish --source flow.yaml` at the root level of your local folder structure to publish the changes to Flow.
+5. If the above line was missing you must also run the command `flowctl catalog publish --source flow.yaml` at the root level of your local folder structure to publish the changes to Estuary.
 
 ### Properties
 
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-salesforce-in-the-flow-web-app),
+If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-salesforce-in-the-estuary-web-app),
 so you won't need the `/credentials` values listed here.
 
 | Property | Title | Description | Type | Required/Default |

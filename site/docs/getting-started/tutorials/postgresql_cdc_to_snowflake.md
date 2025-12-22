@@ -12,13 +12,13 @@ sidebar_position: 1
 
 ## Introduction<a id="introduction"></a>
 
-In this tutorial, we'll set up a streaming CDC pipeline from PostgreSQL to Snowflake using Estuary Flow. By the end, you’ll have learned everything you need to know about building a pipeline on your own.
+In this tutorial, we'll set up a streaming CDC pipeline from PostgreSQL to Snowflake using Estuary. By the end, you’ll have learned everything you need to know about building a pipeline on your own.
 
-You'll use Flow's PostgreSQL capture connector and Snowflake materialization connector to set up an end-to-end CDC pipeline in three steps:
+You'll use Estuary's PostgreSQL capture connector and Snowflake materialization connector to set up an end-to-end CDC pipeline in three steps:
 
 1. First, you’ll ingest change event data from a PostgreSQL database, using a table filled with generated realistic product data.
 
-2. Then, you’ll learn how to configure Flow to persist data as collections while maintaining data integrity.
+2. Then, you’ll learn how to configure Estuary to persist data as collections while maintaining data integrity.
 
 3. And finally, you will see how you can materialize these collections in Snowflake to make them ready for analytics!
 
@@ -26,7 +26,7 @@ By the end of this tutorial, you'll have established a robust and efficient data
 
 Before you get started, make sure you do two things.
 
-1. Sign up for Estuary Flow [here](https://dashboard.estuary.dev/register). It’s simple, fast and free.
+1. Sign up for Estuary [here](https://dashboard.estuary.dev/register). It’s simple, fast and free.
 
 2. Make sure you also join the [Estuary Slack Community](https://estuary-dev.slack.com/ssb/redirect#/shared-invite/email). Don’t struggle. Just ask a question.
 
@@ -46,16 +46,16 @@ This tutorial will assume you have access to the following things:
 
 - Docker: for convenience, we are providing a docker compose definition which will allow you to spin up a database and a fake data generator service in about 5 seconds!
 
-- ngrok: Flow is a fully managed service. Because the database used in this tutorial will be running on your machine, you’ll need something to expose it to the internet. [ngrok](https://ngrok.com/) is a lightweight tool that does just that.
+- ngrok: Estuary is a fully managed service. Because the database used in this tutorial will be running on your machine, you’ll need something to expose it to the internet. [ngrok](https://ngrok.com/) is a lightweight tool that does just that.
 
-- Snowflake account: The target data warehouse for our flow is Snowflake. In order to follow along with the tutorial, a trial account is perfectly fine.
+- Snowflake account: The target data warehouse for our data flow is Snowflake. In order to follow along with the tutorial, a trial account is perfectly fine.
 
 
 ## Step 1. Set up source database<a id="step-1-set-up-source-database"></a>
 
 ### PostgreSQL setup<a id="postgresql-setup"></a>
 
-As this tutorial is focused on CDC replication from PostgreSQL, we’ll need a database. We recommend you create this database first, so you can learn Flow more easily. Then try these steps on your own database. Let’s take a look at what we are working with!
+As this tutorial is focused on CDC replication from PostgreSQL, we’ll need a database. We recommend you create this database first, so you can learn Estuary more easily. Then try these steps on your own database. Let’s take a look at what we are working with!
 
 Save the below `yaml` snippet as a file called `docker-compose.yml`. This `docker-compose.yml` file contains the service definitions for the PostgreSQL database and the mock data generator service.
 
@@ -130,7 +130,7 @@ CREATE TABLE "public"."products" (
 
 If you take a closer look at the schema definition, you can see that in the `COMMENT` attribute we define Python snippets which actually tell Datagen how to generate fake data for those fields!
 
-Finally, create the `init.sql` file, which contains the database-level requirements to enable Flow to stream CDC data.
+Finally, create the `init.sql` file, which contains the database-level requirements to enable Estuary to stream CDC data.
 
 ```sql title="init.sql"
 CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
@@ -153,7 +153,7 @@ ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
 ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, public.products;
 ```
 
-In the `init.sql` file, you create the products table and all the database objects Flow requires for real-time CDC streaming.
+In the `init.sql` file, you create the products table and all the database objects Estuary requires for real-time CDC streaming.
 
 
 ### Configuring PostgreSQL for CDC<a id="configuring-postgresql-for-cdc"></a>
@@ -222,7 +222,7 @@ After a few seconds, you should see that both services are up and running. The `
 postgres_cdc  | LOG:  database system is ready to accept connections
 ```
 
-While the `datagen` service will be a little bit more spammy, as it prints every record it generates, but don’t be alarmed, this is enough for us to verify that both are up and running. Let’s see how we can expose the database so Flow can connect to it.
+While the `datagen` service will be a little bit more spammy, as it prints every record it generates, but don’t be alarmed, this is enough for us to verify that both are up and running. Let’s see how we can expose the database so Estuary can connect to it.
 
 
 ### Expose the database to the internet via ngrok<a id="expose-the-database-to-the-internet-via-ngrok"></a>
@@ -238,7 +238,7 @@ ngrok tcp 5432
 You should immediately be greeted with a screen that contains the public URL for the tunnel we just started! In the example above, the public URL `5.tcp.eu.ngrok.io:14407` is mapped to `localhost:5432`, which is the address of the Postgres database.
 
 :::note
-Don’t close this window while working on the tutorial as this is required to keep the connections between Flow and the database alive.
+Don’t close this window while working on the tutorial as this is required to keep the connections between Estuary and the database alive.
 :::
 
 Before we jump into setting up the replication, you can quickly verify the data being properly generated by connecting to the database and peeking into the products table, as shown below:
@@ -275,7 +275,7 @@ By executing a `count(*)` statement a few seconds apart you are able to verify t
 
 ## Step 2. Set up a Capture<a id="step-2-set-up-a-capture"></a>
 
-Good news, the hard part is over! Smooth sailing from here on out. Head over to your Flow dashboard (if you haven’t registered yet, you can do so [here](https://dashboard.estuary.dev/register).) and create a new **Capture.** A capture is how Flow ingests data from an external source. Every Data Flow starts with a Capture.
+Good news, the hard part is over! Smooth sailing from here on out. Head over to your Estuary dashboard (if you haven’t registered yet, you can do so [here](https://dashboard.estuary.dev/register).) and create a new **Capture.** A capture is how Estuary ingests data from an external source. Every Data Flow starts with a Capture.
 
 Go to the sources page by clicking on the **Sources** on the left hand side of your screen, then click on **+ New Capture**
 
@@ -285,7 +285,7 @@ Configure the connection to the database based on the information we gathered in
 
 ![Configure Capture](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//capture_configuration_89e2133f83/capture_configuration_89e2133f83.png)
 
-On the following page, we can configure how our incoming data should be represented in Flow as collections. As a quick refresher, let’s recap how Flow represents data on a high level.
+On the following page, we can configure how our incoming data should be represented in Estuary as collections. As a quick refresher, let’s recap how Estuary represents data on a high level.
 
 **Documents**
 
@@ -293,9 +293,9 @@ The documents of your flows are stored in collections: real-time data lakes of J
 
 **Schemas**
 
-Flow documents and collections always have an associated schema that defines the structure, representation, and constraints of your documents. In most cases, Flow generates a functioning schema on your behalf during the discovery phase of capture, which has already automatically happened - that’s why you’re able to take a peek into the structure of the incoming data!
+Estuary's documents and collections always have an associated schema that defines the structure, representation, and constraints of your documents. In most cases, Estuary generates a functioning schema on your behalf during the discovery phase of capture, which has already automatically happened - that’s why you’re able to take a peek into the structure of the incoming data!
 
-To see how Flow parsed the incoming records, click on the Collection tab and verify the inferred schema looks correct.
+To see how Estuary parsed the incoming records, click on the Collection tab and verify the inferred schema looks correct.
 
 ![Configure Collections](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//collections_configuration_34e53025c7/collections_configuration_34e53025c7.png)
 
@@ -307,9 +307,9 @@ Before you advance to the next step, let’s take a look at the other configurat
 
 - **Breaking changes re-version collections**
 
-All of these settings relate to how Flow handles schema evolution, so let’s take a quick detour to explain them from a high-level perspective.
+All of these settings relate to how Estuary handles schema evolution, so let’s take a quick detour to explain them from a high-level perspective.
 
-Estuary Flow's schema evolution feature seamlessly handles updates to dataset structures within a Data Flow, ensuring uninterrupted operation. Collection specifications define each dataset, including key, schema, and partitions. When specs change, schema evolution automatically updates associated components to maintain compatibility.
+Estuary's schema evolution feature seamlessly handles updates to dataset structures within a Data Flow, ensuring uninterrupted operation. Collection specifications define each dataset, including key, schema, and partitions. When specs change, schema evolution automatically updates associated components to maintain compatibility.
 
 It addresses breaking changes by updating materializations or recreating collections with new names, preventing disruptions. Common causes of breaking changes include modifications to collection schemas, which require updates to materializations.
 
@@ -322,11 +322,11 @@ For the sake of this tutorial, feel free to leave everything at its default sett
 
 ## Step 3. Set up a Materialization<a id="step-3-set-up-a-materialization"></a>
 
-Similarly to the source side, we’ll need to set up some initial configuration in Snowflake to allow Flow to materialize collections into a table.
+Similarly to the source side, we’ll need to set up some initial configuration in Snowflake to allow Estuary to materialize collections into a table.
 
-Preparing Snowflake for use with Estuary Flow involves the following steps:
+Preparing Snowflake for use with Estuary involves the following steps:
 
-1\. Keep the Flow web app open and open a new tab or window to access your Snowflake console.
+1\. Keep Estuary's web app open and open a new tab or window to access your Snowflake console.
 
 2\. Create a new SQL worksheet. This provides a platform to execute queries.
 
@@ -375,11 +375,11 @@ COMMIT;
 
 4\. Execute all the queries by clicking the drop-down arrow next to the Run button and selecting "Run All."
 
-5\. Snowflake will process the queries, setting up the necessary roles, databases, schemas, users, and warehouses for Estuary Flow.
+5\. Snowflake will process the queries, setting up the necessary roles, databases, schemas, users, and warehouses for Estuary.
 
-6\. Once the setup is complete, return to the Flow web application to continue with the integration process.
+6\. Once the setup is complete, return to Estuary's web application to continue with the integration process.
 
-Back in Flow, head over to the **Destinations** page, where you can [create a new Materialization](https://dashboard.estuary.dev/materializations/create).
+Back in Estuary, head over to the **Destinations** page, where you can [create a new Materialization](https://dashboard.estuary.dev/materializations/create).
 
 ![Add new Materialization](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//new_materialization_31df04d81f/new_materialization_31df04d81f.png)
 
@@ -399,7 +399,7 @@ The Update Delay parameter in Estuary materializations offers a flexible approac
 
 For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing your Snowflake warehouse to go idle and be suspended in between updates, which can significantly reduce the number of credits consumed.
 
-After the connection details are in place, the next step is to link the capture we just created to Flow is able to see collections we are loading data into from Postgres.
+After the connection details are in place, the next step is to link the capture we just created to Snowflake.
 
 You can achieve this by clicking on the “Source from Capture” button, and selecting the name of the capture from the table.
 
@@ -417,7 +417,7 @@ And that’s pretty much it, you’ve successfully published a real-time CDC pip
 
 Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based on the types of the original table in Postgres.
 
-To get a feel for how the data flow works, head over to the collection details page on the Flow web UI to see your changes immediately. On the Snowflake end, they will be materialized after the next update.
+To get a feel for how the data flow works, head over to the collection details page on Estuary's web UI to see your changes immediately. On the Snowflake end, they will be materialized after the next update.
 
 :::note
 Based on your configuration of the "Update Delay" parameter when setting up the Snowflake Materialization, you might have to wait until the configured amount of time passes for your changes to make it to the destination.
@@ -426,7 +426,7 @@ Based on your configuration of the "Update Delay" parameter when setting up the 
 
 ## Party time!<a id="party-time"></a>
 
-Congratulations! 🎉 You've successfully set up a CDC pipeline from PostgreSQL to Snowflake using Estuary Flow. In just a few minutes, you've learned how to configure log-based CDC replication, handle schema evolution, and deploy a robust data integration solution.
+Congratulations! 🎉 You've successfully set up a CDC pipeline from PostgreSQL to Snowflake using Estuary. In just a few minutes, you've learned how to configure log-based CDC replication, handle schema evolution, and deploy a robust data integration solution.
 
 Take a moment to celebrate your achievement! You've not only gained valuable technical knowledge but also demonstrated the agility and efficiency of modern data engineering practices. With your newfound skills, you're well-equipped to tackle complex data challenges and drive innovation in your organization.
 
@@ -462,7 +462,7 @@ drop schema if exists ESTUARY_SCHEMA;
 drop database if exists ESTUARY_DB;
 ```
 
-**Flow**
+**Estuary**
 
 In the UI, disable or delete any resources you don’t wish to keep.
 

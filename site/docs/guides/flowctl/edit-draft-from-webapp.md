@@ -31,11 +31,11 @@ To complete this workflow, you need:
 
 ## Identify the draft and pull it locally
 
-Drafts aren't currently visible in the Flow web app, but you can get a list with flowctl.
+Drafts aren't currently visible in Estuary's web app, but you can get a list with flowctl.
 
 1. Authorize flowctl.
 
-   1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
+   1. [Generate an Estuary refresh token](/guides/how_to_generate_refresh_token).
 
    2. Run `flowctl auth token --token <paste-token-here>`
 
@@ -68,7 +68,7 @@ Next, you'll make changes to the specification(s), test, and publish the draft.
 
 1. Open the YAML files that contain the specification you want to edit.
 
-2. Make changes. For guidance on how to construct Flow specifications, see the documentation for the entity type:
+2. Make changes. For guidance on how to construct Data Flow specifications, see the documentation for the entity type:
 
    * [Captures](../../concepts/captures.md#specification)
    * [Collections](../../concepts/collections.md#specification)
@@ -82,7 +82,7 @@ Next, you'll make changes to the specification(s), test, and publish the draft.
 
 5. Once this operation completes successfully, check to verify if the entity or entities are live. You can:
 
-   * Go to the appropriate tab in the Flow web app.
+   * Go to the appropriate tab in the web app.
 
    * Run `flowctl catalog list`, filtering by `--name`, `--prefix`, or entity type, for example `--capture`.
 

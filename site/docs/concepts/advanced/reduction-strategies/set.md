@@ -39,7 +39,7 @@ collections:
             additionalProperties:
               type: number
               reduce: { strategy: sum }
-            # Flow requires that all parents of locations with a reduce
+            # Estuary requires that all parents of locations with a reduce
             # annotation also have one themselves.
             # This strategy therefore must (currently) be here, but is ignored.
             reduce: { strategy: lastWriteWins }
@@ -94,7 +94,7 @@ collections:
           # (each a sorted array of [key, sum] 2-tuples):
           additionalProperties:
             type: array
-            # Flow requires that all parents of locations with a reduce
+            # Estuary requires that all parents of locations with a reduce
             # annotation also have one themselves.
             # This strategy therefore must (currently) be here, but is ignored.
             reduce: { strategy: lastWriteWins }

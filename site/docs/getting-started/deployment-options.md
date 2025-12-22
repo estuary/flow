@@ -4,9 +4,9 @@ title: Deployment Options
 sidebar_position: 3
 ---
 
-# Estuary Flow Deployment Options
+# Estuary Deployment Options
 
-Estuary Flow offers flexible deployment options to meet a range of organizational needs, from simple SaaS setups to
+Estuary offers flexible deployment options to meet a range of organizational needs, from simple SaaS setups to
 fully customized cloud deployments. This guide provides a detailed overview of the three main deployment options
 available: **Public Deployment**, **Private Deployment**, and **BYOC** (Bring Your Own Cloud).
 
@@ -15,7 +15,7 @@ perfect for those who don't require heavy customization or enhanced data securit
 
 ## Public Deployment
 
-Public Deployment is Estuary Flow's standard Software-as-a-Service (SaaS) offering, designed for ease of use and quick
+Public Deployment is Estuary's standard Software-as-a-Service (SaaS) offering, designed for ease of use and quick
 setup.
 
 ![Public Deployment](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//public_deployment_39e1de1537/public_deployment_39e1de1537.png)
@@ -52,11 +52,11 @@ join our [Slack channel](https://go.estuary.dev/slack) and send us a message!
 
 ## BYOC (Bring Your Own Cloud)
 
-With [BYOC](../private-byoc/byoc-deployments/byoc-deployments.md), customers can deploy Estuary Flow directly within their own cloud environment, allowing for greater
+With [BYOC](../private-byoc/byoc-deployments/byoc-deployments.md), customers can deploy Estuary directly within their own cloud environment, allowing for greater
 flexibility and control.
 
 BYOC is the ideal solution for organizations that have heavily invested in their cloud infrastructure and want to
-maintain full control while integrating Estuary Flow’s capabilities into their stack. This option offers the highest
+maintain full control while integrating Estuary’s capabilities into their stack. This option offers the highest
 flexibility in terms of customization and compliance.
 
 :::note
@@ -70,20 +70,20 @@ our [Slack channel](https://go.estuary.dev/slack) and send us a message!
   policies.
 - **Utilize existing cloud resources**: Leverage your current cloud setup, including any existing cloud credits or
   agreements.
-- **Customizable**: Tailor Estuary Flow's deployment to fit specific needs and compliance requirements.
+- **Customizable**: Tailor Estuary's deployment to fit specific needs and compliance requirements.
 - **Cost savings**: Potential to reduce costs by using existing cloud infrastructure and negotiated pricing.
 - **Flexible data residency**: You choose where data is stored and processed, ensuring compliance with regional
   regulations.
 
-## Self-hosting Flow
+## Self-hosting Estuary
 
-The Flow runtime is available under
-the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Flow
+The Estuary runtime is available under
+the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Estuary
 using a cloud provider of your choice.
 
 :::caution Beta
 Setup for self-hosting is not covered in this documentation, and full support is not guaranteed at this time.
-We recommend using the [hosted version of Flow](../concepts/web-app.md) for the best experience.
+We recommend using the [hosted version of Estuary](../concepts/web-app.md) for the best experience.
 If you'd still like to self-host, refer to the [GitHub repository](https://github.com/estuary/flow) or
 the [Estuary Slack](https://join.slack.com/t/estuary-dev/shared_invite/zt-86nal6yr-VPbv~YfZE9Q~6Zl~gmZdFQ).
 :::

@@ -1,7 +1,7 @@
 
 # SingleStore
 
-This connector materializes Flow collections as Kafka-compatible messages that a SingleStore Kafka consumer can read. [SingleStore](https://www.singlestore.com/) is a distributed SQL database designed for data-intensive applications,
+This connector materializes Estuary collections as Kafka-compatible messages that a SingleStore Kafka consumer can read. [SingleStore](https://www.singlestore.com/) is a distributed SQL database designed for data-intensive applications,
 offering high performance for both transactional and analytical workloads.
 
 Estuary also provides a [direct materialization with SingleStore](../MySQL/singlestore-mysql.md).
@@ -10,7 +10,7 @@ Estuary also provides a [direct materialization with SingleStore](../MySQL/singl
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * A SingleStore account
 
 ## Variants
@@ -23,13 +23,13 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to SingleStore
+## Connecting Estuary to SingleStore
 
 1. In the SingleStore Cloud Portal, navigate to the SQL Editor section of the Data Studio.
 
 2. Execute the following script to create a table and an ingestion pipeline to hydrate it.
 
-   This example will ingest data from the demo wikipedia collection (`/demo/wikipedia/recentchange-sampled`) in Estuary Flow. This becomes the `recentchange-sampled` topic once added to the SingleStore materialization.
+   This example will ingest data from the demo wikipedia collection (`/demo/wikipedia/recentchange-sampled`) in Estuary. This becomes the `recentchange-sampled` topic once added to the SingleStore materialization.
 
     ```sql
     CREATE TABLE test_table (id NUMERIC, server_name VARCHAR(255), title VARCHAR(255));
@@ -52,12 +52,12 @@ Once the connector is created, note the full materialization name, such as `YOUR
             FORMAT AVRO SCHEMA REGISTRY 'https://dekaf.estuary-data.com'
             ( id <- id, server_name <- server_name, title <- title );
     ```
-3. Your pipeline should now start ingesting data from Estuary Flow into SingleStore.
+3. Your pipeline should now start ingesting data from Estuary into SingleStore.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

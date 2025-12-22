@@ -1,13 +1,13 @@
 
 # Google BigQuery
 
-This Flow connector materializes Flow collections into tables within a Google BigQuery dataset.
+This connector materializes Estuary collections into tables within a Google BigQuery dataset.
 It allows both standard and [delta updates](#delta-updates).
 
 The connector uses your Google Cloud service account to materialize to BigQuery tables by way of files in a Google Cloud Storage (GCS) bucket.
 The tables in the bucket act as a temporary staging area for data storage and retrieval.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-bigquery:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-bigquery) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-bigquery:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-bigquery) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -46,8 +46,8 @@ During account creation:
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a BigQuery materialization, which will direct one or more of your Flow collections to your desired tables within a BigQuery dataset.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a BigQuery materialization, which will direct one or more of your Estuary collections to your desired tables within a BigQuery dataset.
 
 A BigQuery dataset is the top-level container within a project, and comprises multiple tables.
 You can think of a dataset as somewhat analogous to a schema in a relational database.
@@ -120,7 +120,7 @@ will be used to read query results.
 This connector supports both standard (merge) and [delta updates](/concepts/materialization/#delta-updates).
 The default is to use standard updates.
 
-Enabling delta updates will prevent Flow from querying for documents in your BigQuery table, which can reduce latency and costs for large datasets.
+Enabling delta updates will prevent Estuary from querying for documents in your BigQuery table, which can reduce latency and costs for large datasets.
 If you're certain that all events will have unique keys, enabling delta updates is a simple way to improve
 performance with no effect on the output.
 However, enabling delta updates is not suitable for all workflows, as the resulting table in BigQuery won't be fully reduced.
@@ -138,7 +138,7 @@ You can enable delta updates on a per-binding basis:
 ## Table Partitioning
 
 Tables are automatically created with
-[clustering](https://cloud.google.com/bigquery/docs/clustered-tables) based on the Flow collection
+[clustering](https://cloud.google.com/bigquery/docs/clustered-tables) based on the Estuary collection
 primary keys. Tables are not created with any other [partitioning](https://cloud.google.com/bigquery/docs/partitioned-tables), but pre-existing partitioned tables can be materialized to.
 
 It isn't possible to alter the partitioning of an existing table, but you can convert an existing table to one with partitioning by creating a new table and copying the data from the existing table into it. This can be done to tables that the connector is materializing to, as long as the materializing task is temporarily disabled while doing the conversion.

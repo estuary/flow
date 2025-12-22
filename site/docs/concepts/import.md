@@ -4,17 +4,17 @@ sidebar_position: 7
 # Imports
 
 When you work on a draft Data Flow [using `flowctl draft`](../guides/flowctl/edit-draft-from-webapp.md),
-your Flow specifications may be spread across multiple files.
+your Data Flow specifications may be spread across multiple files.
 For example, you may have multiple **materializations** that read from collections defined in separate files,
 or you could store a **derivation** separately from its **tests**.
 You might also reference specifications that aren't in your local draft.
 For example, you might create a derivation with a source collection that is not in your local draft.
 
-When you publish your draft, Flow automatically resolves references to specifications across the entirety of the [catalog](./catalogs.md).
-This is possible because every entity in Flow has a globally unique name.
+When you publish your draft, Estuary automatically resolves references to specifications across the entirety of the [catalog](./catalogs.md).
+This is possible because every entity in Estuary has a globally unique name.
 
 Alternatively, you can explicitly add other local specification files to the Data Flow's build process by including an `import` section
-in the Flow specification file you'll publish.
+in the Data Flow specification file you'll publish.
 When the draft is published, the imported specifications are treated as part of the file
 into which they are imported.
 All entities in the draft will be used to overwrite any existing version of those entities in the global catalog.
@@ -26,13 +26,13 @@ You could import `test.yaml` into `my-derivation.yaml` and then publish `my-deri
 
 A common pattern for a given draft is to have a single top-level specification
 file which explicitly imports all the others.
-Flow automatically generates such a top-level file for your draft when you begin a local work session
+Estuary automatically generates such a top-level file for your draft when you begin a local work session
 using `flowctl draft develop`.
 
 ## Specification
 
 The `import` section is structured as a list of partial or absolute URIs,
-which Flow always evaluates relative to the base directory of the current source file.
+which Estuary always evaluates relative to the base directory of the current source file.
 For example, these are possible imports within a collection:
 
 ```yaml
@@ -54,7 +54,7 @@ $ flowctl draft test --source https://raw.githubusercontent.com/estuary/flow-tem
 
 ## Fetch behavior
 
-Flow resolves, fetches, and validates all imports in your local environment during the catalog build process,
+Estuary resolves, fetches, and validates all imports in your local environment during the catalog build process,
 and then includes their fetched contents within the published catalog on the Estuary servers.
 The resulting catalog entities are thus self-contained snapshots of all resources
 _as they were_ at the time of publication.
@@ -67,7 +67,7 @@ regardless of whether the authority URL itself later changes or errors.
 
 ## Import types
 
-Almost always, the `import` stanza is used to import other Flow
+Almost always, the `import` stanza is used to import other Data Flow
 specification files.
 This is the default when given a string path:
 
@@ -121,7 +121,7 @@ for example as a target of a capture,
 there must be an _import path_ where either `foo.flow.yaml`
 imports `bar.flow.yaml` or vice versa.
 
-When you omit the `import` section, Flow chooses an import path for you.
+When you omit the `import` section, Estuary chooses an import path for you.
 When you explicitly include the `import` section, you have more control over the import path.
 
 Import paths can be direct:

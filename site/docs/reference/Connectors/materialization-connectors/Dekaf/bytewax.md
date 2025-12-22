@@ -1,14 +1,14 @@
 
 # Bytewax
 
-This connector materializes Flow collections as Kafka-compatible messages that a Bytewax Kafka consumer can read. [Bytewax](https://bytewax.io/) is a Python framework for building scalable dataflow applications, designed for
+This connector materializes Estuary collections as Kafka-compatible messages that a Bytewax Kafka consumer can read. [Bytewax](https://bytewax.io/) is a Python framework for building scalable dataflow applications, designed for
 high-throughput, low-latency data processing tasks.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * A Python development setup
 
 ## Variants
@@ -21,7 +21,7 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to Bytewax
+## Connecting Estuary to Bytewax
 
 1. Install Bytewax and the Kafka Python client:
 
@@ -39,7 +39,7 @@ Once the connector is created, note the full materialization name, such as `YOUR
    from bytewax.outputs import StdOutputConfig
    from bytewax.window import TumblingWindowConfig, SystemClockConfig
 
-   # Estuary Flow Dekaf configuration
+   # Estuary Dekaf configuration
    KAFKA_BOOTSTRAP_SERVERS = "dekaf.estuary-data.com:9092"
    KAFKA_TOPIC = "/your-collection-name"
 
@@ -75,12 +75,12 @@ Once the connector is created, note the full materialization name, such as `YOUR
    python your_dataflow_script.py
    ```
 
-4. Your Bytewax dataflow is now processing data from Estuary Flow in real-time.
+4. Your Bytewax dataflow is now processing data from Estuary in real-time.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

@@ -1,13 +1,13 @@
 
 # Instagram
 
-This connector captures data from Instagram into Flow collections.
+This connector captures data from Instagram into Estuary collections.
 
 This [Instagram article](https://help.instagram.com/570895513091465) talks about how to connect a Facebook page to your Instagram business account.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-instagram:dev`](https://ghcr.io/estuary/source-instagram:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-instagram:dev`](https://ghcr.io/estuary/source-instagram:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -22,7 +22,7 @@ For more information, see the [Instagram Graph API](https://developers.facebook.
 * [Stories](https://developers.facebook.com/docs/instagram-api/reference/ig-user/stories/)
 * [Story Insights](https://developers.facebook.com/docs/instagram-api/reference/ig-media/insights)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Instagram source connector.
 
 ### Properties

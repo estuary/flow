@@ -1,10 +1,10 @@
 # Chargebee (Deprecated)
 
-This connector captures data from Chargebee into Flow collections.
+This connector captures data from Chargebee into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-chargebee:dev`](https://ghcr.io/estuary/source-chargebee:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-chargebee:dev`](https://ghcr.io/estuary/source-chargebee:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 :::warning
 This connector is deprecated. For the best experience, we recommend using our native [Chargebee connector](./chargebee-native.md) instead.
@@ -24,7 +24,7 @@ The following data resources are supported through the Chargebee APIs:
 * [Item Prices](https://apidocs.chargebee.com/docs/api/item_prices?prod_cat_ver=2#list_item_prices)
 * [Attached Items](https://apidocs.chargebee.com/docs/api/attached_items?prod_cat_ver=2#list_attached_items)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Chargebee source connector.
 
 ### Properties

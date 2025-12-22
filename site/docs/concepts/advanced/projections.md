@@ -1,16 +1,16 @@
 # Projections
 
 :::tip
-Projections are an advanced concept of Flow.
-You can use Flow without knowing the details of projections,
-but this section may help you better understand how Flow works.
+Projections are an advanced concept.
+You can use Estuary without knowing the details of projections,
+but this section may help you better understand how Estuary works.
 :::
 
-Flow documents are arbitrary JSON, and may contain multiple levels of hierarchy and nesting.
-However, systems that Flow integrates with often model flat tables of rows and columns, without hierarchy.
+Estuary's documents are arbitrary JSON, and may contain multiple levels of hierarchy and nesting.
+However, systems that Estuary integrates with often model flat tables of rows and columns, without hierarchy.
 Others are somewhere in between.
 
-**Projections** are the means by which Flow translates between the documents
+**Projections** are the means by which Estuary translates between the documents
 of a collection and a table representation.
 A projection defines a mapping between a structured document location,
 given as a [JSON-Pointer](https://tools.ietf.org/html/rfc6901),
@@ -62,7 +62,7 @@ collections:
 
 Logical partitions isolate the storage of documents
 by their differing values for partitioned fields.
-Flow extracts partitioned fields from each document,
+Estuary extracts partitioned fields from each document,
 and every unique combination of partitioned fields
 is a separate logical partition.
 
@@ -93,7 +93,7 @@ while `pivot` identifies a _physical partition_.
 
 ### Partition selectors
 
-When reading from a collection, Flow catalog entities like derivations, materializations,
+When reading from a collection, Estuary catalog entities like derivations, materializations,
 and tests can provide a **partition selector**, which identifies the subset
 of partitions that should be read from a source collection:
 
@@ -120,5 +120,5 @@ partitions:
     network: ["3G"]
 ```
 
-Partition selectors are efficient as they allow Flow to altogether
+Partition selectors are efficient as they allow Estuary to altogether
 avoid reading documents that aren’t needed.

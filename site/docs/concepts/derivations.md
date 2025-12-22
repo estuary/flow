@@ -11,7 +11,7 @@ For instance, you might want to filter certain documents or add calculations to 
 Perhaps you need to unpack an array nested inside or aggregate data from many documents.
 Alternatively, you might need to merge across several collections using a common key,
 or employ business logic to arrive at a real-time decision.
-With Flow derivations, you can perform a wide range of transformations,
+With Estuary's derivations, you can perform a wide range of transformations,
 from a simple remapping to complicated, self-referential, and stateful transaction processing.
 
 In essence, a derivation is a [collection](../#collections)
@@ -25,7 +25,7 @@ A derivation consists of three primary elements:
   as they become available and writes the resulting documents into the derived collection.
 * An [internal task state](#internal-state) which enables aggregations, joins, and windowing.
 
-Flow enables you to write derivations using
+Estuary enables you to write derivations using
 [SQLite](#sqlite), [TypeScript](#typescript), or [Python](#python).
 Today, Python derivations are restricted to private and BYOC data planes.
 We intend to lift this restriction in the future.
@@ -102,14 +102,14 @@ collections:
             partitions: {}
             # Lower bound date-time for documents which should be processed.
             # Source collection documents published before this date-time are filtered.
-            # `notBefore` is *only* a filter. Updating its value will not cause Flow
+            # `notBefore` is *only* a filter. Updating its value will not cause Estuary
             # to re-process documents that have already been read.
             # Optional. Default is to process all documents.
             notBefore: 2023-01-23T01:00:00Z
             # Upper bound date-time for documents which should be processed.
             # Source collection documents published after this date-time are filtered.
             # Like `notBefore`, `notAfter` is *only* a filter. Updating its value will
-            # not cause Flow to re-process documents that have already been read.
+            # not cause Estuary to re-process documents that have already been read.
             # Optional. Default is to process all documents.
             notAfter: 2023-01-23T02:00:00Z
 
@@ -140,15 +140,15 @@ collections:
 ## Supported Languages
 
 As with captures and materializations,
-Flow derivations are built around a plug-able [connectors](../#connectors) architecture.
+Estuary's derivations are built around a plug-able [connectors](../#connectors) architecture.
 Derivation connectors encapsulate the details of _how_ documents are transformed,
-and integrate with Flow's runtime through a common protocol.
+and integrate with Estuary's runtime through a common protocol.
 
-At present, Flow supports transformations in SQL using [SQLite](#sqlite), [TypeScript](#typescript), and [Python](#python).
+At present, Estuary supports transformations in SQL using [SQLite](#sqlite), [TypeScript](#typescript), and [Python](#python).
 
 ## SQLite
 
-Flow's SQLite connector lets you write plain SQL which
+Estuary's SQLite connector lets you write plain SQL which
 is evaluated with each source collection document:
 
 ```yaml
@@ -192,7 +192,7 @@ you can do within a SQLite derivation.
 ### SQL Lambdas
 
 Lambdas are blocks of one or more SQL statements.
-They can be defined inline within a Flow specification,
+They can be defined inline within a Data Flow specification,
 or they can be provided as a relative file reference to a file of SQL.
 
 Your SQL lambda code can include any number of statements,
@@ -244,7 +244,7 @@ then that column will become the output document.
 For example `SELECT JSON_OBJECT('a', 1, 'b', JSON('true'));` maps into document `{"a": 1, "b": true}`.
 This can be used to build documents with dynamic top-level properties.
 
-Note that this also allows you to manage Flow's final document specification in ways that SQLite would not otherwise allow.
+Note that this also allows you to manage Estuary's final document specification in ways that SQLite would not otherwise allow.
 SQLite does not support a [boolean data type](https://sqlite.org/datatype3.html#boolean_datatype), instead defaulting to the integers `0` and `1`.
 By selecting a `JSON_OBJECT` with a `JSON('true')` or `JSON('false')` value, the final JSON field will have a boolean type.
 
@@ -281,7 +281,7 @@ Consider the following schematized document:
 
 In your SQL code, you can use parameters like `$top_level`, `$object$foo`, or `$arr$0`.
 If you're unsure of what parameter to use for a given field,
-try typing something approximate and Flow will suggest the appropriate `$parameter`.
+try typing something approximate and Estuary will suggest the appropriate `$parameter`.
 
 ### Migrations
 
@@ -314,10 +314,10 @@ are the [internal state](#internal-state) of your derivation.
 They don't directly cause any documents to be published into your derived collection,
 but changes made to tables in one SQL lambda execution are immediately visible to others.
 Changes are also durable and transactional:
-a Flow derivation transaction commits new documents to the derived collection
+a derivation transaction commits new documents to the derived collection
 in lockstep with committing changes made to your task tables.
 
-Flow is responsible for the persistence and replication of your SQLite database,
+Estuary is responsible for the persistence and replication of your SQLite database,
 and the SQLite connector tracks and will apply your migrations as needed.
 
 ### Performance
@@ -327,11 +327,11 @@ including the size of your task states
 and the complexity of your source documents and transformations.
 
 Generally speaking, SQLite is very performant
-and Flow's SQLite connector strives to drive it as efficiently as possible.
+and Estuary's SQLite connector strives to drive it as efficiently as possible.
 Real-world use cases are observed to process many **tens
 of thousands** of documents per second on a single core.
 
-Flow can also scale your task without downtime
+Estuary can also scale your task without downtime
 by creating point-in-time clones of the database
 that subdivide the overall workload and storage of the task.
 Once created, these subdivisions process in parallel across
@@ -339,7 +339,7 @@ multiple physical machines to enhance performance.
 
 ## TypeScript
 
-Flow's TypeScript derivation connector transforms your source documents
+Estuary's TypeScript derivation connector transforms your source documents
 by executing methods of a TypeScript class which you implement.
 TypeScript derivations are executed using [Deno](https://deno.land/)
 and let you take advantage of the broad ecosystem of
@@ -347,7 +347,7 @@ available third-party JavaScript and TypeScript libraries,
 as well as native code compiled to WASM.
 
 TypeScript derivations are strongly typed:
-Flow maps the JSON schemas of your source and output collections
+Estuary maps the JSON schemas of your source and output collections
 into corresponding TypeScript types,
 which are type-checked as you develop and test your derivation.
 This helps catch a wide variety of potential bugs and avoid accidental violations of your collection data contracts.
@@ -358,7 +358,7 @@ The bulk of a TypeScript derivation lives in its associated module,
 which is a TypeScript source file that exports the class that implements your derivation.
 
 Each derivation also has an accompanying, generated interfaces module.
-Interface modules are managed by Flow and are purely advisory:
+Interface modules are managed by Estuary and are purely advisory:
 they're generated to improve your development experience,
 but any changes you make are ignored.
 
@@ -384,14 +384,14 @@ if you'd like more information on building stateful TypeScript derivations.
 
 ## Python
 
-Flow's Python derivation connector transforms your source documents
+Estuary's Python derivation connector transforms your source documents
 by executing async methods of a Python class which you implement.
 Python derivations are executed using [uv](https://docs.astral.sh/uv/),
 a fast Python package manager, and let you take advantage of the extensive
 Python ecosystem while maintaining strong type safety through Pydantic models.
 
 Python derivations are strongly typed:
-Flow maps the JSON schemas of your source and output collections
+Estuary maps the JSON schemas of your source and output collections
 into corresponding Pydantic models,
 which are validated at publish time using [pyright](https://github.com/microsoft/pyright)
 in strict mode and provide excellent IDE support with autocomplete.
@@ -402,7 +402,7 @@ The bulk of a Python derivation lives in its associated module,
 which is a Python source file that exports the class that implements your derivation.
 
 Each derivation also has an accompanying, generated types module.
-Type modules are managed by Flow and are purely advisory:
+Type modules are managed by Estuary and are purely advisory:
 they're generated to improve your development experience,
 but any changes you make are ignored.
 
@@ -430,7 +430,7 @@ derive:
 ```
 
 The `pydantic` (>=2.0) and `pyright` (>=1.1) packages are automatically included
-as required dependencies. Flow uses `uv` to install and manage all dependencies
+as required dependencies. Estuary uses `uv` to install and manage all dependencies
 efficiently during both validation and execution.
 
 ### Async Patterns
@@ -535,7 +535,7 @@ they are continuously read and processed by the transformation.
 A [partition selector](./advanced/projections.md#partition-selectors) may be provided
 to process only a subset of the source collection's logical partitions.
 Selectors are efficient: only partitions that match the selector are read,
-and Flow can cheaply skip over partitions that don't.
+and Estuary can cheaply skip over partitions that don't.
 
 Derivations re-validate their source documents against
 the source collection's schema as they are read.
@@ -552,11 +552,11 @@ on an extracted key.
 
 If you're familiar with data shuffles in tools like MapReduce,
 Apache Spark, or Flink, the concept is very similar.
-Flow catalog tasks scale out into multiple shards,
+Estuary's catalog tasks scale out into multiple shards,
 each running in parallel on different physical machines,
 where each shard processes a subset of source documents.
 
-Shuffles let Flow identify the shard that should process a particular
+Shuffles let Estuary identify the shard that should process a particular
 source document, in order to co-locate that processing with other
 documents it may need to know about.
 
@@ -582,7 +582,7 @@ that is uniquely responsible for maintaining the balance of a given account.
     p2-- sender: bob -->t2;
 `}/>
 
-Flow offers three modes for configuring document shuffles: `key`, `any`, and `lambda`.
+Estuary offers three modes for configuring document shuffles: `key`, `any`, and `lambda`.
 
 #### shuffle: key
 
@@ -596,7 +596,7 @@ transforms:
     source: acmeCo/orders
     shuffle:
       key: [/item/product_id, /customer_id]
-    # Flow guarantees that the same shard will process the user's lambda
+    # Estuary guarantees that the same shard will process the user's lambda
     # for all instances of a specific (product ID, customer ID) tuple.
     lambda: ...
 ```
@@ -652,7 +652,7 @@ transforms:
     source: acmeCo/orders
     shuffle:
       lambda: SELECT $product_id, DATE($order_timestamp);
-    # Flow guarantees that the same shard will process the user's lambda
+    # Estuary guarantees that the same shard will process the user's lambda
     # for all instances of a specific (product ID, date) tuple.
     lambda: ...
 ```
@@ -660,9 +660,9 @@ transforms:
 Your shuffle lambda must return exactly one row, and its columns and
 types must align with the other shuffles of your derivation transformations.
 
-Flow must know the types of your composite shuffle key.
+Estuary must know the types of your composite shuffle key.
 In most cases it will infer these types from the `shuffle: key` of another transformation.
-If you have no `shuffle: key` transformations, Flow will ask that you explicitly tell it your shuffle types:
+If you have no `shuffle: key` transformations, Estuary will ask that you explicitly tell it your shuffle types:
 
 ```yaml
 derive:
@@ -686,7 +686,7 @@ Lambdas can update internal task state,
 publish documents into the derived collection,
 or both.
 
-Lambdas are "serverless": Flow manages the execution
+Lambdas are "serverless": Estuary manages the execution
 and scaling of your transformation lambdas on your behalf.
 
 ### Processing order
@@ -725,7 +725,7 @@ but aren’t terribly good at taking action when something _hasn’t_ happened:
 > * A user adds a product to their cart, but then doesn’t complete a purchase.
 > * A temperature sensor stops producing its expected, periodic measurements.
 
-A common pattern for tackling these workflows in Flow is to
+A common pattern for tackling these workflows in Estuary is to
 read a source collection without a delay and update an internal state.
 Then, read a collection with a read delay
 and determine whether the desired action has happened or not.
@@ -736,7 +736,7 @@ if the register timestamp isn't more recent
 than the delayed source reading,
 the sensor failed to produce a measurement.
 
-Flow read delays are very efficient and scale better
+Estuary's read delays are very efficient and scale better
 than managing very large numbers of fine-grain timers.
 
 [See Grouped Windows of Transfers for an example using a read delay](../getting-started/tutorials/derivations_acmebank.md#grouped-windows-of-transfers)
@@ -778,12 +778,12 @@ automatic internal state snapshot and recovery in the future.
 The exact nature of internal task states vary,
 but under the hood they're backed by a replicated
 embedded RocksDB instance which is co-located
-with the task shard execution contexts that Flow manages.
+with the task shard execution contexts that Estuary manages.
 As contexts are assigned and re-assigned,
 their state databases travel with them.
 
 If a task shard needs to be scaled out,
-Flow is able to perform an [online split](../advanced/shards/#shard-splits),
+Estuary is able to perform an [online split](../advanced/shards/#shard-splits),
 which cheaply clones its state database into two new databases
  — and paired shards — which are re-assigned to other machines.
 
@@ -798,16 +798,16 @@ built into languages like
 [JavaScript](https://www.freecodecamp.org/news/javascript-map-reduce-and-filter-explained-with-examples/),
 and many others
 or have used tools like MapReduce or Spark.
-In functional terms, lambdas you write within Flow are "mappers,"
+In functional terms, lambdas you write within Estuary are "mappers,"
 and reductions are always done
-by the Flow runtime using your schema annotations.
+by Estuary's runtime using your schema annotations.
 
 This means that, when you implement a derivation,
 you get to choose where **accumulation** will happen:
 
  1. Your lambdas can update and query aggregates stored in [internal task state](#internal-state).
     [Approving Transfers](../getting-started/tutorials/derivations_acmebank.md#approving-transfers) is an example that maintains account balances in a SQLite table.
- 2. Or, your lambdas can compute *changes* of an aggregate, which are then reduced by Flow using reduction annotations.
+ 2. Or, your lambdas can compute *changes* of an aggregate, which are then reduced by Estuary using reduction annotations.
     [Current Account Balances](../getting-started/tutorials/derivations_acmebank.md#current-account-balances) is an example that combines a lambda with a reduce annotation.
 
 These two approaches can produce equivalent results,
@@ -842,7 +842,7 @@ such as Pub/Sub systems or Webhooks.
 To accumulate in your materialization endpoint, such as a database,
 you define a derivation with a reducible schema
 and implement lambdas which publish the _changes_ to a current answer.
-The Flow runtime then uses your reduction annotations
+The Estuary runtime then uses your reduction annotations
 to combine the documents published into your derived collection.
 
 Later, when the collection is materialized, your reduction annotations
@@ -865,11 +865,11 @@ Returning to our summing example:
 | T3   | **6** |            |                  |
 
 This works especially well when materializing into a transactional database.
-Flow couples its processing transactions with corresponding database transactions,
+Estuary couples its processing transactions with corresponding database transactions,
 ensuring end-to-end “exactly once” semantics.
 
 When materializing into a non-transactional store,
-Flow is only able to provide weaker “at least once” semantics;
+Estuary is only able to provide weaker “at least once” semantics;
 it’s possible that a document may be combined into a database value more than once.
 Whether that’s a concern depends a bit on the task at hand.
 Some reductions like `merge` can be applied repeatedly without changing the result,
@@ -877,6 +877,6 @@ while in other use cases approximations are acceptable.
 For the summing example above,
 "at-least-once" semantics could give an incorrect result.
 
-[Learn more in the derivation pattern examples of Flow's repository](
+[Learn more in the derivation pattern examples in Estuary's main repository](
   https://github.com/estuary/flow/tree/master/examples/derive-patterns
 )

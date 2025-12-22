@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Estuary Flow is a real-time data platform with:
+Estuary is a real-time data platform with:
 - Control plane: user-facing catalog management APIs
 - Data planes: distributed runtime execution
 - Connectors: OCI images integrating external systems
@@ -9,7 +9,7 @@ This repo lives at `https://github.com/estuary/flow`
 
 ## Repository Overview
 
-Flow is built with:
+Estuary is built with:
 - **Rust** (primary language)
   - Third-party sources under `~/.cargo/registry/src/`
 - **Go** - integration glue with the Gazette consumer framework

@@ -1,9 +1,9 @@
 
 # Google Play
 
-This connector captures data from [monthly Google Play reports](https://support.google.com/googleplay/android-developer/answer/6135870#zippy=%2Cdownload-reports-using-a-client-library-and-service-account%2Csee-an-example-python) into Flow collections.
+This connector captures data from [monthly Google Play reports](https://support.google.com/googleplay/android-developer/answer/6135870#zippy=%2Cdownload-reports-using-a-client-library-and-service-account%2Csee-an-example-python) into Estuary collections.
 
-It’s available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-play:dev`](https://ghcr.io/estuary/source-google-play:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-play:dev`](https://ghcr.io/estuary/source-google-play:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -34,7 +34,7 @@ Your Google Play account must have Account Owner or Admin permissions.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing a specification file.
+You configure connectors either in the Estuary web app, or by directly editing a specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Google Play source connector.
 
 ### Properties

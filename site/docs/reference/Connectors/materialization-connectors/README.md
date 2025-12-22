@@ -1,8 +1,8 @@
-# Materialization connectors
+# Materialization Connectors
 
 Estuary's available materialization connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name.
 
-Also listed are links to the most recent Docker images for each connector. You'll need these to write Flow specifications manually (if you're [developing locally](../../../concepts/flowctl.md)). If you're using the Flow web app, they aren't necessary.
+Also listed are links to the most recent Docker images for each connector. You'll need these to write Data Flow specifications manually (if you're [developing locally](../../../concepts/flowctl.md)). If you're using the Estuary web app, they aren't necessary.
 
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 

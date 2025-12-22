@@ -1,12 +1,12 @@
 # Journals
 
 :::tip
-Journals are an advanced concept of Flow.
-You can use Flow without knowing the details of journals,
-but this section may help you better understand how Flow works.
+Journals are an advanced concept.
+You can use Estuary without knowing the details of journals,
+but this section may help you better understand how Estuary works.
 :::
 
-Flow collections store their data in one or more **journals**,
+Estuary's collections store their data in one or more **journals**,
 resources resembling files.
 Journals are part of the Gazette project.
 [See Gazette's Journal concepts page for details](
@@ -39,25 +39,25 @@ would live under the storage prefix
 `s3://acmeCo-bucket/acmeCo/orders`.
 
 Files are **directly accessible** by other tools.
-This is an important aspect of Flow's design,
+This is an important aspect of Estuary's design,
 and it has some major implications:
 
 * You can use tools including Snowflake, Spark, Hive, Pandas,
-  and many others to read and process the data in your Flow collections.
-* You can capture and organize data into Flow collections
+  and many others to read and process the data in your Estuary collections.
+* You can capture and organize data into collections
   without knowing how it will be used quite yet.
   Perform ad-hoc analysis using the collection data lake,
   and layer in [derivations](../derivations.md)
   or [materializations](/concepts/materialization) later,
   or not at all.
-* If you ever decide to stop using Flow,
+* If you ever decide to stop using Estuary,
   your data is still yours.
   There's no lock-in or need to migrate data out.
 * Removing files from your bucket also removes them from your collection.
   Apply bucket lifecycle policies or directly delete files to permanently
   drop their contents from the collection.
 
-Flow collections have one or more
+Estuary's collections have one or more
 [logical partitions](./projections.md#logical-partitions),
 and each logical partition has one or more
 [physical partitions](#physical-partitions).
@@ -74,7 +74,7 @@ and a journal may have many [fragment files](#fragment-files).
 
 ## Specification
 
-Flow [collections](../collections.md) can control some aspects of how
+[Collections](../collections.md) can control some aspects of how
 their contents are mapped into journals through the `journals` stanza:
 
 ```yaml
@@ -111,7 +111,7 @@ for storage of collection fragment files.
 
 ## Physical partitions
 
-Every logical partition of a Flow collection
+Every logical partition of a collection in Estuary
 is created with a single physical partition.
 Later and as required, new physical partitions are added
 in order to increase the write throughput of the collection.
@@ -144,7 +144,7 @@ in your cloud storage bucket.
 Files are flushed to cloud storage periodically,
 typically after they reach a desired size threshold.
 They use a content-addressed naming scheme
-which allows Flow to understand
+which allows Estuary to understand
 how each file stitches into the overall journal.
 Consider a fragment file path like:
 
@@ -175,7 +175,7 @@ with path components like
 `/category=Anvils/pivot=00/utc_date=2022-01-07/utc_hour=19/`.
 
 If you've used tools within the Apache Hive ecosystem, this layout should feel familiar.
-Flow organizes files in this way to make them directly usable
+Estuary organizes files in this way to make them directly usable
 by tools that understand Hive partitioning, like Spark and Hive itself.
 Collections can also be integrated as Hive-compatible external tables
 in tools like

@@ -1,6 +1,6 @@
 # MongoDB
 
-This connector captures data from your MongoDB collections into Flow collections.
+This connector captures data from your MongoDB collections into Estuary collections.
 
 [`ghcr.io/estuary/source-mongodb:dev`](https://ghcr.io/estuary/source-mongodb:dev) provides the
 latest connector image. You can also follow the link in your browser to see past image versions.
@@ -87,7 +87,7 @@ the cursor field.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the Flow specification
+You configure connectors either in the Estuary web app, or by directly editing the Data Flow specification
 file. See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using
 connectors. The values and specification sample below provide configuration details specific to the
 MongoDB source connector.

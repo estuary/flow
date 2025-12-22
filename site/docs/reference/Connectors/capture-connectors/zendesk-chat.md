@@ -1,10 +1,10 @@
 # Zendesk Chat
 
-This connector captures data from Zendesk into Flow collections.
+This connector captures data from Zendesk into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-zendesk-chat:dev`](https://ghcr.io/estuary/source-zendesk-chat:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-zendesk-chat:dev`](https://ghcr.io/estuary/source-zendesk-chat:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -23,7 +23,7 @@ The following data resources are supported through the Zendesk API:
 * [Roles](https://developer.zendesk.com/rest_api/docs/chat/roles#list-roles)
 * [Routing Settings](https://developer.zendesk.com/rest_api/docs/chat/routing_settings#show-account-routing-settings)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification files.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification files.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Zendesk Chat source connector.
 
 ### Properties

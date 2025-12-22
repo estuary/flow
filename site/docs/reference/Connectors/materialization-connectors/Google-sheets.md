@@ -2,15 +2,15 @@
 
 # Google Sheets
 
-This connector materializes Flow collections into sheets in a Google Sheets spreadsheet.
+This connector materializes Estuary collections into sheets in a Google Sheets spreadsheet.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-google-sheets:dev`](https://ghcr.io/estuary/materialize-google-sheets:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-google-sheets:dev`](https://ghcr.io/estuary/materialize-google-sheets:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection.
+* At least one Estuary collection.
 
   If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 
@@ -23,10 +23,10 @@ you should first use a [derivation](../../../guides/flowctl/create-derivation.md
 into a collection with a bounded set of keys.
 :::
 
-* The URL of a Google spreadsheet that *does not* contain the output of a prior Flow materialization.
+* The URL of a Google spreadsheet that *does not* contain the output of a prior Estuary materialization.
 
 :::caution
-Materializing data to a spreadsheet that already contains the output of another Flow materialization can result in an error.
+Materializing data to a spreadsheet that already contains the output of another Estuary materialization can result in an error.
 Use a new spreadsheet for each materialization, or completely clear the output of prior materializations from the spreadsheet before you continue.
 :::
 
@@ -37,7 +37,7 @@ Only manual configuration is supported using the CLI.
 
 Additional prerequisites depend on the authentication method you choose.
 
-### OAuth authentication using the Flow web app
+### OAuth authentication using the Estuary web app
 
 You'll need:
 
@@ -67,14 +67,14 @@ You'll copy the contents of the downloaded key file into the Service Account JSO
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
+To use this connector, begin with data in one or more Estuary collections.
 Use the below properties to configure a Google Sheets materialization.
 
 ### Properties
 
 #### Endpoint
 
-The following properties reflect the manual authentication method. If you're working in the Flow web app, you can use [OAuth](#oauth-authentication-using-the-flow-web-app), so some of these properties aren't required.
+The following properties reflect the manual authentication method. If you're working in the Estuary web app, you can use [OAuth](#oauth-authentication-using-the-estuary-web-app), so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|

@@ -27,7 +27,7 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 
 3. Find the **CIDR Blocks** column in the Data Planes table. This column includes a comma-separated list of IP addresses for that data plane.
 
-   Ensure that these IP addresses are allowlisted on both the source and destination systems that interact with Estuary Flow.
+   Ensure that these IP addresses are allowlisted on both the source and destination systems that interact with Estuary.
 
 ## IP Addresses to Allowlist
 

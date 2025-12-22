@@ -1,14 +1,14 @@
 # Microsoft Dynamics 365 Finance and Operations
 
-This connector captures data from [Microsoft Dynamics 365 Finance and Operations](https://www.microsoft.com/en-us/dynamics-365) into Flow collections. It does so by capturing data exported to Azure Data Lake Storage via [Azure Synapse Link for Dataverse](https://learn.microsoft.com/en-us/power-apps/maker/data-platform/azure-synapse-link-select-fno-data).
+This connector captures data from [Microsoft Dynamics 365 Finance and Operations](https://www.microsoft.com/en-us/dynamics-365) into Estuary collections. It does so by capturing data exported to Azure Data Lake Storage via [Azure Synapse Link for Dataverse](https://learn.microsoft.com/en-us/power-apps/maker/data-platform/azure-synapse-link-select-fno-data).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev`](https://ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev`](https://ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
 This connector captures changes to Dynamics 365 Finance and Operations tables that are exported to Azure Data Lake Storage. All available tables will appear after authenticating and performing a discovery.
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ SAS tokens have an expiration date and they cannot be renewed. When your SAS tok
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification files.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification files.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Dynamics 365 Finance and Operations source connector.
 
 ### Properties

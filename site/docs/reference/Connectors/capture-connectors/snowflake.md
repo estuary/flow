@@ -125,7 +125,7 @@ It is possible to capture tables shared with you via [Snowflake Secure Data Shar
 
 ## Configuration
 
-You can configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Snowflake CDC source connector.
+You can configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Snowflake CDC source connector.
 
 ### Endpoint Properties
 
@@ -141,7 +141,7 @@ You can configure connectors either in the Flow web app, or by directly editing 
 | `/warehouse` | Warehouse | The Snowflake virtual warehouse used to execute queries. The default warehouse for the user will be used if this is blank. | string |  |
 | `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
-| `/advanced/flowSchema` | Flow Schema | The schema in which Flow will create and manage its streams and staging tables. | string  | ESTUARY_STAGING |
+| `/advanced/flowSchema` | Flow Schema | The schema in which Estuary will create and manage its streams and staging tables. | string  | ESTUARY_STAGING |
 
 ### Binding Properties
 
@@ -154,7 +154,7 @@ You can configure connectors either in the Flow web app, or by directly editing 
 
 Keeping a Snowflake compute warehouse active 24/7 can be prohibitively expensive for many users,
 so the Snowflake CDC connector is designed to poll for changes at a configurable interval, at
-which time it will capture into Flow all new changes since the previous execution. This polling
+which time it will capture into Estuary all new changes since the previous execution. This polling
 interval is set to 5 minutes by default, in an attempt to strike a balance between cost savings
 while still providing "good enough" capture latency for most streaming uses. The interval may
 be configured by editing the task spec `interval` property [as described here](https://docs.estuary.dev/concepts/captures/#specification).

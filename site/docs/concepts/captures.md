@@ -3,22 +3,22 @@ sidebar_position: 1
 ---
 # Captures
 
-A **capture** is how Flow ingests data from an external source.
+A **capture** is how Estuary ingests data from an external source.
 Every Data Flow starts with a capture.
 
-Captures are a type of Flow **task**.
+In Estuary, captures are a type of **task**.
 They connect to an external data source, or **endpoint**,
 and bind one or more of its resources, such as database tables.
-Each binding adds documents to a corresponding Flow **collection**.
+Each binding adds documents to a corresponding Estuary **collection**.
 
 Captures run continuously:
 as soon as new documents are made available at the endpoint resources,
-Flow validates their schema and adds them to the appropriate collection.
+Estuary validates their schema and adds them to the appropriate collection.
 Captures can process [documents](./collections.md#documents) up to 16 MB in size.
 
-![Flow capture diagram](./concept-images/captures-new.svg)
+![Estuary capture diagram](./concept-images/captures-new.svg)
 
-You define and configure captures in **Flow specifications**.
+You can define and configure captures in **Data Flow specifications**.
 
 [See the guide to create a capture](../guides/create-dataflow.md#create-a-capture)
 
@@ -32,22 +32,22 @@ See the [source connector reference documentation](../reference/Connectors/captu
 
 ### Batch sources
 
-Flow supports running both first and third party connectors to batch sources as well as natively-written Estuary connectors.
+Estuary supports running both first and third party connectors to batch sources as well as natively-written Estuary connectors.
 These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
-Flow runs the connector at regular intervals to capture updated documents.
+Estuary runs the connector at regular intervals to capture updated documents.
 
-Third-party source connectors are independently reviewed and sometimes updated for compatibility with Flow.
+Third-party source connectors are independently reviewed and sometimes updated for compatibility with Estuary.
 Estuary's [source connectors](../reference/Connectors/capture-connectors/README.md) documentation includes all actively supported connectors.
-If you see a connector you'd like to prioritize for access in the Flow web app, [contact us](mailto:support@estuary.dev).
+If you see a connector you'd like to prioritize for access in the web app, [contact us](mailto:support@estuary.dev).
 
 ## Discovery
 
-To help you configure new pull captures, Flow offers the guided **discovery** workflow in the Flow web application.
+To help you configure new pull captures, Estuary offers the guided **discovery** workflow in the web application.
 
-To begin discovery, you tell Flow the connector you'd like to use and basic information about the endpoint.
-Flow automatically generates a capture configuration for you. It identifies one or more
+To begin discovery, you tell Estuary the connector you'd like to use and basic information about the endpoint.
+Estuary automatically generates a capture configuration for you. It identifies one or more
 **resources** — tables, data streams, or the equivalent — and generates **bindings** so that each will be mapped to a
-data collection in Flow.
+data collection.
 
 You may then modify the generated configuration as needed before publishing the capture.
 
@@ -73,7 +73,7 @@ If you are creating a new capture, you can simply leave the bindings stanza blan
 
 ## Automatically update captures
 
-You can choose to run periodic discovers in the background by adding the `autoDiscover` property to the capture. Flow will periodically check for changes to the source and re-publish the capture to reflect those changes.
+You can choose to run periodic discovers in the background by adding the `autoDiscover` property to the capture. Estuary will periodically check for changes to the source and re-publish the capture to reflect those changes.
 
 There are several options for controlling the behavior of `autoDiscover`:
 
@@ -81,7 +81,7 @@ There are several options for controlling the behavior of `autoDiscover`:
 
 * The `evolveIncompatibleCollections` option determines how to respond when the discovered updates would cause a breaking change to the collection. If `true`, it will trigger an [evolution](./advanced/evolutions.md) of the incompatible collection(s) to prevent failures.
 
-In the Flow web app, you can set these properties when you create or edit a capture.
+In Estuary's web app, you can set these properties when you create or edit a capture.
 
 ![Capture auto-discovery in the UI](./concept-images/captures-auto-discover-ui.png)
 
@@ -93,7 +93,7 @@ The toggles in the web app correspond directly to the properties above:
 
 ## Specification
 
-Captures are defined in Flow specification files per the following format:
+Captures are defined in Data Flow specification files per the following format:
 
 ```yaml
 # A set of captures to include in the catalog.
@@ -109,7 +109,7 @@ captures:
       addNewBindings: true
       # How to handle breaking changes to discovered collections. If true, then existing
       # materialization bindings will be re-created with new names, as necessary. Or if
-      # collection keys have changed, then new Flow collections will be created. If false,
+      # collection keys have changed, then new Estuary collections will be created. If false,
       # then incompatible changes will simply result in failed publications, and will
       # effectively be ignored.
       evolveIncompatibleCollections: true

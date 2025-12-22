@@ -1,9 +1,9 @@
 
 # Apple App Store
 
-This connector captures data from [Apple App Store Connect API](https://developer.apple.com/documentation/appstoreconnectapi) into Flow collections.
+This connector captures data from [Apple App Store Connect API](https://developer.apple.com/documentation/appstoreconnectapi) into Estuary collections.
 
-It’s available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-apple-app-store:dev`](https://ghcr.io/estuary/source-apple-app-store:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-apple-app-store:dev`](https://ghcr.io/estuary/source-apple-app-store:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -45,7 +45,7 @@ Admin-level permissions are required to access Analytics Reports. Only Account H
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing a specification file.
+You configure connectors either in the Estuary web app, or by directly editing a specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Apple App Store source connector.
 
 ### Properties

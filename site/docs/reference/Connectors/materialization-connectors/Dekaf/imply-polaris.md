@@ -1,14 +1,14 @@
 
 # Imply Polaris
 
-This connector materializes Flow collections as Kafka-compatible messages that an Imply Polaris Kafka consumer can read. [Imply Polaris](https://imply.io/polaris) is a fully managed, cloud-native Database-as-a-Service (DBaaS) built on Apache
+This connector materializes Estuary collections as Kafka-compatible messages that an Imply Polaris Kafka consumer can read. [Imply Polaris](https://imply.io/polaris) is a fully managed, cloud-native Database-as-a-Service (DBaaS) built on Apache
 Druid, designed for real-time analytics on streaming and batch data.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-* At least one Flow collection
+* At least one Estuary collection
 * An Imply Polaris account
 
 ## Variants
@@ -21,7 +21,7 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to Imply Polaris
+## Connecting Estuary to Imply Polaris
 
 1. Log in to your Imply Polaris account and navigate to your project.
 
@@ -32,7 +32,7 @@ Once the connector is created, note the full materialization name, such as `YOUR
 4. In the Kafka configuration section, enter the following details:
 
     - **Bootstrap Servers**: `dekaf.estuary-data.com:9092`
-    - **Topic**: The name of an Estuary Flow collection you added to your materialization (e.g., `/my-collection`)
+    - **Topic**: The name of an Estuary collection you added to your materialization (e.g., `/my-collection`)
     - **Security Protocol**: `SASL_SSL`
     - **SASL Mechanism**: `PLAIN`
     - **SASL Username**: Your materialization's full name
@@ -50,12 +50,12 @@ Once the connector is created, note the full materialization name, such as `YOUR
 
 8. Review and finalize your table configuration, then click "Create Table".
 
-9. Your Imply Polaris table should now start ingesting data from Estuary Flow.
+9. Your Imply Polaris table should now start ingesting data from Estuary.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

@@ -1,8 +1,8 @@
 
 # Pinterest
-This connector captures data from Pinterest into Flow collections.
+This connector captures data from Pinterest into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-pinterest:dev`](https://ghcr.io/estuary/source-pinterest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-pinterest:dev`](https://ghcr.io/estuary/source-pinterest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 To set up the Pinterest source connector, you'll need the following prerequisites:
@@ -13,7 +13,7 @@ To set up the Pinterest source connector, you'll need the following prerequisite
 ## Setup
 Follow the steps below to set up the Pinterest source connector.
 
-1. Log into your Estuary Flow account.
+1. Log into your Estuary account.
 2. Navigate to the "Captures" section
 3. For the "Start Date," provide the date in YYYY-MM-DD format. Data added on and after this date will be replicated.
 4. Next, go to "Authorization Method"
@@ -21,7 +21,7 @@ Follow the steps below to set up the Pinterest source connector.
 Click "Set up source."
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Pinterest source connector.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Pinterest source connector.
 
 ### Properties
 

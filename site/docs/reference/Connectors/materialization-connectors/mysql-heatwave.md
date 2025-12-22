@@ -1,6 +1,6 @@
 # MySQL HeatWave
 
-This connector lets you materialize data from your Flow collections directly into Oracle MySQL HeatWave instances.
+This connector lets you materialize data from your Estuary collections directly into Oracle MySQL HeatWave instances.
 
 [`ghcr.io/estuary/materialize-mysql-heatwave:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-mysql-heatwave) provides the latest connector image. For earlier versions, please follow the link in your browser.
 
@@ -8,10 +8,10 @@ This connector lets you materialize data from your Flow collections directly int
 To use this materialization connector, you’ll need the following:
 
 - A MySQL HeatWave database and the appropriate user credentials.
-- At least one Flow collection.
+- At least one Estuary collection.
 
 ## Configuration
-Select one or more of your Flow collections to start using this connector. The configuration properties below will help you to materialize your collections into tables in MySQL HeatWave.
+Select one or more of your Estuary collections to start using this connector. The configuration properties below will help you to materialize your collections into tables in MySQL HeatWave.
 
 ## Properties
 
@@ -63,7 +63,7 @@ materializations:
 
 ## MySQL HeatWave on Oracle Cloud Infrastructure
 
-This connector supports cloud-based MySQL HeatWave instances hosted on Oracle Cloud Infrastructure (OCI). 
+This connector supports cloud-based MySQL HeatWave instances hosted on Oracle Cloud Infrastructure (OCI).
 
 ### SSH Tunneling (Required)
 You are also required to configure SSH tunneling by providing the following:

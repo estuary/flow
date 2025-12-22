@@ -7,22 +7,22 @@ import TabItem from '@theme/TabItem';
 
 # Connectors
 
-**Connectors** bridge the gap between Flow and
+**Connectors** bridge the gap between Estuary and
 the various endpoints from which you capture or to which you materialize data.
 
-Supported connectors are all available to you within the Flow web application.
+Supported connectors are all available to you within Estuary's web application.
 From a technical perspective, they're packaged as [Docker images](https://github.com/orgs/estuary/packages?repo_name=connectors),
 each encapsulating the details of working with a particular external system.
 
-All connectors available in Flow are open-source, and many of them were built by Estuary.
+Most connectors available in Estuary are open-source, and many of them were built by Estuary.
 Estuary connectors are dual-licensed under Apache 2.0 or MIT.
-Flow also supports open-source connectors built by third parties, which Estuary independently tests and may alter slightly
-for optimal performance within the Flow ecosystem.
+Estuary also supports open-source connectors built by third parties, which Estuary independently tests and may alter slightly
+for optimal performance within Estuary's ecosystem.
 
 Estuary’s vision is to provide a common runtime against which any open connector may be run.
-To that end, Flow currently supports the
+To that end, Estuary currently supports the
 [Airbyte specification](https://docs.airbyte.io/understanding-airbyte/airbyte-specification)
-as well as Flow’s low-latency gRPC protocols for captures and materializations.
+as well as Estuary’s low-latency gRPC protocols for captures and materializations.
 
 ## Using connectors
 
@@ -30,18 +30,18 @@ Most — if not all — of your Data Flows will use at least one connector.
 You configure connectors within capture or materialization specifications.
 When you publish one of these entities, you're also deploying all the connectors it uses.
 
-You can interact with connectors using either the Flow web application or the flowctl CLI.
+You can interact with connectors using either Estuary's web application or the flowctl CLI.
 
-### Flow web application
+### Web application
 
-The Flow web application is designed to assist you with connector configuration and deployment.
-It's a completely no-code experience, but it's compatible with Flow's command line tools, discussed below.
+Estuary's web application is designed to assist you with connector configuration and deployment.
+It's a completely no-code experience, but it's compatible with Estuary's command line tools, discussed below.
 
-When you add a capture or materialization in the Flow web app, choose the desired data system from the **Connector** drop-down menu.
+When you add a capture or materialization in the web app, choose the desired data system from the **Connector** drop-down menu.
 
 The required fields for the connector appear below the drop-down. When you fill in the fields and click **Discover Endpoint**,
-Flow automatically "discovers" the data streams or tables — known as **resources** — associated with the endpoint system.
-From there, you can refine the configuration, save, and publish the resulting Flow specification.
+Estuary automatically "discovers" the data streams or tables — known as **resources** — associated with the endpoint system.
+From there, you can refine the configuration, save, and publish the resulting Data Flow specification.
 
 ### GitOps and flowctl
 
@@ -51,7 +51,7 @@ and can be tagged, and pulled using
 [GitHub Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
 or any other public image registry provider.
 
-To interface with a connector, the Flow runtime needs to know:
+To interface with a connector, the Estuary runtime needs to know:
 
 1. The specific image to use, through an image name such as `ghcr.io/estuary/source-postgres:dev`.
    Notice that the image name also conveys the specific image registry and version tag to use.
@@ -61,11 +61,11 @@ To interface with a connector, the Flow runtime needs to know:
 3. Resource configuration such as a specific database table to capture, which is also specific to the connector.
 
 To integrate a connector into your dataflow,
-you must define all three components within your Flow specification.
+you must define all three components within your Data Flow specification.
 
-The web application is intended to help you generate the Flow specification.
+The web application is intended to help you generate the Data Flow specification.
 From there, you can use [flowctl](./flowctl.md) to refine it in your local environment.
-It's also possible to manually write your Flow specification files, but this isn't the recommended workflow.
+It's also possible to manually write your specification files, but this isn't the recommended workflow.
 
 ```yaml
 materializations:
@@ -83,7 +83,7 @@ materializations:
           user: postgres
     bindings:
       - source: acmeCo/products/anvils
-        # 3: Provide resource configuration for the binding between the Flow
+        # 3: Provide resource configuration for the binding between the
         #    collection and the endpoint resource. This connector interfaces
         #    with a SQL database and its resources are database tables. Here,
         #    we provide a table to create and materialize which is bound to the
@@ -108,7 +108,7 @@ Because connectors interface with external systems, each requires a slightly dif
 Here you specify information such as a database hostname or account credentials —
 whatever that specific connector needs to function.
 
-If you're working directly with Flow specification files,
+If you're working directly with Data Flow specification files,
 you have the option of including the configuration inline
 or storing it in separate files:
 
@@ -171,11 +171,11 @@ see the documentation for the [connector](../reference/Connectors/README.md) you
 :::
 
 [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding,
-provides a means for Flow to access the port indirectly through an SSH server.
+provides a means for Estuary to access the port indirectly through an SSH server.
 SSH tunneling is available in Estuary connectors for endpoints that use a network address for connection.
 
 To set up and configure the SSH server, see the [guide](../../guides/connect-network/).
-Then, add the appropriate properties when you define the capture or materialization in the Flow web app,
+Then, add the appropriate properties when you define the capture or materialization in Estuary's web app,
 or add the `networkTunnel` stanza directly to the YAML, as shown below.
 
 #### Sample
@@ -231,13 +231,13 @@ Users are empowered to write their own connectors for esoteric systems not alrea
 
 Furthermore, implementing a Docker-based community specification brings other important qualities to Estuary connectors:
 
-- Cross-platform interoperability between Flow, Airbyte, and any other platform that supports the protocol
+- Cross-platform interoperability between Estuary, Airbyte, and any other platform that supports the protocol
 - The abilities to write connectors in any language and run them on any machine
 - Built-in solutions for version management (through image tags) and distribution
 - The ability to integrate connectors from different sources at will, without the centralized control of a single company, thanks to container image registries
 
 :::info
-In order to be reflected in the Flow web app and used on the managed Flow platform,
+In order to be reflected in Estuary's web app and used on Estuary's managed platform,
 connectors must be reviewed and added by the Estuary team. Have a connector you'd like to add?
 [Contact us](mailto:info@estuary.dev).
 :::

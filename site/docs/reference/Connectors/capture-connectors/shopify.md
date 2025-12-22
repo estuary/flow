@@ -7,9 +7,9 @@ Shopify is deprecating their REST API in favor of their GraphQL API. We recommen
 
 This connector captures data from [Shopify's REST Admin API](https://shopify.dev/docs/api/admin-rest).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-shopify:dev`](https://ghcr.io/estuary/source-shopify:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-shopify:dev`](https://ghcr.io/estuary/source-shopify:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-Alternatively, if you would like to receive Shopify webhooks directly in Estuary Flow, see the [HTTP Ingest (Webhook)](https://docs.estuary.dev/reference/Connectors/capture-connectors/http-ingest/) connector.
+Alternatively, if you would like to receive Shopify webhooks directly in Estuary, see the [HTTP Ingest (Webhook)](https://docs.estuary.dev/reference/Connectors/capture-connectors/http-ingest/) connector.
 
 ## Supported data resources
 
@@ -33,7 +33,7 @@ The following data resources are supported through the Shopify APIs:
 
 * [User](https://shopify.dev/api/admin-rest/2023-10/resources/user#resource-object)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -45,7 +45,7 @@ You can authenticate your account either via OAuth or using a Shopify [access to
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Shopify source connector.
 
 ### Properties

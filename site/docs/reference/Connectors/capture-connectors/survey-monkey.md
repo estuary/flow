@@ -1,10 +1,10 @@
 # Survey Monkey
 
-This connector captures data from SurveyMonkey surveys into Flow collections via the SurveyMonkey API.
+This connector captures data from SurveyMonkey surveys into Estuary collections via the SurveyMonkey API.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-surveymonkey:dev`](https://ghcr.io/estuary/source-surveymonkey:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-surveymonkey:dev`](https://ghcr.io/estuary/source-surveymonkey:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -15,11 +15,11 @@ The following data resources are supported:
 * [Survey questions](https://developer.surveymonkey.com/api/v3/#api-endpoints-get-surveys-survey_id-pages-page_id-questions)
 * [Survey responses](https://developer.surveymonkey.com/api/v3/#api-endpoints-survey-responses)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-You'll need to configure a SurveyMonkey private app to integrate with Flow.
+You'll need to configure a SurveyMonkey private app to integrate with Estuary.
 
 ### Setup
 
@@ -29,7 +29,7 @@ You'll need to configure a SurveyMonkey private app to integrate with Flow.
    * View responses
 3. Deploy the app. This requires a paid SurveyMonkey plan; otherwise, [the app will be deleted in 90 days](https://developer.surveymonkey.com/api/v3/#deploying-an-app).
 
-Once the app is set up, there are two ways to authenticate SurveyMonkey in Flow: using OAuth in the web app, or using an access token with the flowctl CLI.
+Once the app is set up, there are two ways to authenticate SurveyMonkey in Estuary: using OAuth in the web app, or using an access token with the flowctl CLI.
 
 #### OAuth authentication in the web app
 
@@ -49,7 +49,7 @@ This connector uses caching to avoid exceeding these limits.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SurveyMonkey source connector.
 
 ### Properties
@@ -57,7 +57,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#oauth-authentication-in-the-web-app),
+If you're working in the Estuary web app, you'll use [OAuth2](#oauth-authentication-in-the-web-app),
 so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |

@@ -2,7 +2,7 @@
 
 # LinkedIn Pages
 
-This connector captures data from one LinkedIn Page into Flow collections via the [LinkedIn Marketing API](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-integrations-overview?view=li-lms-2024-03).
+This connector captures data from one LinkedIn Page into Estuary collections via the [LinkedIn Marketing API](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-integrations-overview?view=li-lms-2024-03).
 
 [`ghcr.io/estuary/source-linkedin-pages:dev`](https://ghcr.io/estuary/source-linkedin-pages:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -13,7 +13,7 @@ This connector captures data from one LinkedIn Page into Flow collections via th
 - [Share Statistics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/share-statistics?tabs=http#retrieve-lifetime-share-statistics)
 - [Total Follower Count](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/organization-lookup-api?tabs=http#retrieve-organization-follower-count)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -58,7 +58,7 @@ Refresh tokens expire after 365 days from their creation date. If you receive a 
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the LinkedIn Pages source connector.
 
 ### Properties

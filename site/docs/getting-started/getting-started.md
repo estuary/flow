@@ -1,24 +1,24 @@
 ---
 sidebar_position: 1
-description: Get to know Estuary Flow and learn how to get started.
+description: Get to know Estuary and learn how to get started.
 pagination_next: getting-started/who-should-use-flow
 slug: /
 ---
 
 import ReactPlayer from "react-player";
 
-# What is Estuary Flow?
+# What is Estuary?
 
-Estuary Flow is a unified data movement and transformation platform for the whole data team.
+Estuary is the Right-Time Data Platform: a unified data movement and transformation platform for the whole data team.
 
-Flow synchronizes your systems – SaaS, databases, streaming, and more – around the same datasets, which it stores in the
+Estuary synchronizes your systems – SaaS, databases, streaming, and more – around the same datasets, which it stores in the
 cloud and updates in milliseconds. It combines the easy cross-system integration of an ELT tool and a flexible streaming
 backbone, all while remaining aware of your data's complete history.
 
 <ReactPlayer controls url="https://www.youtube.com/watch?v=uOj77vFrx3U" />
 <br />
 
-A few examples of what you can do with Flow:
+A few examples of what you can do with Estuary:
 
 * Perform *change data capture* from MySQL tables into PostgreSQL or a cloud analytics warehouse like Snowflake or
   Databricks
@@ -28,14 +28,14 @@ A few examples of what you can do with Flow:
 * Instrument real-time analytics over your business events, accessible from current tools like PostgreSQL or even Google
   Sheets
 
-Under the hood, Flow comprises cloud-native streaming infrastructure, a powerful runtime for data processing,
+Under the hood, Estuary comprises cloud-native streaming infrastructure, a powerful runtime for data processing,
 and an open-source ecosystem of pluggable connectors for integrating your existing data systems.
 
-## Get started with Flow
+## Get started with Estuary
 
-To start using Flow for free, visit the [dashboard](https://go.estuary.dev/dashboard) and register for free.
+To start using Estuary for free, visit the [dashboard](https://go.estuary.dev/dashboard) to register.
 
-Start using Flow with these recommended resources.
+Start using Estuary with these recommended resources.
 
 - **[Quickstart](./quickstart.md)**: Take a look at the Quickstart to see how easy it is to set up a real-time
   data flow.

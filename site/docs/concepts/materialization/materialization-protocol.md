@@ -6,13 +6,13 @@ import Mermaid from '@theme/Mermaid';
 
 # Materialization Protocol
 
-Materializations are processed as cooperative transactions between the Flow
+Materializations are processed as cooperative transactions between the Estuary
 Runtime and a connector Driver, over a long-lived RPC through which the Runtime
 and Driver exchange messages.
 
-This RPC workflow maintains a materialized view of a Flow collection in an
+This RPC workflow maintains a materialized view of an Estuary collection in an
 external system. It has distinct acknowledge, load, and store phases.
-The Flow runtime and driver cooperatively maintain a fully-reduced view of each
+Estuary's runtime and driver cooperatively maintain a fully-reduced view of each
 document by loading current states from the store, reducing in a number of
 updates, and then storing updated documents and checkpoints.
 
@@ -68,7 +68,7 @@ As the materialization progresses, both the checkpoint and the view state will c
 Updates to the checkpoint and to the view state MUST always commit together,
 in the exact same transaction.
 
-Flow materialization tasks have a backing transactional recovery log,
+Estuary's materialization tasks have a backing transactional recovery log,
 which is capable of durable commits that update both the checkpoint and also a
 (reasonably small) driver-defined state. More on driver states later.
 
@@ -76,7 +76,7 @@ Many interesting endpoint systems are also fully transactional in nature.
 
 When implementing a materialization driver, the first question an implementor
 must answer is: whose commit is authoritative?
-Flow's recovery log, or the materialized system?
+Estuary's recovery log, or the materialized system?
 This protocol supports either.
 
 ## Common Implementation Patterns
@@ -87,16 +87,16 @@ of pattern depends on the transaction capabilities of the remote endpoint.
 ### Remote Store is Authoritative
 
 In this pattern, the remote store (for example, a database) persists view states
-and the Flow consumption checkpoints which those views reflect. There are many
-such checkpoints: one per task split, and in this pattern the Flow recovery log
+and the Estuary consumption checkpoints which those views reflect. There are many
+such checkpoints: one per task split, and in this pattern the Estuary recovery log
 is effectively ignored.
 
 Typically this workflow runs in the context of a synchronous `BEGIN/COMMIT`
-transaction, which updates table states and a Flow checkpoint together. The
+transaction, which updates table states and an Estuary checkpoint together. The
 transaction need be scoped only to the store phase of this workflow, as the
 materialization protocol requires only read-committed isolation semantics.
 
-Flow is a distributed system, and an important consideration is the effect of a
+Estuary is a distributed system, and an important consideration is the effect of a
 "zombie" assignment of a materialization task, which can race a newly-promoted
 assignment of that same task.
 
@@ -118,7 +118,7 @@ instance of the task split and prevents it from committing further transactions.
 
 ### Recovery Log with Non-Transactional Store
 
-In this pattern, the runtime's recovery log persists the Flow checkpoint and
+In this pattern, the runtime's recovery log persists the Estuary checkpoint and
 handles fencing semantics. During the Load and Store phases, the driver directly
 manipulates a non-transactional store or API, such as a key/value store.
 
@@ -151,7 +151,7 @@ this S3 file. After the transaction commits, it tells the store of the new file
 to incorporate. The store must handle idempotency, by applying the effects of
 the unique file just once, even if told of the file multiple times.
 
-A related extension of this pattern is for the driver to embed a Flow checkpoint
+A related extension of this pattern is for the driver to embed an Estuary checkpoint
 into its driver checkpoint. Doing so allows the driver to express an intention
 to restart from an older alternative checkpoint, as compared to the most recent
 committed checkpoint of the recovery log.
@@ -164,20 +164,20 @@ yet, but eventually it must because of the retried idempotent apply.
 
 Note the driver must therefore ensure that staged updates are fully applied
 before returning `Loaded` responses, in order to provide the correct
-read-committed semantics required by the Flow runtime.
+read-committed semantics required by Estuary's runtime.
 
 ### Push-only Endpoints & Delta Updates
 
-Some systems, such as APIs, Webhooks, and Pub/Sub, are push-only in nature. Flow
+Some systems, such as APIs, Webhooks, and Pub/Sub, are push-only in nature. Estuary's
 materializations can run in a "delta updates" mode, where loads are always
-skipped and Flow does not attempt to store fully-reduced documents. Instead,
+skipped and Estuary does not attempt to store fully-reduced documents. Instead,
 during the store phase, the runtime sends delta updates which reflect the
 combined roll-up of collection documents processed only within this transaction.
 
 To illustrate the meaning of a delta update, consider documents which are simple
 counters, having a collection schema that uses a `sum` reduction strategy.
 
-Without delta updates, Flow would reduce documents -1, 3, and 2 by `sum` to
+Without delta updates, Estuary would reduce documents -1, 3, and 2 by `sum` to
 arrive at document 4, which is stored. The next transaction, document 4 is
 loaded and reduced with 6, -7, and -1 to arrive at a new stored document 2. This
 document, 2, represents the full reduction of the collection documents
@@ -218,7 +218,7 @@ while actively reading `Load` messages. It MUST NOT evaluate `Load`s yet, as
 this could otherwise be a violation of read-committed semantics, but it MAY
 stage them for deferred evaluation. This is **recommended** for Drivers that
 have very long commit and/or acknowledgement operations. While a background
-commit progresses the Flow runtime will optimistically pipeline the next
+commit progresses the Estuary runtime will optimistically pipeline the next
 transaction, processing documents and preparing for when the Driver sends
 `Acknowledged`.
 

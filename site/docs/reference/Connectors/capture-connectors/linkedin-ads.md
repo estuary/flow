@@ -1,7 +1,7 @@
 
 # LinkedIn Ads
 
-This connector captures data from LinkedIn Ads into Flow collections through the LinkedIn Marketing API.
+This connector captures data from LinkedIn Ads into Estuary collections through the LinkedIn Marketing API.
 
 [`ghcr.io/estuary/source-linkedin-ads:dev`](https://ghcr.io/estuary/source-linkedin-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -18,17 +18,17 @@ The following data resources are supported:
 * [Ad analytics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2022-08&tabs=http) by campaign
 * [Ad analytics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting?view=li-lms-2022-08&tabs=http) by creative
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-There are two ways to authenticate with LinkedIn when capturing data into Flow: using OAuth2, and manually, by creating a developer application.
+There are two ways to authenticate with LinkedIn when capturing data into Estuary: using OAuth2, and manually, by creating a developer application.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the developer application method is the only supported method using the command line.
 
-### Using OAuth2 to authenticate with LinkedIn in the Flow web app
+### Using OAuth2 to authenticate with LinkedIn in the Estuary web app
 
 * One or more LinkedIn [Ad Accounts](https://www.linkedin.com/help/lms/answer/a426102/create-an-ad-account?lang=en) with active campaigns.
 
@@ -52,7 +52,7 @@ You must manually update your capture configuration to continue to capture data 
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the capture specification.
+You configure connectors either in the Estuary web app, or by directly editing the capture specification.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the LinkedIn Ads source connector.
 
 ### Properties
@@ -60,7 +60,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-linkedin-in-the-flow-web-app),
+If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-linkedin-in-the-estuary-web-app),
 so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |

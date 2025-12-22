@@ -1,9 +1,9 @@
 
 # Aircall
 
-This connector captures data from Aircall into Flow collections.
+This connector captures data from Aircall into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-aircall:dev`](https://ghcr.io/estuary/source-aircall:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-aircall:dev`](https://ghcr.io/estuary/source-aircall:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 To set up the Aircall connector, you need the following prerequisite:
@@ -15,8 +15,8 @@ Follow the steps below to set up the Aircall connector.
 
 1. Obtain an Aircall access token from the Aircall [settings](https://dashboard.aircall.io/integrations/api-keys).
 
-### Set up the Aircall connector in Estuary Flow
-1. Log into your Estuary Flow account.
+### Set up the Aircall connector in Estuary
+1. Log into your Estuary account.
 2. In the left navigation bar, click on "Captures". In the top-left corner, click "Connector Search".
 3. Enter the name for the Aircall connector and select "Aircall" from the dropdown.
 4. Fill out the following endpoint configurations:
@@ -25,7 +25,7 @@ Follow the steps below to set up the Aircall connector.
    - `start_date`: Date filter for eligible streams. Enter the desired start date.
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Aircall source connector.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Aircall source connector.
 
 ### Properties
 

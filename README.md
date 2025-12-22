@@ -8,12 +8,12 @@
 
 ### Build millisecond-latency, scalable, future-proof data pipelines in minutes.
 
-Estuary Flow is a DataOps platform that integrates all of the systems you use to produce, process, and consume data.
+Estuary is the Right-Time Data Platform that integrates all of the systems you use to produce, process, and consume data.
 
-Flow unifies today's batch and streaming paradigms so that your systems
+Estuary unifies today's batch and streaming paradigms so that your systems
 – current and future – are synchronized around the same datasets, updating in milliseconds.
 
-With a Flow pipeline, you:
+With an Estuary pipeline, you:
 
 -   📷 **Capture** data from your systems, services, and SaaS into _collections_:
     millisecond-latency datasets that are stored as regular files of JSON data,
@@ -25,8 +25,11 @@ With a Flow pipeline, you:
 -   🌊 **Derive** new collections by transforming from other collections, using
     the full gamut of stateful stream workflow, joins, and aggregations — in real time.
 
+Publish your data flows in Estuary's shared SaaS environment.
+Or use a [private](https://docs.estuary.dev/private-byoc/private-deployments/) or [BYOC deployment](https://docs.estuary.dev/private-byoc/byoc-deployments/) for enterprise-ready security.
+
 ## Get started
-Ready to try out Flow? [Sign up](https://dashboard.estuary.dev/register)
+Ready to try out Estuary? [Sign up](https://dashboard.estuary.dev/register)
 for free to get started! 🚀
 
 Have questions? We'd love to hear from you:
@@ -38,22 +41,22 @@ Have questions? We'd love to hear from you:
 
 ![Workflow Overview](site/docs/concepts/concept-images/at-a-glance.png)
 
-## Using Flow
+## Using Estuary
 
-Flow combines a low-code UI for essential workflows and a CLI for fine-grain control over your pipelines.
-Together, the two interfaces comprise Flow's unified platform.
+Estuary combines a low-code UI for essential workflows and a CLI for fine-grain control over your pipelines.
+Together, the two interfaces comprise Estuary's unified platform.
 You can switch seamlessly between them as you build and refine your pipelines, and collaborate with a wider breadth of data stakeholders.
 
 * The UI-based web application is at **[dashboard.estuary.dev](https://dashboard.estuary.dev)**.
 * Install the **flowctl CLI** using [these instructions](https://docs.estuary.dev/guides/get-started-with-flowctl/).
 
-➡️ **Sign up for a free Flow account [here](https://go.estuary.dev/sign-up).**
+➡️ **Sign up for a free Estuary account [here](https://go.estuary.dev/sign-up).**
 
-*See the [BSL license](./LICENSE-BSL) for information on using Flow outside the managed offering.*
+*See the [BSL license](./LICENSE-BSL) for information on using Estuary outside the managed offering.*
 
 ## Resources
 
--   📖 [Flow documentation](https://docs.estuary.dev/)
+-   📖 [Estuary documentation](https://docs.estuary.dev/)
 
 -   🧐 **Examples and tutorials**
     - [Blog tutorials](https://estuary.dev/blog/tutorial/)
@@ -78,7 +81,7 @@ plug-able components that integrate Flow with external data systems.
 Estuary's [in-house connectors](https://github.com/orgs/estuary/packages?repo_name=connectors)
 focus on high-scale technology systems and change data capture (think databases, pub-sub, and filestores).
 
-Flow can run Airbyte community connectors using
+Estuary can run Airbyte community connectors using
 [airbyte-to-flow](https://github.com/estuary/airbyte/tree/master/airbyte-to-flow), allowing us to support a greater variety of SaaS systems.
 
 **See our website for the [full list of currently supported connectors](https://www.estuary.dev/integrations/).**
@@ -87,9 +90,9 @@ If you don't see what you need, [request it here](https://github.com/estuary/con
 
 ## How does it work?
 
-Flow builds on a real-time streaming broker created by the same founding team called [Gazette](https://gazette.dev).
+Estuary builds on a real-time streaming broker created by the same founding team called [Gazette](https://gazette.dev).
 
-Because of this, Flow **collections** are both a batch dataset –
+Because of this, Estuary's **collections** are both a batch dataset –
 they're stored as a structured "data lake" of general-purpose files in cloud storage –
 and a stream, able to commit new documents and forward them to readers within milliseconds.
 New use cases read directly from cloud storage for high-scale backfills of history,
@@ -97,11 +100,11 @@ and seamlessly transition to low-latency streaming on reaching the present.
 
 - [Learn more about how Gazette works here](https://gazette.readthedocs.io/en/latest/index.html).
 
-- [Learn more about how Flow works here](https://docs.estuary.dev/concepts/).
+- [Learn more about how Estuary works here](https://docs.estuary.dev/concepts/).
 
-### What makes Flow so fast?
+### What makes Estuary so fast?
 
-Flow mixes a variety of architectural techniques to achieve great throughput without adding latency:
+Estuary mixes a variety of architectural techniques to achieve great throughput without adding latency:
 
 -   Optimistic pipelining, using the natural back-pressure of systems to which data is committed.
 -   Leveraging `reduce` annotations to group collection documents by key wherever possible,

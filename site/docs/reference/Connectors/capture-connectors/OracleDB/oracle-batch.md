@@ -1,6 +1,6 @@
 # Oracle Batch Query Connector
 
-This connector captures data from Oracle databases into Flow collections by
+This connector captures data from Oracle databases into Estuary collections by
 periodically executing queries and translating the results into JSON documents.
 
 ## When to use this connector
@@ -41,7 +41,7 @@ You'll need:
 
 ### Creating a capture user
 
-We recommend creating a dedicated user for Flow captures:
+We recommend creating a dedicated user for Estuary captures:
 
 ```sql
 CREATE USER flow_capture IDENTIFIED BY secret;
@@ -120,7 +120,7 @@ collection key, which is based on the polling timestamp and result order.
 
 ## Configuration
 
-Configure this connector in the Flow web app or using YAML config files with
+Configure this connector in the Estuary web app or using YAML config files with
 [flowctl CLI](/guides/flowctl/). See [connectors](/concepts/connectors/#using-connectors)
 to learn more about using connectors.
 

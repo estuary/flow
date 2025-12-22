@@ -1,16 +1,16 @@
 import ReactPlayer from "react-player";
 
 # OracleDB
-This connector captures data from OracleDB into Flow collections using [Oracle Logminer](https://docs.oracle.com/en/database/oracle/oracle-database/19/sutil/oracle-logminer-utility.html#GUID-2555A155-01E3-483E-9FC6-2BDC2D8A4093).
+This connector captures data from OracleDB into Estuary collections using [Oracle Logminer](https://docs.oracle.com/en/database/oracle/oracle-database/19/sutil/oracle-logminer-utility.html#GUID-2555A155-01E3-483E-9FC6-2BDC2D8A4093).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-oracle:dev`](https://ghcr.io/estuary/source-oracle:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-oracle:dev`](https://ghcr.io/estuary/source-oracle:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 <ReactPlayer controls url="https://www.youtube.com/watch?v=mE7LFSqfwY8" />
 
 ## Prerequisites
 * Oracle 11g or above
-* Allow connections from Estuary Flow to your Oracle database (if they exist in separate VPCs)
-* Create a dedicated read-only Estuary Flow user with access to all tables needed for replication
+* Allow connections from Estuary to your Oracle database (if they exist in separate VPCs)
+* Create a dedicated read-only Estuary user with access to all tables needed for replication
 
 ## Setup
 Follow the steps below to set up the OracleDB connector.
@@ -130,10 +130,10 @@ ALTER USER c##estuary_flow_user QUOTA UNLIMITED ON USERS;
 ```
 
 ### Include Schemas for Discovery
-In your Oracle configuration, you can specify the schemas that Flow should look at when discovering tables. The schema names are case-sensitive. If the user does not have access to a certain schema, no tables from that schema will be discovered.
+In your Oracle configuration, you can specify the schemas that Estuary should look at when discovering tables. The schema names are case-sensitive. If the user does not have access to a certain schema, no tables from that schema will be discovered.
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the OracleDB source connector.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the OracleDB source connector.
 
 To allow secure connections via SSH tunneling:
   * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)

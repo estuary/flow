@@ -3,7 +3,7 @@ import ReactPlayer from "react-player";
 
 # Databricks
 
-This connector materializes Flow collections into tables in a Databricks SQL Warehouse.
+This connector materializes Estuary collections into tables in a Databricks SQL Warehouse.
 It allows both standard and [delta updates](#delta-updates).
 
 The connector first uploads data changes to a [Databricks Unity Catalog Volume](https://docs.databricks.com/en/sql/language-manual/sql-ref-volumes.html).
@@ -22,7 +22,7 @@ To use this connector, you'll need:
     * A SQL Warehouse
     * A [schema](https://docs.databricks.com/api/workspace/schemas) — a logical grouping of tables in a catalog
     * A user or service principal with a role assigned that grants the appropriate access levels to these resources.
-* At least one Flow collection
+* At least one Estuary collection
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
@@ -49,8 +49,8 @@ databricks token-management create-obo-token <application id of service principa
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Databricks materialization, which will direct one or more of your Flow collections to new Databricks tables.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Databricks materialization, which will direct one or more of your Estuary collections to new Databricks tables.
 
 ### Properties
 
@@ -110,7 +110,7 @@ about how to configure this [here](/reference/materialization-sync-schedule).
 This connector supports both standard (merge) and [delta updates](/concepts/materialization/#delta-updates).
 The default is to use standard updates.
 
-Enabling delta updates will prevent Flow from querying for documents in your Databricks table, which can reduce latency and costs for large datasets.
+Enabling delta updates will prevent Estuary from querying for documents in your Databricks table, which can reduce latency and costs for large datasets.
 If you're certain that all events will have unique keys, enabling delta updates is a simple way to improve
 performance with no effect on the output.
 However, enabling delta updates is not suitable for all workflows, as the resulting table in Databricks won't be fully reduced.
@@ -146,7 +146,7 @@ SET TBLPROPERTIES (
 
 ## Reserved words
 
-Databricks has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Databricks's documentation [here](https://docs.databricks.com/en/sql/language-manual/sql-ref-reserved-words.html) and in the table below.
+Databricks has a list of reserved words that must be quoted in order to be used as an identifier. Estuary automatically quotes fields that are in the reserved words list. You can find this list in Databricks's documentation [here](https://docs.databricks.com/en/sql/language-manual/sql-ref-reserved-words.html) and in the table below.
 
 :::caution
 In Databricks, objects created with quoted identifiers must always be referenced exactly as created, including the quotes. Otherwise, SQL statements and queries can result in errors. See the [Databricks docs](https://docs.databricks.com/en/sql-reference/identifiers-syntax.html#double-quoted-identifiers).

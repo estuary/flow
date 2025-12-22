@@ -3,8 +3,8 @@ import Mermaid from '@theme/Mermaid';
 
 # Dekaf Integrations
 
-[Dekaf](/guides/dekaf_reading_collections_from_kafka) is Estuary Flow's Kafka-API compatibility layer.
-It allows services to read data from Estuary Flow's collections as if they were topics in a Kafka cluster. This
+[Dekaf](/guides/dekaf_reading_collections_from_kafka) is Estuary's Kafka-API compatibility layer.
+It allows services to read data from Estuary's collections as if they were topics in a Kafka cluster. This
 functionality enables integrations with the Kafka ecosystem.
 
 ## Using Kafka or Dekaf

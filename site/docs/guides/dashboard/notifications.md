@@ -7,7 +7,7 @@ slug: /reference/notifications/
 
 Estuary allows users to configure email notifications on specific tenants to send out alerts in various categories.
 
-In the `Admin` section of the Flow Web Application, navigate to the the `Settings` tab. Here you will be able to input your email to receive notifications from your tenant.
+In the `Admin` section of Estuary's Web Application, navigate to the the `Settings` tab. Here you will be able to input your email to receive notifications from your tenant.
 
 You can also see active and historical notifications for a specific connector.
 From the capture or materialization details overview page, select the `Alerts` tab.

@@ -8,7 +8,7 @@ This is a change data capture (CDC) connector that captures change events from a
 It's derived from the [MySQL capture connector](../MySQL/MySQL.md),
 so the same configuration applies, but the setup steps look somewhat different.
 
-This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+This connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -65,10 +65,10 @@ SET PERSIST time_zone = '-05:00'
 
 You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
 
-1. Allow connections to the database from the Estuary Flow IP address.
+1. Allow connections to the database from the Estuary IP address.
 
    1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
-      that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+      that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses).
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
@@ -108,11 +108,11 @@ binary logging is enabled on the replica and all other requirements are met.
 ## Setting the MariaDB time zone
 
 MariaDB's [`time_zone` server system variable](https://mariadb.com/kb/en/server-system-variables/#system_time_zone) is set to `SYSTEM` by default.
-Flow is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
+Estuary is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
 
 If you intend to capture tables including columns of the type `DATETIME`,
 and `time_zone` is set to `SYSTEM`,
-Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+Estuary won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
 To avoid this, you must explicitly set the time zone for your database.
 
 You can:
@@ -135,14 +135,14 @@ If you are unable to set the `time_zone` in the database and need to capture tab
 
 When the MariaDB capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Estuary.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
 
 ### Properties

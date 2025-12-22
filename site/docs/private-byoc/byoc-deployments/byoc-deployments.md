@@ -27,4 +27,4 @@ BYOC shares many features with [private deployments](../private-deployments.md#f
 
 * **Cost savings:** Since BYOC uses your existing cloud setup, you likewise may be able to make use of existing cloud credits or negotiated rates.
 
-* **Customization:** Fit specific organizational needs by customizing Flow's deployment.
+* **Customization:** Fit specific organizational needs by customizing Estuary's deployment.

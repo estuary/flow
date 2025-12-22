@@ -14,7 +14,7 @@ This tutorial will show you how to implement a stateless transformation using Ty
 ### Prerequisites
 
 * An [Estuary](https://dashboard.estuary.dev/register) account
-* `flowctl` [installed](/concepts/flowctl/#installation-and-setup) and [authenticated](/reference/authentication/#authenticating-flow-using-the-cli)
+* `flowctl` [installed](/concepts/flowctl/#installation-and-setup) and [authenticated](/reference/authentication/#authenticating-estuary-using-the-cli)
 * A Google Drive account to work with Google Sheets
 * [Docker](https://www.docker.com/)
 
@@ -23,7 +23,7 @@ This tutorial will show you how to implement a stateless transformation using Ty
 Example datasets for this tutorial are available in two Google Sheets: this one for [orders](https://docs.google.com/spreadsheets/d/1glzIgMIeS5Fd2unb-m9J6czXdWBXK_x_ZsgzxbVUclQ/edit#gid=0) and this one for [customers](https://docs.google.com/spreadsheets/d/1WUyM9hmRwa8B1Kz2buFcscZegPA35nvTdaHC-L3xr7U/edit#gid=0). Make a copy of each to your own Drive so you’ll be able to test out the pipeline by adding, editing or removing records.
 
 :::tip
-Ensure that the first row in your copied sheets is frozen. Otherwise, Flow will not pick up the headers as field names and instead assign field names in high-case alphabet order (A, B, C...).
+Ensure that the first row in your copied sheets is frozen. Otherwise, Estuary will not pick up the headers as field names and instead assign field names in high-case alphabet order (A, B, C...).
 
 If the field names in your collection schema are not correct, the `flowctl generate` command later in the tutorial will fail with the error: `/customer_id is prohibited from ever existing by the schema`.
 :::
@@ -48,15 +48,15 @@ As you can see, both tables contain a field called `customer_id`. This is what w
 
 Let’s say you want to see all customers and all of their orders in the results. This means you’ll want to implement a full outer join.
 
-To create the collections in Estuary Flow, head over to the dashboard and [create](https://dashboard.estuary.dev/captures/create) a new [Google Sheet capture](/reference/Connectors/capture-connectors/google-sheets). Give it a name and add one of the previously copied sheet’s URLs as the “Spreadsheet Link”. Authenticate your Google account and Save and Publish the capture. Repeat this process for the other sheet, which should leave you with 2 collections.
+To create the collections in Estuary, head over to the dashboard and [create](https://dashboard.estuary.dev/captures/create) a new [Google Sheet capture](/reference/Connectors/capture-connectors/google-sheets). Give it a name and add one of the previously copied sheet’s URLs as the “Spreadsheet Link”. Authenticate your Google account and Save and Publish the capture. Repeat this process for the other sheet, which should leave you with 2 collections.
 
-You can take a look into each via the data preview window on the Collections page to verify that the sample data has already landed in Flow.
+You can take a look into each via the data preview window on the Collections page to verify that the sample data has already landed in Estuary.
 
 ![Orders collection](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//orders_sheet_collection_b99f3c9c84/orders_sheet_collection_b99f3c9c84.png)
 
-In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow, installed on your machine.
+In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Estuary, installed on your machine.
 
-To verify that you’re able to access Flow via `flowctl`, try executing the `flowctl catalog list` command.
+To verify that you’re able to access Estuary via `flowctl`, try executing the `flowctl catalog list` command.
 
 If you see your new Google Sheets captures and their associated collections, you’re good to continue!
 
@@ -164,7 +164,7 @@ In the schema definition, we specify what structure we want the documents of the
       - /customer_id
 ```
 
-Because you are going to implement a 1-to-many join using the two source collections, it’s important to pay attention to what reduction strategy Flow uses.
+Because you are going to implement a 1-to-many join using the two source collections, it’s important to pay attention to what reduction strategy Estuary uses.
 
 There are two `merge` strategies defined here, one for the `customers_with_orders` collection and for the nested `orders` array.
 
@@ -196,9 +196,9 @@ The derivation details are defined in the next section of the yaml:
               - /customer_id
 ```
 
-This tells Flow that the transformation code is defined in a TypeScript file called `full-outer-join.flow.ts` (which doesn’t exist – yet!) and that there are in fact two transformations that it expects, one for each source collection.
+This tells Estuary that the transformation code is defined in a TypeScript file called `full-outer-join.flow.ts` (which doesn’t exist – yet!) and that there are in fact two transformations that it expects, one for each source collection.
 
-Shuffles let Flow identify the shard that should process a particular source document, in order to co-locate that processing with other documents it may need to know about.
+Shuffles let Estuary identify the shard that should process a particular source document, in order to co-locate that processing with other documents it may need to know about.
 
 Both transformations shuffle data on the same key. An important detail is that if a derivation has more than one transformation, the shuffle keys of all transformations must align with one another in terms of the extracted key types (string vs integer) as well as the number of components in a composite key.
 
@@ -301,7 +301,7 @@ export class Derivation extends IDerivation {
 }
 ```
 
-As you can see here, all we do is return the fields we need from each document. There’s no code required to define the actual “join” – all the heavy lifting is done in the reduction phase during materialization by the Flow runtime based on the schema you defined earlier.
+As you can see here, all we do is return the fields we need from each document. There’s no code required to define the actual “join” – all the heavy lifting is done in the reduction phase during materialization by the Estuary runtime based on the schema you defined earlier.
 
 Publish the derivation using `flowctl`:
 
@@ -309,7 +309,7 @@ Publish the derivation using `flowctl`:
 flowctl catalog publish --source flow.yaml
 ```
 
-After it’s successfully published, head over to the Flow dashboard to see the new collection.
+After it’s successfully published, head over to the Estuary dashboard to see the new collection.
 
 ![Customers with Orders collection](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//customers_with_orders_collection_d3c09d237f/customers_with_orders_collection_d3c09d237f.png)
 
@@ -336,4 +336,4 @@ To test the data flow, head over to the source “Orders” sheet, and add a new
 
 In this guide you learned how to write a TypeScript derivation to join two collections. After finishing with the tutorial, don’t forget to delete resources you don’t need anymore.
 
-To learn more about joining collections with Estuary Flow, check out [Streaming Joins Are Hard](https://estuary.dev/streaming-joins-are-hard/) and [How to Join Two Collections in Estuary Flow using SQL](https://estuary.dev/derivations-join-collections-sql/).
+To learn more about joining collections with Estuary, check out [Streaming Joins Are Hard](https://estuary.dev/streaming-joins-are-hard/) and [How to Join Two Collections in Estuary using SQL](https://estuary.dev/derivations-join-collections-sql/).

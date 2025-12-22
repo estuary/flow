@@ -3,9 +3,9 @@ sidebar_position: 6
 ---
 # Supabase
 
-This connector uses change data capture (CDC) to continuously capture updates in a Supabase PostgreSQL database into one or more Flow collections.
+This connector uses change data capture (CDC) to continuously capture updates in a Supabase PostgreSQL database into one or more Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported versions and platforms
 
@@ -109,14 +109,14 @@ ALTER SYSTEM SET wal_level = logical;
 
 When the PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Estuary.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
 
 
@@ -151,7 +151,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 
 #### SSL Mode
 
-Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Estuary. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
 
 ### Sample
 
@@ -193,11 +193,11 @@ As a result, the connector emits a row update with the value omitted, which migh
 unexpected results in downstream catalog tasks if adjustments are not made.
 
 The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/captures.md#discovery)
-or use the [Flow UI](/concepts/web-app.md) to create your capture.
+or use the [Estuary UI](/concepts/web-app.md) to create your capture.
 It uses [merge](/reference/reduction-strategies/merge) [reductions](/concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 
-However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
+However, due to the event-driven nature of certain tasks in Estuary, it's still possible to see unexpected results in your data flow, specifically:
 
 - When you materialize the captured data to another system using a connector that requires [delta updates](/concepts/materialization/#delta-updates)
 - When you perform a [derivation](/concepts/derivations.md) that uses TOASTed values

@@ -2,7 +2,7 @@
 
 This connector captures data from [Gainsight NXT](https://www.gainsight.com/), a customer success platform. It uses Gainsight's REST API to capture data in real-time.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gainsight-nxt:dev`](https://github.com/estuary/estuary/pkgs/container/source-gainsight-nxt) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past images.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gainsight-nxt:dev`](https://github.com/estuary/estuary/pkgs/container/source-gainsight-nxt) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past images.
 
 ## Supported Streams
 
@@ -29,7 +29,7 @@ To set up the Gainsight source connector, you'll need:
 
 ## Configuration
 
-You can configure the connector either in the Flow web app or by directly editing the catalog specification file. See connectors to learn more about using [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors). The values and specification sample below provide configuration details specific to the Gainsight NXT source connector.
+You can configure the connector either in the Estuary web app or by directly editing the catalog specification file. See connectors to learn more about using [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors). The values and specification sample below provide configuration details specific to the Gainsight NXT source connector.
 
 ### Properties
 

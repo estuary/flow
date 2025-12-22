@@ -4,9 +4,9 @@ sidebar_position: 3
 
 # Microsoft SQL Server
 
-This connector uses change data capture (CDC) to continuously capture updates in a Microsoft SQL Server database into one or more Flow collections.
+This connector uses change data capture (CDC) to continuously capture updates in a Microsoft SQL Server database into one or more Estuary collections.
 
-It’s available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sqlserver:dev`](https://ghcr.io/estuary/source-sqlserver:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sqlserver:dev`](https://ghcr.io/estuary/source-sqlserver:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported versions and platforms
 
@@ -24,8 +24,8 @@ Setup instructions are provided for the following platforms:
 To capture change events from SQL Server tables using this connector, you need:
 
 - For each table to be captured, a primary key should be specified in the database.
-  If a table doesn't have a primary key, you must manually specify a key in the associated Flow collection definition while creating the capture.
-  [See detailed steps](#specifying-flow-collection-keys).
+  If a table doesn't have a primary key, you must manually specify a key in the associated Estuary collection definition while creating the capture.
+  [See detailed steps](#specifying-estuary-collection-keys).
 
 - [CDC enabled](https://learn.microsoft.com/en-us/sql/relational-databases/track-changes/enable-and-disable-change-data-capture-sql-server?view=sql-server-ver16)
   on both the database and the individual tables to be captured.
@@ -68,7 +68,7 @@ GRANT VIEW DATABASE STATE TO flow_capture;
 EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'foobar', @role_name = 'flow_capture';
 ```
 
-2. Allow secure connection to Estuary Flow from your hosting environment. Either:
+2. Allow secure connection to Estuary from your hosting environment. Either:
 
    - Set up an [SSH server for tunneling](/guides/connect-network/).
 
@@ -81,11 +81,11 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'foobar', @r
 
 ### Azure SQL Database
 
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
 
-      - Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+      - Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
@@ -138,7 +138,7 @@ Granting that permission to the capture user is a hard requirement for using thi
 
 By default, CDC change tables will retain change events for [three days](https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sys-sp-cdc-add-job-transact-sql?view=sql-server-ver17#----retention). This can be modified via `sys.sp_cdc_change_job`, but a lower retention period can put you at a higher risk of losing change events in the event of downtime, if the issue persists long enough for unconsumed change events to expire. If this happens a complete backfill will be required to re-establish consistency.
 
-An alternative solution is to enable the option `Advanced > Automatic Change Table Cleanup`. When this option is enabled, the connector will manually remove change events from the relevant change tables once it receives confirmation that they have been durably persisted into a Flow collection.
+An alternative solution is to enable the option `Advanced > Automatic Change Table Cleanup`. When this option is enabled, the connector will manually remove change events from the relevant change tables once it receives confirmation that they have been durably persisted into an Estuary collection.
 
 Unfortunately, the `sys.sp_cdc_cleanup_change_table` stored procedure used to delete CDC events from the change table [requires membership in the `db_owner` database role](https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sys-sp-cdc-cleanup-change-table-transact-sql?view=sql-server-ver17#permissions) to call.
 
@@ -148,7 +148,7 @@ Note also that you still need to have enough free storage space to hold the full
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SQL Server source connector.
 
 ### Properties
@@ -200,9 +200,9 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 [Learn more about capture definitions.](/concepts/captures.md)
 
-## Specifying Flow collection keys
+## Specifying Estuary collection keys
 
-Every Flow collection must have a [key](/concepts/collections.md#keys).
+Every Estuary collection must have a [key](/concepts/collections.md#keys).
 As long as your SQL Server tables have a primary key specified, the connector will set the
 corresponding collection's key accordingly.
 
@@ -210,7 +210,7 @@ In cases where a SQL Server table you want to capture doesn't have a primary key
 you can manually add it to the collection definition during the [capture creation workflow](/guides/create-dataflow.md#create-a-capture).
 
 1. After you input the endpoint configuration and click **Next**,
-   the tables in your database have been mapped to Flow collections.
+   the tables in your database have been mapped to Estuary collections.
    Click each collection's **Specification** tab and identify a collection where `"key": [ ],` is empty.
 
 2. Click inside the empty key value in the editor and input the name of column in the table to use as the key, formatted as a JSON pointer. For example `"key": ["/foo"],`

@@ -1,7 +1,7 @@
 
 # Web Dashboard
 
-Estuary provides a [dashboard](https://dashboard.estuary.dev/) to manage Flow pipelines.
+Estuary provides a [dashboard](https://dashboard.estuary.dev/) to manage Estuary pipelines.
 
 Much of the documentation assumes you will mainly be working within the dashboard.
 This section in particular will explore some of the different features and functionality you can find within the UI.

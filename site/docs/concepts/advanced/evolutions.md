@@ -3,13 +3,13 @@
 **Schema evolutions** are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components.
 
 :::info
-Evolutions are a relatively advanced concept in Flow.
-Before continuing, you should have a basic understanding of [Flow captures](../captures.md), [collections](../collections.md), [schemas](../schemas.md), and [materializations](/concepts/materialization).
+Evolutions are a relatively advanced concept in Estuary.
+Before continuing, you should have a basic understanding of Estuary's [captures](../captures.md), [collections](../collections.md), [schemas](../schemas.md), and [materializations](/concepts/materialization).
 :::
 
 ## Introduction
 
-Flow stores your real-times datasets as **collections**, groups of continually updating JSON documents.
+Estuary stores your real-times datasets as **collections**, groups of continually updating JSON documents.
 **Captures** write data to collections, and **materializations** read data from collections.
 Together, these three components form a complete Data Flow.
 
@@ -35,7 +35,7 @@ The spec includes the collection's `key`, its `schema`, and [logical partitions]
 
 When any of these parts change, any capture or materialization writing to or reading from the collection must be updated to approve of the change, otherwise, the Data Flow will fail with an error.
 
-You can use Flow's **schema evolutions** feature to quickly and simultaneously update other parts of a Data Flow so you're able to re-start it without error when you introduce a collection change.
+You can use Estuary's **schema evolutions** feature to quickly and simultaneously update other parts of a Data Flow so you're able to re-start it without error when you introduce a collection change.
 
 Collection specs may change for a variety of reasons, such as:
 
@@ -43,11 +43,11 @@ Collection specs may change for a variety of reasons, such as:
 - The source system contains unstructured data, and some data with a different shape was just captured so you need to update the collection schema (through AutoDiscover or manually).
 - Someone manually changed the collection's logical partitions.
 
-Regardless of why or how a spec change is introduced, the effect is the same. Flow will never permit you to publish changes that break this contract between captures and materializations, so you'll need to update the contract.
+Regardless of why or how a spec change is introduced, the effect is the same. Estuary will never permit you to publish changes that break this contract between captures and materializations, so you'll need to update the contract.
 
 ## Using evolutions
 
-When you attempt to publish a breaking change to a collection in the Flow web app, you get an error message that looks similar to this one:
+When you attempt to publish a breaking change to a collection in the Estuary web app, you get an error message that looks similar to this one:
 
 ![](<./evolutions-images/ui-evolution-re-create.png>)
 
@@ -57,7 +57,7 @@ If you enabled [AutoDiscover](../captures.md#automatically-update-captures) on a
 
 ## What do schema evolutions do?
 
-The schema evolution feature is available in the Flow web app when you're editing pre-existing Flow entities.
+The schema evolution feature is available in the Estuary web app when you're editing pre-existing entities.
 It notices when one of your edits would cause other components of the Data Flow to fail, alerts you, and gives you the option to automatically update the specs of these components to prevent failure.
 
 In other words, evolutions happen in the *draft* state. Whenever you edit, you create a draft.
@@ -71,7 +71,7 @@ Evolutions can prevent errors resulting from mismatched specs in two ways:
 
    This is a simpler change, and how evolutions work in most cases.
 
-* **Re-create the Flow collection with a new name**: The evolution creates a completely new collection with numerical suffix, such as `_v2`. This collection starts out empty and backfills from the source. The evolution also updates all captures and materializations that reference the old collection to instead reference the new collection, and increments their `backfill` counters.
+* **Re-create the collection with a new name**: The evolution creates a completely new collection with numerical suffix, such as `_v2`. This collection starts out empty and backfills from the source. The evolution also updates all captures and materializations that reference the old collection to instead reference the new collection, and increments their `backfill` counters.
 
    This is a more complicated change, and evolutions only work this way when necessary: when the collection key or logical partitioning changes.
 

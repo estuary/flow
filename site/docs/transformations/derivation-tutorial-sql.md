@@ -14,9 +14,9 @@ This tutorial will show you how to implement a stateless transformation using SQ
 
 ## Setting up your development environment<a id="setting-up-your-development-environment"></a>
 
-In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
+In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Estuary installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
 
-Before continuing, sign in to the Estuary Flow dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
+Before continuing, sign in to the Estuary dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
 
 Execute the below command to display the documents in the `demo/wikipedia/recentchange-sampled` collection:
 
@@ -135,7 +135,7 @@ collections:
 ```
  
 
-The Flow consists of just one collection, which is what you define here, called `edits-by-users`.
+The Data Flow consists of just one collection, which is what you define here, called `edits-by-users`.
 
 Let’s go over this in a bit more detail.
 
@@ -181,7 +181,7 @@ key:
   - /user_id
 ```
 
-Every Flow collection must declare a key which is used to group its documents. Keys are specified as an array of JSON pointers to document locations. The important detail here is to know that a collection key instructs Flow how documents of a collection are to be reduced, such as while being materialized to an endpoint.
+Every Estuary collection must declare a key which is used to group its documents. Keys are specified as an array of JSON pointers to document locations. The important detail here is to know that a collection key instructs Estuary how documents of a collection are to be reduced, such as while being materialized to an endpoint.
 
 The final section is where you specify that this collection is derived from another collection.
 
@@ -204,7 +204,7 @@ derive:
 
 Here you define the SQL statement that gets executed on the documents of the source collection.
 
-The `source: demo/wikipedia/recentchange-sampled` property lets Flow know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any available compute.
+The `source: demo/wikipedia/recentchange-sampled` property lets Estuary know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Estuary how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any available compute.
 
 The SQL is straightforward
 
@@ -234,7 +234,7 @@ flowctl preview --source flow.yaml --name Dani/derivation-tutorial/edits-by-user
 ^C
 ```
 
-As you can see, the output format matches the defined schema.  The last step would be to publish your derivation to Flow, which you can also do using `flowctl`.
+As you can see, the output format matches the defined schema.  The last step would be to publish your derivation to Estuary, which you can also do using `flowctl`.
 
 :::warning
 Publishing the derivation will initialize the transformation on the live, real-time Wikipedia stream, make sure to delete it after completing the tutorial.

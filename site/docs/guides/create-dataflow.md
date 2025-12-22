@@ -7,13 +7,13 @@ This guide walks you through the process of creating an end-to-end Data Flow.
 
 ## Prerequisites
 
-This guide is intended for new Flow users and briefly introduces Flow's key concepts.
+This guide is intended for new users and briefly introduces Estuary's key concepts.
 Though it's not required, you may find it helpful to read
 the [high level concepts](../concepts/README.md#essential-concepts) documentation for more detail before you begin.
 
 ## Introduction
 
-In Estuary Flow, you create Data Flows to connect data **source** and **destination** systems.
+In Estuary, you create Data Flows to connect data **source** and **destination** systems.
 
 The simplest Data Flow comprises three types of entities:
 
@@ -22,15 +22,15 @@ The simplest Data Flow comprises three types of entities:
 * A **materialization**, to push the data to an external destination
 
 The capture and materialization each rely on a **connector**.
-A connector is a plug-in component that interfaces between Flow and whatever data system you need to connect to.
+A connector is a plug-in component that interfaces between Estuary and whatever data system you need to connect to.
 Here, we'll walk through how to leverage various connectors, configure them, and deploy your Data Flow.
 
 ## Create a capture
 
 You'll first create a **capture** to connect to your data source system.
-This process will create one or more **collections** in Flow, which you can then materialize to another system.
+This process will create one or more **collections** in Estuary, which you can then materialize to another system.
 
-1. Go to the Flow web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
+1. Go to the Estuary web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
 credentials provided by your Estuary account manager.
 
 2. Click the **Sources** tab and choose **New Capture**.
@@ -50,7 +50,7 @@ credentials provided by your Estuary account manager.
 
 5. Fill out the required properties and click **Next**.
 
-   Flow uses the provided information to initiate a connection to the source system.
+   Estuary uses the provided information to initiate a connection to the source system.
    It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. These are each mapped to a **collection**.
 
    The **Output Collections** browser appears, showing this list of available collections.
@@ -92,13 +92,13 @@ Now that you've captured data into one or more collections, you can materialize 
 
 4. Click **Next**.
 
-   Flow initiates a connection with the destination system.
+   Estuary initiates a connection with the destination system.
 
    The Endpoint Config has collapsed and the **Source Collections** browser is now prominent.
    It shows each collection you captured previously.
    All of them will be mapped to a **resource** in the destination.
    Again, these may be tables, data streams, or something else.
-   When you publish the Data Flow, Flow will create these new resources in the destination.
+   When you publish the Data Flow, Estuary will create these new resources in the destination.
 
    Now's your chance to make changes to the collections before you materialize them.
 
@@ -118,7 +118,7 @@ Now that you've captured data into one or more collections, you can materialize 
 
    2. Click **Schema Inference**.
 
-      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
+      The Schema Inference window appears. Estuary scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
 
    3. Review the new schema and click **Apply Inferred Schema**.
 
@@ -133,7 +133,7 @@ Now that you've captured data into one or more collections, you can materialize 
 
 Now that you've deployed your first Data Flow, you can explore more possibilities.
 
-* Read the [high level concepts](../concepts/README.md) to better understand how Flow works and what's possible.
+* Read the [high level concepts](../concepts/README.md) to better understand how Estuary works and what's possible.
 
 * Create more complex Data Flows by mixing and matching collections in your captures and materializations. For example:
 

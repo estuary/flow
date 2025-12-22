@@ -1,12 +1,12 @@
 # SharePoint
 
-This connector captures data from SharePoint document libraries in team sites and communication sites into Flow collections.
+This connector captures data from SharePoint document libraries in team sites and communication sites into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sharepoint:dev`](https://ghcr.io/estuary/source-sharepoint:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sharepoint:dev`](https://ghcr.io/estuary/source-sharepoint:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data types
 
-This connector automatically captures the data within the specified SharePoint folder into a single Flow collection.
+This connector automatically captures the data within the specified SharePoint folder into a single Estuary collection.
 
 The following file types are supported:
 
@@ -22,7 +22,7 @@ The following compression methods are supported:
 - GZIP
 - ZSTD
 
-By default, Flow automatically detects the file type and compression method.
+By default, Estuary automatically detects the file type and compression method.
 If necessary, you can specify the correct file type, compression, and other properties (CSV only) using the optional [parser configuration](#advanced-parsing-sharepoint-files).
 
 ## Prerequisites
@@ -32,13 +32,13 @@ To use this connector, you need:
 - An active Microsoft 365 account with access to SharePoint Online
 - Access to the SharePoint sites and document libraries you want to capture from
 
-Authentication is handled using OAuth2 in the Flow web app.
+Authentication is handled using OAuth2 in the Estuary web app.
 
 **Note:** This connector is designed for files located in SharePoint document libraries within team sites (`/teams/`) or communication sites (`/sites/`).
 
 ## Configuration
 
-You configure the SharePoint source connector in the Flow web app.
+You configure the SharePoint source connector in the Estuary web app.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SharePoint source connector.
 
 SharePoint offers two configuration methods for flexibility. Both methods provide the same functionality:
@@ -132,7 +132,7 @@ captures:
 ### Advanced: Parsing SharePoint files
 
 SharePoint document libraries can contain a variety of file types.
-For each file type, Flow must parse
+For each file type, Estuary must parse
 and translate data into collections with defined fields and JSON schemas.
 
 By default, the parser will automatically detect the type and shape of the data in the SharePoint folder,
@@ -164,7 +164,7 @@ The parser configuration includes:
 #### CSV configuration
 
 CSV files include several additional properties that are important to the parser.
-In most cases, Flow is able to automatically determine the correct values,
+In most cases, Estuary is able to automatically determine the correct values,
 but you may need to specify for unusual datasets. These properties are:
 
 - **Delimiter**. Options are:

@@ -1,13 +1,13 @@
 
 # Dropbox
 
-This connector captures data from a Dropbox account into a Flow collection.
+This connector captures data from a Dropbox account into an Estuary collection.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dropbox:dev`](https://ghcr.io/estuary/source-dropbox:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dropbox:dev`](https://ghcr.io/estuary/source-dropbox:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data types
 
-This connector automatically captures the data within the specified Dropbox folder into a single Flow collection.
+This connector automatically captures the data within the specified Dropbox folder into a single Estuary collection.
 
 The following file types are supported:
 
@@ -23,18 +23,18 @@ The following compression methods are supported:
 * GZIP
 * ZSTD
 
-By default, Flow automatically detects the file type and compression method.
+By default, Estuary automatically detects the file type and compression method.
 If necessary, you can specify the correct file type, compression, and other properties (CSV only) using the optional [parser configuration](#advanced-parsing-dropbox-files).
 
 ## Prerequisites
 
-To use this connector, make sure you have an active Dropbox account. Authentication is handled using OAuth2 in the Flow web app.
+To use this connector, make sure you have an active Dropbox account. Authentication is handled using OAuth2 in the Estuary web app.
 
 **Note:** This connector is designed for files located in a specific Dropbox folder.
 
 ## Configuration
 
-You configure the Dropbox source connector in the Flow web app.
+You configure the Dropbox source connector in the Estuary web app.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Dropbox source connector.
 
 ### Properties
@@ -80,7 +80,7 @@ captures:
 ### Advanced: Parsing Dropbox files
 
 Dropbox folders can contain a variety of file types.
-For each file type, Flow must parse
+For each file type, Estuary must parse
 and translate data into collections with defined fields and JSON schemas.
 
 By default, the parser will automatically detect the type and shape of the data in the Dropbox folder,
@@ -114,7 +114,7 @@ Options are:
 #### CSV configuration
 
 CSV files include several additional properties that are important to the parser.
-In most cases, Flow is able to automatically determine the correct values,
+In most cases, Estuary is able to automatically determine the correct values,
 but you may need to specify for unusual datasets. These properties are:
 
 * **Delimiter**. Options are:

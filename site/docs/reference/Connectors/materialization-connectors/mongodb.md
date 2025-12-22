@@ -1,6 +1,6 @@
 # MongoDB
 
-This connector materializes data from your Flow collections to your MongoDB collections.
+This connector materializes data from your Estuary collections to your MongoDB collections.
 
 [`ghcr.io/estuary/materialize-mongodb:dev`](https://ghcr.io/estuary/materialize-mongodb:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -10,12 +10,12 @@ MongoDB is a NoSQL database. Its [data
 model](https://www.mongodb.com/docs/manual/core/data-modeling-introduction/)
 consists of **documents** (lightweight records that contain mappings of fields
 and values) organized in **collections**. MongoDB documents have a mandatory
-`_id` field that is used as the key of the collection. Flow collection documents
+`_id` field that is used as the key of the collection. Estuary collection documents
 are materialized as MongoDB documents with an `_id` field value based on the
-Flow collection key.
+Estuary collection key.
 
 :::info
-If your Flow collection already has a field named `_id`, its value will
+If your Estuary collection already has a field named `_id`, its value will
 be present in the materialized MongoDB document as the field `_flow_id` to
 prevent conflicts with the required `_id` field.
 :::
@@ -34,7 +34,7 @@ You'll need:
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
+You configure connectors either in the Estuary web app, or by directly editing the Data Flow specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Firestore source connector.
 
 ### Properties

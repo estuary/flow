@@ -4,11 +4,11 @@ slug: /guides/dbt-integration/
 
 # dbt Cloud Integration
 
-Estuary Flow offers an integration with dbt Cloud, enabling users to trigger dbt jobs automatically when new data
+Estuary offers an integration with dbt Cloud, enabling users to trigger dbt jobs automatically when new data
 is available in a materialized view. This integration provides orchestration between the data ingestion and
 transformation layers, making real-time data workflows more efficient and automating data transformations.
 
-With the dbt Cloud Job Trigger feature in Estuary Flow, you can:
+With the dbt Cloud Job Trigger feature in Estuary, you can:
 
 - Automate transformations with dbt jobs as soon as new data is materialized, ensuring data freshness in your analytics.
 - Specify custom job behavior, like replacing or skipping jobs if a trigger is already in progress.
@@ -18,7 +18,7 @@ The integration can be configured when creating or editing a Materialization.
 
 ## How to Configure dbt Cloud Integration
 
-Follow these steps to configure the dbt Cloud Job Trigger within an Estuary Flow materialization connector:
+Follow these steps to configure the dbt Cloud Job Trigger within an Estuary materialization connector:
 
 ### Required Parameters
 
@@ -29,7 +29,7 @@ To configure the dbt Cloud Job Trigger, you’ll need the following information:
   to the new API, your Access URL is: https://cloud.getdbt.com/
 - Job ID: The unique identifier for the dbt job you wish to trigger.
 - Account ID: Your dbt account identifier.
-- API Key: The dbt API key associated with your account. This allows Estuary Flow to authenticate with dbt Cloud and
+- API Key: The dbt API key associated with your account. This allows Estuary to authenticate with dbt Cloud and
   trigger jobs.
 
 ### Optional Parameters
@@ -48,7 +48,7 @@ To configure the dbt Cloud Job Trigger, you’ll need the following information:
 ### Regular Data Transformation on New Data
 
 In scenarios where data arrival may be delayed (for example, a materialization connector's `Sync Frequency` is set to
-`1hr`), the dbt Cloud Job Trigger mechanism in Estuary Flow is designed to ensure transformations are consistent without
+`1hr`), the dbt Cloud Job Trigger mechanism in Estuary is designed to ensure transformations are consistent without
 overwhelming the dbt job queue. Here’s how the process works:
 
 1. Connector Initialization: When the connector starts, it immediately triggers a dbt job. This initial job ensures that

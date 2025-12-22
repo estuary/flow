@@ -1,6 +1,6 @@
 # BigQuery Batch Query Connector
 
-This connector captures data from BigQuery into Flow collections by periodically
+This connector captures data from BigQuery into Estuary collections by periodically
 executing queries and translating the results into JSON documents.
 
 ## Prerequisites
@@ -29,13 +29,13 @@ Here's how to provision a suitable service account:
 
 ### Service Account Key
 
-Service Account Keys are used to authenticate as Google Service Accounts. To be able to utilize the permissions granted to the Service Account in the previous step, you'll need to provide its Service Account Key when creating the capture. It is a good practice, though not required, to create a new key for Flow even if you're reusing a preexisting account.
+Service Account Keys are used to authenticate as Google Service Accounts. To be able to utilize the permissions granted to the Service Account in the previous step, you'll need to provide its Service Account Key when creating the capture. It is a good practice, though not required, to create a new key for Estuary even if you're reusing a preexisting account.
 
-To create a new key for a service account, follow Google Cloud Platform's instructions for [Creating a Service Account Key](https://cloud.google.com/iam/docs/keys-create-delete#creating). Be sure to create the key in JSON format. Once the linked instructions have been followed you should have a key file, which will need to be uploaded to Flow when setting up your capture.
+To create a new key for a service account, follow Google Cloud Platform's instructions for [Creating a Service Account Key](https://cloud.google.com/iam/docs/keys-create-delete#creating). Be sure to create the key in JSON format. Once the linked instructions have been followed you should have a key file, which will need to be uploaded to Estuary when setting up your capture.
 
-### Set up the BigQuery connector in Estuary Flow
+### Set up the BigQuery connector in Estuary
 
-1. Log into your Estuary Flow account.
+1. Log into your Estuary account.
 2. In the left navigation bar, click on "Sources". In the top-left corner, click "New Capture".
 3. Locate and select the "BigQuery" connector.
 4. Enter a name and optional description for the capture task.
@@ -48,7 +48,7 @@ To create a new key for a service account, follow Google Cloud Platform's instru
 ### Specifying Cursor Columns
 
 This connector operates by periodically executing a `SELECT * FROM table` query and
-outputting the resulting rows as JSON documents into a Flow collection. In some cases
+outputting the resulting rows as JSON documents into an Estuary collection. In some cases
 doing this once or twice a day is entirely sufficient, but when working with larger
 tables (or if a faster update rate is desired) it pays to manually configure cursor
 columns.
@@ -74,7 +74,7 @@ volumes low, but once a cursor is specified there is usually no downside to freq
 polling, so you may wish to lower the interval to `"5m"` or even `"5s"` for that table.
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the BigQuery source connector.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the BigQuery source connector.
 
 ### Properties
 

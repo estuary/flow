@@ -1,8 +1,8 @@
 # Elasticsearch
 
-This connector materializes Flow collections into indices in an Elasticsearch cluster.
+This connector materializes Estuary collections into indices in an Elasticsearch cluster.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-elasticsearch:dev`](https://ghcr.io/estuary/materialize-elasticsearch:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-elasticsearch:dev`](https://ghcr.io/estuary/materialize-elasticsearch:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ To use this connector, you'll need:
 - The role used to connect to Elasticsearch must have at least the following privileges (see Elastic's documentation on [defining roles](https://www.elastic.co/guide/en/elasticsearch/reference/current/defining-roles.html#roles-indices-priv) and [security privileges](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-privileges.html#privileges-list-indices)):
   - **Cluster privilege** of `monitor`
   - For each index to be created: `read`, `write`, `view_index_metadata`, and `create_index`. When creating **Index privileges**, you can use a wildcard `"*"` to grant the privileges to all indices.
-- At least one Flow collection
+- At least one Estuary collection
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
@@ -20,8 +20,8 @@ If you haven't yet captured your data from its external source, start at the beg
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure an Elasticsearch materialization, which will direct the contents of these Flow collections into Elasticsearch indices.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure an Elasticsearch materialization, which will direct the contents of these Estuary collections into Elasticsearch indices.
 
 **Authentication**
 

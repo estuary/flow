@@ -5,15 +5,15 @@ slug: /reference/authentication/
 
 # Authorizing Users
 
-Read, write, and admin capabilities over Flow catalogs and the [collections](/concepts/collections) that comprise them
-are granted to Flow users through **capabilities**.
+Read, write, and admin capabilities over Estuary catalogs and the [collections](/concepts/collections) that comprise them
+are granted to Estuary users through **capabilities**.
 
-Capabilities are granted in terms of **prefixes** within the Flow [namespace](/concepts/catalogs/#namespace).
+Capabilities are granted in terms of **prefixes** within the Estuary [namespace](/concepts/catalogs/#namespace).
 By default, each organization has a unique top-level prefix.
 For example, if you worked for Acme Co, your assigned organization prefix would be `acmeCo/`.
 You may further divide your namespace however you'd like; for example `acmeCo/anvils` and `acmeCo/roadrunners`.
 When you name a collection, you can customize the prefix, and capabilities can be configured at any prefix level.
-This allows you to flexibly control access to your Flow data.
+This allows you to flexibly control access to your Estuary data.
 
 The available capabilities are:
 
@@ -37,7 +37,7 @@ User X automatically inherits read access to `outside-org/acmeCo-share/`, but us
 
 ## Default authorization settings
 
-When you first sign up to use Flow, your organization is provisioned a prefix, and your username is granted admin access to the prefix.
+When you first sign up to use Estuary, your organization is provisioned a prefix, and your username is granted admin access to the prefix.
 Your prefix is granted write access to itself and read access to its logs, which are stored under a unique sub-prefix of the global `ops/` prefix.
 
 Using the same example, say user X signs up on behalf of their company, AcmeCo. User X is automatically granted `admin` access to the `acmeCo/` prefix.
@@ -45,20 +45,20 @@ Using the same example, say user X signs up on behalf of their company, AcmeCo. 
 
 As more users and prefixes are added, admins can [provision capabilities](#provisioning-capabilities) using the CLI.
 
-## Authenticating Flow in the web app
+## Authenticating Estuary in the web app
 
-You must sign in to begin a new session using the [Flow web application](https://dashboard.estuary.dev).
+You must sign in to begin a new session using the [Estuary web application](https://dashboard.estuary.dev).
 For the duration of the session, you'll be able to perform actions depending on the capabilities granted to the user profile.
 
 You can view the capabilities currently provisioned in your organization on the **Admin** tab.
 
-## Authenticating Flow using the CLI
+## Authenticating Estuary using the CLI
 
 You can use the [flowctl](/concepts/flowctl) CLI to work with your organization's catalogs and drafts in your local development environment.
 
 To authenticate a local development session using the CLI, do the following:
 
-1. Ensure that you have an Estuary account and have signed into the Flow web app before.
+1. Ensure that you have an Estuary account and have signed into Estuary's web app before.
 
 2. In the terminal of your local development environment, run:
    ``` console

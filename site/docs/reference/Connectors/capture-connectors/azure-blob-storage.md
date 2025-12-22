@@ -3,7 +3,7 @@
 
 This connector captures data from an Azure Blob Storage Account.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-azure-blob-storage:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-azure-blob-storage:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## **Prerequisites**
 
@@ -35,7 +35,7 @@ These values can be obtained from the portal, here's the instructions:
 
 ## **Configuration**
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Azure Blob Storage source connector.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Azure Blob Storage source connector.
 
 ### **Properties**
 
@@ -96,7 +96,7 @@ captures:
 
 ### **Advanced: Parsing cloud storage data**
 
-Cloud storage platforms like Azure Blob Storage can support a wider variety of file types than other data source systems. For each of these file types, Flow must parse and translate data into collections with defined fields and JSON schemas.
+Cloud storage platforms like Azure Blob Storage can support a wider variety of file types than other data source systems. For each of these file types, Estuary must parse and translate data into collections with defined fields and JSON schemas.
 
 By default, the parser will automatically detect the type and shape of the data in your bucket, so you won't need to change the parser configuration for most captures.
 
@@ -121,7 +121,7 @@ Options are:
     - **W3C Extended Log**
 - info
 
-    At this time, Flow only supports S3 captures with data of a single file type.
+    At this time, Estuary only supports S3 captures with data of a single file type.
     Support for multiple file types, which can be configured on a per-binding basis,
     will be added in the future.
 
@@ -131,7 +131,7 @@ Options are:
 ### CSV configuration
 
 CSV files include several additional properties that are important to the parser.
-In most cases, Flow is able to automatically determine the correct values,
+In most cases, Estuary is able to automatically determine the correct values,
 but you may need to specify for unusual datasets. These properties are:
 
 - **Delimiter**. Options are:

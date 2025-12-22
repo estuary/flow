@@ -1,6 +1,6 @@
 # Slack
 
-This connector lets you materialize data from Estuary Flow directly into Slack channels.
+This connector lets you materialize data from Estuary directly into Slack channels.
 
 `ghcr.io/estuary/materialize-slack:dev` provides the latest connector image. For earlier versions, visit the [GitHub Container Registry](https://ghcr.io/estuary/materialize-slack) page.
 
@@ -10,11 +10,11 @@ To use this connector, ensure you have the following:
 
 1. An active Slack workspace with appropriate permissions.
 2. Slack credentials and access token for authentication.
-3. At least one Flow collection.
+3. At least one Estuary collection.
 
 ### Configuration
 
-The Slack connector is available for use in the Flow web application. To learn more about connectors and how to set them up, read our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
+The Slack connector is available for use in the Estuary web application. To learn more about connectors and how to set them up, read our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
 
 #### Endpoint
 
@@ -28,7 +28,7 @@ The Slack connector is available for use in the Flow web application. To learn m
 
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
-| `/source` | Source | Source data in Flow to be sent to Slack. | string | Required |
+| `/source` | Source | Source data in Estuary to be sent to Slack. | string | Required |
 | `/channel` | Channel | The ID of the Slack channel to send messages to. | string | Required |
 | `/display_name` | Display Name | The display name for the sender in Slack. | string | |
 | `/logo_emoji` | Logo Emoji | The emoji to be used. | string |  |

@@ -3,17 +3,17 @@
 
 This connector captures data from a Google Sheets spreadsheet.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-sheets-native:dev`](https://ghcr.io/estuary/source-google-sheets-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-sheets-native:dev`](https://ghcr.io/estuary/source-google-sheets-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
 There are two ways to authenticate with Google when capturing data from a Sheet: using OAuth2, and manually, by generating a service account key.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the service account key method is the only supported method using the command line.
 
-### Using OAuth2 to authenticate with Google in the Flow web app
+### Using OAuth2 to authenticate with Google in the Estuary web app
 
 * A link to a Google spreadsheet. Simply copy the link from your browser.
 
@@ -30,7 +30,7 @@ spreadsheet:
 2. Sheet is not an image sheet or contains images.
 3. Sheet is not empty.
       1. If a Sheet is empty, the connector will not break and wait for changes
-  inside the Sheet. When new data arrives, you will be prompted by Flow to allow
+  inside the Sheet. When new data arrives, you will be prompted by Estuary to allow
   for schema changes.
 4. Sheet does not contain `formulaValue` inside any cell.
 
@@ -69,7 +69,7 @@ This ensures that the dataset is only reloaded if a change has occurred.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors.
 The values and specification sample below provide configuration details specific to the Google Sheets source connector.
 

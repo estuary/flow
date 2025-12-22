@@ -1,6 +1,6 @@
 ---
 title: Configure Cloud Storage
-description: Learn how to configure Flow to use your cloud storage
+description: Learn how to configure Estuary to use your cloud storage
 slug: installation
 sidebar_position: 5
 ---
@@ -14,9 +14,9 @@ redirect to the path /getting-started/installation
 */}
 
 
-# Configuring Cloud Storage for Flow
+# Configuring Cloud Storage for Estuary
 
-New Flow accounts are connected to Flow's secure cloud storage bucket to store collection data.
+New Estuary accounts are connected to Estuary's secure cloud storage bucket to store collection data.
 To switch to your own bucket, you will need to:
 
 1. [Choose a data plane](#choose-a-data-plane).
@@ -73,9 +73,9 @@ Storage for private data planes can use [PrivateLink](/private-byoc/privatelink)
 
 ## Google Cloud Storage buckets
 
-You'll need to grant Estuary Flow access to your GCS bucket.
+You'll need to grant Estuary access to your GCS bucket.
 
-1. [Create a bucket to use with Flow](https://cloud.google.com/storage/docs/creating-buckets), if you haven't already.
+1. [Create a bucket to use with Estuary](https://cloud.google.com/storage/docs/creating-buckets), if you haven't already.
 
 2. Follow the steps
    to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
@@ -87,9 +87,9 @@ You'll need to grant Estuary Flow access to your GCS bucket.
 
 ## Amazon S3 buckets
 
-You'll need to grant Estuary Flow access to your S3 bucket.
+You'll need to grant Estuary access to your S3 bucket.
 
-1. [Create a bucket to use with Flow](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html),
+1. [Create a bucket to use with Estuary](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html),
    if you haven't already.
 
 2. Follow the steps
@@ -148,7 +148,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
 
 ## Azure Blob Storage
 
-You'll need to grant Estuary Flow access to your storage account and container.
+You'll need to grant Estuary access to your storage account and container.
 You'll also need to provide some identifying information.
 
 1. [Create an Azure storage account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create) if you haven't already.
@@ -158,7 +158,7 @@ You'll also need to provide some identifying information.
    Under the **Data Lake Storage** section, ensure the hierarchical namespace option is unchecked.
 
 2. Within the storage account, [create an Azure Blob Storage container](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal#create-a-container)
-   to use with Flow, if you haven't already.
+   to use with Estuary, if you haven't already.
 
 3. Gather the following information. You'll need this when you contact us to complete setup.
 
@@ -171,7 +171,7 @@ You'll also need to provide some identifying information.
     - Your **Azure Blob Storage container ID**. You can find this inside your storage account.
       ![Azure Container ID](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Azure_Container_ID_1980bbc9f3/Azure_Container_ID_1980bbc9f3.png)
 
-   You'll grant Flow access to your storage resources by connecting to Estuary's
+   You'll grant Estuary access to your storage resources by connecting to Estuary's
    [Azure application](https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/what-is-application-management).
 
 4. Add Estuary's Azure application to your tenant.
@@ -232,7 +232,7 @@ and enter the relevant information there and we'll start to use your bucket for 
 
 If your bucket is for Azure, send support@estuary.dev an email with the name of the storage bucket and any other
 information you gathered per the steps above.
-Let us know whether you want to use this storage bucket to for your whole Flow account, or just a
+Let us know whether you want to use this storage bucket for your whole Estuary account, or just a
 specific [prefix](../concepts/catalogs.md#namespace).
 We'll be in touch when it's done!
 

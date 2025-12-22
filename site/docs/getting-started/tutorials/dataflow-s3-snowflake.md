@@ -3,7 +3,7 @@ sidebar_position: 3
 ---
 # Create Your First Dataflow with Amazon S3 and Snowflake
 
-In this tutorial, you'll create your first complete **Data Flow** with Estuary Flow using publicly available data.
+In this tutorial, you'll create your first complete **Data Flow** with Estuary using publicly available data.
 
 The dataset you'll use is composed of zipped CSV files in an Amazon S3 cloud storage bucket. You'll transport this data to a table in your own Snowflake data warehouse.
 
@@ -11,7 +11,7 @@ The dataset you'll use is composed of zipped CSV files in an Amazon S3 cloud sto
 
 You'll need:
 
-* An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
+* An Estuary account. If you don't have one, visit the [Estuary web app](https://dashboard.estuary.dev) to register for free.
 
 * A [Snowflake free trial account](https://signup.snowflake.com/) (or a full account).
   Snowflake trials are valid for 30 days.
@@ -27,17 +27,17 @@ In this scenario, let's imagine you're interested in urban bike safety, or perha
 You'd like to access the Citi Bike data in your Snowflake data warehouse.
 From there, you plan to use your data analytics platform of choice to explore the data, and perhaps integrate it with business intelligence apps.
 
-You can use Estuary Flow to build a real-time Data Flow that will capture all the new data from Citi Bike as soon as it appears, convert it to Snowflake's format, and land the data in your warehouse.
+You can use Estuary to build a real-time Data Flow that will capture all the new data from Citi Bike as soon as it appears, convert it to Snowflake's format, and land the data in your warehouse.
 
-#### Estuary Flow
+#### Estuary
 
-In Estuary Flow, you create Data Flows to connect data **source** and **destination** systems.
+In Estuary, you create Data Flows to connect data **source** and **destination** systems.
 
 The simplest Data Flow comprises three types of entities:
 
 * A data **capture**, which ingests data from the source. In this case, you'll capture from Amazon S3.
 
-* One or more **collections**, which Flow uses to store that data inside a cloud-backed data lake
+* One or more **collections**, which Estuary uses to store that data inside a cloud-backed data lake
 
 * A **materialization**, to push the data to an external destination. In this case, you'll materialize to a Snowflake data warehouse.
 
@@ -51,15 +51,15 @@ import Mermaid from '@theme/Mermaid';
 
 
 For the capture and materialization to work, they need to integrate with outside systems: in this case, S3 and Snowflake, but many other systems can be used.
-To accomplish this, Flow uses **connectors**.
-Connectors are plug-in components that interface between Flow and an outside system.
-Today, you'll use Flow's S3 capture connector and Snowflake materialization connector.
+To accomplish this, Estuary uses **connectors**.
+Connectors are plug-in components that interface between Estuary and an outside system.
+Today, you'll use Estuary's S3 capture connector and Snowflake materialization connector.
 
 You'll start by creating your capture.
 
 ## Capture Citi Bike data from S3
 
-1. Go to the Flow web app at [dashboard.estuary.dev](http://dashboard.estuary.dev) and sign in.
+1. Go to Estuary's web app at [dashboard.estuary.dev](http://dashboard.estuary.dev) and sign in.
 
 2. Click the **Sources** tab and choose **New Capture**
 
@@ -73,10 +73,10 @@ You'll start by creating your capture.
 
 4. Click inside the **Name** box.
 
-   Names of entities in Flow must be unique. They're organized by prefixes, similar to paths in a file system.
+   Names of entities in Estuary must be unique. They're organized by prefixes, similar to paths in a file system.
 
    You'll see one or more prefixes pertaining to your organization.
-   These prefixes represent the **namespaces** of Flow to which you have access.
+   These prefixes represent the **namespaces** of Estuary to which you have access.
 
 5. Click your prefix from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
 
@@ -94,26 +94,26 @@ You'll start by creating your capture.
 
    The Citi Bike storage bucket has been around for a while. Some of the older datasets have incorrect file extensions or contain data in different formats. By selecting a subset of files from the year 2022, you'll make things easier to manage for the purposes of this tutorial.
    (In a real-world use case, you'd likely reconcile the different schemas of the various data formats using a **derivation**.
-   [Derivations](../../concepts/README.md#derivations) are a more advanced Flow skill.)
+   [Derivations](../../concepts/README.md#derivations) are a more advanced Estuary skill.)
 
 7. Click **Next**.
 
-   Flow uses the configuration you provided to initiate a connection with S3. It generates a list of **collections** that will store the data inside Flow. In this case, there's just one collection from the bucket.
+   Estuary uses the configuration you provided to initiate a connection with S3. It generates a list of **collections** that will store the data inside Estuary. In this case, there's just one collection from the bucket.
 
      Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
 8. Click **Save and Publish**.
 
-   Flow deploys, or **publishes**, your capture, including your change to the schema. You'll see a notification when the this is complete.
+   Estuary deploys, or **publishes**, your capture, including your change to the schema. You'll see a notification when the this is complete.
 
-   A subset of data from the Citi Bike tripdata bucket has been captured to a Flow collection. Now, you can materialize that data to Snowflake.
+   A subset of data from the Citi Bike tripdata bucket has been captured to a collection. Now, you can materialize that data to Snowflake.
 
 9. Click **Materialize Collections**.
 
-## Prepare Snowflake to use with Flow
+## Prepare Snowflake to use with Estuary
 
-Before you can materialize from Flow to Snowflake, you need to complete some setup steps.
+Before you can materialize from Estuary to Snowflake, you need to complete some setup steps.
 
-1. Leave the Flow web app open. In a new window or tab, go to your Snowflake console.
+1. Leave the Estuary web app open. In a new window or tab, go to your Snowflake console.
 
    If you're a new trial user, you should have received instructions by email. For additional help in this section, see the [Snowflake documentation](https://docs.snowflake.com/en/user-guide-getting-started.html).
 
@@ -166,11 +166,11 @@ COMMIT;
 
 4. Click the drop-down arrow next to the **Run** button and click **Run All**.
 
-  Snowflake runs all the queries and is ready to use with Flow.
+  Snowflake runs all the queries and is ready to use with Estuary.
 
-5. Return to the Flow web application.
+5. Return to the Estuary web application.
 
-## Materialize your Flow collection to Snowflake
+## Materialize your Estuary collection to Snowflake
 
 You were directed to the **Materializations** page.
 All of the available materialization connectors — representing the possible data destinations — are shown as tiles.
@@ -205,26 +205,26 @@ All of the available materialization connectors — representing the possible da
 
 4. Scroll down to view the **Source Collections** section and change the default name in the **Table** field to `CitiBikeData` or another name of your choosing.
 
-   Every Flow collection is defined by one or more **schemas**.
+   Every Estuary collection is defined by one or more **schemas**.
    Because S3 is a cloud storage bucket, the schema used to ingest the data is quite permissive.
 
-   You'll add a more detailed schema for Flow to use to materialize the data to Snowflake. This will ensure that each field from the source CSV is mapped to a column in the Snowflake table.
+   You'll add a more detailed schema for Estuary to use to materialize the data to Snowflake. This will ensure that each field from the source CSV is mapped to a column in the Snowflake table.
 
 5. With the collection still selected, click its **Collection** tab. Then, click **Schema Inference**.
 
-   Flow examines the data and automatically generates a new `readSchema`. Scroll through and note the differences between this and the original schema, renamed `writeSchema`.
+   Estuary examines the data and automatically generates a new `readSchema`. Scroll through and note the differences between this and the original schema, renamed `writeSchema`.
 
 6. Click **Apply Inferred Schema**.
 
 7. Click **Next**.
 
-   Flow uses the configuration you provided to initiate a connection with Snowflake and generate a specification with details of the materialization.
+   Estuary uses the configuration you provided to initiate a connection with Snowflake and generate a specification with details of the materialization.
 
    Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
 
 8. Click **Save and Publish**.
 
-   Flow publishes the materialization.
+   Estuary publishes the materialization.
 
 9. Return to the Snowflake console and expand ESTUARY_DB and ESTUARY_SCHEMA.
 You'll find the materialized table there.

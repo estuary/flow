@@ -73,8 +73,8 @@ Putting this all together:
 </TabItem>
 </Tabs>
 
-`derive: using: sqlite: {}` tells Flow that collection
-`acmeBank/last-large-send` is derived using Flow's SQLite derivation connector.
+`derive: using: sqlite: {}` tells Estuary that collection
+`acmeBank/last-large-send` is derived using Estuary's SQLite derivation connector.
 
 This derivation has just one transform, which sources from the `transfers` collection.
 As source documents become available, they're evaluated by the SQL `lambda`
@@ -123,7 +123,7 @@ syntax to only publish documents for rows which were successfully inserted.
 
 You can evolve the internal SQLite tables of your derivation as needed,
 by appending SQL blocks which perform a database migration to the `migrations` array.
-Any migrations appended to the list are automatically applied by Flow.
+Any migrations appended to the list are automatically applied by Estuary.
 
 ## Grouped Windows of Transfers
 
@@ -138,7 +138,7 @@ transfers initiated by that account in the prior 24 hours.
 
 You may have encountered "windowing" in other tools for stream processing.
 Some systems even require that you define a window policy in order to function.
-Flow does not use windows, but sometimes you do want a time-bound grouping of recent events.
+Estuary does not use windows, but sometimes you do want a time-bound grouping of recent events.
 
 All collection documents contain a wall-clock timestamp of when they were published.
 The transforms of a derivation will generally process source documents in ascending wall-time order.
@@ -190,7 +190,7 @@ in order to derive your collection of transfer outcomes 🤯.
 
 This is an example of a self-referential, recursive data-flow.
 You may have used tools which require that data flow in a Directed Acyclic Graph (DAG).
-Flow does *not* require that your data flows are acyclic,
+Estuary does *not* require that your data flows are acyclic,
 and it also supports a derivation that reads from itself,
 which lets you tackle this task:
 
@@ -281,7 +281,7 @@ One piece is still missing.
 Your TypeScript module is publishing the **change** in account balance for each transfer.
 That's not the same thing as the **current** balance for each account.
 
-You can ask Flow to sum up the balance changes into a current account balance
+You can ask Estuary to sum up the balance changes into a current account balance
 through [reduction annotations](../../concepts/schemas.md#reductions).
 Here's the balances schema, with `reduce` annotations for summing the account balance:
 
@@ -301,7 +301,7 @@ While they're more verbose, TypeScript derivations do have certain advantages:
 
 Reduction annotations also have some benefits over task state (like SQLite tables):
 
-* Internal task state is managed by Flow.
+* Internal task state is managed by Estuary.
   If it grows to be large (say, you have **a lot** of accounts),
   then your task must be scaled and could require performance tuning.
   Reduction annotations, on the other hand, require *no* internal state and are extremely efficient.

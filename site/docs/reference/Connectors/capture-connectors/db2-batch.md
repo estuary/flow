@@ -1,6 +1,6 @@
 # IBM Db2 Batch Query Connector
 
-This connector captures data from IBM Db2 databases into Flow collections by
+This connector captures data from IBM Db2 databases into Estuary collections by
 periodically executing queries and translating the results into JSON documents.
 
 ## Supported Versions and Platforms
@@ -108,7 +108,7 @@ previous poll, deletion documents are emitted for the missing row IDs.
 
 ## Configuration
 
-Configure this connector in the Flow web app or using YAML config files with
+Configure this connector in the Estuary web app or using YAML config files with
 [flowctl CLI](/guides/flowctl/). See [connectors](/concepts/connectors/#using-connectors)
 to learn more about using connectors.
 

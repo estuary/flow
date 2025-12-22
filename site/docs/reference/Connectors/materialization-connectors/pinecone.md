@@ -1,6 +1,6 @@
 # Pinecone
 
-This connector materializes Flow collections into namespaces in a Pinecone index.
+This connector materializes Estuary collections into namespaces in a Pinecone index.
 
 The connector uses the [OpenAI Embedding API](https://platform.openai.com/docs/guides/embeddings) to
 create vector embeddings based on the documents in your collections and inserts these vector
@@ -96,10 +96,10 @@ materializations:
 This connector operates only in [delta updates](/concepts/materialization/#delta-updates) mode.
 
 Pinecone [upserts](https://docs.pinecone.io/reference/upsert) vectors based on their `id`. The `id`
-for materialized vectors is based on the Flow Collection key.
+for materialized vectors is based on the Estuary Collection key.
 
 For collections with a a top-level reduction strategy of
 [merge](/reference/reduction-strategies/merge) and a strategy of
 [lastWriteWins](/reference/reduction-strategies/firstwritewins-and-lastwritewins) for all nested
 values (this is also the default), collections will be materialized "effectively once", with any
-updated Flow documents replacing vectors in the Pinecone index if they have the same key.
+updated Estuary documents replacing vectors in the Pinecone index if they have the same key.
