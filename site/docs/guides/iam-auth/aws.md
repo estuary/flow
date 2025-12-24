@@ -23,16 +23,16 @@ To find the correct issuer value:
 
 3. Find the **Data Planes** table and make sure you're viewing the correct tab for your data plane (either **public** or **private**).
 
-4. Copy the value from the **IAM OIDC** column. This should look something like: `https://openid.estuary.dev/your-data-plane-identifier.dp.estuary-data.com/`
+4. Copy the value from the **IAM OIDC** column. This should look something like: `https://openid.estuary.dev/your-data-plane-identifier.dp.estuary-data.com`
 
 For example, these are the issuer values for a few common public data planes:
 
 | Data Plane | Issuer |
 |---|---|
-| US east-1 AWS data plane | https://openid.estuary.dev/aws-us-east-1-c1.dp.estuary-data.com/ |
-| US central-1 GCP data plane | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com/ |
-| US west-2 AWS data plane | https://openid.estuary.dev/aws-us-west-2-c1.dp.estuary-data.com/ |
-| EU west-1 AWS data plane | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com/ |
+| US east-1 AWS data plane | https://openid.estuary.dev/aws-us-east-1-c1.dp.estuary-data.com |
+| US central-1 GCP data plane | https://openid.estuary.dev/gcp-us-central1-c2.dp.estuary-data.com |
+| US west-2 AWS data plane | https://openid.estuary.dev/aws-us-west-2-c1.dp.estuary-data.com |
+| EU west-1 AWS data plane | https://openid.estuary.dev/aws-eu-west-1-c1.dp.estuary-data.com |
 
 ![Add Identity Provider](../guide-images/aws-iam-1.png)
 
