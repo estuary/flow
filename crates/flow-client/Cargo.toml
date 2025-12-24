@@ -13,10 +13,13 @@ control-plane-api = { path = "../control-plane-api", optional = true }
 
 [dependencies]
 gazette = { path = "../gazette" }
+labels = { path = "../labels" }
 models = { path = "../models" }
 ops = { path = "../ops" }
+proto-auth = { path = "../proto-auth" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }
@@ -24,8 +27,8 @@ chrono = { workspace = true }
 futures = { workspace = true }
 jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
-page-turner = { workspace = true }
 postgrest = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

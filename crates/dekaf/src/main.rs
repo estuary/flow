@@ -8,9 +8,8 @@ use dekaf::{
     KafkaApiClient, KafkaClientAuth, Session, TaskManager, log_appender::GazetteWriter, logging,
 };
 use flow_client::{
-    DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
-    LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
-    LOCAL_PG_URL,
+    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_AGENT_URL,
+    LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
 };
 use futures::TryStreamExt;
 use rustls::pki_types::CertificateDer;
@@ -103,8 +102,8 @@ pub struct Cli {
     #[arg(
         long,
         env = "DATA_PLANE_FQDN",
-        default_value=DEFAULT_DATA_PLANE_FQDN,
         default_value_if("local", "true", Some(LOCAL_DATA_PLANE_FQDN)),
+        required(false)
     )]
     data_plane_fqdn: String,
     /// An HMAC key recognized by the data plane that Dekaf is running inside of. Used to

@@ -85,11 +85,19 @@ async fn encrypt_config(
     config: &RawValue,
     schema: &RawValue,
 ) -> anyhow::Result<RawValue> {
+    #[derive(serde::Serialize)]
+    struct EncryptRequest {
+        config: models::RawValue,
+        schema: models::RawValue,
+    }
+
+    let request = EncryptRequest {
+        config: config.clone(),
+        schema: schema.clone(),
+    };
+
     tracing::debug!(?task_name, %task_type, "encrypting task endpoint config");
-    let encrypted = client
-        .encrypt_endpoint_config(config, schema)
-        .await
-        .with_context(|| format!("encrypting endpoint config for {task_type} '{task_name}'"))?;
+    let encrypted: models::RawValue = client.config_encryption_unary(request).await?;
     tracing::info!(%task_name, %task_type, "successfully encrypted endpoint configuration");
     Ok(encrypted)
 }

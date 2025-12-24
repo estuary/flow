@@ -3161,13 +3161,16 @@ dependencies = [
  "futures",
  "gazette",
  "jsonwebtoken",
+ "labels",
  "lazy_static",
  "models",
  "ops",
- "page-turner",
  "postgrest",
+ "proto-auth",
  "proto-flow",
  "proto-gazette",
+ "proto-grpc",
+ "rand 0.9.2",
  "reqwest 0.12.23",
  "serde",
  "serde_json",
@@ -3507,6 +3510,7 @@ dependencies = [
  "jsonwebtoken",
  "ops",
  "pin-project-lite",
+ "proto-auth",
  "proto-gazette",
  "proto-grpc",
  "rand 0.9.2",
@@ -5986,6 +5990,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
 dependencies = [
  "prost",
+]
+
+[[package]]
+name = "proto-auth"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "jsonwebtoken",
+ "rand 0.9.2",
+ "reqwest 0.12.23",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+ "tracing",
 ]
 
 [[package]]
