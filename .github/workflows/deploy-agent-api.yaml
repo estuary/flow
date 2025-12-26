@@ -3,31 +3,23 @@ name: Deploy agent-api
 on:
   workflow_dispatch: {}
 
-env:
-  CARGO_INCREMENTAL: 0 # Faster from-scratch builds.
-
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-24.04
     permissions:
-      # Permissions required of the Github token in order for
-      # federated identity and authorization to work.
       contents: read
       id-token: write
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: true
-          lfs: true
 
-      - uses: supabase/setup-cli@v1
-      - run: supabase start
-
-      - name: Build `agent`
-        run: cargo build --release -p agent
-
-      - run: mv target/release/agent crates/agent/
+      - name: Get image tag
+        id: image-tag
+        run: |
+          TAG="dev-next"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/control-plane-agent:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2
@@ -41,7 +33,7 @@ jobs:
           service: agent-api
           project_id: estuary-control
           region: us-central1
-          source: crates/agent/
+          image: ${{ steps.image-tag.outputs.image }}
           timeout: 10m
 
           env_vars: |-
