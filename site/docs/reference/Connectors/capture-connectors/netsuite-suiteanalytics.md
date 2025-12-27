@@ -1,5 +1,3 @@
-import ReactPlayer from "react-player";
-
 # NetSuite SuiteAnalytics Connect
 
 This connector captures data from Oracle NetSuite into Flow collections. It uses the SuiteAnalytics Connect feature in order to both load large amounts of data quickly, as well as introspect the available tables, their schemas, keys, and cursor fields.
@@ -14,6 +12,17 @@ If you don't have SuiteAnalytics Connect, the connector can be used in SuiteQL m
 ## Supported data resources
 
 Flow discovers all of the tables to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
+
+:::info SuiteQL Table Coverage
+When running in **SuiteQL mode**, only a **subset of NetSuite tables** is currently supported by the connector.
+
+If you need a table that is not yet supported:
+
+- Contact Estuary Support with the table name(s)
+- We will confirm availability and, if needed, add the table to the connector's support list
+
+This limitation applies **only to SuiteQL mode**. SuiteAnalytics (JDBC) mode discovers all accessible tables.
+:::
 
 ## Prerequisites
 
@@ -176,7 +185,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 ### Sample
 
 ```yaml
-
 captures:
    ${PREFIX}/${CAPTURE_NAME}:
       endpoint:
@@ -217,4 +225,3 @@ captures:
             log_cursor: lastmodifieddate
          target: ${PREFIX}/${CAPTURE_NAME}/transaction
     {...}
-```
