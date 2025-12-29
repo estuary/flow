@@ -6,7 +6,6 @@ use serde_json::json;
 const FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
 
 /// Basic roundtrip test: publish specs, inject documents, consume via Dekaf.
-#[ignore] // Requires local stack: mise run local:stack
 #[tokio::test]
 async fn test_basic_roundtrip() -> anyhow::Result<()> {
     super::init_tracing();
@@ -28,7 +27,10 @@ async fn test_basic_roundtrip() -> anyhow::Result<()> {
     let records = consumer.fetch().await?;
 
     assert_eq!(records.len(), 2, "should receive both injected documents");
-    insta::assert_json_snapshot!(snapshot_records(&records));
+    assert_eq!(records[0].value["id"], "doc-1");
+    assert_eq!(records[0].value["value"], "hello");
+    assert_eq!(records[1].value["id"], "doc-2");
+    assert_eq!(records[1].value["value"], "world");
 
     Ok(())
 }

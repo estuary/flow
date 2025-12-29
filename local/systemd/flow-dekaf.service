@@ -1,0 +1,30 @@
+[Unit]
+Description=Flow Dekaf
+Documentation=https://github.com/estuary/flow
+After=flow-control-plane.target flow-dekaf-kafka.service
+Requires=flow-control-plane.target flow-dekaf-kafka.service
+
+[Service]
+Type=simple
+TimeoutStartSec=600
+
+EnvironmentFile=%h/flow-local/env/common.env
+EnvironmentFile=%h/flow-local/env/dekaf.env
+
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p dekaf'
+ExecStart=%h/cargo-target/debug/dekaf \
+    --local \
+    --advertise-host 127.0.0.1 \
+    --kafka-port ${DEKAF_KAFKA_PORT} \
+    --schema-registry-port ${DEKAF_REGISTRY_PORT} \
+    --metrics-port ${DEKAF_METRICS_PORT} \
+    --default-broker-urls tcp://localhost:${DEKAF_UPSTREAM_PORT} \
+    --upstream-auth none \
+    --encryption-secret ${DEKAF_ENCRYPTION_SECRET} \
+    --data-plane-access-key ${DATA_PLANE_ACCESS_KEY} \
+    --task-refresh-interval 10s \
+    --spec-ttl 10s \
+    --idle-session-timeout 60s
+
+Restart=on-failure
+RestartSec=5s

@@ -22,21 +22,6 @@ pub struct DecodedRecord {
     pub value: serde_json::Value,
 }
 
-impl DecodedRecord {
-    /// Extract key and value for snapshotting (excludes non-deterministic fields).
-    pub fn snapshot_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "key": self.key,
-            "value": self.value,
-        })
-    }
-}
-
-/// Convert records to a snapshot-friendly format.
-pub fn snapshot_records(records: &[DecodedRecord]) -> Vec<serde_json::Value> {
-    records.iter().map(|r| r.snapshot_value()).collect()
-}
-
 impl KafkaConsumer {
     pub fn new(broker: &str, registry: &str, username: &str, password: &str) -> Self {
         let consumer: StreamConsumer = rdkafka::ClientConfig::new()

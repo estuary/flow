@@ -59,7 +59,9 @@ async fn test_list_offsets_earliest_and_latest() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Verify ListOffsets returns an error for unknown partitions.
+/// When a client requests offsets for a partition that doesn't exist,
+/// Dekaf should return UnknownTopicOrPartition error code, which librdkafka
+/// surfaces as an error from fetch_watermarks.
 #[tokio::test]
 async fn test_list_offsets_unknown_partition() -> anyhow::Result<()> {
     super::init_tracing();

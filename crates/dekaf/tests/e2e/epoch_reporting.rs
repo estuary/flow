@@ -14,7 +14,6 @@ const FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
 /// Dekaf maps the binding's backfill counter to Kafka's leader epoch.
 /// Since we add 1 to avoid epoch 0 (which consumers handle poorly),
 /// the epoch should always be >= 1.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
     super::init_tracing();
@@ -44,15 +43,6 @@ async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
         epoch >= 1,
         "leader_epoch should be >= 1 (got {epoch}), since Dekaf adds 1 to backfill counter"
     );
-
-    // Snapshot the relevant metadata fields
-    let snapshot = serde_json::json!({
-        "topic": "test_topic",
-        "partition": 0,
-        "leader_epoch": epoch,
-        "epoch_valid": epoch >= 1,
-    });
-    insta::assert_json_snapshot!("metadata_epoch", snapshot);
 
     Ok(())
 }
@@ -143,7 +133,6 @@ async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
 ///
 /// When fetching data, the response should include the current_leader field
 /// with the leader_epoch, allowing consumers to detect epoch changes.
-#[ignore] // Requires local stack
 #[tokio::test]
 async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
     super::init_tracing();
@@ -219,16 +208,12 @@ async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
         "Fetch partition data"
     );
 
-    // Snapshot the results
-    let snapshot = serde_json::json!({
-        "topic": "test_topic",
-        "partition": 0,
-        "leader_epoch": epoch,
-        "epoch_matches_metadata": epoch == current_epoch,
-        "has_records": has_records,
-        "high_watermark_valid": partition.high_watermark >= 0,
-    });
-    insta::assert_json_snapshot!("fetch_epoch", snapshot);
+    assert!(has_records, "fetch should return records");
+    assert!(
+        partition.high_watermark >= 0,
+        "high_watermark should be >= 0, got {}",
+        partition.high_watermark
+    );
 
     Ok(())
 }

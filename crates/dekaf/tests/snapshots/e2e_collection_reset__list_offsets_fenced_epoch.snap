@@ -1,9 +1,0 @@
----
-source: crates/dekaf/tests/e2e_collection_reset.rs
-assertion_line: 223
-expression: snapshot
----
-{
-  "initial_epoch": 1,
-  "new_epoch": 2
-}

@@ -17,7 +17,6 @@ const FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
 /// 2. Issues another fetch (no more documents exist, triggers empty response)
 /// 3. Verifies no parse errors occurred
 /// 4. Injects one more document and confirms consumer can still fetch it
-#[ignore] // Requires local stack: mise run local:stack
 #[tokio::test]
 async fn test_empty_fetch_valid_message_set_size() -> anyhow::Result<()> {
     super::init_tracing();
@@ -39,7 +38,10 @@ async fn test_empty_fetch_valid_message_set_size() -> anyhow::Result<()> {
     let records = consumer.fetch().await?;
 
     assert_eq!(records.len(), 2, "should receive 2 initial documents");
-    insta::assert_json_snapshot!("initial_fetch", snapshot_records(&records));
+    assert_eq!(records[0].value["id"], "1");
+    assert_eq!(records[0].value["value"], "first");
+    assert_eq!(records[1].value["id"], "2");
+    assert_eq!(records[1].value["value"], "second");
 
     // Fetch again when caught up. Should return empty since no new documents.
     // If MessageSetSize were -1, librdkafka would throw a parse error here.
@@ -60,7 +62,8 @@ async fn test_empty_fetch_valid_message_set_size() -> anyhow::Result<()> {
         1,
         "should receive 1 document after reinject"
     );
-    insta::assert_json_snapshot!("after_empty_fetch", snapshot_records(&more_records));
+    assert_eq!(more_records[0].value["id"], "3");
+    assert_eq!(more_records[0].value["value"], "third");
 
     Ok(())
 }
