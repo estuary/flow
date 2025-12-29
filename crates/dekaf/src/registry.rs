@@ -1,6 +1,7 @@
 use super::App;
 use crate::{
-    DekafError, SessionAuthentication, from_downstream_topic_name, to_downstream_topic_name,
+    CollectionUnavailable, DekafError, SessionAuthentication, from_downstream_topic_name,
+    to_downstream_topic_name,
 };
 use anyhow::Context;
 use axum::extract::Request;
@@ -84,7 +85,7 @@ async fn get_subject_latest(
 
         let client = &auth.flow_client().await?.pg_client();
 
-        let collection = super::Collection::new(
+        let collection = match super::Collection::new(
             &auth,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
@@ -92,7 +93,16 @@ async fn get_subject_latest(
         )
         .await
         .context("failed to fetch collection metadata")?
-        .with_context(|| format!("collection {collection} does not exist"))?;
+        .ready()
+        {
+            Ok(c) => c,
+            Err(CollectionUnavailable::NotFound) => {
+                anyhow::bail!("collection {collection} does not exist")
+            }
+            Err(CollectionUnavailable::NotReady) => {
+                anyhow::bail!("collection {collection} exists but has no journals available")
+            }
+        };
 
         let (key_id, value_id) = collection
             .registered_schema_ids(&client)

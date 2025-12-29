@@ -62,6 +62,59 @@ pub struct Collection {
     pub binding_backfill_counter: u32,
 }
 
+/// Represents why a collection is unavailable.
+#[derive(Debug, Clone, Copy)]
+pub enum CollectionUnavailable {
+    /// The binding doesn't exist in the materialization spec.
+    NotFound,
+    /// The binding exists but journals are not yet available. This can happen when:
+    /// - A collection was recently reset and the writer hasn't created journals yet
+    /// - The collection exists in the control plane but no data has been written
+    /// Callers should return a retryable error (e.g., LeaderNotAvailable) to clients.
+    NotReady,
+}
+
+impl CollectionUnavailable {
+    pub fn code(self) -> i16 {
+        use kafka_protocol::error::ResponseError;
+        match self {
+            CollectionUnavailable::NotFound => ResponseError::UnknownTopicOrPartition.code(),
+            CollectionUnavailable::NotReady => ResponseError::LeaderNotAvailable.code(),
+        }
+    }
+}
+
+pub enum CollectionStatus {
+    Ready(Collection),
+    Unavailable(CollectionUnavailable),
+}
+
+impl CollectionStatus {
+    pub fn not_found() -> Self {
+        Self::Unavailable(CollectionUnavailable::NotFound)
+    }
+
+    pub fn not_ready() -> Self {
+        Self::Unavailable(CollectionUnavailable::NotReady)
+    }
+
+    /// Returns the Kafka error code for non-ready states, None if Ready.
+    pub fn error_code(&self) -> Option<i16> {
+        match self {
+            CollectionStatus::Ready(_) => None,
+            CollectionStatus::Unavailable(reason) => Some(reason.code()),
+        }
+    }
+
+    /// Convert to Result, returning the unavailability reason for non-Ready states.
+    pub fn ready(self) -> Result<Collection, CollectionUnavailable> {
+        match self {
+            CollectionStatus::Ready(c) => Ok(c),
+            CollectionStatus::Unavailable(reason) => Err(reason),
+        }
+    }
+}
+
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
 #[derive(Debug, Clone)]
 pub struct Partition {
@@ -88,14 +141,14 @@ impl Collection {
     pub async fn new(
         auth: &SessionAuthentication,
         topic_name: &str,
-    ) -> anyhow::Result<Option<Self>> {
+    ) -> anyhow::Result<CollectionStatus> {
         let binding = match auth {
             SessionAuthentication::Task(task_auth) => {
                 if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
                     binding
                 } else {
                     tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
-                    return Ok(None);
+                    return Ok(CollectionStatus::not_found());
                 }
             }
             SessionAuthentication::Redirect { spec, .. } => {
@@ -103,7 +156,7 @@ impl Collection {
                     .context("failed to get binding for topic in redirected session")?
                 else {
                     tracing::warn!("{topic_name} is not a binding of {}", spec.name);
-                    return Ok(None);
+                    return Ok(CollectionStatus::not_found());
                 };
                 binding
             }
@@ -216,7 +269,18 @@ impl Collection {
             "built collection"
         );
 
-        Ok(Some(Self {
+        // If there are no partitions/journals, the collection exists but isn't ready to serve.
+        // This happens when a collection was reset and journals haven't been created yet,
+        // or when a collection exists but no data has ever been written.
+        if partitions.is_empty() {
+            tracing::warn!(
+                collection_name,
+                "Collection binding exists but has no journals available"
+            );
+            return Ok(CollectionStatus::not_ready());
+        }
+
+        Ok(CollectionStatus::Ready(Self {
             name: collection_name.to_string(),
             journal_client,
             key_ptr,
