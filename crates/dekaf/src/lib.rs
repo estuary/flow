@@ -11,7 +11,7 @@ pub mod logging;
 
 mod topology;
 pub use topology::extract_dekaf_config;
-use topology::{Collection, Partition};
+use topology::{Collection, CollectionStatus, Partition};
 
 mod read;
 use read::Read;

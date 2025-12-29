@@ -62,6 +62,16 @@ pub struct Collection {
     pub binding_backfill_counter: u32,
 }
 
+pub enum CollectionStatus {
+    Ready(Collection),
+    NotFound,
+    /// The binding exists but journals are not yet available. This can happen when:
+    /// - A collection was recently reset and the writer hasn't created journals yet
+    /// - The collection exists in the control plane but no data has been written
+    /// Callers should return a retryable error (e.g., LeaderNotAvailable) to clients.
+    NotReady,
+}
+
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
 #[derive(Debug, Clone)]
 pub struct Partition {
@@ -88,14 +98,14 @@ impl Collection {
     pub async fn new(
         auth: &SessionAuthentication,
         topic_name: &str,
-    ) -> anyhow::Result<Option<Self>> {
+    ) -> anyhow::Result<CollectionStatus> {
         let binding = match auth {
             SessionAuthentication::Task(task_auth) => {
                 if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
                     binding
                 } else {
                     tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
-                    return Ok(None);
+                    return Ok(CollectionStatus::NotFound);
                 }
             }
             SessionAuthentication::Redirect { spec, .. } => {
@@ -103,11 +113,14 @@ impl Collection {
                     .context("failed to get binding for topic in redirected session")?
                 else {
                     tracing::warn!("{topic_name} is not a binding of {}", spec.name);
-                    return Ok(None);
+                    return Ok(CollectionStatus::NotFound);
                 };
                 binding
             }
         };
+
+        // Compute backfill counter early so we can use it in NotReady if needed
+        let binding_backfill_counter = binding.backfill + 1;
 
         let collection_spec = binding
             .collection
@@ -216,7 +229,18 @@ impl Collection {
             "built collection"
         );
 
-        Ok(Some(Self {
+        // If there are no partitions/journals, the collection exists but isn't ready to serve.
+        // This happens when a collection was reset and journals haven't been created yet,
+        // or when a collection exists but no data has ever been written.
+        if partitions.is_empty() {
+            tracing::warn!(
+                collection_name,
+                "Collection binding exists but has no journals available"
+            );
+            return Ok(CollectionStatus::NotReady);
+        }
+
+        Ok(CollectionStatus::Ready(Self {
             name: collection_name.to_string(),
             journal_client,
             key_ptr,
@@ -236,7 +260,7 @@ impl Collection {
             //
             // TODO(jshearer): While this is a simple fix, it's not clear why exactly consumers behaves this way.
             // It would be good to understand this better and see if there's a more principled fix.
-            binding_backfill_counter: binding.backfill + 1,
+            binding_backfill_counter,
         }))
     }
 
