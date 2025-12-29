@@ -1,4 +1,4 @@
-use super::{App, Collection, Read};
+use super::{App, Collection, CollectionStatus, CollectionUnavailable, Read};
 use crate::{
     DekafError, KafkaApiClient, KafkaClientAuth, SessionAuthentication, TaskState,
     from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
@@ -262,18 +262,27 @@ impl Session {
             .await?;
         tracing::debug!(collections=?ops::DebugJson(&collection_names), "fetched all collections");
 
-        let collections = self
+        let collection_statuses = self
             .fetch_collections_for_metadata(collection_names)
             .await?;
 
-        collections
+        collection_statuses
             .into_iter()
-            .map(|(name, opt_coll)| {
-                let coll = opt_coll.ok_or_else(|| {
-                    anyhow::anyhow!("Collection '{}' not found or not accessible", name)
-                })?;
-                let encoded_name = self.encode_topic_name(name)?;
-                self.build_topic_metadata(encoded_name, &coll)
+            .map(|(name, status)| {
+                let encoded_name = self.encode_topic_name(name.clone())?;
+                match status.ready() {
+                    Ok(coll) => self.build_topic_metadata(encoded_name, &coll),
+                    Err(CollectionUnavailable::NotFound) => {
+                        // Bail here because `fetch_all_collection_names` should only return accessible collections.
+                        anyhow::bail!("Collection '{}' not found or not accessible", name)
+                    }
+                    Err(CollectionUnavailable::NotReady) => {
+                        // Collection exists but journals aren't available - return LeaderNotAvailable so clients will retry
+                        Ok(MetadataResponseTopic::default()
+                            .with_name(Some(encoded_name))
+                            .with_error_code(ResponseError::LeaderNotAvailable.code()))
+                    }
+                }
             })
             .collect()
     }
@@ -289,21 +298,21 @@ impl Session {
                 .map(|t| from_downstream_topic_name(t.name.clone().unwrap_or_default()).to_string())
                 .collect();
 
-            let collections = self.fetch_collections_for_metadata(names).await?;
+            let collection_statuses = self.fetch_collections_for_metadata(names).await?;
 
             requests
                 .iter()
-                .zip(collections)
-                .map(|(request, (_, maybe_collection))| {
+                .zip(collection_statuses)
+                .map(|(request, (_, status))| {
                     let topic_name = request.name.to_owned().ok_or_else(|| {
                         anyhow::anyhow!("Topic name is missing in metadata request")
                     })?;
 
-                    match maybe_collection {
-                        Some(collection) => self.build_topic_metadata(topic_name, &collection),
-                        None => Ok(MetadataResponseTopic::default()
+                    match status.ready() {
+                        Ok(collection) => self.build_topic_metadata(topic_name, &collection),
+                        Err(reason) => Ok(MetadataResponseTopic::default()
                             .with_name(Some(self.encode_topic_name(topic_name.to_string())?))
-                            .with_error_code(ResponseError::UnknownTopicOrPartition.code())),
+                            .with_error_code(reason.code())),
                     }
                 })
                 .collect()
@@ -396,26 +405,30 @@ impl Session {
             ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
         };
 
-        let Some(collection) = Collection::new(
+        let collection = match Collection::new(
             auth,
             from_downstream_topic_name(topic.name.clone()).as_str(),
         )
         .await?
-        else {
-            // Collection doesn't exist
-            let partitions = topic
-                .partitions
-                .iter()
-                .map(|p| {
-                    ListOffsetsPartitionResponse::default()
-                        .with_partition_index(p.partition_index)
-                        .with_error_code(ResponseError::UnknownTopicOrPartition.code())
-                })
-                .collect();
+        .ready()
+        {
+            Ok(c) => c,
+            Err(reason) => {
+                let error_code = reason.code();
+                let partitions = topic
+                    .partitions
+                    .iter()
+                    .map(|partition| {
+                        ListOffsetsPartitionResponse::default()
+                            .with_partition_index(partition.partition_index)
+                            .with_error_code(error_code)
+                    })
+                    .collect();
 
-            return Ok(ListOffsetsTopicResponse::default()
-                .with_name(topic.name.clone())
-                .with_partitions(partitions));
+                return Ok(ListOffsetsTopicResponse::default()
+                    .with_name(topic.name.clone())
+                    .with_partitions(partitions));
+            }
         };
 
         let current_epoch = collection.binding_backfill_counter as i32;
@@ -651,8 +664,11 @@ impl Session {
                         let auth = self.auth.as_ref().unwrap();
                         let current_epoch = Collection::new(&auth, &key.0)
                             .await?
+                            .ready()
+                            .ok()
                             .map(|c| c.binding_backfill_counter as i32);
 
+                        // If NotReady or NotFound, remove the pending read
                         match current_epoch {
                             Some(epoch) if pending_epoch < epoch => {
                                 metrics::counter!(
@@ -721,17 +737,34 @@ impl Session {
                     }
                     Err(e) => return Err(e.into()),
                 };
-                let Some(collection) = Collection::new(&auth, &key.0).await? else {
-                    metrics::counter!(
-                        "dekaf_fetch_requests",
-                        "topic_name" => key.0.to_string(),
-                        "partition_index" => key.1.to_string(),
-                        "task_name" => task_name.to_string(),
-                        "state" => "collection_not_found"
-                    )
-                    .increment(1);
-                    tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
-                    continue; // Collection doesn't exist.
+                let collection = match Collection::new(&auth, &key.0).await?.ready() {
+                    Ok(c) => c,
+                    Err(CollectionUnavailable::NotFound) => {
+                        metrics::counter!(
+                            "dekaf_fetch_requests",
+                            "topic_name" => key.0.to_string(),
+                            "partition_index" => key.1.to_string(),
+                            "task_name" => task_name.to_string(),
+                            "state" => "collection_not_found"
+                        )
+                        .increment(1);
+                        tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
+                        self.reads.remove(&key);
+                        continue;
+                    }
+                    Err(CollectionUnavailable::NotReady) => {
+                        metrics::counter!(
+                            "dekaf_fetch_requests",
+                            "topic_name" => key.0.to_string(),
+                            "partition_index" => key.1.to_string(),
+                            "task_name" => task_name.to_string(),
+                            "state" => "collection_not_ready"
+                        )
+                        .increment(1);
+                        tracing::debug!(collection = ?&key.0, "Collection not ready (no journals)");
+                        self.reads.remove(&key);
+                        continue;
+                    }
                 };
 
                 // Validate consumer's leader epoch against current collection epoch
@@ -909,42 +942,57 @@ impl Session {
                 let Some((pending, _)) = self.reads.get_mut(&key) else {
                     // No pending read. Check if this is due to epoch validation failure
                     let auth = self.auth.as_ref().unwrap();
-                    if let Ok(Some(collection)) = Collection::new(&auth, &key.0).await {
-                        if partition_request.current_leader_epoch >= 0 {
-                            if partition_request.current_leader_epoch
-                                < collection.binding_backfill_counter as i32
-                            {
-                                // Epoch validation failed. Return FENCED_LEADER_EPOCH
-                                partition_responses.push(
-                                    PartitionData::default()
-                                        .with_partition_index(partition_request.partition)
-                                        .with_error_code(ResponseError::FencedLeaderEpoch.code())
-                                        .with_current_leader(
-                                            messages::fetch_response::LeaderIdAndEpoch::default()
-                                                .with_leader_id(messages::BrokerId(1))
-                                                .with_leader_epoch(
-                                                    collection.binding_backfill_counter as i32,
-                                                ),
-                                        ),
-                                );
-                                continue;
-                            } else if partition_request.current_leader_epoch
-                                > collection.binding_backfill_counter as i32
-                            {
-                                partition_responses.push(
-                                    PartitionData::default()
-                                        .with_partition_index(partition_request.partition)
-                                        .with_error_code(ResponseError::UnknownLeaderEpoch.code())
-                                        .with_current_leader(
-                                            messages::fetch_response::LeaderIdAndEpoch::default()
-                                                .with_leader_id(messages::BrokerId(1))
-                                                .with_leader_epoch(
-                                                    collection.binding_backfill_counter as i32,
-                                                ),
-                                        ),
-                                );
-                                continue;
+                    match Collection::new(&auth, &key.0).await {
+                        Ok(CollectionStatus::Ready(collection)) => {
+                            if partition_request.current_leader_epoch >= 0 {
+                                if partition_request.current_leader_epoch
+                                    < collection.binding_backfill_counter as i32
+                                {
+                                    // Epoch validation failed. Return FENCED_LEADER_EPOCH
+                                    partition_responses.push(
+                                        PartitionData::default()
+                                            .with_partition_index(partition_request.partition)
+                                            .with_error_code(ResponseError::FencedLeaderEpoch.code())
+                                            .with_current_leader(
+                                                messages::fetch_response::LeaderIdAndEpoch::default()
+                                                    .with_leader_id(messages::BrokerId(1))
+                                                    .with_leader_epoch(
+                                                        collection.binding_backfill_counter as i32,
+                                                    ),
+                                            ),
+                                    );
+                                    continue;
+                                } else if partition_request.current_leader_epoch
+                                    > collection.binding_backfill_counter as i32
+                                {
+                                    partition_responses.push(
+                                        PartitionData::default()
+                                            .with_partition_index(partition_request.partition)
+                                            .with_error_code(ResponseError::UnknownLeaderEpoch.code())
+                                            .with_current_leader(
+                                                messages::fetch_response::LeaderIdAndEpoch::default()
+                                                    .with_leader_id(messages::BrokerId(1))
+                                                    .with_leader_epoch(
+                                                        collection.binding_backfill_counter as i32,
+                                                    ),
+                                            ),
+                                    );
+                                    continue;
+                                }
                             }
+                            // Fall through to UnknownTopicOrPartition
+                        }
+                        Ok(CollectionStatus::Unavailable(CollectionUnavailable::NotReady)) => {
+                            // Collection exists but journals aren't available - return LeaderNotAvailable
+                            partition_responses.push(
+                                PartitionData::default()
+                                    .with_partition_index(partition_request.partition)
+                                    .with_error_code(ResponseError::LeaderNotAvailable.code()),
+                            );
+                            continue;
+                        }
+                        _ => {
+                            // Fall through to UnknownTopicOrPartition
                         }
                     }
                     // Collection doesn't exist or other error
@@ -1177,19 +1225,30 @@ impl Session {
                 .iter()
                 .map(|t| TopicName::from(t.clone()))
                 .collect();
-            let collections = self
+            let collection_statuses = self
                 .fetch_collections(topic_names.iter())
                 .await
                 .unwrap_or_default();
 
             for topic in consumer_protocol_subscription_msg.topics.iter_mut() {
-                let collection = collections
+                let backfill_counter = match collection_statuses
                     .iter()
                     .find(|(name, _)| name.as_str() == topic.as_str())
-                    .map(|(_, c)| c);
-                let backfill_counter = collection.map(|c| c.binding_backfill_counter);
+                    .map(|(_, status)| status)
+                {
+                    Some(CollectionStatus::Ready(c)) => c.binding_backfill_counter,
+                    other => {
+                        let error_code = other
+                            .and_then(|s| s.error_code())
+                            .unwrap_or_else(|| ResponseError::UnknownTopicOrPartition.code());
+                        tracing::warn!(topic = ?topic, error_code, "Collection not available");
+                        return Ok(
+                            messages::JoinGroupResponse::default().with_error_code(error_code)
+                        );
+                    }
+                };
                 let transformed = self
-                    .encrypt_topic_name(topic.to_owned().into(), backfill_counter)?
+                    .encrypt_topic_name(topic.to_owned().into(), Some(backfill_counter))?
                     .into();
                 tracing::info!(topic_name = ?topic, backfill_counter = ?backfill_counter, "Request to join group");
                 *topic = transformed;
@@ -1378,22 +1437,41 @@ impl Session {
                 .iter()
                 .map(|p| p.topic.clone())
                 .collect();
-            let collections = self
+            let collection_statuses = self
                 .fetch_collections(topic_names.iter())
                 .await
                 .unwrap_or_default();
+
+            // Check for NotReady/NotFound before processing
+            for part in &consumer_protocol_assignment_msg.assigned_partitions {
+                let status = collection_statuses
+                    .iter()
+                    .find(|(name, _)| name.as_str() == part.topic.as_str())
+                    .map(|(_, status)| status);
+
+                if !matches!(status, Some(CollectionStatus::Ready(_))) {
+                    let error_code = status
+                        .and_then(|s| s.error_code())
+                        .unwrap_or_else(|| ResponseError::UnknownTopicOrPartition.code());
+                    tracing::warn!(topic = ?part.topic, error_code, "Collection not available");
+                    return Ok(messages::SyncGroupResponse::default().with_error_code(error_code));
+                }
+            }
 
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
                 .into_iter()
                 .map(|part| {
-                    let collection = collections
+                    let backfill_counter = collection_statuses
                         .iter()
                         .find(|(name, _)| name.as_str() == part.topic.as_str())
-                        .map(|(_, c)| c);
-                    let backfill_counter = collection.map(|c| c.binding_backfill_counter);
+                        .and_then(|(_, status)| match status {
+                            CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
+                            _ => None,
+                        })
+                        .context("collection status missing after validation")?;
                     let transformed_topic =
-                        self.encrypt_topic_name(part.topic.to_owned(), backfill_counter)?;
+                        self.encrypt_topic_name(part.topic.to_owned(), Some(backfill_counter))?;
                     tracing::info!(topic_name = ?part.topic, backfill_counter = ?backfill_counter, "Syncing group");
                     Ok(part.with_topic(transformed_topic))
                 })
@@ -1549,18 +1627,50 @@ impl Session {
 
         let resp: anyhow::Result<_> = async {
 
-            let collections = self
+            let collection_statuses = self
                 .fetch_collections(req.topics.iter().map(|topic| &topic.name))
                 .await?;
 
-            let desired_topic_partitions = collections
+            // Check for NotFound/NotReady collections - return per-topic errors
+            for (topic_name, status) in &collection_statuses {
+                let Some(error_code) = status.error_code() else {
+                    continue;
+                };
+                tracing::warn!(topic = ?topic_name, error_code, "Collection not available");
+                // Return error response for all topics
+                let topics = req
+                    .topics
+                    .iter()
+                    .map(|t| {
+                        messages::offset_commit_response::OffsetCommitResponseTopic::default()
+                            .with_name(t.name.clone())
+                            .with_partitions(
+                                t.partitions
+                                    .iter()
+                                    .map(|p| {
+                                        messages::offset_commit_response::OffsetCommitResponsePartition::default()
+                                            .with_partition_index(p.partition_index)
+                                            .with_error_code(error_code)
+                                    })
+                                    .collect(),
+                            )
+                    })
+                    .collect();
+                return Ok(messages::OffsetCommitResponse::default().with_topics(topics));
+            }
+
+            // All collections are Ready at this point
+            let desired_topic_partitions = collection_statuses
                 .iter()
-                .map(|(topic_name, collection)| {
-                    self.encrypt_topic_name(
-                        topic_name.clone(),
-                        Some(collection.binding_backfill_counter),
-                    )
-                    .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                .filter_map(|(topic_name, status)| match status {
+                    CollectionStatus::Ready(collection) => Some(
+                        self.encrypt_topic_name(
+                            topic_name.clone(),
+                            Some(collection.binding_backfill_counter),
+                        )
+                        .map(|encrypted_name| (encrypted_name, collection.partitions.len())),
+                    ),
+                    CollectionStatus::Unavailable(_) => None,
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -1572,14 +1682,15 @@ impl Session {
             };
 
             for topic in &mut req.topics {
-                // Look up collection to get backfill counter
-                let collection = collections
+                let backfill_counter = collection_statuses
                     .iter()
                     .find(|(name, _)| name == &topic.name)
-                    .map(|(_, c)| c)
+                    .and_then(|(_, status)| match status {
+                        CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
+                        CollectionStatus::Unavailable(_) => None,
+                    })
                     .context(format!("Collection not found for topic {:?}", topic.name))?;
-                let encrypted =
-                    self.encrypt_topic_name(topic.name.clone(), Some(collection.binding_backfill_counter))?;
+                let encrypted = self.encrypt_topic_name(topic.name.clone(), Some(backfill_counter))?;
                 topic.name = encrypted;
             }
 
@@ -1634,15 +1745,20 @@ impl Session {
                 // Restore plaintext topic name for the response
                 topic.name = decrypted_name.clone();
 
-                let collection_partitions = &collections
+                let collection_partitions = match collection_statuses
                     .iter()
                     .find(|(topic_name, _)| topic_name == &decrypted_name)
                     .context(format!(
                         "unable to look up partitions for {:?}",
                         decrypted_name
                     ))?
-                    .1
-                    .partitions;
+                {
+                    (_, CollectionStatus::Ready(c)) => &c.partitions,
+                    (_, CollectionStatus::Unavailable(_)) => {
+                        // For unavailable topics, skip partition processing since we have no journals
+                        continue;
+                    }
+                };
 
                 for partition in &topic.partitions {
                     if let Some(error) = partition.error_code.err() {
@@ -1799,12 +1915,12 @@ impl Session {
             return Ok(redirect_response);
         }
 
-        let collections = if let Some(topics) = &req.topics {
+        let collection_statuses = if let Some(topics) = &req.topics {
             match self
                 .fetch_collections(topics.iter().map(|topic| &topic.name))
                 .await
             {
-                Ok(collections) => Some(collections),
+                Ok(statuses) => Some(statuses),
                 Err(e) if Self::is_redirect_error(&e) => return Ok(redirect_response),
                 Err(e) => return Err(e),
             }
@@ -1812,36 +1928,72 @@ impl Session {
             None
         };
 
-        let collection_partitions = if let Some(ref collections) = collections {
-            collections
+        // Check for NotFound/NotReady collections - return per-topic errors
+        if let Some(ref statuses) = collection_statuses {
+            for (topic_name, status) in statuses {
+                let Some(error_code) = status.error_code() else {
+                    continue;
+                };
+                tracing::warn!(topic = ?topic_name, error_code, "Collection not available");
+                // Return error response for all topics
+                let topics = req
+                    .topics
+                    .as_ref()
+                    .map(|topics| {
+                        topics
+                            .iter()
+                            .map(|t| {
+                                messages::offset_fetch_response::OffsetFetchResponseTopic::default()
+                                    .with_name(t.name.clone())
+                                    .with_partitions(
+                                        t.partition_indexes
+                                            .iter()
+                                            .map(|&p| {
+                                                messages::offset_fetch_response::OffsetFetchResponsePartition::default()
+                                                    .with_partition_index(p)
+                                                    .with_error_code(error_code)
+                                            })
+                                            .collect(),
+                                    )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                return Ok(messages::OffsetFetchResponse::default().with_topics(topics));
+            }
+        }
+
+        // All collections are Ready at this point
+        let collection_partitions = if let Some(ref statuses) = collection_statuses {
+            statuses
                 .iter()
-                .map(|(topic_name, collection)| {
-                    self.encrypt_topic_name(
-                        topic_name.clone(),
-                        Some(collection.binding_backfill_counter),
-                    )
-                    .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
+                .filter_map(|(topic_name, status)| match status {
+                    CollectionStatus::Ready(collection) => Some(
+                        self.encrypt_topic_name(
+                            topic_name.clone(),
+                            Some(collection.binding_backfill_counter),
+                        )
+                        .map(|encrypted_name| (encrypted_name, collection.partitions.len())),
+                    ),
+                    CollectionStatus::Unavailable(_) => None,
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             vec![]
         };
 
-        // Try fetching with epoch-qualified names first
+        // Encrypt topic names with epoch-qualified names
         if let Some(ref mut topics) = req.topics {
             for topic in topics.iter_mut() {
-                let collection = collections
+                let backfill_counter = collection_statuses
                     .as_ref()
-                    .and_then(|colls| colls.iter().find(|(name, _)| name == &topic.name))
-                    .map(|(_, c)| c);
-                if let Some(collection) = collection {
-                    topic.name = self.encrypt_topic_name(
-                        topic.name.clone(),
-                        Some(collection.binding_backfill_counter),
-                    )?;
-                } else {
-                    topic.name = self.encrypt_topic_name(topic.name.clone(), None)?;
-                }
+                    .and_then(|statuses| statuses.iter().find(|(name, _)| name == &topic.name))
+                    .and_then(|(_, status)| match status {
+                        CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
+                        CollectionStatus::Unavailable(_) => None,
+                    })
+                    .context(format!("Collection not found for topic {:?}", topic.name))?;
+                topic.name = self.encrypt_topic_name(topic.name.clone(), Some(backfill_counter))?;
             }
         }
 
@@ -1876,21 +2028,23 @@ impl Session {
             })
         });
 
-        if should_fallback && collections.is_some() {
+        if should_fallback && collection_statuses.is_some() {
             tracing::info!(group_id = ?req.group_id, "No offsets found with epoch, falling back to legacy format");
             resp = client.send_request(fallback_req, Some(header)).await?;
         }
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
-            let maybe_backfill_counter = collections
-                .as_ref()
-                .map(|c| {
-                    c.iter()
-                        .find(|(topic_name, _)| topic_name == &topic.name)
-                        .map(|(_, c)| c.binding_backfill_counter)
-                })
-                .flatten();
+            let maybe_backfill_counter = collection_statuses.as_ref().and_then(|statuses| {
+                statuses
+                    .iter()
+                    .find(|(topic_name, _)| topic_name == &topic.name)
+                    .and_then(|(_, status)| match status {
+                        CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
+                        // Unavailable: don't set committed_leader_epoch
+                        CollectionStatus::Unavailable(_) => None,
+                    })
+            });
 
             if let Some(backfill_counter) = maybe_backfill_counter {
                 for partition in topic.partitions.iter_mut() {
@@ -1950,19 +2104,23 @@ impl Session {
         use messages::offset_for_leader_epoch_response::EpochEndOffset;
 
         let collection_name = from_downstream_topic_name(topic.topic.clone());
-        let Some(collection) = Collection::new(auth, &collection_name).await? else {
-            let partitions = topic
-                .partitions
-                .iter()
-                .map(|p| {
-                    EpochEndOffset::default()
-                        .with_partition(p.partition)
-                        .with_error_code(ResponseError::UnknownTopicOrPartition.code())
-                })
-                .collect();
-            return Ok(OffsetForLeaderTopicResult::default()
-                .with_topic(topic.topic)
-                .with_partitions(partitions));
+        let collection = match Collection::new(auth, &collection_name).await?.ready() {
+            Ok(c) => c,
+            Err(reason) => {
+                let error_code = reason.code();
+                let partitions = topic
+                    .partitions
+                    .iter()
+                    .map(|p| {
+                        EpochEndOffset::default()
+                            .with_partition(p.partition)
+                            .with_error_code(error_code)
+                    })
+                    .collect();
+                return Ok(OffsetForLeaderTopicResult::default()
+                    .with_topic(topic.topic)
+                    .with_partitions(partitions));
+            }
         };
 
         let current_epoch = collection.binding_backfill_counter as i32;
@@ -2185,15 +2343,13 @@ impl Session {
     async fn fetch_collections(
         &mut self,
         topics: impl IntoIterator<Item = &TopicName>,
-    ) -> anyhow::Result<Vec<(TopicName, Collection)>> {
+    ) -> anyhow::Result<Vec<(TopicName, CollectionStatus)>> {
         // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
 
         futures::future::try_join_all(topics.into_iter().map(|topic| async move {
-            let collection = Collection::new(auth, topic.as_ref())
-                .await?
-                .context(format!("unable to look up partitions for {:?}", topic))?;
-            Ok::<(TopicName, Collection), anyhow::Error>((topic.clone(), collection))
+            let status = Collection::new(auth, topic.as_ref()).await?;
+            Ok::<(TopicName, CollectionStatus), anyhow::Error>((topic.clone(), status))
         }))
         .await
     }
@@ -2216,9 +2372,19 @@ impl Session {
             tracing::debug!(
                 "Loading latest offset for this partition to check if session is data-preview"
             );
-            let collection = Collection::new(auth, collection_name.as_str())
+            let collection = match Collection::new(auth, collection_name.as_str())
                 .await?
-                .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
+                .ready()
+            {
+                Ok(c) => c,
+                Err(CollectionUnavailable::NotFound) => {
+                    anyhow::bail!("Collection {} not found", collection_name);
+                }
+                Err(CollectionUnavailable::NotReady) => {
+                    // Can't determine data preview status without journals - assume not data preview
+                    return Ok(None);
+                }
+            };
 
             match collection
                 .fetch_partition_offset(partition as usize, -1)
@@ -2296,17 +2462,14 @@ impl Session {
     ) -> anyhow::Result<MetadataResponseTopic> {
         let leader_epoch = collection.binding_backfill_counter as i32;
 
-        let partitions = if collection.partitions.is_empty() {
-            // Fallback to single partition if collection has no partitions defined
-            vec![Self::build_partition(0, leader_epoch)]
-        } else {
-            collection
-                .partitions
-                .iter()
-                .enumerate()
-                .map(|(index, _)| Self::build_partition(index as i32, leader_epoch))
-                .collect()
-        };
+        // Collections with empty partitions should be handled as NotReady before
+        // reaching this function, so we can safely iterate over partitions here
+        let partitions = collection
+            .partitions
+            .iter()
+            .enumerate()
+            .map(|(index, _)| Self::build_partition(index as i32, leader_epoch))
+            .collect();
 
         Ok(MetadataResponseTopic::default()
             .with_name(Some(name))
@@ -2317,17 +2480,17 @@ impl Session {
     async fn fetch_collections_for_metadata(
         &self,
         names: impl IntoIterator<Item = String>,
-    ) -> anyhow::Result<Vec<(String, Option<Collection>)>> {
+    ) -> anyhow::Result<Vec<(String, CollectionStatus)>> {
         let auth = self
             .auth
             .as_ref()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        futures::future::try_join_all(
-            names.into_iter().map(|name| async move {
-                Collection::new(auth, &name).await.map(|coll| (name, coll))
-            }),
-        )
+        futures::future::try_join_all(names.into_iter().map(|name| async move {
+            Collection::new(auth, &name)
+                .await
+                .map(|status| (name, status))
+        }))
         .await
     }
 }
