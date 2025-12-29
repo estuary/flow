@@ -1,0 +1,13 @@
+---
+source: crates/dekaf/tests/e2e_epoch_reporting.rs
+assertion_line: 278
+expression: snapshot
+---
+{
+  "epoch_matches_metadata": true,
+  "has_records": true,
+  "high_watermark_valid": true,
+  "leader_epoch": 1,
+  "partition": 0,
+  "topic": "test_topic"
+}

@@ -1,0 +1,10 @@
+---
+source: crates/dekaf/tests/e2e_collection_reset.rs
+assertion_line: 487
+expression: snapshot
+---
+{
+  "current_epoch": 1,
+  "end_offset": 1270,
+  "high_watermark": 1270
+}

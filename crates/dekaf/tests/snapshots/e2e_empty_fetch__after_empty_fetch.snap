@@ -1,0 +1,17 @@
+---
+source: crates/dekaf/tests/e2e_empty_fetch.rs
+expression: snapshot_records(&more_records)
+---
+[
+  {
+    "key": {
+      "_flow_key": {
+        "p1": "3"
+      }
+    },
+    "value": {
+      "id": "3",
+      "value": "third"
+    }
+  }
+]
