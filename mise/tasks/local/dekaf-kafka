@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start local Kafka for Dekaf consumer group testing"
+#MISE depends=["local:common"]
+
+UNIT_FILE="${HOME}/.config/systemd/user/flow-dekaf-kafka.service"
+if [ ! -f "$UNIT_FILE" ]; then
+    ln -sf "$(pwd)/local/systemd/flow-dekaf-kafka.service" "$UNIT_FILE"
+    systemctl --user daemon-reload
+fi
+
+systemctl --user start flow-dekaf-kafka
+
+# Wait for Kafka to be ready
+echo "Waiting for Kafka to be ready..."
+TIMEOUT=60
+ELAPSED=0
+until docker exec dekaf-test-kafka kafka-broker-api-versions \
+    --bootstrap-server localhost:29092 > /dev/null 2>&1; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: Kafka failed to start within ${TIMEOUT} seconds"
+        journalctl --user -u flow-dekaf-kafka --no-pager -n 50
+        exit 1
+    fi
+done
