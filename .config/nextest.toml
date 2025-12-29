@@ -4,6 +4,12 @@ serial-db-tests = { max-threads = 1 }
 
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
+# Exclude e2e tests from Dekaf by default because they require special setup.
+default-filter = 'not binary_id(/dekaf::e2e/)'
+
+[profile.dekaf-e2e]
+# Run only Dekaf e2e tests
+default-filter = 'binary_id(/dekaf::e2e/)'
 
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'

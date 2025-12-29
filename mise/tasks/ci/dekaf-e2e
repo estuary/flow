@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run Dekaf E2E tests"
+#MISE depends=["local:test-tenant", "local:dekaf"]
+#USAGE flag "--filter <filter>" help="Test filter pattern for nextest"
+#USAGE flag "--update-snapshots" help="Update insta snapshots"
+#USAGE flag "--concurrency <concurrency>" help="How many tests to run at once"
+
+
+FILTER="${usage_filter:-}"
+UPDATE_SNAPSHOTS="${usage_update_snapshots:-false}"
+CONCURRENCY="${usage_concurrency:-"num-cpus"}"
+
+FLOW_LOCAL="${HOME}/flow-local"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
+KAFKA_PORT=9092
+REGISTRY_PORT=9093
+
+
+# Wait for agent to be ready by checking if it's listening
+echo "Waiting for agent..."
+TIMEOUT=120
+ELAPSED=0
+until nc -z localhost 8675 2>/dev/null; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: Agent failed to start within ${TIMEOUT} seconds"
+        exit 1
+    fi
+done
+echo "Agent is ready"
+
+# Build Dekaf and flowctl
+echo "Building Dekaf and flowctl..."
+cargo build -p dekaf -p flowctl --quiet
+
+# Wait for Dekaf to be ready (started by local:dekaf dependency)
+echo "Waiting for Dekaf..."
+TIMEOUT=30
+ELAPSED=0
+until nc -z localhost ${KAFKA_PORT} 2>/dev/null; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: Dekaf failed to start within ${TIMEOUT} seconds"
+        exit 1
+    fi
+done
+
+echo "Running Dekaf E2E tests..."
+
+export DEKAF_BROKER="localhost:${KAFKA_PORT}"
+export DEKAF_REGISTRY="http://localhost:${REGISTRY_PORT}"
+export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
+
+# A token for the local-stack system user signed against the local-stack
+# supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
+export FLOW_ACCESS_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
+
+TEST_EXIT_CODE=0
+if [ -n "${FILTER}" ]; then
+    PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
+    cargo nextest run --profile dekaf-e2e -p dekaf --no-capture --failure-output=immediate --success-output=immediate -E "test(${FILTER})" || TEST_EXIT_CODE=$?
+else
+    PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
+    cargo nextest run --profile dekaf-e2e -p dekaf -j "${CONCURRENCY}" --no-fail-fast --retries=1 || TEST_EXIT_CODE=$?
+fi
+
+# On failure, output service logs for debugging
+if [ "${TEST_EXIT_CODE}" -ne 0 ]; then
+    echo ""
+    echo "========================================"
+    echo "Tests failed! Dumping service logs..."
+    echo "========================================"
+    echo ""
+    echo "--- Dekaf logs ---"
+    journalctl --user -u flow-dekaf --no-pager -n 200 || true
+    echo ""
+    echo "--- Agent logs ---"
+    journalctl --user -u flow-control-agent --no-pager -n 200 || true
+    echo ""
+    exit "${TEST_EXIT_CODE}"
+fi
