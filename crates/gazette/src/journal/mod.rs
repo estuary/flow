@@ -90,6 +90,26 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
+    /// Invoke the Gazette journal FragmentStoreHealth API.
+    pub async fn fragment_store_health(
+        &self,
+        req: broker::FragmentStoreHealthRequest,
+    ) -> crate::Result<broker::FragmentStoreHealthResponse> {
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
+
+        let resp = client
+            .fragment_store_health(req)
+            .await
+            .map_err(crate::Error::Grpc)?
+            .into_inner();
+
+        check_ok(resp.status(), resp)
+    }
+
     fn into_sub(&self, (channel, _local): (Channel, bool)) -> SubClient {
         proto_grpc::broker::journal_client::JournalClient::with_interceptor(
             channel,
