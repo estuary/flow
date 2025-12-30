@@ -275,6 +275,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Zendesk Support Real-Time
   - [Configuration](./zendesk-support-native.md)
   - Package - ghcr.io/estuary/source-zendesk-support-native:dev
+- Zoho CRM
+  - [Configuration](./zoho-crm.md)
+  - Package - ghcr.io/estuary/source-zoho:dev
 
 ### Third party connectors
 
