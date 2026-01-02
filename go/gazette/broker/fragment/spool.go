@@ -14,6 +14,11 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
+// Minimum size of accumulated uncompressed data before performing incremental
+// compression. Useful for GZIP, which creates a new member per compression
+// invocation.
+var compressionBatchSize = 1024 * 1024
+
 // Spool is a Fragment which is in the process of being created, backed by a
 // local *os.File. As commits occur and the file extent is updated, the Spool
 // Fragment is also updated to reflect the new committed extent. At all
@@ -31,6 +36,8 @@ type Spool struct {
 	// Length of compressed content written to |compressedFile|. Set only after
 	// the compressor is finalized.
 	compressedLength int64
+	// Spool file offset through which content has been compressed.
+	compressedTo int64
 	// Compressor of |compressedFile|.
 	compressor codecs.Compressor
 
@@ -119,7 +126,7 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 	if r.Proposal.End > s.Fragment.End+s.delta ||
 		(r.Proposal.End == s.Fragment.End && r.Proposal.ContentLength() == 0) {
 
-		if s.compressor != nil {
+		if s.compressor != nil || primary && s.CompressionCodec != pb.CompressionCodec_NONE {
 			s.finishCompression()
 		}
 		if s.ContentLength() != 0 {
@@ -166,7 +173,8 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 		spoolCommitsTotal.Inc()
 		spoolCommitBytesTotal.Add(float64(s.delta))
 
-		if primary && s.CompressionCodec != pb.CompressionCodec_NONE {
+		var uncompressedBytes = (r.Proposal.End - s.Fragment.Begin) - s.compressedTo
+		if primary && s.CompressionCodec != pb.CompressionCodec_NONE && int(uncompressedBytes) >= compressionBatchSize {
 			s.compressThrough(r.Proposal.End)
 		}
 		s.Fragment.Fragment = *r.Proposal
@@ -233,6 +241,7 @@ func (s *Spool) compressThrough(end int64) {
 	if s.CompressionCodec == pb.CompressionCodec_NONE {
 		panic("expected CompressionCodec != NONE")
 	}
+
 	var err error
 
 	var buf = bufferPool.Get().([]byte)
@@ -241,9 +250,15 @@ func (s *Spool) compressThrough(end int64) {
 	// Garden path: we've already compressed all content of the current Fragment,
 	// and now incrementally compress through |end|.
 	if s.compressor != nil {
-		var offset, delta = s.Fragment.ContentLength(), end - s.Fragment.End
+		var offset, delta = s.compressedTo, (end - s.Fragment.Begin) - s.compressedTo
 
 		if _, err = io.CopyBuffer(s.compressor, io.NewSectionReader(s.File, offset, delta), buf); err == nil {
+			if s.CompressionCodec == pb.CompressionCodec_GZIP {
+				err = s.compressor.Close()
+			}
+		}
+		if err == nil {
+			s.compressedTo = end - s.Fragment.Begin
 			return // Done.
 		}
 		err = fmt.Errorf("while incrementally compressing: %s", err)
@@ -281,7 +296,15 @@ func (s *Spool) compressThrough(end int64) {
 			s.compressor = nil
 			continue
 		}
+		if s.CompressionCodec == pb.CompressionCodec_GZIP {
+			if err = s.compressor.Close(); err != nil {
+				err = fmt.Errorf("flushing gzip batch compressor: %s", err)
+				s.compressor = nil
+				continue
+			}
+		}
 
+		s.compressedTo = end - s.Fragment.Begin
 		break // Success.
 	}
 }
@@ -294,9 +317,13 @@ func (s *Spool) finishCompression() {
 	}
 	var err error
 
-	if s.compressor == nil {
+	if s.compressedTo < s.Fragment.End-s.Fragment.Begin {
 		s.compressThrough(s.Fragment.End)
+	} else if s.compressor == nil {
+		// Empty fragment.
+		return
 	}
+
 	for {
 		if err != nil {
 			log.WithField("err", err).Error("failed to finishCompression (will retry)")

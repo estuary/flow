@@ -1,6 +1,7 @@
 package fragment
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"testing"
@@ -115,6 +116,164 @@ func TestCompressionNotPrimary(t *testing.T) {
 
 	require.Equal(t, "an initial write final write",
 		contentString(t, obv.completes[0], pb.CompressionCodec_GZIP))
+}
+
+func TestGzipBatcherMultipleMembers(t *testing.T) {
+	var origBatchSize = compressionBatchSize
+	compressionBatchSize = 10
+	defer func() { compressionBatchSize = origBatchSize }()
+
+	var obv testSpoolObserver
+	var spool = NewSpool("a/journal", &obv)
+
+	var resp, err = spool.Apply(newProposal(pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            0,
+		End:              0,
+		CompressionCodec: pb.CompressionCodec_GZIP,
+	}, regEmpty), true)
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	// Commit some data. The compression batch size has been artificially
+	// lowered so the first commit is compressed, the second commit is buffered,
+	// the third commit triggers a second member, the fourth commit triggers
+	// a third member, and the fifth commit is smaller than compressionBatchSize
+	// and will not trigger compression until spool completion.
+	for _, req := range []pb.ReplicateRequest{
+		{Content: []byte("first write ")},
+		{Content: []byte("second ")},
+		{Content: []byte("third ")},
+		{Content: []byte("fourth write ")},
+		{Content: []byte("final")},
+	} {
+		var resp, err = spool.Apply(&req, true)
+		require.NoError(t, err)
+		require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+
+		resp, err = spool.Apply(newProposal(spool.Next(), regEmpty), true)
+		require.NoError(t, err)
+		require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+	}
+
+	// Complete the spool.
+	resp, err = spool.Apply(newProposal(pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            spool.Fragment.End,
+		End:              spool.Fragment.End,
+		CompressionCodec: pb.CompressionCodec_GZIP,
+	}, regEmpty), true)
+	require.NoError(t, err)
+	require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+
+	require.Len(t, obv.commits, 5)
+	require.Len(t, obv.completes, 1)
+	require.NotNil(t, obv.completes[0].compressedFile)
+	require.NotEqual(t, int64(0), obv.completes[0].compressedLength)
+
+	var expected = "first write second third fourth write final"
+	var actual = contentString(t, obv.completes[0], pb.CompressionCodec_GZIP)
+	require.Equal(t, expected, actual)
+
+	// Decompress and verify each member.
+	var parts []string
+	var compressedData = make([]byte, obv.completes[0].compressedLength)
+	_, err = obv.completes[0].compressedFile.ReadAt(compressedData, 0)
+	require.NoError(t, err)
+	var gzipHeader = []byte{0x1f, 0x8b}
+	for start := bytes.Index(compressedData, gzipHeader); start != -1; {
+		var next = bytes.Index(compressedData[start+len(gzipHeader):], gzipHeader)
+		var end int
+		if next == -1 {
+			end = len(compressedData)
+		} else {
+			end = start + len(gzipHeader) + next
+		}
+
+		var memberData = compressedData[start:end]
+		var reader, readerErr = codecs.NewCodecReader(bytes.NewReader(memberData), pb.CompressionCodec_GZIP)
+		require.NoError(t, readerErr)
+		var decompressed, readErr = io.ReadAll(reader)
+		require.NoError(t, readErr)
+		require.NoError(t, reader.Close())
+
+		parts = append(parts, string(decompressed))
+		if next == -1 {
+			break
+		}
+		start = end
+	}
+
+	require.Len(t, parts, 4)
+	require.Equal(t, "first write ", parts[0])
+	require.Equal(t, "second third ", parts[1])
+	require.Equal(t, "fourth write ", parts[2])
+	require.Equal(t, "final", parts[3])
+
+	// Now test that compression offset tracking works correctly across spool
+	// rolls by verifying that multiple commits written to the new spool can be
+	// read.
+	for _, req := range []pb.ReplicateRequest{
+		{Content: []byte("abc")},
+		{Content: []byte("xyz")},
+	} {
+		var resp, err = spool.Apply(&req, true)
+		require.NoError(t, err)
+		require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+
+		resp, err = spool.Apply(newProposal(spool.Next(), regEmpty), true)
+		require.NoError(t, err)
+		require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+	}
+
+	// Complete the second spool.
+	resp, err = spool.Apply(newProposal(pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            spool.Fragment.End,
+		End:              spool.Fragment.End,
+		CompressionCodec: pb.CompressionCodec_GZIP,
+	}, regEmpty), true)
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	require.Len(t, obv.completes, 2)
+	require.Equal(t, "abcxyz", contentString(t, obv.completes[1], pb.CompressionCodec_GZIP))
+
+	// The first and only write is below the compression threshold, which will
+	// require initializing compression of the spool in finishCompression.
+	resp, err = spool.Apply(&pb.ReplicateRequest{Content: []byte("small")}, true)
+	require.NoError(t, err)
+	require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+
+	resp, err = spool.Apply(newProposal(spool.Next(), regEmpty), true)
+	require.NoError(t, err)
+	require.Equal(t, pb.ReplicateResponse{Status: pb.Status_OK}, resp)
+
+	// Complete the third spool.
+	resp, err = spool.Apply(newProposal(pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            spool.Fragment.End,
+		End:              spool.Fragment.End,
+		CompressionCodec: pb.CompressionCodec_GZIP,
+	}, regEmpty), true)
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	require.Len(t, obv.completes, 3)
+	require.Equal(t, "small", contentString(t, obv.completes[2], pb.CompressionCodec_GZIP))
+
+	// Empty fragments don't trigger completion events (no ContentLength), so
+	// completes stays at 3.
+	resp, err = spool.Apply(newProposal(pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            spool.Fragment.End,
+		End:              spool.Fragment.End,
+		CompressionCodec: pb.CompressionCodec_GZIP,
+	}, regEmpty), true)
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	require.Len(t, obv.completes, 3)
 }
 
 func TestRejectRollBeforeCurrentEnd(t *testing.T) {

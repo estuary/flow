@@ -40,7 +40,9 @@ func NewCodecWriter(w io.Writer, codec pb.CompressionCodec) (Compressor, error) 
 	switch codec {
 	case pb.CompressionCodec_NONE:
 		return nopWriteCloser{w}, nil
-	case pb.CompressionCodec_GZIP, pb.CompressionCodec_GZIP_OFFLOAD_DECOMPRESSION:
+	case pb.CompressionCodec_GZIP:
+		return &GzipMultiMemberWriter{w: w}, nil
+	case pb.CompressionCodec_GZIP_OFFLOAD_DECOMPRESSION:
 		return gzip.NewWriter(w), nil
 	case pb.CompressionCodec_SNAPPY:
 		return snappy.NewBufferedWriter(w), nil
@@ -49,6 +51,34 @@ func NewCodecWriter(w io.Writer, codec pb.CompressionCodec) (Compressor, error) 
 	default:
 		return nil, fmt.Errorf("unsupported codec %s", codec.String())
 	}
+}
+
+// GzipMultiMemberWriter allows for batching multiple writes into a single gzip
+// member, which are concatenated into a single file per RFC 1952. Members are
+// terminated by calling Close, with a new gzip writer initialized on the next
+// Write.
+type GzipMultiMemberWriter struct {
+	w  io.Writer
+	gz *gzip.Writer
+}
+
+func (gzb *GzipMultiMemberWriter) Write(p []byte) (n int, err error) {
+	if gzb.gz == nil {
+		gzb.gz = gzip.NewWriter(gzb.w)
+	}
+
+	return gzb.gz.Write(p)
+}
+
+func (gzb *GzipMultiMemberWriter) Close() error {
+	if gzb.gz == nil {
+		return nil
+	} else if err := gzb.gz.Close(); err != nil {
+		return err
+	}
+	gzb.gz = nil
+
+	return nil
 }
 
 type nopWriteCloser struct{ io.Writer }
