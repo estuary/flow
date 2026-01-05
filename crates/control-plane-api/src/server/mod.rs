@@ -250,7 +250,13 @@ pub fn build_router(
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
-    let app = Arc::new(App::new(id_generator, jwt_secret, pg_pool, publisher, hmac_keys));
+    let app = Arc::new(App::new(
+        id_generator,
+        jwt_secret,
+        pg_pool,
+        publisher,
+        hmac_keys,
+    ));
     tokio::spawn(snapshot::fetch_loop(app.clone()));
 
     use axum::routing::post;

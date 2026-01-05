@@ -1453,7 +1453,8 @@ impl TestHarness {
     async fn init_control_plane_app(&mut self) {
         let jwt_secret = vec![0u8; 32]; // Test JWT secret
         let id_gen = models::IdGenerator::new(1);
-        let hmac_keys = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let hmac_keys =
+            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
         let app = Arc::new(control_plane_api::server::App::new(
             id_gen,

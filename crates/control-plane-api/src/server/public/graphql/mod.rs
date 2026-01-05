@@ -38,7 +38,12 @@ pub struct QueryRoot(
 pub struct MutationRoot(storage_mappings::StorageMappingsMutation);
 
 pub fn create_schema() -> GraphQLSchema {
-    Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription).finish()
+    Schema::build(
+        QueryRoot::default(),
+        MutationRoot::default(),
+        EmptySubscription,
+    )
+    .finish()
 }
 
 /// Returns the GraphQL SDL (Schema Definition Language) as a string.

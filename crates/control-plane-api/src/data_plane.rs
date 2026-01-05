@@ -121,11 +121,8 @@ pub fn build_journal_client(
         .context("failed to sign claims for data-plane")?;
 
     let router = gazette::Router::new("local");
-    let journal_client = gazette::journal::Client::new(
-        data_plane.broker_address.clone(),
-        metadata,
-        router,
-    );
+    let journal_client =
+        gazette::journal::Client::new(data_plane.broker_address.clone(), metadata, router);
 
     Ok(journal_client)
 }
