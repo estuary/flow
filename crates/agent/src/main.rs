@@ -267,7 +267,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         id_gen.clone(),
         discover_handler.clone(),
         logs_tx.clone(),
-        decrypted_hmac_keys,
+        decrypted_hmac_keys.clone(),
         args.auto_discover_probability,
         controller_publication_cooldown,
     );
@@ -283,6 +283,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         publisher.clone(),
         &args.allow_origin,
+        decrypted_hmac_keys,
     )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
