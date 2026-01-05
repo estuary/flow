@@ -2,6 +2,7 @@ mod harness;
 pub mod kafka;
 pub mod raw_kafka;
 
+mod auth;
 mod basic;
 mod collection_reset;
 mod empty_fetch;

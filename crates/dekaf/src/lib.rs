@@ -239,15 +239,8 @@ impl App {
         username: &str,
         password: &str,
     ) -> Result<SessionAuthentication, DekafError> {
-        let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
-            decoded
-        } else {
-            username.to_string()
-        };
-
-        if models::Materialization::regex().is_match(username.as_ref())
-            && !username.starts_with("{")
-        {
+        if models::Materialization::regex().is_match(username) && !username.starts_with("{") {
+            let username = username.to_string();
             let listener = self.task_manager.get_listener(&username);
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
