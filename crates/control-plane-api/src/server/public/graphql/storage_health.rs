@@ -55,53 +55,65 @@ impl StorageHealthMutation {
             return Err(async_graphql::Error::new("No data planes found"));
         }
 
-        let mut results = Vec::new();
+        // Build clients for each data plane, converting errors to strings for cloning
+        let clients: Vec<_> = data_planes
+            .iter()
+            .map(|dp| {
+                let client = crate::data_plane::build_journal_client(dp, app.hmac_keys())
+                    .map_err(|e| e.to_string());
+                (dp.data_plane_name.clone(), client)
+            })
+            .collect();
 
-        // For each data plane and store combination, test the health
-        for data_plane in &data_planes {
-            let client = match crate::data_plane::build_journal_client(data_plane, app.hmac_keys())
-            {
-                Ok(client) => client,
-                Err(err) => {
-                    // If we can't build a client for this data plane, report errors for all stores
-                    for store in &input.fragment_stores {
-                        results.push(StorageHealthResult {
-                            data_plane_name: data_plane.data_plane_name.clone(),
-                            fragment_store: store.clone(),
-                            success: false,
-                            error: Some(format!("Failed to create client: {err}")),
-                        });
-                    }
-                    continue;
-                }
-            };
+        // Build futures for all data plane + store combinations
+        let futures: Vec<_> = clients
+            .iter()
+            .flat_map(|(data_plane_name, client_result)| {
+                input.fragment_stores.iter().map(move |store| {
+                    let data_plane_name = data_plane_name.clone();
+                    let store = store.clone();
+                    let client_result = client_result.clone();
 
-            for store in &input.fragment_stores {
-                let result = client
-                    .fragment_store_health(broker::FragmentStoreHealthRequest {
-                        fragment_store: store.clone(),
-                    })
-                    .await;
+                    async move {
+                        match client_result {
+                            Ok(client) => {
+                                let result = client
+                                    .fragment_store_health(broker::FragmentStoreHealthRequest {
+                                        fragment_store: store.clone(),
+                                    })
+                                    .await;
 
-                let (success, error) = match result {
-                    Ok(resp) => {
-                        if resp.store_health_error.is_empty() {
-                            (true, None)
-                        } else {
-                            (false, Some(resp.store_health_error))
+                                let (success, error) = match result {
+                                    Ok(resp) => {
+                                        if resp.store_health_error.is_empty() {
+                                            (true, None)
+                                        } else {
+                                            (false, Some(resp.store_health_error))
+                                        }
+                                    }
+                                    Err(err) => (false, Some(format!("{err}"))),
+                                };
+
+                                StorageHealthResult {
+                                    data_plane_name,
+                                    fragment_store: store,
+                                    success,
+                                    error,
+                                }
+                            }
+                            Err(ref err) => StorageHealthResult {
+                                data_plane_name,
+                                fragment_store: store,
+                                success: false,
+                                error: Some(format!("Failed to create client: {err}")),
+                            },
                         }
                     }
-                    Err(err) => (false, Some(format!("{err}"))),
-                };
+                })
+            })
+            .collect();
 
-                results.push(StorageHealthResult {
-                    data_plane_name: data_plane.data_plane_name.clone(),
-                    fragment_store: store.clone(),
-                    success,
-                    error,
-                });
-            }
-        }
+        let results = futures::future::join_all(futures).await;
 
         Ok(results)
     }
