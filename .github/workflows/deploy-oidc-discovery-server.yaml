@@ -1,39 +1,37 @@
 name: Deploy oidc-discovery-server
 
 on:
-  push:
-    # Only on pushes to the master branch
+  workflow_run:
+    workflows: ["Platform Build"]
+    types:
+      - completed
     branches: [master]
-    # Only run if function code or the ci config itself has changed
-    paths:
-      - crates/oidc-discovery-server/**
-      - .github/workflows/deploy-oidc-discovery-server.yaml
-
-env:
-  CARGO_INCREMENTAL: 0 # Faster from-scratch builds.
+  workflow_dispatch: {}
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-24.04
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
-      # Permissions required of the Github token in order for
-      # federated identity and authorization to work.
       contents: read
       id-token: write
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: true
-          lfs: true
+          fetch-depth: 0  # Required for git describe to find tags
 
-      - uses: supabase/setup-cli@v1
-      - run: supabase start
-
-      - name: Build `oidc-discovery-server`
-        run: cargo build --release -p oidc-discovery-server
-
-      - run: mv target/release/oidc-discovery-server crates/oidc-discovery-server/
+      - name: Get image tag
+        id: image-tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="dev-next"
+          else
+            TAG=$(git describe --tags --always)
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/oidc-discovery-server:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2
@@ -47,9 +45,8 @@ jobs:
           service: oidc-discovery-server
           project_id: estuary-control
           region: us-central1
-          source: crates/oidc-discovery-server/
+          image: ${{ steps.image-tag.outputs.image }}
           port: 8080
-          flags: --clear-base-image
 
           env_vars: |-
             DATABASE_CA=/etc/db-ca.crt
