@@ -42,8 +42,17 @@ impl StorageMappingsMutation {
         ctx: &Context<'_>,
         input: TestStorageHealthInput,
     ) -> async_graphql::Result<Vec<StorageHealthResult>> {
-        let _claims = ctx.data::<ControlClaims>()?;
+        let claims = ctx.data::<ControlClaims>()?;
         let app = ctx.data::<Arc<App>>()?;
+
+        // Verify user has read access to the requested data planes
+        app.verify_user_authorization_graphql(
+            claims,
+            None,
+            input.data_plane_names.clone(),
+            models::Capability::Read,
+        )
+        .await?;
 
         // Fetch data planes to test against
         let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
