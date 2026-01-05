@@ -8,7 +8,7 @@ mod live_specs;
 mod prefixes;
 mod publication_history;
 pub mod status;
-mod storage_health;
+mod storage_mappings;
 
 use async_graphql::{EmptySubscription, Schema};
 use axum::Extension;
@@ -35,7 +35,7 @@ pub struct QueryRoot(
 
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
-pub struct MutationRoot(storage_health::StorageHealthMutation);
+pub struct MutationRoot(storage_mappings::StorageMappingsMutation);
 
 pub fn create_schema() -> GraphQLSchema {
     Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription).finish()

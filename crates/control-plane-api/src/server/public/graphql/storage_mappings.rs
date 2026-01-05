@@ -27,10 +27,10 @@ pub struct TestStorageHealthInput {
 }
 
 #[derive(Debug, Default)]
-pub struct StorageHealthMutation;
+pub struct StorageMappingsMutation;
 
 #[async_graphql::Object]
-impl StorageHealthMutation {
+impl StorageMappingsMutation {
     /// Test whether data planes can access the specified storage buckets.
     ///
     /// This sends FragmentStoreHealth RPCs to each specified data plane's broker
