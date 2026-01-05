@@ -245,7 +245,7 @@ async fn send_sasl_message(
     )
     .await?;
 
-    if resp.error_code > 0 {
+    if resp.error_code != 0 {
         let err = kafka_protocol::ResponseError::try_from_code(resp.error_code)
             .map(|code| format!("{code:?}"))
             .unwrap_or(format!("Unknown error {}", resp.error_code));
