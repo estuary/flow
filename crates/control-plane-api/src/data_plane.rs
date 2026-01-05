@@ -93,7 +93,10 @@ pub fn build_journal_client(
 
     // If the data plane doesn't have plaintext keys, check the decrypted cache
     if keys.is_empty() {
-        if let Some(cached_keys) = hmac_keys.read().unwrap().get(&data_plane.data_plane_name) {
+        let guard = hmac_keys
+            .read()
+            .map_err(|e| anyhow::anyhow!("HMAC keys lock poisoned: {e}"))?;
+        if let Some(cached_keys) = guard.get(&data_plane.data_plane_name) {
             keys = cached_keys.clone();
         }
     }
