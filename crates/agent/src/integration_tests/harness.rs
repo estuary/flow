@@ -427,6 +427,9 @@ impl TestHarness {
             with del_users as (
                 delete from auth.users where email like '%.test'
             ),
+            del_customers as (
+                delete from stripe.customers
+            ),
             del_live_specs as (
                 delete from live_specs
             ),
