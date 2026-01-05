@@ -1,5 +1,6 @@
 use crate::{Id, TextJson};
 use anyhow::Context;
+use proto_gazette::broker;
 use serde_json::value::RawValue;
 
 pub async fn fetch_ops_journal_template(
@@ -78,4 +79,50 @@ pub async fn fetch_all_data_planes<'a, 'b>(
     .await?;
 
     Ok(r.into_iter().collect())
+}
+
+/// Build an authenticated journal client for a data plane.
+///
+/// This creates a client that can make RPCs to the data plane's broker,
+/// authenticated with HMAC-signed JWT claims.
+pub fn build_journal_client(
+    data_plane: &tables::DataPlane,
+    hmac_keys: &crate::server::HmacKeys,
+) -> anyhow::Result<gazette::journal::Client> {
+    let mut keys = data_plane.hmac_keys.clone();
+
+    // If the data plane doesn't have plaintext keys, check the decrypted cache
+    if keys.is_empty() {
+        if let Some(cached_keys) = hmac_keys.read().unwrap().get(&data_plane.data_plane_name) {
+            keys = cached_keys.clone();
+        }
+    }
+
+    if keys.is_empty() {
+        anyhow::bail!(
+            "no HMAC keys available for data plane '{}'",
+            data_plane.data_plane_name
+        );
+    }
+
+    let mut metadata = gazette::Metadata::default();
+    metadata
+        .signed_claims(
+            proto_gazette::capability::LIST,
+            &data_plane.data_plane_fqdn,
+            std::time::Duration::from_secs(60),
+            &keys,
+            broker::LabelSelector::default(),
+            "control-plane-api",
+        )
+        .context("failed to sign claims for data-plane")?;
+
+    let router = gazette::Router::new("local");
+    let journal_client = gazette::journal::Client::new(
+        data_plane.broker_address.clone(),
+        metadata,
+        router,
+    );
+
+    Ok(journal_client)
 }
