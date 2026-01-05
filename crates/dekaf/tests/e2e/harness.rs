@@ -247,10 +247,9 @@ impl DekafTestEnv {
     /// Get Kafka connection info for external clients.
     pub fn connection_info(&self) -> ConnectionInfo {
         ConnectionInfo {
-            broker: std::env::var("DEKAF_BROKER").unwrap_or("localhost:9092".into()),
-            registry: std::env::var("DEKAF_REGISTRY").unwrap_or("http://localhost:9093".into()),
             username: self.materialization_name().unwrap_or_default().to_string(),
             collections: self.collection_names().map(String::from).collect(),
+            ..Default::default()
         }
     }
 
@@ -446,6 +445,17 @@ pub struct ConnectionInfo {
     pub registry: String,
     pub username: String,
     pub collections: Vec<String>,
+}
+
+impl Default for ConnectionInfo {
+    fn default() -> Self {
+        Self {
+            broker: std::env::var("DEKAF_BROKER").unwrap_or("localhost:9092".into()),
+            registry: std::env::var("DEKAF_REGISTRY").unwrap_or("http://localhost:9093".into()),
+            username: String::new(),
+            collections: Vec::new(),
+        }
+    }
 }
 
 /// Rewrite fixture names to include test namespace.

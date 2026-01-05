@@ -1,0 +1,37 @@
+# Regression test fixture for task names containing periods.
+# The materialization name `my.dekaf.task` tests that periods
+# in task names don't break SASL authentication.
+collections:
+    test_data:
+        schema:
+            type: object
+            properties:
+                id: { type: string }
+            required: [id]
+        key: [/id]
+
+captures:
+    source_ingest:
+        endpoint:
+            connector:
+                image: ghcr.io/estuary/source-http-ingest:dev
+                config:
+                    paths: ["/data"]
+        bindings:
+            - resource: { path: "/data", stream: "/data" }
+              target: test_data
+
+materializations:
+    my.dekaf.task:
+        endpoint:
+            dekaf:
+                variant: testing
+                config:
+                    token: "test-token"
+                    strict_topic_names: false
+        bindings:
+            - source: test_data
+              resource: { topic_name: test_topic }
+              fields:
+                  recommended: true
+                  exclude: [flow_published_at]
