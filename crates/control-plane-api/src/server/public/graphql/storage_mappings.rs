@@ -21,8 +21,10 @@ pub struct StorageHealthResult {
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct TestStorageHealthInput {
     /// The fragment store URLs to test (e.g., ["gs://bucket/prefix", "s3://bucket/prefix"]).
+    #[graphql(validator(min_items = 1))]
     pub fragment_stores: Vec<String>,
     /// Data plane names to test against.
+    #[graphql(validator(min_items = 1))]
     pub data_plane_names: Vec<String>,
 }
 
