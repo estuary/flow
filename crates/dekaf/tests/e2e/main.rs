@@ -13,5 +13,6 @@ mod empty_fetch;
 mod epoch_reporting;
 mod list_offsets;
 mod not_ready;
+mod task_name_auth;
 
 pub use harness::{ConnectionInfo, DekafTestEnv, Fragment, FragmentInfo, init_tracing};
