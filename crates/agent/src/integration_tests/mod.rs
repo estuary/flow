@@ -16,6 +16,7 @@ mod periodic_publications;
 mod quotas;
 mod shard_failures;
 mod source_captures;
+mod tenant_alerts;
 mod unknown_connectors;
 mod user_discovers;
 mod user_publications;
