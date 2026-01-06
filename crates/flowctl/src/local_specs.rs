@@ -16,7 +16,16 @@ pub(crate) async fn load_and_validate(
 )> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) = validate(client, true, false, true, draft, "").await;
+    let (draft, live, built) = validate(
+        client,
+        true,
+        false,
+        true,
+        draft,
+        "",
+        ops::tracing_log_handler,
+    )
+    .await;
     Ok((draft, live, surface_errors(built.into_result())?))
 }
 
@@ -25,6 +34,7 @@ pub(crate) async fn load_and_validate_full(
     client: &crate::Client,
     source: &str,
     network: &str,
+    log_handler: impl runtime::LogHandler,
 ) -> anyhow::Result<(
     tables::DraftCatalog,
     tables::LiveCatalog,
@@ -32,7 +42,8 @@ pub(crate) async fn load_and_validate_full(
 )> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) = validate(client, false, false, false, sources, network).await;
+    let (draft, live, built) =
+        validate(client, false, false, false, sources, network, log_handler).await;
     Ok((draft, live, surface_errors(built.into_result())?))
 }
 
@@ -41,7 +52,16 @@ pub(crate) async fn generate_files(
     client: &crate::Client,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, _live, built) = validate(client, true, false, true, sources, "").await;
+    let (mut draft, _live, built) = validate(
+        client,
+        true,
+        false,
+        true,
+        sources,
+        "",
+        ops::tracing_log_handler,
+    )
+    .await;
 
     let project_root = build::project_root(&draft.fetches[0].resource);
     build::generate_files(&project_root, &built)?;
@@ -82,6 +102,7 @@ async fn validate(
     noop_materializations: bool,
     draft: tables::DraftCatalog,
     network: &str,
+    log_handler: impl runtime::LogHandler,
 ) -> (
     tables::DraftCatalog,
     tables::LiveCatalog,
@@ -107,7 +128,7 @@ async fn validate(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
             models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
             network,
-            ops::tracing_log_handler,
+            log_handler,
             noop_captures,
             noop_derivations,
             noop_materializations,
