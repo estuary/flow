@@ -111,7 +111,7 @@ pub fn build_journal_client(
     let mut metadata = gazette::Metadata::default();
     metadata
         .signed_claims(
-            proto_gazette::capability::LIST,
+            proto_gazette::capability::LIST | proto_gazette::capability::READ,
             &data_plane.data_plane_fqdn,
             std::time::Duration::from_secs(60),
             &keys,
