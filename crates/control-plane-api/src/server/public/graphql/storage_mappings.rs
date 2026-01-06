@@ -111,8 +111,8 @@ impl StorageMappingsMutation {
             })
             .collect();
 
-        // Build futures for all data plane + store combinations
-        let futures: Vec<_> = clients
+        // Spawn tasks for all data plane + store combinations to run health checks in parallel
+        let handles: Vec<_> = clients
             .iter()
             .flat_map(|(data_plane_name, client_result)| {
                 fragment_stores.iter().map(move |store| {
@@ -120,44 +120,61 @@ impl StorageMappingsMutation {
                     let store = store.clone();
                     let client_result = client_result.clone();
 
-                    async move {
-                        match client_result {
-                            Ok(client) => {
-                                let result = client
-                                    .fragment_store_health(broker::FragmentStoreHealthRequest {
-                                        fragment_store: store.clone(),
-                                    })
-                                    .await;
+                    let handle = tokio::spawn({
+                        let data_plane_name = data_plane_name.clone();
+                        let store = store.clone();
+                        async move {
+                            match client_result {
+                                Ok(client) => {
+                                    let result = client
+                                        .fragment_store_health(broker::FragmentStoreHealthRequest {
+                                            fragment_store: store.clone(),
+                                        })
+                                        .await;
 
-                                let error = match result {
-                                    Ok(resp) => {
-                                        if resp.store_health_error.is_empty() {
-                                            None
-                                        } else {
-                                            Some(resp.store_health_error)
+                                    let error = match result {
+                                        Ok(resp) => {
+                                            if resp.store_health_error.is_empty() {
+                                                None
+                                            } else {
+                                                Some(resp.store_health_error)
+                                            }
                                         }
-                                    }
-                                    Err(err) => Some(format!("{err}")),
-                                };
+                                        Err(err) => Some(format!("{err}")),
+                                    };
 
-                                StorageHealthResult {
+                                    StorageHealthResult {
+                                        data_plane_name,
+                                        fragment_store: store,
+                                        error,
+                                    }
+                                }
+                                Err(ref err) => StorageHealthResult {
                                     data_plane_name,
                                     fragment_store: store,
-                                    error,
-                                }
+                                    error: Some(format!("Failed to create client: {err}")),
+                                },
                             }
-                            Err(ref err) => StorageHealthResult {
-                                data_plane_name,
-                                fragment_store: store,
-                                error: Some(format!("Failed to create client: {err}")),
-                            },
                         }
-                    }
+                    });
+
+                    (data_plane_name, store, handle)
                 })
             })
             .collect();
 
-        let results = futures::future::join_all(futures).await;
+        let mut results = Vec::with_capacity(handles.len());
+        for (data_plane_name, fragment_store, handle) in handles {
+            let result = match handle.await {
+                Ok(r) => r,
+                Err(err) => StorageHealthResult {
+                    data_plane_name,
+                    fragment_store,
+                    error: Some(format!("Health check failed: {err}")),
+                },
+            };
+            results.push(result);
+        }
 
         Ok(results)
     }
