@@ -80,32 +80,38 @@ impl StorageMappingsMutation {
             ));
         }
 
-        // Verify user has read access to the requested data planes
-        app.verify_user_authorization_graphql(
-            claims,
-            None,
-            data_plane_names.clone(),
-            models::Capability::Read,
-        )
-        .await?;
-
         // Fetch data planes to test against
         let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
 
+        // Check authorization for each data plane and collect errors for unauthorized/not found
         let mut data_planes = Vec::new();
-        let mut not_found_errors: Vec<StorageHealthResult> = Vec::new();
+        let mut errors: Vec<StorageHealthResult> = Vec::new();
 
-        for name in data_plane_names {
-            if let Some(dp) = all_data_planes.iter().find(|dp| &dp.data_plane_name == name) {
+        let mut add_not_found_error = |data_plane_name: &str| {
+            for store in &fragment_stores {
+                errors.push(StorageHealthResult {
+                    data_plane_name: data_plane_name.to_string(),
+                    fragment_store: store.clone(),
+                    error: Some("Data plane not found".to_string()),
+                });
+            }
+        };
+
+        let authorized_names: Vec<String> =
+            app.attach_user_capabilities(claims, data_plane_names.iter().cloned(), |name, cap| {
+                if cap.is_some() {
+                    Some(name)
+                } else {
+                    add_not_found_error(&name);
+                    None
+                }
+            });
+
+        for name in authorized_names {
+            if let Some(dp) = all_data_planes.iter().find(|dp| dp.data_plane_name == name) {
                 data_planes.push(dp.clone());
             } else {
-                for store in &fragment_stores {
-                    not_found_errors.push(StorageHealthResult {
-                        data_plane_name: name.clone(),
-                        fragment_store: store.clone(),
-                        error: Some("Data plane not found".to_string()),
-                    });
-                }
+                add_not_found_error(&name);
             }
         }
 
@@ -171,8 +177,8 @@ impl StorageMappingsMutation {
             })
             .collect();
 
-        let mut results = Vec::with_capacity(handles.len() + not_found_errors.len());
-        results.append(&mut not_found_errors);
+        let mut results = Vec::with_capacity(handles.len() + errors.len());
+        results.append(&mut errors);
         for (data_plane_name, fragment_store, handle) in handles {
             let result = match handle.await {
                 Ok(r) => r,
