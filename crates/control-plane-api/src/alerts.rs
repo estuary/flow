@@ -274,6 +274,7 @@ pub async fn fetch_open_alerts_by_type(
     alert_types: &[AlertType],
     pool: &sqlx::PgPool,
 ) -> sqlx::Result<Vec<Alert>> {
+    use futures::TryStreamExt;
     let rows = sqlx::query!(
         r#"select
             id as "id: models::Id",
@@ -287,20 +288,19 @@ pub async fn fetch_open_alerts_by_type(
         "#,
         alert_types as &[AlertType]
     )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|alert| Alert {
-            id: alert.id,
-            catalog_name: alert.catalog_name,
-            alert_type: alert.alert_type,
-            fired_at: alert.fired_at,
-            arguments: async_graphql::Json(alert.arguments.0),
-            resolved_at: None,
-            resolved_arguments: None,
-        })
-        .collect())
+    .fetch(pool);
+
+    rows.map_ok(|alert| Alert {
+        id: alert.id,
+        catalog_name: alert.catalog_name,
+        alert_type: alert.alert_type,
+        fired_at: alert.fired_at,
+        arguments: async_graphql::Json(alert.arguments.0),
+        resolved_at: None,
+        resolved_arguments: None,
+    })
+    .try_collect()
+    .await
 }
 
 async fn add_recipients(
