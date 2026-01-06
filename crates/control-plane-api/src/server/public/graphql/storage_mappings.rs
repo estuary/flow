@@ -92,13 +92,21 @@ impl StorageMappingsMutation {
         // Fetch data planes to test against
         let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
 
-        let data_planes: Vec<_> = all_data_planes
-            .into_iter()
-            .filter(|dp| data_plane_names.contains(&dp.data_plane_name))
-            .collect();
+        let mut data_planes = Vec::new();
+        let mut not_found_errors: Vec<StorageHealthResult> = Vec::new();
 
-        if data_planes.is_empty() {
-            return Err(async_graphql::Error::new("No matching data planes found"));
+        for name in data_plane_names {
+            if let Some(dp) = all_data_planes.iter().find(|dp| &dp.data_plane_name == name) {
+                data_planes.push(dp.clone());
+            } else {
+                for store in &fragment_stores {
+                    not_found_errors.push(StorageHealthResult {
+                        data_plane_name: name.clone(),
+                        fragment_store: store.clone(),
+                        error: Some("Data plane not found".to_string()),
+                    });
+                }
+            }
         }
 
         // Build clients for each data plane, converting errors to strings for cloning
@@ -163,7 +171,8 @@ impl StorageMappingsMutation {
             })
             .collect();
 
-        let mut results = Vec::with_capacity(handles.len());
+        let mut results = Vec::with_capacity(handles.len() + not_found_errors.len());
+        results.append(&mut not_found_errors);
         for (data_plane_name, fragment_store, handle) in handles {
             let result = match handle.await {
                 Ok(r) => r,
