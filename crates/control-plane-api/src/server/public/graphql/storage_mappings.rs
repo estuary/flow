@@ -6,15 +6,22 @@ use crate::server::{App, ControlClaims};
 
 /// Result of testing storage health for a single data plane and store.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct StorageHealthResult {
     /// Name of the data plane that was tested.
     pub data_plane_name: String,
     /// The fragment store URL that was tested (e.g., "gs://bucket/prefix").
     pub fragment_store: String,
-    /// Whether the health check succeeded.
-    pub success: bool,
     /// Error message if the health check failed.
     pub error: Option<String>,
+}
+
+#[async_graphql::ComplexObject]
+impl StorageHealthResult {
+    /// Whether the health check succeeded.
+    async fn success(&self) -> bool {
+        self.error.is_none()
+    }
 }
 
 /// Input for testing storage health.
@@ -122,28 +129,26 @@ impl StorageMappingsMutation {
                                     })
                                     .await;
 
-                                let (success, error) = match result {
+                                let error = match result {
                                     Ok(resp) => {
                                         if resp.store_health_error.is_empty() {
-                                            (true, None)
+                                            None
                                         } else {
-                                            (false, Some(resp.store_health_error))
+                                            Some(resp.store_health_error)
                                         }
                                     }
-                                    Err(err) => (false, Some(format!("{err}"))),
+                                    Err(err) => Some(format!("{err}")),
                                 };
 
                                 StorageHealthResult {
                                     data_plane_name,
                                     fragment_store: store,
-                                    success,
                                     error,
                                 }
                             }
                             Err(ref err) => StorageHealthResult {
                                 data_plane_name,
                                 fragment_store: store,
-                                success: false,
                                 error: Some(format!("Failed to create client: {err}")),
                             },
                         }
