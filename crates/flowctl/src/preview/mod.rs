@@ -64,6 +64,10 @@ pub struct Preview {
     /// Output apply RPC description
     #[clap(long, action)]
     output_apply: bool,
+
+    /// Output task logs in JSON format to stderr
+    #[clap(long, action)]
+    log_json: bool,
 }
 
 impl Preview {
@@ -79,18 +83,30 @@ impl Preview {
             initial_state,
             output_state,
             output_apply,
+            log_json,
         } = self;
 
         let source = build::arg_source_to_url(source, false)?;
 
+        let log_handler: fn(&ops::Log) = if *log_json {
+            ops::stderr_log_handler
+        } else {
+            ops::tracing_log_handler
+        };
+
         // TODO(johnny): validate only `name`, if presented.
-        let (_sources, _live, validations) =
-            local_specs::load_and_validate_full(&ctx.client, source.as_str(), &network).await?;
+        let (_sources, _live, validations) = local_specs::load_and_validate_full(
+            &ctx.client,
+            source.as_str(),
+            &network,
+            log_handler,
+        )
+        .await?;
 
         let runtime = runtime::Runtime::new(
             runtime::Plane::Local,
             network.clone(),
-            ops::tracing_log_handler,
+            log_handler,
             None,
             "preview".to_string(),
         );
