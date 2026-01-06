@@ -227,3 +227,55 @@ bindings:
         - sensitiveData
         - pii
 ```
+
+## Delta Updates and `flow_document`
+
+When using **delta updates** in a materialization, Flow's default field selection behavior changes for the special `flow_document` field.
+
+### Default Behavior
+
+With delta updates enabled, the `flow_document` field is **excluded by default** from the materialization.
+This is because delta updates don't require Flow to perform reductions, making the full document technically unnecessary.
+
+### Including `flow_document` with Delta Updates
+
+If you need to include the `flow_document` field when using delta updates, manually require it:
+
+**Through the UI**: After adding a binding, explicitly require `flow_document` in the Field Selection table by clicking its **Require** button.
+
+**In the specification file**: Add `flow_document` to the `require` section:
+
+```yaml
+bindings:
+  - source: acmeCo/example/collection
+    resource:
+      table: example_table
+      delta_updates: true
+    fields:
+      recommended: 1  # Can be any depth level
+      require:
+        flow_document: {}
+```
+
+:::note
+Manually requiring `flow_document` works regardless of the `recommended` depth setting. The field will be included in addition to whatever other fields are selected by your field selection configuration.
+:::
+
+### Materializing Both Top-Level Fields and `flow_document`
+
+If you want to materialize both top-level fields **and** the `flow_document` field with delta updates enabled:
+
+1. Set an appropriate `recommended` depth (e.g., `recommended: 1` for top-level fields)
+2. Manually require `flow_document` in the Field Selection table or specification:
+
+```yaml
+bindings:
+  - source: acmeCo/example/collection
+    resource:
+      table: example_table
+      delta_updates: true
+    fields:
+      recommended: 1
+      require:
+        flow_document: {}
+```
