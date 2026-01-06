@@ -235,7 +235,7 @@ When using **delta updates** in a materialization, Flow's default field selectio
 ### Default Behavior
 
 With delta updates enabled, the `flow_document` field is **excluded by default** from the materialization.
-This is because delta updates don't require Flow to perform reductions, making the full document technically unnecessary.
+This is because delta updates don't require Estuary to perform reductions, making the full document technically unnecessary.
 
 ### Including `flow_document` with Delta Updates
 
