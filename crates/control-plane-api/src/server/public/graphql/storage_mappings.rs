@@ -20,12 +20,8 @@ pub struct StorageHealthResult {
 /// Input for testing storage health.
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct TestStorageHealthInput {
-    /// The fragment store URLs to test (e.g., ["gs://bucket/prefix", "s3://bucket/prefix"]).
-    #[graphql(validator(min_items = 1))]
-    pub fragment_stores: Vec<String>,
-    /// Data plane names to test against.
-    #[graphql(validator(min_items = 1))]
-    pub data_plane_names: Vec<String>,
+    /// The storage definition to test, containing stores and data planes.
+    pub storage: async_graphql::Json<models::StorageDef>,
 }
 
 #[derive(Debug, Default)]
@@ -37,6 +33,8 @@ impl StorageMappingsMutation {
     ///
     /// This sends FragmentStoreHealth RPCs to each specified data plane's broker
     /// to verify that the data plane's service account has access to the storage.
+    ///
+    /// Note: Custom (S3-compatible) stores are not supported and will be skipped.
     pub async fn test_storage_health(
         &self,
         ctx: &Context<'_>,
@@ -45,11 +43,41 @@ impl StorageMappingsMutation {
         let claims = ctx.data::<ControlClaims>()?;
         let app = ctx.data::<Arc<App>>()?;
 
+        let storage = &input.storage.0;
+        let data_plane_names = &storage.data_planes;
+
+        if data_plane_names.is_empty() {
+            return Err(async_graphql::Error::new(
+                "storage.data_planes must not be empty",
+            ));
+        }
+        if storage.stores.is_empty() {
+            return Err(async_graphql::Error::new(
+                "storage.stores must not be empty",
+            ));
+        }
+
+        // Convert stores to fragment store URLs, skipping Custom stores
+        let fragment_stores: Vec<String> = storage
+            .stores
+            .iter()
+            .filter_map(|store| match store {
+                models::Store::Custom(_) => None,
+                _ => Some(store.to_url("").to_string()),
+            })
+            .collect();
+
+        if fragment_stores.is_empty() {
+            return Err(async_graphql::Error::new(
+                "No supported stores found (Custom stores are not supported)",
+            ));
+        }
+
         // Verify user has read access to the requested data planes
         app.verify_user_authorization_graphql(
             claims,
             None,
-            input.data_plane_names.clone(),
+            data_plane_names.clone(),
             models::Capability::Read,
         )
         .await?;
@@ -59,11 +87,11 @@ impl StorageMappingsMutation {
 
         let data_planes: Vec<_> = all_data_planes
             .into_iter()
-            .filter(|dp| input.data_plane_names.contains(&dp.data_plane_name))
+            .filter(|dp| data_plane_names.contains(&dp.data_plane_name))
             .collect();
 
         if data_planes.is_empty() {
-            return Err(async_graphql::Error::new("No data planes found"));
+            return Err(async_graphql::Error::new("No matching data planes found"));
         }
 
         // Build clients for each data plane, converting errors to strings for cloning
@@ -80,7 +108,7 @@ impl StorageMappingsMutation {
         let futures: Vec<_> = clients
             .iter()
             .flat_map(|(data_plane_name, client_result)| {
-                input.fragment_stores.iter().map(move |store| {
+                fragment_stores.iter().map(move |store| {
                     let data_plane_name = data_plane_name.clone();
                     let store = store.clone();
                     let client_result = client_result.clone();
