@@ -54,9 +54,7 @@ async fn test_rdkafka_handles_redirect() -> anyhow::Result<()> {
 
     let group_id = format!("migration-group-{}", env.namespace.replace('/', "_"));
 
-    let consumer = env
-        .kafka_consumer_with_group_id("local-cluster", &group_id)
-        .await?;
+    let consumer = env.kafka_consumer_with_group_id(&group_id).await?;
     consumer.subscribe(&["test_topic"])?;
 
     let records_before = consumer.fetch_n_with_commit(3).await?;
@@ -99,9 +97,7 @@ async fn test_rdkafka_handles_redirect() -> anyhow::Result<()> {
     .await?;
 
     // Create new consumer connected to local-cluster, should redirect automatically
-    let consumer = env
-        .kafka_consumer_with_group_id("local-cluster", &group_id)
-        .await?;
+    let consumer = env.kafka_consumer_with_group_id(&group_id).await?;
     consumer.subscribe(&["test_topic"])?;
 
     let records_after = consumer.fetch_n_with_commit(3).await?;

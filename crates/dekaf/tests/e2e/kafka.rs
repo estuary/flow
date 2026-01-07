@@ -2,7 +2,8 @@ use anyhow::Context;
 use futures::StreamExt;
 use rdkafka::Message;
 use rdkafka::config::RDKafkaLogLevel;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use schema_registry_converter::async_impl::avro::AvroDecoder;
 use schema_registry_converter::async_impl::schema_registry::SrSettings;
 use std::time::Duration;
@@ -157,5 +158,15 @@ impl KafkaConsumer {
     /// Get the inner consumer for advanced operations.
     pub fn inner(&self) -> &StreamConsumer {
         &self.consumer
+    }
+
+    /// Commit a specific offset for a topic/partition.
+    pub fn commit_offset(&self, topic: &str, partition: i32, offset: i64) -> anyhow::Result<()> {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(topic, partition, Offset::Offset(offset))
+            .context("failed to add partition offset")?;
+        self.consumer
+            .commit(&tpl, CommitMode::Sync)
+            .context("failed to commit offset")
     }
 }

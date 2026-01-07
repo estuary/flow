@@ -5,6 +5,7 @@ use super::{
         list_offsets_partition_error, metadata_leader_epoch, offset_for_epoch_result,
     },
 };
+use crate::raw_kafka::{offset_commit_partition_error, offset_fetch_partition_result};
 use anyhow::Context;
 use kafka_protocol::ResponseError;
 use serde_json::json;
@@ -657,6 +658,67 @@ async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
         "high_watermark should be > 0 after injecting documents, got {}",
         partition.high_watermark
     );
+
+    Ok(())
+}
+
+/// Commit offset, reset collection. OffsetFetch should NOT return the old offset
+#[tokio::test]
+async fn test_offset_isolation_after_reset() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("or_epoch_fetch", FIXTURE).await?;
+
+    env.inject_documents("data", vec![json!({"id": "doc1", "value": "test"})])
+        .await?;
+
+    let info = env.connection_info().await?;
+    let token = env.dekaf_token()?;
+
+    let group_id = format!("test-group-{}", uuid::Uuid::new_v4());
+    let commit_offset = 1i64;
+
+    let initial_epoch = get_leader_epoch(&env, "test_topic", 0).await?;
+
+    // Commit an offset and verify it is visible before reset.
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+
+        let commit_resp = client
+            .offset_commit(&group_id, "test_topic", &[(0, commit_offset)])
+            .await?;
+
+        let commit_error = offset_commit_partition_error(&commit_resp, "test_topic", 0);
+        assert_eq!(commit_error, Some(0), "commit should succeed");
+
+        let fetch_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+        let result = offset_fetch_partition_result(&fetch_resp, "test_topic", 0)
+            .expect("response should include requested topic and partition");
+
+        assert_eq!(result.error_code, 0, "fetch should succeed");
+        assert_eq!(result.committed_offset, commit_offset);
+        assert_eq!(
+            result.committed_leader_epoch, initial_epoch,
+            "committed_leader_epoch should match initial epoch"
+        );
+    }
+
+    // Perform collection reset
+    perform_collection_reset(&env, "test_topic", 0, initial_epoch, EPOCH_CHANGE_TIMEOUT).await?;
+
+    // OffsetFetch after reset should NOT return the old offset
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+        let fetch_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+        let result = offset_fetch_partition_result(&fetch_resp, "test_topic", 0)
+            .expect("response should include requested topic and partition");
+
+        assert_eq!(result.error_code, 0, "fetch should succeed");
+        assert_eq!(
+            result.committed_offset, -1,
+            "offset should not be found after reset (epoch isolation)"
+        );
+    }
 
     Ok(())
 }
