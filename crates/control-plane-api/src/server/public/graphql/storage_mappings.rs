@@ -97,24 +97,19 @@ const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 
 /// Check storage health for a single data plane + store combination.
 async fn check_store_health(
-    client: Result<gazette::journal::Client, String>,
+    client: gazette::journal::Client,
     data_plane_name: String,
     fragment_store: String,
 ) -> StorageHealthResult {
-    let error = match client {
-        Ok(client) => {
-            let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
-                fragment_store: fragment_store.clone(),
-            });
+    let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
+        fragment_store: fragment_store.clone(),
+    });
 
-            match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
-                Ok(Ok(resp)) if resp.store_health_error.is_empty() => None,
-                Ok(Ok(resp)) => Some(resp.store_health_error),
-                Ok(Err(err)) => Some(err.to_string()),
-                Err(_) => Some("Health check timed out".to_string()),
-            }
-        }
-        Err(err) => Some(format!("Failed to create client: {err}")),
+    let error = match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
+        Ok(Ok(resp)) if resp.store_health_error.is_empty() => None,
+        Ok(Ok(resp)) => Some(resp.store_health_error),
+        Ok(Err(err)) => Some(err.to_string()),
+        Err(_) => Some("Health check timed out".to_string()),
     };
 
     StorageHealthResult {
@@ -141,29 +136,37 @@ async fn run_storage_health_checks(
     data_planes: &[tables::DataPlane],
     fragment_stores: &[String],
 ) -> Vec<StorageHealthResult> {
-    let handles: Vec<_> = data_planes
-        .iter()
-        .flat_map(|dp| {
-            let client = crate::data_plane::build_journal_client(dp, app.hmac_keys())
-                .map_err(|e| e.to_string());
+    let mut results = Vec::new();
+    let mut handles = Vec::new();
 
-            fragment_stores.iter().map(move |store| {
-                let data_plane_name = dp.data_plane_name.clone();
-                let fragment_store = store.clone();
-                let client = client.clone();
-                let handle = tokio::spawn({
-                    let data_plane_name = data_plane_name.clone();
-                    let fragment_store = fragment_store.clone();
-                    async move {
-                        check_store_health(client, data_plane_name, fragment_store).await
-                    }
-                });
-                (data_plane_name, fragment_store, handle)
-            })
-        })
-        .collect();
+    for dp in data_planes {
+        let client = match crate::data_plane::build_journal_client(dp, app.hmac_keys()) {
+            Ok(client) => client,
+            Err(err) => {
+                for store in fragment_stores {
+                    results.push(StorageHealthResult {
+                        data_plane_name: dp.data_plane_name.clone(),
+                        fragment_store: store.clone(),
+                        error: Some(format!("Failed to create client: {err}")),
+                    });
+                }
+                continue;
+            }
+        };
 
-    let mut results = Vec::with_capacity(handles.len());
+        for store in fragment_stores {
+            let data_plane_name = dp.data_plane_name.clone();
+            let fragment_store = store.clone();
+            let client = client.clone();
+            let handle = tokio::spawn({
+                let data_plane_name = data_plane_name.clone();
+                let fragment_store = fragment_store.clone();
+                async move { check_store_health(client, data_plane_name, fragment_store).await }
+            });
+            handles.push((data_plane_name, fragment_store, handle));
+        }
+    }
+
     for (data_plane_name, fragment_store, handle) in handles {
         results.push(handle.await.unwrap_or_else(|err| StorageHealthResult {
             data_plane_name,
