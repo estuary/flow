@@ -1,5 +1,8 @@
 use dekaf::{KafkaApiClient, KafkaClientAuth};
-use kafka_protocol::{messages, protocol::StrBytes};
+use kafka_protocol::{
+    messages::{self, offset_fetch_response::OffsetFetchResponsePartition},
+    protocol::StrBytes,
+};
 
 /// Protocol versions to use for test requests.
 mod protocol_versions {
@@ -7,6 +10,8 @@ mod protocol_versions {
     pub const LIST_OFFSETS: i16 = 7;
     pub const OFFSET_FOR_LEADER_EPOCH: i16 = 2;
     pub const METADATA: i16 = 9;
+    pub const OFFSET_COMMIT: i16 = 6;
+    pub const OFFSET_FETCH: i16 = 7;
 }
 
 fn topic_name(s: &str) -> messages::TopicName {
@@ -133,6 +138,61 @@ impl TestKafkaClient {
 
         self.inner.send_request(req, Some(header)).await
     }
+
+    pub async fn offset_commit(
+        &mut self,
+        group_id: &str,
+        topic: &str,
+        offsets: &[(i32, i64)],
+    ) -> anyhow::Result<messages::OffsetCommitResponse> {
+        let req = messages::OffsetCommitRequest::default()
+            .with_group_id(messages::GroupId::from(StrBytes::from_string(
+                group_id.to_string(),
+            )))
+            .with_topics(vec![
+                messages::offset_commit_request::OffsetCommitRequestTopic::default()
+                    .with_name(topic_name(topic))
+                    .with_partitions(
+                        offsets
+                            .iter()
+                            .map(|(partition, offset)| {
+                                messages::offset_commit_request::OffsetCommitRequestPartition::default()
+                                    .with_partition_index(*partition)
+                                    .with_committed_offset(*offset)
+                            })
+                            .collect(),
+                    ),
+            ]);
+
+        let header = messages::RequestHeader::default()
+            .with_request_api_key(messages::ApiKey::OffsetCommit as i16)
+            .with_request_api_version(protocol_versions::OFFSET_COMMIT);
+
+        self.inner.send_request(req, Some(header)).await
+    }
+
+    pub async fn offset_fetch(
+        &mut self,
+        group_id: &str,
+        topic: &str,
+        partitions: &[i32],
+    ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        let req = messages::OffsetFetchRequest::default()
+            .with_group_id(messages::GroupId::from(StrBytes::from_string(
+                group_id.to_string(),
+            )))
+            .with_topics(Some(vec![
+                messages::offset_fetch_request::OffsetFetchRequestTopic::default()
+                    .with_name(topic_name(topic))
+                    .with_partition_indexes(partitions.to_vec()),
+            ]));
+
+        let header = messages::RequestHeader::default()
+            .with_request_api_key(messages::ApiKey::OffsetFetch as i16)
+            .with_request_api_version(protocol_versions::OFFSET_FETCH);
+
+        self.inner.send_request(req, Some(header)).await
+    }
 }
 
 /// Extract the error code from a FetchResponse for a specific topic/partition.
@@ -208,4 +268,28 @@ pub fn offset_for_epoch_result(
             leader_epoch: p.leader_epoch,
             end_offset: p.end_offset,
         })
+}
+
+pub fn offset_commit_partition_error(
+    resp: &messages::OffsetCommitResponse,
+    topic: &str,
+    partition: i32,
+) -> Option<i16> {
+    resp.topics
+        .iter()
+        .find(|t| t.name.as_str() == topic)
+        .and_then(|t| t.partitions.iter().find(|p| p.partition_index == partition))
+        .map(|p| p.error_code)
+}
+
+pub fn offset_fetch_partition_result(
+    resp: &messages::OffsetFetchResponse,
+    topic: &str,
+    partition: i32,
+) -> Option<OffsetFetchResponsePartition> {
+    resp.topics
+        .iter()
+        .find(|t| t.name.as_str() == topic)
+        .and_then(|t| t.partitions.iter().find(|p| p.partition_index == partition))
+        .cloned()
 }

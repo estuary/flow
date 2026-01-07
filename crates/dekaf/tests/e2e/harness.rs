@@ -311,14 +311,12 @@ impl DekafTestEnv {
         ))
     }
 
+    /// Create a high-level consumer connected to Dekaf with a specific group ID.
     pub async fn kafka_consumer_with_group_id(
         &self,
-        dataplane: &str,
         group_id: &str,
     ) -> anyhow::Result<super::kafka::KafkaConsumer> {
-        let username = self.materialization_name().unwrap_or_default();
-        let collections = self.collection_names().map(String::from).collect();
-        let info = connection_info_for_dataplane(dataplane, username, collections).await?;
+        let info = self.connection_info().await?;
         let token = self.dekaf_token()?;
         Ok(super::kafka::KafkaConsumer::with_group_id(
             &info.broker,
