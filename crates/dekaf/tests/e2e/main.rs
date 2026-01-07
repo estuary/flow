@@ -4,6 +4,7 @@ pub mod raw_kafka;
 
 mod basic;
 mod collection_reset;
+mod consumer_group;
 mod empty_fetch;
 mod list_offsets;
 mod not_ready;

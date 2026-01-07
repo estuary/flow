@@ -5,12 +5,13 @@ use super::{
         list_offsets_partition_error, metadata_leader_epoch, offset_for_epoch_result,
     },
 };
+use crate::raw_kafka::{offset_commit_partition_error, offset_fetch_partition_result};
 use anyhow::Context;
 use kafka_protocol::ResponseError;
 use serde_json::json;
 use std::time::Duration;
 
-const FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
+const BASIC_FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
 const EPOCH_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// When a consumer sends a `current_leader_epoch` that is less than Dekaf's
@@ -22,7 +23,7 @@ const EPOCH_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 async fn test_fenced_leader_epoch_on_stale_consumer() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("fenced_epoch", FIXTURE).await?;
+    let env = DekafTestEnv::setup("fenced_epoch", BASIC_FIXTURE).await?;
 
     // Inject initial document so the collection has data
     env.inject_documents("data", vec![json!({"id": "1", "value": "pre-reset"})])
@@ -84,7 +85,7 @@ async fn test_fenced_leader_epoch_on_stale_consumer() -> anyhow::Result<()> {
 async fn test_list_offsets_fenced_epoch() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("list_offsets_fenced", FIXTURE).await?;
+    let env = DekafTestEnv::setup("list_offsets_fenced", BASIC_FIXTURE).await?;
     let info = env.connection_info();
 
     env.inject_documents("data", vec![json!({"id": "1", "value": "test"})])
@@ -153,7 +154,7 @@ async fn test_list_offsets_fenced_epoch() -> anyhow::Result<()> {
 async fn test_unknown_leader_epoch_for_future_epoch() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("unknown_epoch", FIXTURE).await?;
+    let env = DekafTestEnv::setup("unknown_epoch", BASIC_FIXTURE).await?;
     let info = env.connection_info();
 
     env.inject_documents("data", vec![json!({"id": "1", "value": "test"})])
@@ -223,7 +224,7 @@ async fn test_unknown_leader_epoch_for_future_epoch() -> anyhow::Result<()> {
 async fn test_offset_for_leader_epoch_returns_zero_for_old_epoch() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("offset_for_old_epoch", FIXTURE).await?;
+    let env = DekafTestEnv::setup("offset_for_old_epoch", BASIC_FIXTURE).await?;
 
     env.inject_documents("data", vec![json!({"id": "1", "value": "test"})])
         .await?;
@@ -271,7 +272,7 @@ async fn test_offset_for_leader_epoch_returns_zero_for_old_epoch() -> anyhow::Re
 async fn test_offset_for_leader_epoch_returns_highwater_for_current() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("offset_for_current", FIXTURE).await?;
+    let env = DekafTestEnv::setup("offset_for_current", BASIC_FIXTURE).await?;
     let info = env.connection_info();
 
     // Inject multiple documents so we have a meaningful high watermark
@@ -476,7 +477,7 @@ pub async fn wait_for_epoch_change(
 async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("metadata_epoch", FIXTURE).await?;
+    let env = DekafTestEnv::setup("metadata_epoch", BASIC_FIXTURE).await?;
     let info = env.connection_info();
 
     // Inject a document so the topic has data
@@ -506,7 +507,7 @@ async fn test_metadata_includes_leader_epoch() -> anyhow::Result<()> {
 async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("list_offsets_epoch", FIXTURE).await?;
+    let env = DekafTestEnv::setup("list_offsets_epoch", BASIC_FIXTURE).await?;
     let info = env.connection_info();
 
     // Inject documents so offsets exist
@@ -602,7 +603,7 @@ async fn test_list_offsets_includes_leader_epoch() -> anyhow::Result<()> {
 async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
     super::init_tracing();
 
-    let env = DekafTestEnv::setup("fetch_epoch", FIXTURE).await?;
+    let env = DekafTestEnv::setup("fetch_epoch", BASIC_FIXTURE).await?;
     let info = env.connection_info();
 
     // Inject documents to fetch
@@ -657,6 +658,95 @@ async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
         "high_watermark should be > 0 after injecting documents, got {}",
         partition.high_watermark
     );
+
+    Ok(())
+}
+
+/// Commit offset, reset collection. OffsetFetch should NOT return the old offset
+#[tokio::test]
+async fn test_offset_isolation_after_reset() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("or_epoch_fetch", BASIC_FIXTURE).await?;
+
+    env.inject_documents("data", vec![json!({"id": "doc1", "value": "test"})])
+        .await?;
+
+    let info = env.connection_info();
+    let token = env.dekaf_token()?;
+
+    let group_id = format!("test-group-{}", uuid::Uuid::new_v4());
+    let commit_offset = 100i64;
+
+    let initial_epoch = get_leader_epoch(&env, "test_topic", 0).await?;
+    tracing::info!(initial_epoch, "Initial epoch before commit");
+
+    // Commit an offset before reset
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+
+        let commit_resp = client
+            .offset_commit(&group_id, "test_topic", &[(0, commit_offset)])
+            .await?;
+
+        let commit_error = offset_commit_partition_error(&commit_resp, "test_topic", 0);
+        assert_eq!(commit_error, Some(0), "commit should succeed");
+        tracing::info!(commit_offset, "Offset committed before reset");
+    }
+
+    // Verify the committed epoch before reset
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+        let fetch_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+        let result = offset_fetch_partition_result(&fetch_resp, "test_topic", 0)
+            .expect("should have result");
+
+        tracing::info!(
+            committed_offset = result.committed_offset,
+            committed_leader_epoch = result.committed_leader_epoch,
+            "OffsetFetch before reset"
+        );
+
+        assert_eq!(result.committed_offset, commit_offset);
+        assert_eq!(
+            result.committed_leader_epoch, initial_epoch,
+            "committed_leader_epoch should match initial epoch"
+        );
+    }
+
+    // Perform collection reset
+    perform_collection_reset(&env, "test_topic", 0, initial_epoch, EPOCH_CHANGE_TIMEOUT).await?;
+
+    let new_epoch = get_leader_epoch(&env, "test_topic", 0).await?;
+    tracing::info!(new_epoch, "New epoch after reset");
+
+    assert!(
+        new_epoch > initial_epoch,
+        "epoch should increase after reset"
+    );
+
+    // OffsetFetch after reset should NOT return the old offset
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+        let fetch_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+        let result = offset_fetch_partition_result(&fetch_resp, "test_topic", 0)
+            .expect("should have result");
+
+        tracing::info!(
+            committed_offset = result.committed_offset,
+            committed_leader_epoch = result.committed_leader_epoch,
+            "OffsetFetch after reset"
+        );
+
+        assert_eq!(
+            result.committed_offset, -1,
+            "offset should not be found after reset (epoch isolation)"
+        );
+        assert_eq!(
+            result.committed_leader_epoch, -1,
+            "no committed epoch when offset not found"
+        );
+    }
 
     Ok(())
 }

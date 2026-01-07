@@ -107,6 +107,42 @@ impl DekafTestEnv {
             .map(|k| k.as_ref())
     }
 
+    /// Returns an iterator over materialization names in the catalog.
+    pub fn materialization_names(&self) -> impl Iterator<Item = &str> {
+        self.catalog.materializations.keys().map(|k| k.as_ref())
+    }
+
+    /// Get the Dekaf auth token for a specific materialization.
+    pub fn dekaf_token_for(&self, mat_name: &str) -> anyhow::Result<String> {
+        let materialization_spec = self
+            .catalog
+            .materializations
+            .iter()
+            .find(|(k, _)| k.as_ref().ends_with(mat_name))
+            .map(|(_, v)| v)
+            .context(format!("materialization {} not found", mat_name))?;
+
+        let dekaf_config = match &materialization_spec.endpoint {
+            models::MaterializationEndpoint::Dekaf(cfg) => cfg,
+            _ => anyhow::bail!("materialization endpoint is not Dekaf"),
+        };
+
+        let config: serde_json::Value = serde_json::from_str(dekaf_config.config.get())?;
+        config["token"]
+            .as_str()
+            .map(String::from)
+            .context("dekaf config missing token field")
+    }
+
+    /// Get the full materialization name (with namespace prefix) for a given suffix.
+    pub fn full_materialization_name(&self, suffix: &str) -> Option<String> {
+        self.catalog
+            .materializations
+            .keys()
+            .find(|k| k.as_ref().ends_with(suffix))
+            .map(|k| k.as_ref().to_string())
+    }
+
     /// Returns the name of the first capture in the catalog.
     pub fn capture_name(&self) -> Option<&str> {
         self.catalog.captures.keys().next().map(|k| k.as_ref())
@@ -288,6 +324,22 @@ impl DekafTestEnv {
             &info.registry,
             &info.username,
             &token,
+        ))
+    }
+
+    /// Create a high-level consumer connected to Dekaf with a specific group ID.
+    pub fn kafka_consumer_with_group_id(
+        &self,
+        group_id: &str,
+    ) -> anyhow::Result<super::kafka::KafkaConsumer> {
+        let info = self.connection_info();
+        let token = self.dekaf_token()?;
+        Ok(super::kafka::KafkaConsumer::with_group_id(
+            &info.broker,
+            &info.registry,
+            &info.username,
+            &token,
+            group_id,
         ))
     }
 
