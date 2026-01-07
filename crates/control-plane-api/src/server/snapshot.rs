@@ -1,5 +1,6 @@
 use super::App;
 use anyhow::Context;
+use chrono::SubsecRound;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -219,7 +220,11 @@ impl Snapshot {
             }
             // Authorization is invalid and the Snapshot was taken after the
             // start of the authorization request. Terminal failure.
-            Err(err) if snapshot.taken > started => return Err(Err(err)),
+            //
+            // Because JWT `iat` is second-precision, we should only terminally fail
+            // if the snapshot was taken in a later second, otherwise we can't say
+            // definitively that the request is invalid.
+            Err(err) if snapshot.taken.trunc_subsecs(0) > started => return Err(Err(err)),
 
             // Authorization is valid but is currently cordoned, and we must
             // hold it in limbo until the cordoned condition is resolved
