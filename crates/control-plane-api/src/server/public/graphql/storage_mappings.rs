@@ -1,6 +1,5 @@
 use async_graphql::Context;
 use proto_gazette::broker;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::server::{App, ControlClaims};
@@ -25,11 +24,18 @@ impl StorageHealthResult {
     }
 }
 
-/// Input for testing storage health.
+/// Input for creating a storage mapping.
 #[derive(Debug, Clone, async_graphql::InputObject)]
-pub struct TestStorageHealthInput {
-    /// The storage definition to test, containing stores and data planes.
+pub struct CreateStorageMappingInput {
+    /// The catalog prefix for which to create the storage mapping.
+    pub catalog_prefix: String,
+    /// Optional description of the storage mapping.
+    pub detail: Option<String>,
+    /// The storage definition containing stores and data planes.
     pub storage: async_graphql::Json<models::StorageDef>,
+    /// If true, only run validation and health checks without saving.
+    #[graphql(default)]
+    pub dry_run: bool,
 }
 
 /// Validate a StorageDef for required fields.
@@ -68,35 +74,44 @@ fn extract_fragment_stores(storage: &models::StorageDef) -> async_graphql::Resul
     Ok(fragment_stores)
 }
 
+/// Resolved data planes and any that were not found or unauthorized.
+struct ResolvedDataPlanes {
+    found: Vec<tables::DataPlane>,
+    missing: Vec<String>,
+}
+
 /// Resolve data plane names to data plane records, checking authorization.
-/// Returns a map from data plane name to the resolved data plane (or None if not found/unauthorized).
 async fn resolve_data_planes(
     app: &App,
     claims: &ControlClaims,
     data_plane_names: &[String],
-) -> async_graphql::Result<HashMap<String, Option<tables::DataPlane>>> {
+) -> async_graphql::Result<ResolvedDataPlanes> {
     let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
 
-    let resolved: HashMap<String, Option<tables::DataPlane>> = app
-        .attach_user_capabilities(
-            claims,
-            data_plane_names.iter().cloned(),
-            |name, cap| {
-                let data_plane = if cap.is_some() {
-                    all_data_planes
-                        .iter()
-                        .find(|dp| dp.data_plane_name == name)
-                        .cloned()
-                } else {
-                    None
-                };
-                Some((name, data_plane))
-            },
-        )
-        .into_iter()
-        .collect();
+    let mut found = Vec::new();
+    let mut missing = Vec::new();
 
-    Ok(resolved)
+    for name in data_plane_names {
+        let cap = app
+            .attach_user_capabilities(claims, std::iter::once(name.clone()), |n, c| Some((n, c)));
+
+        let has_cap = cap.first().map(|(_, c)| c.is_some()).unwrap_or(false);
+
+        if has_cap {
+            if let Some(dp) = all_data_planes
+                .iter()
+                .find(|dp| &dp.data_plane_name == name)
+            {
+                found.push(dp.clone());
+            } else {
+                missing.push(name.clone());
+            }
+        } else {
+            missing.push(name.clone());
+        }
+    }
+
+    Ok(ResolvedDataPlanes { found, missing })
 }
 
 /// Check storage health for a single data plane + store combination.
@@ -128,69 +143,140 @@ async fn check_store_health(
     }
 }
 
+/// Result of creating a storage mapping.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct CreateStorageMappingResult {
+    /// Whether the storage mapping was created successfully.
+    pub success: bool,
+    /// The catalog prefix for which the storage mapping was created.
+    pub catalog_prefix: String,
+    /// Results of health checks for each data plane and store combination.
+    pub health_checks: Vec<StorageHealthResult>,
+}
+
+/// Run storage health checks for each data plane + store combination.
+async fn run_storage_health_checks(
+    app: &App,
+    data_planes: &[tables::DataPlane],
+    fragment_stores: &[String],
+) -> Vec<StorageHealthResult> {
+    let handles: Vec<_> = data_planes
+        .iter()
+        .flat_map(|dp| {
+            let client = crate::data_plane::build_journal_client(dp, app.hmac_keys())
+                .map_err(|e| e.to_string());
+
+            fragment_stores.iter().map(move |store| {
+                let data_plane_name = dp.data_plane_name.clone();
+                let store = store.clone();
+                let client = client.clone();
+                tokio::spawn(
+                    async move { check_store_health(client, data_plane_name, store).await },
+                )
+            })
+        })
+        .collect();
+
+    let mut results = Vec::with_capacity(handles.len());
+    for result in futures::future::join_all(handles).await {
+        results.push(result.unwrap_or_else(|err| StorageHealthResult {
+            data_plane_name: String::new(),
+            fragment_store: String::new(),
+            error: Some(format!("Health check task failed: {err}")),
+        }));
+    }
+
+    results
+}
+
 #[derive(Debug, Default)]
 pub struct StorageMappingsMutation;
 
 #[async_graphql::Object]
 impl StorageMappingsMutation {
-    /// Test whether data planes can access the specified storage buckets.
+    /// Create a storage mapping for the given catalog prefix.
     ///
-    /// This sends FragmentStoreHealth RPCs to each specified data plane's broker
-    /// to verify that the data plane's service account has access to the storage.
+    /// This validates that the user has admin access to the catalog prefix,
+    /// runs health checks to verify that data planes can access the storage buckets,
+    /// and then saves the storage mapping to the database.
     ///
-    /// Note: Custom (S3-compatible) stores are not supported and will be skipped.
-    pub async fn test_storage_health(
+    /// All health checks must pass before the storage mapping is created.
+    /// Custom (S3-compatible) stores are not supported for health checks and will be skipped.
+    pub async fn create_storage_mapping(
         &self,
         ctx: &Context<'_>,
-        input: TestStorageHealthInput,
-    ) -> async_graphql::Result<Vec<StorageHealthResult>> {
+        input: CreateStorageMappingInput,
+    ) -> async_graphql::Result<CreateStorageMappingResult> {
         let claims = ctx.data::<ControlClaims>()?;
         let app = ctx.data::<Arc<App>>()?;
+
+        // Verify user has admin capability to the catalog prefix
+        app.verify_user_authorization_graphql(
+            claims,
+            None,
+            vec![input.catalog_prefix.clone()],
+            models::Capability::Admin,
+        )
+        .await?;
 
         let storage = &input.storage.0;
         validate_storage_def(storage)?;
         let fragment_stores = extract_fragment_stores(storage)?;
 
         // Resolve data planes, checking authorization
-        let resolved = resolve_data_planes(app, claims, &storage.data_planes).await?;
+        let ResolvedDataPlanes {
+            found: data_planes,
+            missing,
+        } = resolve_data_planes(app, claims, &storage.data_planes).await?;
 
-        // Build clients and spawn health checks in parallel
-        let handles: Vec<_> = resolved
-            .iter()
-            .flat_map(|(name, maybe_dp)| {
-                let client = maybe_dp.as_ref().map(|dp| {
-                    crate::data_plane::build_journal_client(dp, app.hmac_keys())
-                        .map_err(|e| e.to_string())
+        // Run health checks
+        let mut health_checks =
+            run_storage_health_checks(app, &data_planes, &fragment_stores).await;
+
+        // Add error results for missing data planes
+        for name in &missing {
+            for store in &fragment_stores {
+                health_checks.push(StorageHealthResult {
+                    data_plane_name: name.clone(),
+                    fragment_store: store.clone(),
+                    error: Some("Data plane not found".to_string()),
                 });
-
-                fragment_stores.iter().map(move |store| {
-                    let data_plane_name = name.clone();
-                    let store = store.clone();
-                    let client = client.clone();
-                    tokio::spawn(async move {
-                        match client {
-                            Some(c) => check_store_health(c, data_plane_name, store).await,
-                            None => StorageHealthResult {
-                                data_plane_name,
-                                fragment_store: store,
-                                error: Some("Data plane not found".to_string()),
-                            },
-                        }
-                    })
-                })
-            })
-            .collect();
-
-        // Collect results
-        let mut results = Vec::with_capacity(handles.len());
-        for result in futures::future::join_all(handles).await {
-            results.push(result.unwrap_or_else(|err| StorageHealthResult {
-                data_plane_name: String::new(),
-                fragment_store: String::new(),
-                error: Some(format!("Health check task failed: {err}")),
-            }));
+            }
         }
 
-        Ok(results)
+        // Check if any health checks failed
+        let has_health_failures = health_checks.iter().any(|r| r.error.is_some());
+
+        // Determine if we can save the mapping
+        let can_save = !has_health_failures && !input.dry_run;
+
+        if can_save {
+            let mut txn = app.pg_pool.begin().await?;
+
+            let detail = input.detail.as_deref().unwrap_or("created via GraphQL API");
+
+            crate::directives::storage_mappings::upsert_storage_mapping(
+                detail,
+                &input.catalog_prefix,
+                storage,
+                &mut txn,
+            )
+            .await?;
+
+            txn.commit().await?;
+
+            tracing::info!(
+                catalog_prefix = %input.catalog_prefix,
+                data_planes = ?storage.data_planes,
+                stores_count = storage.stores.len(),
+                "created storage mapping"
+            );
+        }
+
+        Ok(CreateStorageMappingResult {
+            success: can_save,
+            catalog_prefix: input.catalog_prefix,
+            health_checks,
+        })
     }
 }
