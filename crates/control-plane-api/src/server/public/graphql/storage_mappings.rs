@@ -53,27 +53,6 @@ fn validate_storage_def(storage: &models::StorageDef) -> async_graphql::Result<(
     Ok(())
 }
 
-/// Extract fragment store URLs from a StorageDef.
-/// Custom (S3-compatible) stores are skipped as they're not supported for health checks.
-fn extract_fragment_stores(storage: &models::StorageDef) -> async_graphql::Result<Vec<String>> {
-    let fragment_stores: Vec<String> = storage
-        .stores
-        .iter()
-        .filter_map(|store| match store {
-            models::Store::Custom(_) => None,
-            _ => Some(store.to_url("").to_string()),
-        })
-        .collect();
-
-    if fragment_stores.is_empty() {
-        return Err(async_graphql::Error::new(
-            "No supported stores found (Custom stores are not supported)",
-        ));
-    }
-
-    Ok(fragment_stores)
-}
-
 /// Resolved data planes and any that were not found or unauthorized.
 struct ResolvedDataPlanes {
     found: Vec<tables::DataPlane>,
@@ -208,7 +187,6 @@ impl StorageMappingsMutation {
     /// and then saves the storage mapping to the database.
     ///
     /// All health checks must pass before the storage mapping is created.
-    /// Custom (S3-compatible) stores are not supported for health checks and will be skipped.
     pub async fn create_storage_mapping(
         &self,
         ctx: &Context<'_>,
@@ -228,7 +206,11 @@ impl StorageMappingsMutation {
 
         let storage = &input.storage.0;
         validate_storage_def(storage)?;
-        let fragment_stores = extract_fragment_stores(storage)?;
+        let fragment_stores: Vec<String> = storage
+            .stores
+            .iter()
+            .map(|store| store.to_url(&input.catalog_prefix).to_string())
+            .collect();
 
         // Resolve data planes, checking authorization
         let ResolvedDataPlanes {
