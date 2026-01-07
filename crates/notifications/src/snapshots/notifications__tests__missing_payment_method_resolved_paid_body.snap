@@ -40,7 +40,7 @@ expression: email.body
         </div>
         <div class="divider"></div>
         <div class="email-content">
-            <p class="body-text">We hope you are enjoying Estuary Flow. We have received your payment method for your account <span class="identifier">acmeCo/</span>. you are now on the paid tier.</p>
+            <p class="body-text">We hope you are enjoying Estuary Flow. We have received your payment method for your account <span class="identifier">acmeCo/</span>. You are now on the paid tier.</p>
             <a href="https://dashboard.estuary.dev/admin/billing" class="button">📈 See your bill</a>
             
             <hr style="border: 0; border-top: 1px dashed lightgrey; margin: 40px 0 10px 0;">

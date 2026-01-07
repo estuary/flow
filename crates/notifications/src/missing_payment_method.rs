@@ -15,7 +15,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_body,
-            r#"<p class="body-text">We hope you are enjoying Estuary Flow. We have received your payment method for your account <span class="identifier">{{arguments.tenant}}</span>. {{#if (eq arguments.plan_state "free_trial")}}After your free trial ends on <strong>{{arguments.trial_end}}</strong>, you will automatically be switched the paid tier.{{else}}you are now on the paid tier.{{/if}}</p>
+            r#"<p class="body-text">We hope you are enjoying Estuary Flow. We have received your payment method for your account <span class="identifier">{{arguments.tenant}}</span>. {{#if (eq arguments.plan_state "free_trial")}}After your free trial ends on <strong>{{arguments.trial_end}}</strong>, you will automatically be switched the paid tier.{{else}}You are now on the paid tier.{{/if}}</p>
 <a href="https://dashboard.estuary.dev/admin/billing" class="button">📈 See your bill</a>
 
 <hr style="border: 0; border-top: 1px dashed lightgrey; margin: 40px 0 10px 0;">
