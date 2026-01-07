@@ -12,6 +12,7 @@ use serde_json::json;
 use std::time::Duration;
 
 const BASIC_FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
+const DUAL_MATERIALIZATION_FIXTURE: &str = include_str!("fixtures/dual_materialization.flow.yaml");
 const EPOCH_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// When a consumer sends a `current_leader_epoch` that is less than Dekaf's
@@ -745,6 +746,111 @@ async fn test_offset_isolation_after_reset() -> anyhow::Result<()> {
         assert_eq!(
             result.committed_leader_epoch, -1,
             "no committed epoch when offset not found"
+        );
+    }
+
+    Ok(())
+}
+
+/// Create two materializations reading the same collection. Use identical group ID for both.
+/// Commit different offsets via each task. Verify each task sees only its own committed offset.
+#[tokio::test]
+async fn test_same_group_id_different_tasks_isolated() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("oi_isolation", DUAL_MATERIALIZATION_FIXTURE).await?;
+
+    // Inject documents so there's data
+    env.inject_documents(
+        "data",
+        vec![
+            json!({"id": "doc1", "value": "test1"}),
+            json!({"id": "doc2", "value": "test2"}),
+        ],
+    )
+    .await?;
+
+    let info = env.connection_info();
+
+    // Get credentials for both tasks
+    let task_a = env.full_materialization_name("dekaf_task_a").unwrap();
+    let token_a = env.dekaf_token_for("dekaf_task_a")?;
+
+    let task_b = env.full_materialization_name("dekaf_task_b").unwrap();
+    let token_b = env.dekaf_token_for("dekaf_task_b")?;
+
+    // Use the SAME group ID for both tasks
+    let group_id = format!("shared-group-{}", uuid::Uuid::new_v4());
+
+    // Commit different offsets for each task
+    let offset_a = 100i64;
+    let offset_b = 200i64;
+
+    // Task A: commit offset 100
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &task_a, &token_a).await?;
+
+        let commit_resp = client
+            .offset_commit(&group_id, "test_topic", &[(0, offset_a)])
+            .await?;
+
+        let error = offset_commit_partition_error(&commit_resp, "test_topic", 0);
+        assert_eq!(error, Some(0), "task A commit should succeed");
+        tracing::info!(offset = offset_a, "Task A committed offset");
+    }
+
+    // Task B: commit offset 200
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &task_b, &token_b).await?;
+
+        let commit_resp = client
+            .offset_commit(&group_id, "test_topic", &[(0, offset_b)])
+            .await?;
+
+        let error = offset_commit_partition_error(&commit_resp, "test_topic", 0);
+        assert_eq!(error, Some(0), "task B commit should succeed");
+        tracing::info!(offset = offset_b, "Task B committed offset");
+    }
+
+    // Verify Task A sees offset 100 (not 200)
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &task_a, &token_a).await?;
+
+        let fetch_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+        let result = offset_fetch_partition_result(&fetch_resp, "test_topic", 0)
+            .expect("should have result");
+
+        tracing::info!(
+            committed_offset = result.committed_offset,
+            expected = offset_a,
+            "Task A fetched committed offset"
+        );
+
+        assert_eq!(
+            result.committed_offset, offset_a,
+            "Task A should see its own committed offset ({}), not task B's ({})",
+            offset_a, offset_b
+        );
+    }
+
+    // Verify Task B sees offset 200 (not 100)
+    {
+        let mut client = TestKafkaClient::connect(&info.broker, &task_b, &token_b).await?;
+
+        let fetch_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+        let result = offset_fetch_partition_result(&fetch_resp, "test_topic", 0)
+            .expect("should have result");
+
+        tracing::info!(
+            committed_offset = result.committed_offset,
+            expected = offset_b,
+            "Task B fetched committed offset"
+        );
+
+        assert_eq!(
+            result.committed_offset, offset_b,
+            "Task B should see its own committed offset ({}), not task A's ({})",
+            offset_b, offset_a
         );
     }
 

@@ -621,7 +621,9 @@ fn to_upstream_topic_name(
     nonce: String,
     backfill_counter: Option<u32>,
 ) -> TopicName {
-    let (cipher, nonce) = create_crypto(secret, nonce);
+    // Hash the nonce for epoch-qualified (new) path, truncate for legacy path
+    let hash_nonce = backfill_counter.is_some();
+    let (cipher, nonce) = create_crypto(secret, nonce, hash_nonce);
 
     let encrypted = cipher.encrypt(&nonce, topic.as_bytes()).unwrap();
     let mut encoded = hex::encode(encrypted);
@@ -658,7 +660,9 @@ fn strip_epoch_suffix(topic: &TopicName) -> String {
 /// Convert the output of [`to_upstream_topic_name`] back into
 /// its plain collection name format. Automatically strips epoch suffix if present.
 fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
-    let (cipher, nonce) = create_crypto(secret, nonce);
+    // Hash the nonce for epoch-qualified (new) path, truncate for legacy path
+    let hash_nonce = has_epoch_suffix(topic.as_str());
+    let (cipher, nonce) = create_crypto(secret, nonce, hash_nonce);
 
     // Strip epoch suffix before decrypting
     let topic_without_epoch = strip_epoch_suffix(&topic);
@@ -668,16 +672,30 @@ fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> 
     TopicName::from(StrBytes::from_utf8(Bytes::from(decrypted)).unwrap())
 }
 
-fn create_crypto(secret: String, nonce: String) -> (Aes256SivAead, aes_siv::Nonce) {
+// TODO(jshearer): Remove `hash_nonce` parameter once all consumers have upgraded to use
+// epoch-qualified offsets. At that point, we can always hash and remove the legacy truncation path.
+fn create_crypto(
+    secret: String,
+    nonce: String,
+    hash_nonce: bool,
+) -> (Aes256SivAead, aes_siv::Nonce) {
     let mut key = secret.as_bytes().to_vec();
     key.resize(Aes256SivAead::key_size(), 0);
 
-    let mut nonce = nonce.as_bytes().to_vec();
-    // "Nonce = GenericArray<u8, U16>"
-    nonce.resize(16, 0);
+    let nonce_bytes: [u8; 16] = if hash_nonce {
+        // Hash the nonce to ensure the full value contributes to encryption,
+        // not just the first 16 bytes. This is important for task name isolation
+        // where task names may share long prefixes (e.g., "test/dekaf/foo/a" vs "test/dekaf/foo/b").
+        md5::compute(nonce.as_bytes()).0
+    } else {
+        // Legacy behavior: truncate/pad to 16 bytes for backwards compatibility
+        let mut nonce_vec = nonce.as_bytes().to_vec();
+        nonce_vec.resize(16, 0);
+        nonce_vec.try_into().unwrap()
+    };
 
     let cipher = Aes256SivAead::new_from_slice(&key[..]).unwrap();
-    let nonce = aes_siv::Nonce::from_slice(&nonce[..]);
+    let nonce = aes_siv::Nonce::from_slice(&nonce_bytes);
 
     return (cipher, *nonce);
 }
