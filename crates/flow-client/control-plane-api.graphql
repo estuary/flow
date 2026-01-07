@@ -267,9 +267,9 @@ Input for creating a storage mapping.
 """
 input CreateStorageMappingInput {
 	"""
-	The catalog prefix for which to create the storage mapping.
+	The catalog prefix for which to create the storage mapping (must end with '/').
 	"""
-	catalogPrefix: String!
+	catalogPrefix: Prefix!
 	"""
 	Optional description of the storage mapping.
 	"""
