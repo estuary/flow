@@ -1,5 +1,6 @@
 use async_graphql::Context;
 use proto_gazette::broker;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::server::{App, ControlClaims};
@@ -31,6 +32,102 @@ pub struct TestStorageHealthInput {
     pub storage: async_graphql::Json<models::StorageDef>,
 }
 
+/// Validate a StorageDef for required fields.
+fn validate_storage_def(storage: &models::StorageDef) -> async_graphql::Result<()> {
+    if storage.data_planes.is_empty() {
+        return Err(async_graphql::Error::new(
+            "storage.data_planes must not be empty",
+        ));
+    }
+    if storage.stores.is_empty() {
+        return Err(async_graphql::Error::new(
+            "storage.stores must not be empty",
+        ));
+    }
+    Ok(())
+}
+
+/// Extract fragment store URLs from a StorageDef.
+/// Custom (S3-compatible) stores are skipped as they're not supported for health checks.
+fn extract_fragment_stores(storage: &models::StorageDef) -> async_graphql::Result<Vec<String>> {
+    let fragment_stores: Vec<String> = storage
+        .stores
+        .iter()
+        .filter_map(|store| match store {
+            models::Store::Custom(_) => None,
+            _ => Some(store.to_url("").to_string()),
+        })
+        .collect();
+
+    if fragment_stores.is_empty() {
+        return Err(async_graphql::Error::new(
+            "No supported stores found (Custom stores are not supported)",
+        ));
+    }
+
+    Ok(fragment_stores)
+}
+
+/// Resolve data plane names to data plane records, checking authorization.
+/// Returns a map from data plane name to the resolved data plane (or None if not found/unauthorized).
+async fn resolve_data_planes(
+    app: &App,
+    claims: &ControlClaims,
+    data_plane_names: &[String],
+) -> async_graphql::Result<HashMap<String, Option<tables::DataPlane>>> {
+    let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
+
+    let resolved: HashMap<String, Option<tables::DataPlane>> = app
+        .attach_user_capabilities(
+            claims,
+            data_plane_names.iter().cloned(),
+            |name, cap| {
+                let data_plane = if cap.is_some() {
+                    all_data_planes
+                        .iter()
+                        .find(|dp| dp.data_plane_name == name)
+                        .cloned()
+                } else {
+                    None
+                };
+                Some((name, data_plane))
+            },
+        )
+        .into_iter()
+        .collect();
+
+    Ok(resolved)
+}
+
+/// Check storage health for a single data plane + store combination.
+async fn check_store_health(
+    client: Result<gazette::journal::Client, String>,
+    data_plane_name: String,
+    fragment_store: String,
+) -> StorageHealthResult {
+    let error = match client {
+        Ok(client) => {
+            match client
+                .fragment_store_health(broker::FragmentStoreHealthRequest {
+                    fragment_store: fragment_store.clone(),
+                })
+                .await
+            {
+                Ok(resp) if resp.store_health_error.is_empty() => None,
+                Ok(resp) => Some(resp.store_health_error),
+                Err(err) => Some(err.to_string()),
+            }
+        }
+        Err(err) => Some(format!("Failed to create client: {err}")),
+    };
+
+    StorageHealthResult {
+        data_plane_name,
+        fragment_store,
+        error,
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct StorageMappingsMutation;
 
@@ -51,144 +148,47 @@ impl StorageMappingsMutation {
         let app = ctx.data::<Arc<App>>()?;
 
         let storage = &input.storage.0;
-        let data_plane_names = &storage.data_planes;
+        validate_storage_def(storage)?;
+        let fragment_stores = extract_fragment_stores(storage)?;
 
-        if data_plane_names.is_empty() {
-            return Err(async_graphql::Error::new(
-                "storage.data_planes must not be empty",
-            ));
-        }
-        if storage.stores.is_empty() {
-            return Err(async_graphql::Error::new(
-                "storage.stores must not be empty",
-            ));
-        }
+        // Resolve data planes, checking authorization
+        let resolved = resolve_data_planes(app, claims, &storage.data_planes).await?;
 
-        // Convert stores to fragment store URLs, skipping Custom stores
-        let fragment_stores: Vec<String> = storage
-            .stores
+        // Build clients and spawn health checks in parallel
+        let handles: Vec<_> = resolved
             .iter()
-            .filter_map(|store| match store {
-                models::Store::Custom(_) => None,
-                _ => Some(store.to_url("").to_string()),
-            })
-            .collect();
-
-        if fragment_stores.is_empty() {
-            return Err(async_graphql::Error::new(
-                "No supported stores found (Custom stores are not supported)",
-            ));
-        }
-
-        // Fetch data planes to test against
-        let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
-
-        // Check authorization for each data plane and collect errors for unauthorized/not found
-        let mut data_planes = Vec::new();
-        let mut errors: Vec<StorageHealthResult> = Vec::new();
-
-        let mut add_not_found_error = |data_plane_name: &str| {
-            for store in &fragment_stores {
-                errors.push(StorageHealthResult {
-                    data_plane_name: data_plane_name.to_string(),
-                    fragment_store: store.clone(),
-                    error: Some("Data plane not found".to_string()),
+            .flat_map(|(name, maybe_dp)| {
+                let client = maybe_dp.as_ref().map(|dp| {
+                    crate::data_plane::build_journal_client(dp, app.hmac_keys())
+                        .map_err(|e| e.to_string())
                 });
-            }
-        };
 
-        let authorized_names: Vec<String> =
-            app.attach_user_capabilities(claims, data_plane_names.iter().cloned(), |name, cap| {
-                if cap.is_some() {
-                    Some(name)
-                } else {
-                    add_not_found_error(&name);
-                    None
-                }
-            });
-
-        for name in authorized_names {
-            if let Some(dp) = all_data_planes.iter().find(|dp| dp.data_plane_name == name) {
-                data_planes.push(dp.clone());
-            } else {
-                add_not_found_error(&name);
-            }
-        }
-
-        // Build clients for each data plane, converting errors to strings for cloning
-        let clients: Vec<_> = data_planes
-            .iter()
-            .map(|dp| {
-                let client = crate::data_plane::build_journal_client(dp, app.hmac_keys())
-                    .map_err(|e| e.to_string());
-                (dp.data_plane_name.clone(), client)
-            })
-            .collect();
-
-        // Spawn tasks for all data plane + store combinations to run health checks in parallel
-        let handles: Vec<_> = clients
-            .iter()
-            .flat_map(|(data_plane_name, client_result)| {
                 fragment_stores.iter().map(move |store| {
-                    let data_plane_name = data_plane_name.clone();
+                    let data_plane_name = name.clone();
                     let store = store.clone();
-                    let client_result = client_result.clone();
-
-                    let handle = tokio::spawn({
-                        let data_plane_name = data_plane_name.clone();
-                        let store = store.clone();
-                        async move {
-                            match client_result {
-                                Ok(client) => {
-                                    let result = client
-                                        .fragment_store_health(broker::FragmentStoreHealthRequest {
-                                            fragment_store: store.clone(),
-                                        })
-                                        .await;
-
-                                    let error = match result {
-                                        Ok(resp) => {
-                                            if resp.store_health_error.is_empty() {
-                                                None
-                                            } else {
-                                                Some(resp.store_health_error)
-                                            }
-                                        }
-                                        Err(err) => Some(format!("{err}")),
-                                    };
-
-                                    StorageHealthResult {
-                                        data_plane_name,
-                                        fragment_store: store,
-                                        error,
-                                    }
-                                }
-                                Err(ref err) => StorageHealthResult {
-                                    data_plane_name,
-                                    fragment_store: store,
-                                    error: Some(format!("Failed to create client: {err}")),
-                                },
-                            }
+                    let client = client.clone();
+                    tokio::spawn(async move {
+                        match client {
+                            Some(c) => check_store_health(c, data_plane_name, store).await,
+                            None => StorageHealthResult {
+                                data_plane_name,
+                                fragment_store: store,
+                                error: Some("Data plane not found".to_string()),
+                            },
                         }
-                    });
-
-                    (data_plane_name, store, handle)
+                    })
                 })
             })
             .collect();
 
-        let mut results = Vec::with_capacity(handles.len() + errors.len());
-        results.append(&mut errors);
-        for (data_plane_name, fragment_store, handle) in handles {
-            let result = match handle.await {
-                Ok(r) => r,
-                Err(err) => StorageHealthResult {
-                    data_plane_name,
-                    fragment_store,
-                    error: Some(format!("Health check failed: {err}")),
-                },
-            };
-            results.push(result);
+        // Collect results
+        let mut results = Vec::with_capacity(handles.len());
+        for result in futures::future::join_all(handles).await {
+            results.push(result.unwrap_or_else(|err| StorageHealthResult {
+                data_plane_name: String::new(),
+                fragment_store: String::new(),
+                error: Some(format!("Health check task failed: {err}")),
+            }));
         }
 
         Ok(results)
