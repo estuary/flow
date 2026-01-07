@@ -2,7 +2,8 @@ use anyhow::Context;
 use futures::StreamExt;
 use rdkafka::Message;
 use rdkafka::config::RDKafkaLogLevel;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use schema_registry_converter::async_impl::avro::AvroDecoder;
 use schema_registry_converter::async_impl::schema_registry::SrSettings;
 use std::time::Duration;
@@ -157,5 +158,38 @@ impl KafkaConsumer {
     /// Get the inner consumer for advanced operations.
     pub fn inner(&self) -> &StreamConsumer {
         &self.consumer
+    }
+
+    /// Commit a specific offset for a topic/partition.
+    pub fn commit_offset(&self, topic: &str, partition: i32, offset: i64) -> anyhow::Result<()> {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(topic, partition, Offset::Offset(offset))
+            .context("failed to add partition offset")?;
+        self.consumer
+            .commit(&tpl, CommitMode::Sync)
+            .context("failed to commit offset")
+    }
+
+    /// Get the committed offset for a topic/partition.
+    /// Returns None if no offset has been committed.
+    pub fn committed_offset(&self, topic: &str, partition: i32) -> anyhow::Result<Option<i64>> {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(topic, partition);
+
+        let committed = self
+            .consumer
+            .committed_offsets(tpl, Duration::from_secs(10))
+            .context("failed to fetch committed offsets")?;
+
+        let offset =
+            committed
+                .find_partition(topic, partition)
+                .and_then(|elem| match elem.offset() {
+                    Offset::Offset(o) => Some(o),
+                    Offset::Invalid => None,
+                    _ => None,
+                });
+
+        Ok(offset)
     }
 }
