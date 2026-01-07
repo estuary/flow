@@ -291,6 +291,22 @@ impl DekafTestEnv {
         ))
     }
 
+    /// Create a high-level consumer connected to Dekaf with a specific group ID.
+    pub fn kafka_consumer_with_group_id(
+        &self,
+        group_id: &str,
+    ) -> anyhow::Result<super::kafka::KafkaConsumer> {
+        let info = self.connection_info();
+        let token = self.dekaf_token()?;
+        Ok(super::kafka::KafkaConsumer::with_group_id(
+            &info.broker,
+            &info.registry,
+            &info.username,
+            &token,
+            group_id,
+        ))
+    }
+
     async fn publish_catalog(&self, catalog: &models::Catalog) -> anyhow::Result<()> {
         let temp_file = tempfile::Builder::new().suffix(".json").tempfile()?;
         std::fs::write(temp_file.path(), serde_json::to_string_pretty(catalog)?)?;
