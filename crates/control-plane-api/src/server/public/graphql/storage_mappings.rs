@@ -198,6 +198,8 @@ impl StorageMappingsMutation {
         let claims = ctx.data::<ControlClaims>()?;
         let app = ctx.data::<Arc<App>>()?;
 
+        // TODO (greg): add logic to disallow new storage mappings that would impact existing specs
+
         // Verify user has admin capability to the catalog prefix
         app.verify_user_authorization_graphql(
             claims,
