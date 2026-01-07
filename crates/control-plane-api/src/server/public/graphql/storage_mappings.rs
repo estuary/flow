@@ -114,6 +114,8 @@ async fn resolve_data_planes(
     Ok(ResolvedDataPlanes { found, missing })
 }
 
+const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Check storage health for a single data plane + store combination.
 async fn check_store_health(
     client: Result<gazette::journal::Client, String>,
@@ -122,15 +124,15 @@ async fn check_store_health(
 ) -> StorageHealthResult {
     let error = match client {
         Ok(client) => {
-            match client
-                .fragment_store_health(broker::FragmentStoreHealthRequest {
-                    fragment_store: fragment_store.clone(),
-                })
-                .await
-            {
-                Ok(resp) if resp.store_health_error.is_empty() => None,
-                Ok(resp) => Some(resp.store_health_error),
-                Err(err) => Some(err.to_string()),
+            let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
+                fragment_store: fragment_store.clone(),
+            });
+
+            match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
+                Ok(Ok(resp)) if resp.store_health_error.is_empty() => None,
+                Ok(Ok(resp)) => Some(resp.store_health_error),
+                Ok(Err(err)) => Some(err.to_string()),
+                Err(_) => Some("Health check timed out".to_string()),
             }
         }
         Err(err) => Some(format!("Failed to create client: {err}")),
