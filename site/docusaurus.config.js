@@ -153,12 +153,10 @@ const config = {
             from: '/reference/Connectors/materialization-connectors/Parquet/',
             to: '/reference/Connectors/materialization-connectors/amazon-s3-parquet/'
           },
-          
-          // Waiting on https://github.com/estuary/flow/pull/2559/
-          // {
-          //   from : '/reference/Connectors/capture-connectors/netsuite-suitetalk/',
-          //   to: '/reference/Connectors/capture-connectors/netsuite-suiteql/',
-          // },
+          {
+            from: '/reference/Connectors/capture-connectors/netsuite-suitetalk/',
+            to: '/reference/Connectors/capture-connectors/netsuite-suiteql/',
+          },
         ],
       },
     ],
