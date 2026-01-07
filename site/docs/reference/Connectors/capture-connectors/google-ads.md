@@ -19,6 +19,7 @@ Resources ending in `_report` represent legacy resources from the [Google Adword
 * [click_view](https://developers.google.com/google-ads/api/reference/rpc/latest/ClickView)
 * [customer](https://developers.google.com/google-ads/api/fields/latest/customer)
 * [geographic_view](https://developers.google.com/google-ads/api/fields/latest/geographic_view)
+* [geo_target_constant](https://developers.google.com/google-ads/api/fields/v22/geo_target_constant)
 * [keyword_view](https://developers.google.com/google-ads/api/fields/latest/keyword_view)
 * [user_location_view](https://developers.google.com/google-ads/api/fields/latest/user_location_view)
 * [account_performance_report](https://developers.google.com/google-ads/api/docs/migration/mapping#account_performance)
