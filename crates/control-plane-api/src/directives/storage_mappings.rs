@@ -40,6 +40,25 @@ pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
     Ok(())
 }
 
+pub async fn insert_storage_mapping<T: serde::Serialize + Send + Sync>(
+    detail: &str,
+    catalog_prefix: &str,
+    spec: T,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        insert into storage_mappings (detail, catalog_prefix, spec)
+        values ($1, $2, $3)"#,
+        detail as &str,
+        catalog_prefix as &str,
+        TextJson(spec) as TextJson<T>,
+    )
+    .execute(&mut **txn)
+    .await?;
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct StorageMapping {
     pub catalog_prefix: String,

@@ -27,8 +27,8 @@ impl StorageHealthResult {
 /// Input for creating a storage mapping.
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct CreateStorageMappingInput {
-    /// The catalog prefix for which to create the storage mapping.
-    pub catalog_prefix: String,
+    /// The catalog prefix for which to create the storage mapping (must end with '/').
+    pub catalog_prefix: models::Prefix,
     /// Optional description of the storage mapping.
     pub detail: Option<String>,
     /// The storage definition containing stores and data planes.
@@ -198,19 +198,43 @@ impl StorageMappingsMutation {
         let claims = ctx.data::<ControlClaims>()?;
         let app = ctx.data::<Arc<App>>()?;
 
+        // Validate the catalog prefix format
+        use validator::Validate;
+        if let Err(err) = input.catalog_prefix.validate() {
+            return Err(async_graphql::Error::new(format!(
+                "Invalid catalog prefix: {err}"
+            )));
+        }
+
         // TODO (greg): add logic to disallow new storage mappings that would impact existing specs
 
         // Verify user has admin capability to the catalog prefix
         app.verify_user_authorization_graphql(
             claims,
             None,
-            vec![input.catalog_prefix.clone()],
+            vec![input.catalog_prefix.to_string()],
             models::Capability::Admin,
         )
         .await?;
 
+        // Check if a storage mapping already exists for this prefix
+        let existing = sqlx::query_scalar!(
+            r#"select true from storage_mappings where catalog_prefix = $1"#,
+            &input.catalog_prefix
+        )
+        .fetch_optional(&app.pg_pool)
+        .await?;
+
+        if existing.is_some() {
+            return Err(async_graphql::Error::new(format!(
+                "A storage mapping already exists for catalog prefix '{}'",
+                input.catalog_prefix
+            )));
+        }
+
         let storage = &input.storage.0;
         validate_storage_def(storage)?;
+
         let fragment_stores: Vec<String> = storage
             .stores
             .iter()
@@ -249,7 +273,7 @@ impl StorageMappingsMutation {
 
             let detail = input.detail.as_deref().unwrap_or("created via GraphQL API");
 
-            crate::directives::storage_mappings::upsert_storage_mapping(
+            crate::directives::storage_mappings::insert_storage_mapping(
                 detail,
                 &input.catalog_prefix,
                 storage,
@@ -269,7 +293,7 @@ impl StorageMappingsMutation {
 
         Ok(CreateStorageMappingResult {
             success: can_save,
-            catalog_prefix: input.catalog_prefix,
+            catalog_prefix: input.catalog_prefix.to_string(),
             health_checks,
         })
     }
