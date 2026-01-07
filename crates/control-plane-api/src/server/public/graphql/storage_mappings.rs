@@ -168,20 +168,25 @@ async fn run_storage_health_checks(
 
             fragment_stores.iter().map(move |store| {
                 let data_plane_name = dp.data_plane_name.clone();
-                let store = store.clone();
+                let fragment_store = store.clone();
                 let client = client.clone();
-                tokio::spawn(
-                    async move { check_store_health(client, data_plane_name, store).await },
-                )
+                let handle = tokio::spawn({
+                    let data_plane_name = data_plane_name.clone();
+                    let fragment_store = fragment_store.clone();
+                    async move {
+                        check_store_health(client, data_plane_name, fragment_store).await
+                    }
+                });
+                (data_plane_name, fragment_store, handle)
             })
         })
         .collect();
 
     let mut results = Vec::with_capacity(handles.len());
-    for result in futures::future::join_all(handles).await {
-        results.push(result.unwrap_or_else(|err| StorageHealthResult {
-            data_plane_name: String::new(),
-            fragment_store: String::new(),
+    for (data_plane_name, fragment_store, handle) in handles {
+        results.push(handle.await.unwrap_or_else(|err| StorageHealthResult {
+            data_plane_name,
+            fragment_store,
             error: Some(format!("Health check task failed: {err}")),
         }));
     }
