@@ -263,6 +263,46 @@ type Controller {
 }
 
 """
+Input for creating a storage mapping.
+"""
+input CreateStorageMappingInput {
+	"""
+	The catalog prefix for which to create the storage mapping.
+	"""
+	catalogPrefix: String!
+	"""
+	Optional description of the storage mapping.
+	"""
+	detail: String
+	"""
+	The storage definition containing stores and data planes.
+	"""
+	storage: JSON!
+	"""
+	If true, only run validation and health checks without saving.
+	"""
+	dryRun: Boolean! = false
+}
+
+"""
+Result of creating a storage mapping.
+"""
+type CreateStorageMappingResult {
+	"""
+	Whether the storage mapping was created successfully.
+	"""
+	success: Boolean!
+	"""
+	The catalog prefix for which the storage mapping was created.
+	"""
+	catalogPrefix: String!
+	"""
+	Results of health checks for each data plane and store combination.
+	"""
+	healthChecks: [StorageHealthResult!]!
+}
+
+"""
 Implement the DateTime<Utc> scalar
 
 The input/output is a string in RFC3339 format.
@@ -499,6 +539,19 @@ type LockFailure {
 	The actual id that was found.
 	"""
 	actual: Id
+}
+
+type MutationRoot {
+	"""
+	Create a storage mapping for the given catalog prefix.
+	
+	This validates that the user has admin access to the catalog prefix,
+	runs health checks to verify that data planes can access the storage buckets,
+	and then saves the storage mapping to the database.
+	
+	All health checks must pass before the storage mapping is created.
+	"""
+	createStorageMapping(input: CreateStorageMappingInput!): CreateStorageMappingResult!
 }
 
 scalar Name
@@ -937,6 +990,28 @@ enum StatusType {
 }
 
 """
+Result of testing storage health for a single data plane and store.
+"""
+type StorageHealthResult {
+	"""
+	Name of the data plane that was tested.
+	"""
+	dataPlaneName: String!
+	"""
+	The fragment store URL that was tested (e.g., "gs://bucket/prefix").
+	"""
+	fragmentStore: String!
+	"""
+	Error message if the health check failed.
+	"""
+	error: String
+	"""
+	Whether the health check succeeded.
+	"""
+	success: Boolean!
+}
+
+"""
 A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
 Strings within GraphQL. UUIDs are used to assign unique identifiers to
 entities without requiring a central allocating authority.
@@ -962,4 +1037,5 @@ Provides a scalar specification URL for specifying the behavior of custom scalar
 directive @specifiedBy(url: String!) on SCALAR
 schema {
 	query: QueryRoot
+	mutation: MutationRoot
 }
