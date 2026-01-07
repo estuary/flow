@@ -255,3 +255,24 @@ captures:
          target: ${PREFIX}/${CAPTURE_NAME}/transaction
     {...}
 ```
+
+## Special Columns
+
+NetSuite tables can include several special column types:
+
+* Calculated Columns
+* Custom Columns
+* Hidden Columns
+* Non-Display Columns
+
+Ingesting these types of column can slow down queries (calculated columns, for example, require computation on every row) or cause other blockages in the data flow.
+Newly discovered bindings will therefore default to excluding calculated, custom, and hidden columns from your collections.
+
+If your bindings allow special column types, newly discovered columns may impact your capture in the future, even if everything currently works as expected.
+It can therefore be prudent to select only the subset of NetSuite special columns you need to capture.
+
+To set exclusions for particular special column types, configure the resource's [Advanced Options](#advanced-options).
+
+If you find these exclusions too broad, you can add back individual filtered-out fields using the resource's **Additional Columns** Advanced Option.
+
+You can find out whether a specific column falls under one of these special types in NetSuite's column metadata under the `userdata` field.
