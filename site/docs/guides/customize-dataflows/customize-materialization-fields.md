@@ -77,7 +77,7 @@ For nested pointers, you'll probably want to change the field name to omit slash
 
    3. Click **Apply**.
 
-   If you would like to remove fields entirely or hash their values, you can [redact](/security/redaction) them:
+   If you would like to remove fields entirely or hash their values, you can [redact](/features/redaction) them:
 
    1. In the Schema table, click the **Redact** button for the field you wish to change.
 
