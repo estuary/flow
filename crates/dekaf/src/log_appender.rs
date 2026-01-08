@@ -1,4 +1,4 @@
-use crate::{TaskManager, task_manager::TaskStateListener};
+use crate::{TaskManager, TaskState};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{
@@ -146,19 +146,18 @@ impl GazetteWriter {
         &self,
         task_name: &str,
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
-        let task_listener = self.task_manager.get_listener(task_name);
+        let task_state = self.task_manager.get(task_name);
 
-        let initial_state = task_listener.get().await?;
+        let watch = task_state.ready().await;
+        let refresh = watch.token();
+        let state = refresh
+            .result()
+            .map_err(|e| anyhow::anyhow!("failed to get task state: {e}"))?;
 
-        let (ops_logs_journal, ops_stats_journal) = match initial_state.as_ref() {
-            crate::task_manager::TaskState::Authorized {
-                ops_logs_journal,
-                ops_stats_journal,
-                ..
-            } => (ops_logs_journal, ops_stats_journal),
-            crate::task_manager::TaskState::Redirect {
+        let (ops_logs_journal, ops_stats_journal) = match state {
+            TaskState::Authorized(auth) => (&auth.ops_logs_journal, &auth.ops_stats_journal),
+            TaskState::Redirect {
                 target_dataplane_fqdn,
-                ..
             } => {
                 anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
             }
@@ -166,11 +165,11 @@ impl GazetteWriter {
 
         Ok((
             GazetteAppender::OpsLogs(GazetteAppenderState {
-                task_listener: task_listener.clone(),
+                task_state: task_state.clone(),
                 journal_name: ops_logs_journal.clone(),
             }),
             GazetteAppender::OpsStats(GazetteAppenderState {
-                task_listener: task_listener.clone(),
+                task_state: task_state.clone(),
                 journal_name: ops_stats_journal.clone(),
             }),
         ))
@@ -179,7 +178,7 @@ impl GazetteWriter {
 
 #[derive(Clone)]
 struct GazetteAppenderState {
-    task_listener: TaskStateListener,
+    task_state: tokens::PendingWatch<TaskState>,
     journal_name: String,
 }
 
@@ -224,35 +223,30 @@ impl GazetteAppender {
     }
 
     async fn get_client(&self) -> anyhow::Result<journal::Client> {
-        match self {
-            GazetteAppender::OpsStats(state) => match state.task_listener.get().await?.as_ref() {
-                crate::task_manager::TaskState::Authorized {
-                    ops_stats_client, ..
-                } => ops_stats_client
-                    .clone()
-                    .map(|(client, _claims)| client)
-                    .map_err(|err| err.into()),
-                crate::task_manager::TaskState::Redirect {
-                    target_dataplane_fqdn,
-                    ..
-                } => {
-                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-                }
-            },
-            GazetteAppender::OpsLogs(state) => match state.task_listener.get().await?.as_ref() {
-                crate::task_manager::TaskState::Authorized {
-                    ops_logs_client, ..
-                } => ops_logs_client
-                    .clone()
-                    .map(|(client, _claims)| client)
-                    .map_err(|err| err.into()),
-                crate::task_manager::TaskState::Redirect {
-                    target_dataplane_fqdn,
-                    ..
-                } => {
-                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-                }
-            },
+        let state_watch = match self {
+            GazetteAppender::OpsStats(state) => &state.task_state,
+            GazetteAppender::OpsLogs(state) => &state.task_state,
+        };
+
+        let watch = state_watch.ready().await;
+        let refresh = watch.token();
+        let state = refresh
+            .result()
+            .map_err(|e| anyhow::anyhow!("failed to get task state: {e}"))?;
+
+        match state {
+            TaskState::Authorized(auth) => {
+                let client = match self {
+                    GazetteAppender::OpsStats(_) => auth.ops_stats_client.clone(),
+                    GazetteAppender::OpsLogs(_) => auth.ops_logs_client.clone(),
+                };
+                Ok(client)
+            }
+            TaskState::Redirect {
+                target_dataplane_fqdn,
+            } => {
+                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
+            }
         }
     }
 

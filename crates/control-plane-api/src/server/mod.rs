@@ -1,3 +1,4 @@
+use anyhow::Context;
 use axum::{http::StatusCode, response::IntoResponse};
 use base64::Engine;
 use std::sync::{Arc, Mutex};
@@ -14,10 +15,8 @@ pub mod public;
 pub mod snapshot;
 mod update_l2_reporting;
 
-use anyhow::Context;
-use snapshot::Snapshot;
-
 pub use error::{ApiError, ApiErrorExt};
+pub use snapshot::Snapshot;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -28,16 +27,7 @@ pub struct Request<T>(pub T);
 type ControlClaims = models::authorizations::ControlClaims;
 
 /// DataClaims are claims encoded within data-plane access tokens.
-/// TODO(johnny): This should be a bare alias for proto_gazette::Claims.
-/// We can do this once data-plane-gateway is updated to be a "dumb" proxy
-/// which requires / forwards authorizations but doesn't inspect them.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct DataClaims {
-    #[serde(flatten)]
-    inner: proto_gazette::Claims,
-    // prefixes exclusively used by legacy auth checks in data-plane-gateway.
-    prefixes: Vec<String>,
-}
+type DataClaims = proto_gazette::Claims;
 
 /// Rejection is an error type of reasons why an API request may fail.
 #[derive(Debug, thiserror::Error)]
@@ -228,18 +218,9 @@ impl App {
 }
 
 /// Build the agent's API router.
-pub fn build_router(
-    id_generator: models::IdGenerator,
-    jwt_secret: Vec<u8>,
-    pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher,
-    allow_origin: &[String],
-) -> anyhow::Result<axum::Router<()>> {
+pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<axum::Router<()>> {
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
-
-    let app = Arc::new(App::new(id_generator, jwt_secret, pg_pool, publisher));
-    tokio::spawn(snapshot::fetch_loop(app.clone()));
 
     use axum::routing::post;
 
@@ -440,37 +421,37 @@ async fn exchange_refresh_token(app: &App, refresh_token: &str) -> anyhow::Resul
     Ok(access_token)
 }
 
-// Parse a data-plane claims token without verifying it's signature.
+/// Parse a data-plane claims token without verifying its signature.
+/// Returns an `Unverified` wrapper to make clear the claims have not been verified.
 fn parse_untrusted_data_plane_claims(
     token: &str,
-) -> Result<(jsonwebtoken::Header, proto_gazette::Claims), ApiError> {
+) -> Result<tokens::jwt::Unverified<proto_gazette::Claims>, ApiError> {
     use error::ApiErrorExt;
 
-    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> = {
-        // In this pass we do not validate the signature,
-        // because we don't yet know which data-plane the JWT is signed by.
-        let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
-        let mut validation = jsonwebtoken::Validation::default();
-        validation.insecure_disable_signature_validation();
-        jsonwebtoken::decode(token, &empty_key, &validation)
-            .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
-    };
-    tracing::debug!(?claims, ?header, "decoded authorization request");
+    let unverified = tokens::jwt::parse_unverified::<proto_gazette::Claims>(token.as_bytes())?;
+    tracing::debug!(claims = ?unverified.claims(), "decoded authorization request");
 
-    if claims.sub.is_empty() {
+    if unverified.claims().sub.is_empty() {
         return Err(
             anyhow::anyhow!("missing required JWT `sub` claim (task or shard ID)")
                 .with_status(StatusCode::BAD_REQUEST),
         );
     }
-    if claims.iss.is_empty() {
+    if unverified.claims().iss.is_empty() {
         return Err(
             anyhow::anyhow!("missing required JWT `iss` claim (data-plane FQDN)")
                 .with_status(StatusCode::BAD_REQUEST),
         );
     }
+    if unverified.claims().cap & proto_flow::capability::AUTHORIZE == 0 {
+        return Err(anyhow::anyhow!(
+            "missing required AUTHORIZE capability: {}",
+            unverified.claims().cap
+        )
+        .with_status(StatusCode::BAD_REQUEST));
+    }
 
-    Ok((header, claims))
+    Ok(unverified)
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {

@@ -35,6 +35,7 @@ pub struct Snapshot {
 
 // SnapshotCollection is the state of a live collection which influences authorization.
 // It's indexed on `journal_template_name`.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotCollection {
     // Template journal name which prefixes all journals of the collection.
     pub journal_template_name: String,
@@ -46,7 +47,7 @@ pub struct SnapshotCollection {
 
 // SnapshotTask is the state of a live task which influences authorization.
 // It's indexed on `shard_template_id`.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotTask {
     // Template shard ID which prefixes all shard IDs of the task.
     pub shard_template_id: String,
@@ -59,7 +60,7 @@ pub struct SnapshotTask {
 }
 
 // SnapshotMigration is the state of an underway data-plane migration.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotMigration {
     // Catalog prefix to be migrated. This is *not* always slash terminated,
     // so that we can bulk migrate (for example) all tenants that start with 'e'.
@@ -71,6 +72,26 @@ pub struct SnapshotMigration {
     pub src_plane_id: models::Id,
     // Data-plane being migrated to.
     pub tgt_plane_id: models::Id,
+}
+
+// SnapshotData encapsulates all data required to construct a Snapshot.
+// It can be serialized/deserialized for loading snapshots from disk.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotData {
+    // Time immediately before the snapshot was taken.
+    pub taken: chrono::DateTime<chrono::Utc>,
+    // Platform collections.
+    pub collections: Vec<SnapshotCollection>,
+    // Platform data-planes.
+    pub data_planes: Vec<tables::DataPlane>,
+    // Data-plane migrations that are underway.
+    pub migrations: Vec<SnapshotMigration>,
+    // Platform role grants.
+    pub role_grants: Vec<tables::RoleGrant>,
+    // Platform user grants.
+    pub user_grants: Vec<tables::UserGrant>,
+    // Platform tasks.
+    pub tasks: Vec<SnapshotTask>,
 }
 
 impl Snapshot {
@@ -92,16 +113,18 @@ impl Snapshot {
         }
     }
 
-    /// Construct a Snapshot from the provided tables.
-    pub fn new(
-        taken: chrono::DateTime<chrono::Utc>,
-        mut collections: Vec<SnapshotCollection>,
-        data_planes: Vec<tables::DataPlane>,
-        mut migrations: Vec<SnapshotMigration>,
-        role_grants: Vec<tables::RoleGrant>,
-        user_grants: Vec<tables::UserGrant>,
-        mut tasks: Vec<SnapshotTask>,
-    ) -> Self {
+    /// Construct a Snapshot from the provided SnapshotData.
+    pub fn new(data: SnapshotData) -> Self {
+        let SnapshotData {
+            taken,
+            mut collections,
+            data_planes,
+            mut migrations,
+            role_grants,
+            user_grants,
+            mut tasks,
+        } = data;
+
         let data_planes = tables::DataPlanes::from_iter(data_planes);
         let role_grants = tables::RoleGrants::from_iter(role_grants);
         let user_grants = tables::UserGrants::from_iter(user_grants);
@@ -322,11 +345,14 @@ impl Snapshot {
             })
     }
 
+    /// Verify a data-plane token and return its data-plane if valid.
+    /// Returns `Ok(None)` if the data-plane FQDN is unknown or the token doesn't verify.
+    /// We discard error information to avoid leaking the existence of data-planes.
     pub fn verify_data_plane_token<'s>(
         &'s self,
         iss_fqdn: &str,
         token: &str,
-    ) -> Result<Option<&'s tables::DataPlane>, jsonwebtoken::errors::Error> {
+    ) -> tonic::Result<Option<&'s tables::DataPlane>> {
         let data_plane = self
             .data_planes_idx_fqdn
             .binary_search_by(|i| self.data_planes[*i].data_plane_fqdn.as_str().cmp(iss_fqdn))
@@ -341,17 +367,27 @@ impl Snapshot {
             return Ok(None);
         };
 
-        let validation = jsonwebtoken::Validation::default();
+        // Build decoding keys from base64-encoded HMAC secrets.
+        let keys: Vec<jsonwebtoken::DecodingKey> = data_plane
+            .hmac_keys
+            .iter()
+            .map(|hmac_key| {
+                jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)
+                    .map_err(|e| tonic::Status::internal(format!("invalid data-plane key: {e}")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-        for hmac_key in data_plane.hmac_keys.clone() {
-            let key = jsonwebtoken::DecodingKey::from_base64_secret(&hmac_key)?;
-
-            if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
-                return Ok(Some(data_plane));
-            }
+        if keys.is_empty() {
+            return Err(tonic::Status::internal("data-plane has no valid HMAC keys"));
         }
 
-        Ok(None)
+        if let Ok(_verified) =
+            tokens::jwt::verify::<proto_gazette::Claims>(token.as_bytes(), 0, &keys)
+        {
+            Ok(Some(data_plane))
+        } else {
+            Ok(None)
+        }
     }
 
     fn signal_refresh<'m>(
@@ -583,7 +619,7 @@ pub async fn try_fetch(
         .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
         .collect();
 
-    Ok(Snapshot::new(
+    Ok(Snapshot::new(SnapshotData {
         taken,
         collections,
         data_planes,
@@ -591,192 +627,19 @@ pub async fn try_fetch(
         role_grants,
         user_grants,
         tasks,
-    ))
+    }))
 }
 
 #[cfg(test)]
 impl Snapshot {
-    /// Build a basic Snapshot fixture for testing purposes.
     pub fn build_fixture(taken: Option<chrono::DateTime<chrono::Utc>>) -> Self {
-        let taken = taken.unwrap_or(chrono::DateTime::from_timestamp(100_000, 0).unwrap());
+        let data = include_str!("snapshot_fixture.json");
+        let mut data: SnapshotData = serde_json::from_str(data).unwrap();
 
-        let collections = [
-            ("acmeCo/pineapples", 1),
-            ("acmeCo/bananas", 1),
-            ("ops/tasks/public/plane-one/logs", 1),
-            ("ops/tasks/public/plane-one/stats", 1),
-            ("bobCo/widgets/mangoes", 2),
-            ("bobCo/widgets/squashes", 2),
-            ("bobCo/anvils/peaches", 2),
-            ("bobCo/tires/collection", 2),
-            ("aliceCo/wonderland/data", 2),
-            ("ops/tasks/public/plane-two/logs", 2),
-            ("ops/tasks/public/plane-two/stats", 2),
-        ]
-        .into_iter()
-        .map(|(name, data_plane_id)| SnapshotCollection {
-            journal_template_name: format!("{name}/1122334455667788"),
-            collection_name: models::Collection::new(name),
-            data_plane_id: models::Id::new([data_plane_id as u8; 8]),
-        })
-        .collect::<Vec<_>>();
-
-        use base64::Engine;
-        let data_planes = vec![
-            tables::DataPlane {
-                control_id: models::Id::new([1; 8]),
-                data_plane_name: "ops/dp/public/plane-one".to_string(),
-                data_plane_fqdn: "fqdn1".to_string(),
-                hmac_keys: vec![
-                    base64::engine::general_purpose::STANDARD.encode("key1"),
-                    base64::engine::general_purpose::STANDARD.encode("key2"),
-                ],
-                encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
-                broker_address: "broker.1".to_string(),
-                reactor_address: "reactor.1".to_string(),
-                ops_logs_name: models::Collection::new("ops/tasks/public/plane-one/logs"),
-                ops_stats_name: models::Collection::new("ops/tasks/public/plane-one/stats"),
-            },
-            tables::DataPlane {
-                control_id: models::Id::new([2; 8]),
-                data_plane_name: "ops/dp/public/plane-two".to_string(),
-                data_plane_fqdn: "fqdn2".to_string(),
-                hmac_keys: vec![base64::engine::general_purpose::STANDARD.encode("key3")],
-                encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
-                broker_address: "broker.2".to_string(),
-                reactor_address: "reactor.2".to_string(),
-                ops_logs_name: models::Collection::new("ops/tasks/public/plane-two/logs"),
-                ops_stats_name: models::Collection::new("ops/tasks/public/plane-two/stats"),
-            },
-        ];
-
-        let migrations = vec![
-            SnapshotMigration {
-                catalog_name_or_prefix: "acmeCo/bananas".to_string(),
-                cordon_at: chrono::DateTime::from_timestamp(200_000, 0).unwrap(),
-                src_plane_id: models::Id::new([1; 8]),
-                tgt_plane_id: models::Id::new([2; 8]),
-            },
-            SnapshotMigration {
-                catalog_name_or_prefix: "acmeCo/source-banana".to_string(),
-                cordon_at: chrono::DateTime::from_timestamp(200_000, 0).unwrap(),
-                src_plane_id: models::Id::new([1; 8]),
-                tgt_plane_id: models::Id::new([2; 8]),
-            },
-            SnapshotMigration {
-                catalog_name_or_prefix: "bobCo/widgets".to_string(),
-                cordon_at: chrono::DateTime::from_timestamp(300_000, 0).unwrap(),
-                src_plane_id: models::Id::new([2; 8]),
-                tgt_plane_id: models::Id::new([1; 8]),
-            },
-        ];
-
-        let role_grants = vec![
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("acmeCo/"),
-                object_role: models::Prefix::new("acmeCo/"),
-                capability: models::Capability::Write,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("bobCo/"),
-                object_role: models::Prefix::new("bobCo/"),
-                capability: models::Capability::Write,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("bobCo/tires/"),
-                object_role: models::Prefix::new("acmeCo/shared/"),
-                capability: models::Capability::Read,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("bobCo/"),
-                object_role: models::Prefix::new("ops/dp/public/"),
-                capability: models::Capability::Read,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("aliceCo/"),
-                object_role: models::Prefix::new("ops/dp/public/"),
-                capability: models::Capability::Read,
-            },
-        ];
-
-        let user_grants = vec![
-            // bob@bob has write to bobCo/ and admin to bobCo/tires/,
-            // but does not have estuary_support/.
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([32; 16]),
-                object_role: models::Prefix::new("bobCo/"),
-                capability: models::Capability::Write,
-            },
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([32; 16]),
-                object_role: models::Prefix::new("bobCo/tires/"),
-                capability: models::Capability::Admin,
-            },
-            // alice@alice has admin to aliceCo/ and estuary_support/
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([64; 16]),
-                object_role: models::Prefix::new("aliceCo/"),
-                capability: models::Capability::Admin,
-            },
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([64; 16]),
-                object_role: models::Prefix::new("estuary_support/"),
-                capability: models::Capability::Admin,
-            },
-        ];
-
-        let tasks = [
-            ("acmeCo/source-pineapple", models::CatalogType::Capture, 1),
-            ("acmeCo/source-banana", models::CatalogType::Capture, 1),
-            (
-                "acmeCo/materialize-pear",
-                models::CatalogType::Materialization,
-                1,
-            ),
-            (
-                "bobCo/widgets/source-squash",
-                models::CatalogType::Capture,
-                2,
-            ),
-            (
-                "bobCo/widgets/materialize-mango",
-                models::CatalogType::Materialization,
-                2,
-            ),
-            (
-                "bobCo/anvils/materialize-orange",
-                models::CatalogType::Materialization,
-                2,
-            ),
-            (
-                "aliceCo/wonderland/materialize-tea",
-                models::CatalogType::Materialization,
-                2,
-            ),
-            (
-                "bobCo/tires/materialize-wheels",
-                models::CatalogType::Materialization,
-                2,
-            ),
-        ]
-        .into_iter()
-        .map(|(name, spec_type, data_plane_id)| SnapshotTask {
-            shard_template_id: format!("{spec_type}/{name}/0011223344556677"),
-            task_name: models::Name::new(name),
-            spec_type,
-            data_plane_id: models::Id::new([data_plane_id as u8; 8]),
-        })
-        .collect::<Vec<_>>();
-
-        Snapshot::new(
-            taken,
-            collections,
-            data_planes,
-            migrations,
-            role_grants,
-            user_grants,
-            tasks,
-        )
+        if let Some(taken) = taken {
+            data.taken = taken;
+        }
+        Snapshot::new(data)
     }
 }
 
@@ -948,20 +811,20 @@ mod tests {
         let claims = proto_gazette::Claims {
             iat: now,
             exp: now + 100,
-            cap: proto_gazette::capability::APPEND as u32,
+            cap: proto_gazette::capability::APPEND,
             iss: "fqdn1".to_string(),
             sel: proto_gazette::LabelSelector::default(),
             sub: "subject".to_string(),
         };
         let key = jsonwebtoken::EncodingKey::from_secret("key1".as_bytes());
-        let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &key).unwrap();
+        let token = tokens::jwt::sign(&claims, &key).unwrap();
 
         // Verify the token against the correct data plane.
         let result = snapshot.verify_data_plane_token("fqdn1", &token).unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().data_plane_fqdn, "fqdn1");
 
-        // Verify the token against an incorrect data plane.
+        // Verify the token against an incorrect data plane (wrong FQDN).
         let result = snapshot.verify_data_plane_token("fqdn2", &token).unwrap();
         assert!(result.is_none());
 

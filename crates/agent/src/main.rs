@@ -6,6 +6,7 @@ use axum::http;
 use clap::Parser;
 use control_plane_api::{
     discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
+    server::App,
 };
 use derivative::Derivative;
 use futures::FutureExt;
@@ -301,16 +302,19 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     // Share-able future which completes when the agent should exit.
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
 
-    // Wire up the agent's API server.
-    let api_router = control_plane_api::build_router(
+    // Wire up the agent's API Application and server.
+    let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         jwt_secret.into_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-        &args.allow_origin,
-    )?;
+    ));
+    let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
+
+    // Start background snapshot refreshes.
+    tokio::spawn(control_plane_api::server::snapshot::fetch_loop(api_app));
 
     let automations_fut = if args.max_automations > 0 {
         let sender = if let Some(api_key) = &args.resend_api_key {

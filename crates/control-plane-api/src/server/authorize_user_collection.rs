@@ -58,12 +58,10 @@ pub async fn do_authorize_user_collection(
             evaluate_authorization(snapshot, user_id, email.as_ref(), &collection, capability)
         }) {
             Ok((exp, (encoding_key, mut claims, broker_address, journal_name_prefix))) => {
-                claims.inner.iat = started.timestamp() as u64;
-                claims.inner.exp = exp.timestamp() as u64;
+                claims.iat = started.timestamp() as u64;
+                claims.exp = exp.timestamp() as u64;
 
-                let broker_token =
-                    jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
-                        .context("failed to encode authorized JWT")?;
+                let broker_token = tokens::jwt::sign(&claims, &encoding_key)?;
 
                 return Ok(axum::Json(Response {
                     broker_address,
@@ -154,25 +152,18 @@ fn evaluate_authorization(
         .context("invalid data-plane hmac key")?;
 
     let claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: super::map_capability_to_gazette(capability),
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([
-                    ("name:prefix", collection.journal_template_name.as_str()),
-                    (labels::COLLECTION, collection_name.as_str()),
-                ])),
-                exclude: None,
-            },
+        cap: super::map_capability_to_gazette(capability),
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([
+                ("name:prefix", collection.journal_template_name.as_str()),
+                (labels::COLLECTION, collection_name.as_str()),
+            ])),
+            exclude: None,
         },
-        // TODO(johnny): Temporary support for data-plane-gateway.
-        prefixes: vec![
-            collection_name.to_string(),
-            collection.journal_template_name.clone(),
-        ],
     };
 
     Ok((
@@ -406,15 +397,12 @@ mod tests {
             return Err(anyhow::anyhow!("retry").into());
         }
 
-        // Decode and verify the response token.
-        let mut decoded = jsonwebtoken::decode::<super::super::DataClaims>(
-            &broker_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
+        let keys = vec![jsonwebtoken::DecodingKey::from_secret("key3".as_bytes())];
+        let mut decoded =
+            tokens::jwt::verify::<crate::server::DataClaims>(broker_token.as_bytes(), 0, &keys)
+                .expect("failed to verify response token")
+                .claims()
+                .clone();
 
         (decoded.iat, decoded.exp) = (0, 0);
 

@@ -94,6 +94,7 @@ impl Boilerplate {
                 .join("go/protocols/materialize/materialize.proto"),
             self.repo_root.join("go/protocols/ops/ops.proto"),
             self.repo_root.join("go/protocols/runtime/runtime.proto"),
+            self.repo_root.join("go/protocols/shuffle/shuffle.proto"),
         ];
         Self::rerun_if_changed(&targets);
         targets

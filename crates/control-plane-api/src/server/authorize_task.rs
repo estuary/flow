@@ -33,20 +33,14 @@ async fn do_authorize_task(
     snapshot: &std::sync::RwLock<Snapshot>,
     token: String,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let (_header, mut claims) = super::parse_untrusted_data_plane_claims(&token)?;
-    let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")
+    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
+
+    let journal_name_or_prefix = labels::expect_one(unverified.claims().sel.include(), "name")
         .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
         .to_owned();
 
-    // Require the request was signed with the AUTHORIZE capability,
-    // and then strip this capability before issuing a response token.
-    if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
-        return Err(
-            anyhow::anyhow!("missing required AUTHORIZE capability: {}", claims.cap)
-                .with_status(StatusCode::FORBIDDEN),
-        );
-    }
-    claims.cap &= !proto_flow::capability::AUTHORIZE;
+    // Strip the request's AUTHORIZE capability from response claims.
+    let cap = unverified.claims().cap & !proto_flow::capability::AUTHORIZE;
 
     // Validate and match the requested capabilities to a corresponding role.
     // NOTE: Because we pass through the claims after validating them here,
@@ -54,7 +48,7 @@ async fn do_authorize_task(
     // checking that the requested capability contains a particular grant isn't enough.
     // For example, we wouldn't want to allow a request for `REPLICATE` just
     // because it also requests `READ`.
-    let required_role = match claims.cap {
+    let required_role = match cap {
         cap if (cap == proto_gazette::capability::LIST)
             || (cap == proto_gazette::capability::READ)
             || (cap == (proto_gazette::capability::LIST | proto_gazette::capability::READ)) =>
@@ -78,14 +72,25 @@ async fn do_authorize_task(
         }
     };
 
+    // Build response claims from the request claims we'll verify during evaluation.
+    // We'll update exp, iss, and sel as needed below.
+    let mut response_claims = proto_gazette::Claims {
+        cap,
+        exp: 0, // Set below based on cordon_at or black hole logic.
+        iat: unverified.claims().iat,
+        iss: String::new(), // Set below to the collection's data-plane FQDN.
+        sel: unverified.claims().sel.clone(),
+        sub: unverified.claims().sub.clone(),
+    };
+
     let (encoding_key, data_plane_fqdn, broker_address) = match Snapshot::evaluate(
         snapshot,
-        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
+        chrono::DateTime::from_timestamp(unverified.claims().iat as i64, 0).unwrap_or_default(),
         |snapshot: &Snapshot| {
             evaluate_authorization(
                 snapshot,
-                &claims.sub,
-                &claims.iss,
+                &unverified.claims().sub,
+                &unverified.claims().iss,
                 &token,
                 &journal_name_or_prefix,
                 required_role,
@@ -93,7 +98,7 @@ async fn do_authorize_task(
         },
     ) {
         Ok((exp, ok)) => {
-            claims.exp = exp.timestamp() as u64;
+            response_claims.exp = exp.timestamp() as u64;
             ok
         }
         Err(Err(err)) if err.error.downcast_ref::<BlackHole>().is_some() => {
@@ -113,15 +118,15 @@ async fn do_authorize_task(
             // Note that we're directing the task back to it's own data-plane,
             // since we have no idea what data-plane the collection might have
             // once lived in, as we couldn't find it.
-            claims.sel.include = Some(labels::add_value(
-                claims.sel.include.unwrap_or_default(),
+            response_claims.sel.include = Some(labels::add_value(
+                response_claims.sel.include.unwrap_or_default(),
                 "estuary.dev/match-nothing",
                 "1",
             ));
             // The request predates our latest snapshot, so the client cannot
             // have prior knowledge of a generation ID we don't yet know about.
             // Implication: the referenced collection was reset or deleted.
-            claims.exp = claims.iat + rand::rng().random_range(1800..3600);
+            response_claims.exp = response_claims.iat + rand::rng().random_range(1800..3600);
 
             ok
         }
@@ -134,10 +139,9 @@ async fn do_authorize_task(
         Err(Err(err)) => return Err(err),
     };
 
-    claims.iss = data_plane_fqdn;
+    response_claims.iss = data_plane_fqdn;
 
-    let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
-        .context("failed to encode authorized JWT")?;
+    let token = tokens::jwt::sign(&response_claims, &encoding_key)?;
 
     Ok(axum::Json(Response {
         broker_address,
@@ -182,9 +186,7 @@ fn evaluate_authorization(
     crate::server::error::ApiError,
 > {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
-    let Some(task_data_plane) = snapshot
-        .verify_data_plane_token(shard_data_plane_fqdn, token)
-        .context("invalid data-plane hmac key")?
+    let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
     else {
         return Err(
             anyhow::anyhow!("no data-plane keys validated against the token signature")
@@ -535,8 +537,7 @@ mod tests {
         claims.iat = claims.iat + taken.timestamp() as u64;
         claims.exp = taken.timestamp() as u64 + 100;
 
-        let request_token = jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
+        let request_token = tokens::jwt::sign(
             &claims,
             &jsonwebtoken::EncodingKey::from_secret("key1".as_bytes()),
         )
@@ -553,13 +554,12 @@ mod tests {
         }
 
         // Decode and verify the response token.
-        let mut decoded = jsonwebtoken::decode::<proto_gazette::Claims>(
-            &response_token,
-            &jsonwebtoken::DecodingKey::from_secret("key1".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims;
+        let keys = vec![jsonwebtoken::DecodingKey::from_secret("key1".as_bytes())];
+        let mut decoded =
+            tokens::jwt::verify::<proto_gazette::Claims>(response_token.as_bytes(), 0, &keys)
+                .expect("failed to verify response token")
+                .claims()
+                .clone();
         (decoded.iat, decoded.exp) = (0, 0);
 
         Ok((broker_address, decoded))

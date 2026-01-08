@@ -1,0 +1,263 @@
+syntax = "proto3";
+
+package shuffle;
+option go_package = "github.com/estuary/flow/go/protocols/shuffle";
+
+import "broker/protocol/protocol.proto";
+import "consumer/protocol/protocol.proto";
+import "go/protocols/flow/flow.proto";
+
+// Member represents a participant in the shuffle topology (e.x. a task shard).
+message Member {
+    // Key and r-clock document range owned by this member.
+    flow.RangeSpec range = 1;
+    // Address of this member, as a gRPC endpoint.
+    string address = 2;
+}
+
+// Task identifies what we're performing shuffles for.
+message Task {
+    oneof task {
+        // Derivation for which we're performing shuffles.
+        flow.CollectionSpec.Derivation derivation = 2;
+        // Materialization for which we're performing shuffles.
+        flow.MaterializationSpec materialization = 3;
+        // Single collection for which we're performing shuffles (ad-hoc read).
+        flow.CollectionSpec collection = 4;
+    }
+}
+
+// JournalTag associates a journal name with a stable integer tag.
+message JournalTag {
+    // Name of the journal.
+    string journal_name = 1;
+    // Tag assigned to this journal.
+    uint32 journal_tag = 2;
+}
+
+message JournalProducer {
+    // Journal tag of the producer.
+    uint32 journal_tag = 1;
+    // Producer ID extracted from document UUID.
+    fixed64 producer_id = 2;
+    // Clock of the last ACK seen from this producer.
+    fixed64 last_ack = 3;
+    // Document offset:
+    // - When positive, the producer has an uncommitted transaction
+    //   which begins at this offset.
+    // - When negative, the producer last committed with an
+    //   ACK which ends at the byte prior to this offset.
+    // - When zero, the producer is committed but the last offset is unknown.
+    int64 offset = 4;
+}
+
+// SessionRequest is sent by the coordinator to manage the shuffle session.
+message SessionRequest {
+    // Open initiates a new shuffle session.
+    // Sent once at the start of the Session RPC.
+    message Open {
+        // Unique identifier for this session instance.
+        // Used to correlate Slice and Queue RPCs, and to name queue files.
+        fixed64 session_id = 1;
+        // Task for which we're performing shuffles.
+        Task task = 2;
+        // Members participating in this shuffle session.
+        repeated Member members = 3;
+        // Previously assigned journal tags to resume from.
+        repeated JournalTag resume_tags = 4;
+        // Last fully-committed checkpoint for reads of this task.
+        repeated JournalProducer last_commit = 5;
+        // If set, this is a checkpoint delta atop last_commit that was prepared but not
+        // committed before failure, and which must be read through on startup.
+        // When ready, this checkpoint will be the first NextCheckpoint response.
+        repeated JournalProducer read_through = 6;
+    }
+    Open open = 1;
+
+    // NextCheckpoint requests the next available checkpoint delta.
+    // This is a blocking poll: the Session responds when progress is
+    // available. The client initiates polls at times of their choosing
+    // (e.g., after completing processing of the previous checkpoint).
+    message NextCheckpoint {}
+    NextCheckpoint next_checkpoint = 2;
+}
+
+// SessionResponse is sent by the Session to the coordinator.
+message SessionResponse {
+    // Opened confirms the Session is ready.
+    // Sent after all Slices have responded Opened.
+    message Opened {}
+    Opened opened = 1;
+
+    // NextCheckpoint provides the next transaction extent to process.
+    message NextCheckpoint {
+        // Delta checkpoint having the frontier of transactions ready to process.
+        // All documents in this checkpoint extent have been flushed to
+        // member queue files and are ready for dequeue and processing.
+        //
+        // This is a sparse update containing only JournalProducers with
+        // progress since the last checkpoint. The client must merge this
+        // into their base checkpoint.
+        repeated JournalProducer delta_checkpoint = 1;
+    }
+    NextCheckpoint next_checkpoint = 2;
+}
+
+// SliceRequest is sent by the Session to each member's Slice RPC.
+message SliceRequest {
+    // Open initiates the Slice.
+    // The Slice opens Queue RPCs to all members before responding Opened.
+    message Open {
+        // Session ID from SessionRequest.Open.
+        fixed64 session_id = 1;
+        // Task for which we're performing shuffles.
+        Task task = 2;
+        // Members participating in this shuffle session.
+        // Must be the same members and order as Session.Open.
+        repeated Member members = 3;
+        // Index of this member within the members list.
+        uint32 member_index = 4;
+    }
+    Open open = 1;
+
+    // JournalTags is broadcast to notify all Slices of new
+    // journal tag assignments.
+    message JournalTags {
+        // Assigned journal tags for this Slice.
+        repeated JournalTag tags = 1;
+    }
+    JournalTags journal_tags = 2;
+
+    // StartRead instructs the Slice to begin reading a journal.
+    message StartRead {
+        // Binding index within the task (derivation transform or
+        // materialization binding).
+        uint32 binding = 1;
+        // Tag of the journal to read.
+        uint32 journal_tag = 2;
+        // Checkpoint state for this journal from last_commit.
+        // The Slice reads from the earliest offset of all uncommitted
+        // producers, or the latest offset of all committed producers,
+        // or zero if there are no producers.
+        repeated JournalProducer checkpoint = 3;
+    }
+    StartRead start_read = 3;
+
+    // StopRead instructs the Slice to stop reading a journal.
+    message StopRead {
+        // Journal tag previously provided in StartRead.
+        uint32 journal_tag = 1;
+    }
+    StopRead stop_read = 4;
+}
+
+// SliceResponse is sent by each Slice back to the Session.
+message SliceResponse {
+    // Opened confirms the Slice is ready.
+    // Sent after all Queue RPCs have responded Opened.
+    message Opened {}
+    Opened opened = 1;
+
+    // ProgressDelta reports read progress across all journals since the last flush.
+    // Sent after completion of each Flush (all Queue RPCs responded Flushed),
+    // guaranteeing all documents up to this point are available across queues.
+    message ProgressDelta {
+        repeated JournalProducer journal_producers = 1;
+
+        message CausalHint {
+            // Journal tag of the hinted journal.
+            uint32 journal_tag = 1;
+            // Producer ID extracted from document UUID.
+            fixed64 producer_id = 2;
+            // Clock of the expected ACK for this producer.
+            fixed64 last_ack = 3;
+        }
+        repeated CausalHint causal_hints = 2;
+    }
+    ProgressDelta progress_delta = 2;
+}
+
+// QueueRequest is sent by Slices to each member's Queue.
+message QueueRequest {
+    // Open initiates the Queue RPC.
+    // Multiple Slices open Queue RPCs to the same member, and the Queue
+    // task joins these streams and processes documents in merged order.
+    message Open {
+        // Session ID for correlating streams from the same session.
+        // Combined with member_index to deterministically name the queue file.
+        fixed64 session_id = 1;
+        // Total number of members (and thus Slices) in the session.
+        // Queue joins over this many incoming Slice streams.
+        uint32 member_count = 2;
+        // Index of the source Slice member within the session's member list.
+        uint32 slice_member_index = 3;
+        // Index of the target Queue member within the session's member list.
+        uint32 queue_member_index = 4;
+    }
+    Open open = 1;
+
+    // Enqueue sends a document to be written to the queue.
+    // The Queue merges across Slice streams, ordering by (priority, clock).
+    //
+    // ACK documents (identifiable via uuid_parts.node flags) may be sent
+    // to multiple Queues based on the tracked key/r-clock extent of the
+    // producer's prior documents.
+    message Enqueue {
+        // Tag of the document's source journal.
+        uint32 journal_tag = 1;
+        // Binding index for this document.
+        uint32 binding = 2;
+        // UUID of the document.
+        // Contains producer ID, clock, and flags (e.g. ACK).
+        flow.UUIDParts uuid_parts = 3;
+        // Packed shuffle key of the document.
+        bytes packed_key = 4;
+        // Priority of this document's binding.
+        // Queue orders documents by (priority DESC, clock ASC).
+        uint32 priority = 5;
+        // Document content as JSON bytes.
+        bytes doc_json = 6;
+    }
+    Enqueue enqueue = 2;
+
+    // Flush requests a durability barrier.
+    message Flush {
+        // Sequence number for correlating Flush with Flushed response.
+        // Allows pipelining if we later want multiple in-flight flushes.
+        uint64 seq = 1;
+    }
+    Flush flush = 3;
+}
+
+// QueueResponse is sent by the Queue back to each Slice.
+message QueueResponse {
+    // Opened confirms the Queue is ready to receive documents.
+    // Sent after the Queue has joined over the member's queue file.
+    message Opened {}
+    Opened opened = 1;
+
+    // Flushed confirms all preceding documents are durable on disk.
+    // Only after receiving Flushed from ALL Queues can a Slice safely
+    // report ProgressDelta to the Session.
+    message Flushed {
+        // Sequence number from the corresponding Flush request.
+        uint64 seq = 1;
+    }
+    Flushed flushed = 2;
+}
+
+// Shuffle service provides coordinated, disk-backed shuffled reads.
+service Shuffle {
+    // Session is the top-level RPC opened by the coordinator (typically
+    // shard-000). It manages the shuffle lifecycle, journal watches,
+    // and checkpoint aggregation.
+    rpc Session(stream SessionRequest) returns (stream SessionResponse);
+
+    // Slice is opened by the Session to each member. Each Slice reads
+    // an assigned subset of journals and routes documents to Queues.
+    rpc Slice(stream SliceRequest) returns (stream SliceResponse);
+
+    // Queue is opened by each Slice to each member. Documents flow
+    // from Slices through Queues to on-disk queue files.
+    rpc Queue(stream QueueRequest) returns (stream QueueResponse);
+}

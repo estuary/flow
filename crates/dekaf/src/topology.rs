@@ -1,5 +1,5 @@
-use crate::{SessionAuthentication, TaskState, connector, utils};
-use anyhow::{Context, anyhow, bail};
+use crate::{SessionAuthentication, connector, utils};
+use anyhow::{Context, bail};
 use futures::StreamExt;
 use gazette::{
     broker::{self, ReadResponse, journal_spec},
@@ -12,36 +12,49 @@ impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
             SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
-            SessionAuthentication::Redirect { spec, .. } => utils::fetch_all_collection_names(spec),
+            SessionAuthentication::Redirect {
+                target_dataplane_fqdn,
+                ..
+            } => Err(crate::DekafError::TaskRedirected {
+                target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+            }
+            .into()),
         }
     }
 
     pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
         match self {
             SessionAuthentication::Task(auth) => {
-                let binding = auth
-                    .get_binding_for_topic(topic_name)
-                    .await?
-                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
+                let watch = auth.task_state().ready().await;
+                let refresh = watch.token();
+                let state = refresh
+                    .result()
+                    .map_err(|e| anyhow::anyhow!("failed to get task state: {e}"))?;
 
-                Ok(binding
-                    .collection
-                    .as_ref()
-                    .context("missing collection in materialization binding")?
-                    .name
-                    .clone())
-            }
-            SessionAuthentication::Redirect { spec, .. } => {
-                let binding = utils::get_binding_for_topic(spec, topic_name)?
-                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
+                match state {
+                    crate::TaskState::Authorized(authorized) => {
+                        let binding_idx = auth
+                            .get_binding_for_topic(topic_name)
+                            .await?
+                            .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
 
-                Ok(binding
-                    .collection
-                    .as_ref()
-                    .context("missing collection in materialization binding")?
-                    .name
-                    .clone())
+                        Ok(authorized.bindings[binding_idx].collection.name.clone())
+                    }
+                    crate::TaskState::Redirect {
+                        target_dataplane_fqdn,
+                    } => Err(crate::DekafError::TaskRedirected {
+                        target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+                    }
+                    .into()),
+                }
             }
+            SessionAuthentication::Redirect {
+                target_dataplane_fqdn,
+                ..
+            } => Err(crate::DekafError::TaskRedirected {
+                target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+            }
+            .into()),
         }
     }
 }
@@ -89,83 +102,56 @@ impl Collection {
         auth: &SessionAuthentication,
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
-        let binding = match auth {
-            SessionAuthentication::Task(task_auth) => {
-                if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                    binding
-                } else {
-                    tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
-                    return Ok(None);
-                }
-            }
-            SessionAuthentication::Redirect { spec, .. } => {
-                let Some(binding) = utils::get_binding_for_topic(spec, topic_name)
-                    .context("failed to get binding for topic in redirected session")?
-                else {
-                    tracing::warn!("{topic_name} is not a binding of {}", spec.name);
-                    return Ok(None);
-                };
-                binding
-            }
-        };
-
-        let collection_spec = binding
-            .collection
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("missing collection in materialization binding"))?;
-
-        let collection_name = &auth.get_collection_for_topic(topic_name).await?;
-
-        let partition_template_name = collection_spec
-            .partition_template
-            .as_ref()
-            .map(|spec| spec.name.to_owned())
-            .ok_or(anyhow!("missing partition template"))?;
-
-        let (journal_client, partitions) = match auth {
-            SessionAuthentication::Task(task_auth) => {
-                let state = task_auth.task_state_listener.get().await?;
-
-                let partitions = match state.as_ref() {
-                    TaskState::Authorized { partitions, .. } => partitions,
-                    TaskState::Redirect {
-                        target_dataplane_fqdn,
-                        spec,
-                        ..
-                    } => {
-                        return Err(crate::DekafError::from_redirect(
-                            target_dataplane_fqdn.to_owned(),
-                            spec.clone(),
-                        )
-                        .await?
-                        .into());
-                    }
-                };
-
-                let (_, parts) = partitions
-                    .into_iter()
-                    .find(|(name, _)| name == &partition_template_name)
-                    .context("missing partition template")?;
-
-                parts
-                    .clone()
-                    .map(|(client, _, parts)| (client, parts))
-                    .map_err(|e| anyhow::Error::from(e))?
-            }
+        let task_auth = match auth {
+            SessionAuthentication::Task(task_auth) => task_auth,
             SessionAuthentication::Redirect {
                 target_dataplane_fqdn,
-                spec,
-                config,
                 ..
             } => {
                 return Err(crate::DekafError::TaskRedirected {
                     target_dataplane_fqdn: target_dataplane_fqdn.clone(),
-                    spec: spec.clone(),
-                    config: config.clone(),
                 }
                 .into());
             }
         };
+
+        let binding_idx = match task_auth.get_binding_for_topic(topic_name).await? {
+            Some(idx) => idx,
+            None => {
+                tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
+                return Ok(None);
+            }
+        };
+
+        // Get the task state to access the binding
+        let watch = task_auth.task_state().ready().await;
+        let refresh = watch.token();
+        let state = refresh
+            .result()
+            .map_err(|e| anyhow::anyhow!("failed to get task state: {e}"))?;
+
+        let authorized = match state {
+            crate::TaskState::Authorized(auth) => auth,
+            crate::TaskState::Redirect {
+                target_dataplane_fqdn,
+            } => {
+                return Err(crate::DekafError::TaskRedirected {
+                    target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+                }
+                .into());
+            }
+        };
+
+        let binding = &authorized.bindings[binding_idx];
+        let collection_spec = &binding.collection;
+
+        // Wait for partitions to be ready
+        let partitions_watch = binding.partitions.ready().await;
+        let partitions_refresh = partitions_watch.token();
+        let partitions = partitions_refresh
+            .result()
+            .map_err(|e| anyhow::anyhow!("failed to get partitions: {e}"))?
+            .clone();
 
         tracing::debug!(?partitions, "Got partitions");
 
@@ -187,44 +173,42 @@ impl Collection {
         let collection_schema_shape =
             doc::Shape::infer(validator.schema(), validator.schema_index());
 
-        let selection = binding
-            .field_selection
-            .clone()
-            .context("missing field selection in materialization binding")?;
+        let selection = binding.field_selection.clone();
 
+        let deletions = auth.deletions().await?;
         let (value_schema, extractors) = utils::build_field_extractors(
             collection_schema_shape.clone(),
             selection,
             collection_spec.projections.clone(),
-            auth.deletions(),
+            deletions,
         )?;
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
         let (not_before, not_after) = (
-            binding.not_before.map(|b| {
+            binding.not_before.as_ref().map(|b| {
                 uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
             }),
-            binding.not_after.map(|b| {
+            binding.not_after.as_ref().map(|b| {
                 uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
             }),
         );
 
         tracing::debug!(
-            collection_name,
+            collection_name = collection_spec.name,
             partitions = partitions.len(),
             "built collection"
         );
 
         Ok(Some(Self {
-            name: collection_name.to_string(),
-            journal_client,
+            name: collection_spec.name.clone(),
+            journal_client: binding.journal_client.clone(),
             key_ptr,
             key_schema,
             not_before,
             not_after,
             partitions,
-            spec: collection_spec,
+            spec: collection_spec.clone(),
             uuid_ptr,
             value_schema,
             extractors,

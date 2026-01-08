@@ -63,16 +63,13 @@ pub async fn do_authorize_user_prefix(
             exp,
             (encoding_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),
         )) => {
-            broker_claims.inner.exp = exp.timestamp() as u64;
-            broker_claims.inner.iat = started.timestamp() as u64;
-            reactor_claims.inner.exp = exp.timestamp() as u64;
-            reactor_claims.inner.iat = started.timestamp() as u64;
+            broker_claims.exp = exp.timestamp() as u64;
+            broker_claims.iat = started.timestamp() as u64;
+            reactor_claims.exp = exp.timestamp() as u64;
+            reactor_claims.iat = started.timestamp() as u64;
 
-            let header = jsonwebtoken::Header::default();
-            let broker_token = jsonwebtoken::encode(&header, &broker_claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
-            let reactor_token = jsonwebtoken::encode(&header, &reactor_claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
+            let broker_token = tokens::jwt::sign(&broker_claims, &encoding_key)?;
+            let reactor_token = tokens::jwt::sign(&reactor_claims, &encoding_key)?;
 
             Ok(axum::Json(Response {
                 broker_token,
@@ -171,43 +168,36 @@ fn evaluate_authorization(
         .context("invalid data-plane hmac key")?;
 
     let broker_claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: super::map_capability_to_gazette(capability),
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([
-                    ("name:prefix", prefix.as_str()),
-                    ("name:prefix", &format!("recovery/capture/{prefix}")),
-                    ("name:prefix", &format!("recovery/derivation/{prefix}")),
-                    ("name:prefix", &format!("recovery/materialize/{prefix}")),
-                ])),
-                exclude: None,
-            },
+        cap: super::map_capability_to_gazette(capability),
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([
+                ("name:prefix", prefix.as_str()),
+                ("name:prefix", &format!("recovery/capture/{prefix}")),
+                ("name:prefix", &format!("recovery/derivation/{prefix}")),
+                ("name:prefix", &format!("recovery/materialize/{prefix}")),
+            ])),
+            exclude: None,
         },
-        prefixes: Vec::new(), // TODO(johnny): remove.
     };
 
     let reactor_claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: super::map_capability_to_gazette(capability)
-                | proto_flow::capability::NETWORK_PROXY,
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([
-                    ("id:prefix", format!("capture/{prefix}").as_str()),
-                    ("id:prefix", &format!("derivation/{prefix}")),
-                    ("id:prefix", &format!("materialize/{prefix}")),
-                ])),
-                exclude: None,
-            },
+        cap: super::map_capability_to_gazette(capability) | proto_flow::capability::NETWORK_PROXY,
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([
+                ("id:prefix", format!("capture/{prefix}").as_str()),
+                ("id:prefix", &format!("derivation/{prefix}")),
+                ("id:prefix", &format!("materialize/{prefix}")),
+            ])),
+            exclude: None,
         },
-        prefixes: Vec::new(), // TODO(johnny): remove.
     };
 
     Ok((
@@ -615,23 +605,18 @@ mod tests {
             return Err(anyhow::anyhow!("retry").into());
         }
 
-        let mut broker_claims = jsonwebtoken::decode::<super::super::DataClaims>(
-            &broker_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
+        let keys = vec![jsonwebtoken::DecodingKey::from_secret("key3".as_bytes())];
+        let mut broker_claims =
+            tokens::jwt::verify::<crate::server::DataClaims>(broker_token.as_bytes(), 0, &keys)
+                .expect("failed to verify response token")
+                .claims()
+                .clone();
 
-        let mut reactor_claims = jsonwebtoken::decode::<super::super::DataClaims>(
-            &reactor_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
+        let mut reactor_claims =
+            tokens::jwt::verify::<crate::server::DataClaims>(reactor_token.as_bytes(), 0, &keys)
+                .expect("failed to verify response token")
+                .claims()
+                .clone();
 
         (broker_claims.iat, broker_claims.exp) = (0, 0);
         (reactor_claims.iat, reactor_claims.exp) = (0, 0);

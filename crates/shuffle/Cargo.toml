@@ -1,0 +1,44 @@
+[package]
+name = "shuffle"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+tables = { path = "../tables" }
+flow-client = { path = "../flow-client" }
+proto-grpc = { path = "../proto-grpc", features = [
+    "shuffle_client",
+    "shuffle_server",
+] }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+md5 = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+pbjson-types = { workspace = true }
+serde-transcode = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+superslice = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+tonic = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+
+insta = { workspace = true }

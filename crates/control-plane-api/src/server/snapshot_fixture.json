@@ -1,0 +1,208 @@
+{
+  "taken": "1970-01-02T03:46:40Z",
+  "collections": [
+    {
+      "journal_template_name": "acmeCo/pineapples/1122334455667788",
+      "collection_name": "acmeCo/pineapples",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "journal_template_name": "acmeCo/bananas/1122334455667788",
+      "collection_name": "acmeCo/bananas",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "journal_template_name": "ops/tasks/public/plane-one/logs/1122334455667788",
+      "collection_name": "ops/tasks/public/plane-one/logs",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "journal_template_name": "ops/tasks/public/plane-one/stats/1122334455667788",
+      "collection_name": "ops/tasks/public/plane-one/stats",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "journal_template_name": "bobCo/widgets/mangoes/1122334455667788",
+      "collection_name": "bobCo/widgets/mangoes",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "journal_template_name": "bobCo/widgets/squashes/1122334455667788",
+      "collection_name": "bobCo/widgets/squashes",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "journal_template_name": "bobCo/anvils/peaches/1122334455667788",
+      "collection_name": "bobCo/anvils/peaches",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "journal_template_name": "bobCo/tires/collection/1122334455667788",
+      "collection_name": "bobCo/tires/collection",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "journal_template_name": "aliceCo/wonderland/data/1122334455667788",
+      "collection_name": "aliceCo/wonderland/data",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "journal_template_name": "ops/tasks/public/plane-two/logs/1122334455667788",
+      "collection_name": "ops/tasks/public/plane-two/logs",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "journal_template_name": "ops/tasks/public/plane-two/stats/1122334455667788",
+      "collection_name": "ops/tasks/public/plane-two/stats",
+      "data_plane_id": "0202020202020202"
+    }
+  ],
+  "data_planes": [
+    {
+      "control_id": "0101010101010101",
+      "data_plane_name": "ops/dp/public/plane-one",
+      "data_plane_fqdn": "fqdn1",
+      "hmac_keys": [
+        "a2V5MQ==",
+        "a2V5Mg=="
+      ],
+      "encrypted_hmac_keys": {},
+      "ops_logs_name": "ops/tasks/public/plane-one/logs",
+      "ops_stats_name": "ops/tasks/public/plane-one/stats",
+      "broker_address": "broker.1",
+      "reactor_address": "reactor.1"
+    },
+    {
+      "control_id": "0202020202020202",
+      "data_plane_name": "ops/dp/public/plane-two",
+      "data_plane_fqdn": "fqdn2",
+      "hmac_keys": [
+        "a2V5Mw=="
+      ],
+      "encrypted_hmac_keys": {},
+      "ops_logs_name": "ops/tasks/public/plane-two/logs",
+      "ops_stats_name": "ops/tasks/public/plane-two/stats",
+      "broker_address": "broker.2",
+      "reactor_address": "reactor.2"
+    }
+  ],
+  "migrations": [
+    {
+      "catalog_name_or_prefix": "acmeCo/bananas",
+      "cordon_at": "1970-01-03T07:33:20Z",
+      "src_plane_id": "0101010101010101",
+      "tgt_plane_id": "0202020202020202"
+    },
+    {
+      "catalog_name_or_prefix": "acmeCo/source-banana",
+      "cordon_at": "1970-01-03T07:33:20Z",
+      "src_plane_id": "0101010101010101",
+      "tgt_plane_id": "0202020202020202"
+    },
+    {
+      "catalog_name_or_prefix": "bobCo/widgets",
+      "cordon_at": "1970-01-04T11:20:00Z",
+      "src_plane_id": "0202020202020202",
+      "tgt_plane_id": "0101010101010101"
+    }
+  ],
+  "role_grants": [
+    {
+      "subject_role": "acmeCo/",
+      "object_role": "acmeCo/",
+      "capability": "write"
+    },
+    {
+      "subject_role": "bobCo/",
+      "object_role": "bobCo/",
+      "capability": "write"
+    },
+    {
+      "subject_role": "bobCo/tires/",
+      "object_role": "acmeCo/shared/",
+      "capability": "read"
+    },
+    {
+      "subject_role": "bobCo/",
+      "object_role": "ops/dp/public/",
+      "capability": "read"
+    },
+    {
+      "subject_role": "aliceCo/",
+      "object_role": "ops/dp/public/",
+      "capability": "read"
+    }
+  ],
+  "user_grants": [
+    {
+      "user_id": "20202020-2020-2020-2020-202020202020",
+      "object_role": "bobCo/",
+      "capability": "write"
+    },
+    {
+      "user_id": "20202020-2020-2020-2020-202020202020",
+      "object_role": "bobCo/tires/",
+      "capability": "admin"
+    },
+    {
+      "user_id": "40404040-4040-4040-4040-404040404040",
+      "object_role": "aliceCo/",
+      "capability": "admin"
+    },
+    {
+      "user_id": "40404040-4040-4040-4040-404040404040",
+      "object_role": "estuary_support/",
+      "capability": "admin"
+    }
+  ],
+  "tasks": [
+    {
+      "shard_template_id": "capture/acmeCo/source-pineapple/0011223344556677",
+      "task_name": "acmeCo/source-pineapple",
+      "spec_type": "capture",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "shard_template_id": "capture/acmeCo/source-banana/0011223344556677",
+      "task_name": "acmeCo/source-banana",
+      "spec_type": "capture",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "shard_template_id": "materialization/acmeCo/materialize-pear/0011223344556677",
+      "task_name": "acmeCo/materialize-pear",
+      "spec_type": "materialization",
+      "data_plane_id": "0101010101010101"
+    },
+    {
+      "shard_template_id": "capture/bobCo/widgets/source-squash/0011223344556677",
+      "task_name": "bobCo/widgets/source-squash",
+      "spec_type": "capture",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "shard_template_id": "materialization/bobCo/widgets/materialize-mango/0011223344556677",
+      "task_name": "bobCo/widgets/materialize-mango",
+      "spec_type": "materialization",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "shard_template_id": "materialization/bobCo/anvils/materialize-orange/0011223344556677",
+      "task_name": "bobCo/anvils/materialize-orange",
+      "spec_type": "materialization",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "shard_template_id": "materialization/aliceCo/wonderland/materialize-tea/0011223344556677",
+      "task_name": "aliceCo/wonderland/materialize-tea",
+      "spec_type": "materialization",
+      "data_plane_id": "0202020202020202"
+    },
+    {
+      "shard_template_id": "materialization/bobCo/tires/materialize-wheels/0011223344556677",
+      "task_name": "bobCo/tires/materialize-wheels",
+      "spec_type": "materialization",
+      "data_plane_id": "0202020202020202"
+    }
+  ]
+}

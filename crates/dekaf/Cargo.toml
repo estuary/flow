@@ -11,8 +11,9 @@ license.workspace = true
 
 [dependencies]
 allocator = { path = "../allocator" }
-dekaf-connector = { path = "../dekaf-connector" }
 avro = { path = "../avro" }
+coroutines = { path = "../coroutines" }
+dekaf-connector = { path = "../dekaf-connector" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
 flow-client = { path = "../flow-client" }
@@ -23,10 +24,11 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc" }
 simd-doc = { path = "../simd-doc" }
+tokens = { path = "../tokens" }
 tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
-coroutines = { path = "../coroutines" }
 
 aes-siv = { workspace = true }
 anyhow = { workspace = true }

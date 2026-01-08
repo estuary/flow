@@ -177,6 +177,28 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+impl From<tonic::Status> for ApiError {
+    fn from(status: tonic::Status) -> Self {
+        let code = match status.code() {
+            tonic::Code::InvalidArgument => StatusCode::BAD_REQUEST,
+            tonic::Code::NotFound => StatusCode::NOT_FOUND,
+            tonic::Code::AlreadyExists => StatusCode::CONFLICT,
+            tonic::Code::PermissionDenied => StatusCode::FORBIDDEN,
+            tonic::Code::Unauthenticated => StatusCode::UNAUTHORIZED,
+            tonic::Code::ResourceExhausted => StatusCode::TOO_MANY_REQUESTS,
+            tonic::Code::Unimplemented => StatusCode::NOT_IMPLEMENTED,
+            tonic::Code::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            tonic::Code::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        ApiError {
+            status: code,
+            error: anyhow::anyhow!("{}", status.message()),
+            retry_after: None,
+        }
+    }
+}
+
 impl From<Rejection> for ApiError {
     fn from(value: Rejection) -> Self {
         ApiError {

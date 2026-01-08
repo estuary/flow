@@ -44,3 +44,6 @@ materialize_server = ["proto-flow"]
 
 runtime_client = ["proto-flow"]
 runtime_server = ["proto-flow"]
+
+shuffle_client = ["proto-flow"]
+shuffle_server = ["proto-flow"]

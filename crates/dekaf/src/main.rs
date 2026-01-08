@@ -8,9 +8,8 @@ use dekaf::{
     KafkaApiClient, KafkaClientAuth, Session, TaskManager, log_appender::GazetteWriter, logging,
 };
 use flow_client::{
-    DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
-    LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
-    LOCAL_PG_URL,
+    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_AGENT_URL,
+    LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
 };
 use futures::TryStreamExt;
 use rustls::pki_types::CertificateDer;
@@ -103,8 +102,8 @@ pub struct Cli {
     #[arg(
         long,
         env = "DATA_PLANE_FQDN",
-        default_value=DEFAULT_DATA_PLANE_FQDN,
         default_value_if("local", "true", Some(LOCAL_DATA_PLANE_FQDN)),
+        required(false)
     )]
     data_plane_fqdn: String,
     /// An HMAC key recognized by the data plane that Dekaf is running inside of. Used to
@@ -211,26 +210,23 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
-        (cli.api_endpoint, cli.api_key)
+        (cli.api_endpoint.clone(), cli.api_key.clone())
     };
 
     let user_agent = format!("dekaf-{}", env!("CARGO_PKG_VERSION"));
-    let client_base = flow_client::Client::new(
-        user_agent,
-        cli.agent_endpoint,
-        api_key,
-        api_endpoint,
-        None,
-        ::flow_client::DEFAULT_CONFIG_ENCRYPTION_URL.clone(),
-    );
+    let rest_client = flow_client::rest::Client::new(&cli.agent_endpoint, &user_agent);
+    let pg_client = flow_client::postgrest::new_client(&api_endpoint, &api_key);
+    let fragment_client = flow_client::rest::new_http_client(user_agent.clone());
+    let router = gazette::Router::new("local");
+
     let signing_token = jsonwebtoken::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?;
 
     let task_manager = Arc::new(TaskManager::new(
-        cli.task_refresh_interval,
-        cli.task_request_timeout,
-        client_base.clone(),
+        rest_client.clone(),
         cli.data_plane_fqdn.clone(),
         signing_token.clone(),
+        fragment_client,
+        router,
     ));
 
     let app = Arc::new(dekaf::App {
@@ -239,7 +235,8 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         secret: cli.encryption_secret.to_owned(),
         data_plane_signer: signing_token,
         data_plane_fqdn: cli.data_plane_fqdn,
-        client_base,
+        rest_client,
+        pg_client,
         task_manager: task_manager.clone(),
     });
 

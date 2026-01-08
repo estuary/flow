@@ -75,21 +75,14 @@ pub async fn do_authorize_dekaf<'a>(
         sqlx::Result<(models::CatalogType, models::RawValue)>,
     >,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let (_header, claims) = super::parse_untrusted_data_plane_claims(&token)?;
+    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
 
-    let task_name = claims.sub.as_str();
-    let shard_data_plane_fqdn = claims.iss.as_str();
-
-    if claims.cap != proto_flow::capability::AUTHORIZE {
-        return Err(
-            anyhow::anyhow!("invalid capability, must be AUTHORIZE only: {}", claims.cap)
-                .with_status(StatusCode::FORBIDDEN),
-        );
-    }
+    let task_name = unverified.claims().sub.as_str();
+    let shard_data_plane_fqdn = unverified.claims().iss.as_str();
 
     match Snapshot::evaluate(
         snapshot,
-        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
+        chrono::DateTime::from_timestamp(unverified.claims().iat as i64, 0).unwrap_or_default(),
         |snapshot: &Snapshot| {
             evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
         },
@@ -104,8 +97,8 @@ pub async fn do_authorize_dekaf<'a>(
                     .with_status(StatusCode::INTERNAL_SERVER_ERROR));
             }
 
-            let claims = models::authorizations::ControlClaims {
-                iat: claims.iat,
+            let response_claims = models::authorizations::ControlClaims {
+                iat: unverified.claims().iat,
                 exp: exp.timestamp() as u64,
                 sub: uuid::Uuid::nil(),
                 role: DEKAF_ROLE.to_string(),
@@ -114,10 +107,9 @@ pub async fn do_authorize_dekaf<'a>(
 
             // Only return a token if we are not redirecting
             let token = if redirect_fqdn.is_none() {
-                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, control_key)
-                    .context("failed to encode authorized JWT")?
+                tokens::jwt::sign(&response_claims, control_key)?
             } else {
-                "".to_string()
+                String::new()
             };
 
             Ok(axum::Json(Response {
@@ -150,9 +142,7 @@ fn evaluate_authorization(
     crate::server::error::ApiError,
 > {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
-    let Some(task_data_plane) = snapshot
-        .verify_data_plane_token(shard_data_plane_fqdn, token)
-        .context("invalid data-plane hmac key")?
+    let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
     else {
         return Err(
             anyhow::anyhow!("no data-plane keys validated against the token signature")
@@ -161,7 +151,7 @@ fn evaluate_authorization(
     };
 
     // First, try to find task in the requesting dataplane by mapping
-    // `claims.sub`, a task name, into a task running in `task_data_plane`.
+    // `task name` (the `sub` claim) into a task running in `task_data_plane`.
     if let Some(task) = snapshot
         .task_by_catalog_name(&task_name)
         .filter(|task| task.data_plane_id == task_data_plane.control_id)
@@ -376,8 +366,7 @@ mod tests {
         claims.iat = taken.timestamp() as u64 - 1;
         claims.exp = taken.timestamp() as u64 + 100;
 
-        let request_token = jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
+        let request_token = tokens::jwt::sign(
             &claims,
             &jsonwebtoken::EncodingKey::from_secret("key3".as_bytes()),
         )
@@ -415,14 +404,17 @@ mod tests {
             return Err(anyhow::anyhow!(format!("redirect to: {}", redirect)).into());
         }
 
-        // Decode and verify the response token.
-        let mut decoded = jsonwebtoken::decode::<models::authorizations::ControlClaims>(
-            &response_token,
-            &jsonwebtoken::DecodingKey::from_secret("control-key".as_bytes()),
-            &jsonwebtoken::Validation::default(),
+        let keys = vec![jsonwebtoken::DecodingKey::from_secret(
+            "control-key".as_bytes(),
+        )];
+        let mut decoded = tokens::jwt::verify::<models::authorizations::ControlClaims>(
+            response_token.as_bytes(),
+            0,
+            &keys,
         )
-        .expect("failed to decode response token")
-        .claims;
+        .expect("failed to verify response token")
+        .claims()
+        .clone();
 
         (decoded.iat, decoded.exp) = (0, 0);
 

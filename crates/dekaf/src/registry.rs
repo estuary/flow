@@ -39,9 +39,27 @@ async fn all_subjects(
     axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
 ) -> Response {
     wrap(async move {
+        // Get strict_topic_names from DekafConfig via task_state
         let strict_topic_names = match &auth {
-            SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
-            SessionAuthentication::Redirect { config, .. } => config.strict_topic_names,
+            SessionAuthentication::Task(task_auth) => {
+                let watch = task_auth.task_state().ready().await;
+                let refresh = watch.token();
+                let state = refresh
+                    .result()
+                    .map_err(|e| anyhow::anyhow!("failed to get task state: {e}"))?;
+                match state {
+                    crate::TaskState::Authorized(authorized) => {
+                        let config_watch = authorized.dekaf_config.ready().await;
+                        let config_refresh = config_watch.token();
+                        let config = config_refresh
+                            .result()
+                            .map_err(|e| anyhow::anyhow!("failed to get dekaf config: {e}"))?;
+                        config.strict_topic_names
+                    }
+                    crate::TaskState::Redirect { .. } => false,
+                }
+            }
+            SessionAuthentication::Redirect { .. } => false,
         };
 
         auth.fetch_all_collection_names()
@@ -68,9 +86,10 @@ async fn all_subjects(
 }
 
 // Fetch the "latest" schema for a subject (collection).
-#[tracing::instrument(skip(auth))]
+#[tracing::instrument(skip(app, auth))]
 async fn get_subject_latest(
-    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::extract::Extension(auth): axum::extract::Extension<SessionAuthentication>,
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
@@ -82,7 +101,7 @@ async fn get_subject_latest(
             anyhow::bail!("expected subject to end with -key or -value")
         };
 
-        let client = &auth.flow_client().await?.pg_client();
+        let pg_client = &app.pg_client;
 
         let collection = super::Collection::new(
             &auth,
@@ -95,7 +114,7 @@ async fn get_subject_latest(
         .with_context(|| format!("collection {collection} does not exist"))?;
 
         let (key_id, value_id) = collection
-            .registered_schema_ids(&client)
+            .registered_schema_ids(pg_client)
             .await
             .context("failed to resolve registered Avro schemas")?;
 
@@ -121,13 +140,14 @@ async fn get_subject_latest(
 
 // Fetch the schema with the given ID.
 // Schemas are content-addressed and immutable, so an ID uniquely identifies a Avro schema.
-#[tracing::instrument(skip(auth))]
+#[tracing::instrument(skip(app, _auth))]
 async fn get_schema_by_id(
-    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::extract::Extension(_auth): axum::extract::Extension<SessionAuthentication>,
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let client = &auth.flow_client().await?.pg_client();
+        let client = &app.pg_client;
 
         #[derive(serde::Deserialize)]
         struct Row {

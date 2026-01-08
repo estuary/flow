@@ -1,643 +1,413 @@
-use crate::{
-    log_appender::GazetteWriter,
-    logging,
-    topology::{self, Partition},
-};
-use anyhow::Context;
-use futures::StreamExt;
+use crate::{connector, topology};
+use futures::TryStreamExt;
 use gazette::{broker, journal};
-use itertools::Itertools;
-use proto_flow::flow::MaterializationSpec;
-use rand::Rng;
-use std::{
-    collections::HashMap,
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
-use tokio::sync::watch;
+use models::authorizations::DekafAuthResponse;
+use proto_flow::flow;
+use std::{collections::HashMap, sync::Arc};
 
-// Define a custom cloneable error type
-#[derive(Debug, Clone)]
-pub struct SharedError(Arc<anyhow::Error>);
-
-impl From<anyhow::Error> for SharedError {
-    fn from(error: anyhow::Error) -> Self {
-        SharedError(Arc::new(error))
-    }
+pub struct TaskBinding {
+    pub backfill: u32,
+    pub collection: flow::CollectionSpec,
+    pub field_selection: flow::FieldSelection,
+    pub journal_client: journal::Client,
+    pub not_after: Option<proto_flow::Timestamp>,
+    pub not_before: Option<proto_flow::Timestamp>,
+    pub partition_selector: proto_gazette::LabelSelector,
+    pub partitions: tokens::PendingWatch<Vec<topology::Partition>>,
+    pub resource_path: Vec<String>,
 }
 
-// This makes SharedError itself a valid error type.
-impl std::error::Error for SharedError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.source()
-    }
+pub struct AuthorizedTask {
+    pub bindings: Vec<TaskBinding>,
+    pub config_json: Vec<u8>,
+    pub dekaf_config: tokens::PendingWatch<connector::DekafConfig>,
+    pub name: String,
+    pub ops_logs_client: journal::Client,
+    pub ops_logs_journal: String,
+    pub ops_stats_client: journal::Client,
+    pub ops_stats_journal: String,
+    pub schema_access_token: String,
+    pub shard_template: proto_gazette::consumer::ShardSpec,
 }
 
-impl fmt::Display for SharedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-pub type Result<T> = core::result::Result<T, SharedError>;
-
-/// How long to keep a TaskManager alive without any listeners.
-const TASK_TIMEOUT: Duration = Duration::from_secs(60 * 3);
-/// How long before the end of an access token should we start trying to refresh it
-const REFRESH_START_AT: Duration = Duration::from_secs(60 * 5);
-/// How long to cache a MaterializationSpec before re-fetching it, even if the token is still valid.
-const SPEC_TTL: Duration = Duration::from_secs(60 * 2);
-
-#[derive(Clone)]
 pub enum TaskState {
-    /// Task is authorized and running in this dataplane
-    Authorized {
-        // Control-plane access token
-        access_token: String,
-        access_token_claims: AccessTokenClaims,
-        ops_logs_journal: String,
-        ops_stats_journal: String,
-        spec: proto_flow::flow::MaterializationSpec,
-        /// Sorted by collection's partition template name
-        partitions: Vec<(
-            String,
-            Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
-        )>,
-        ops_logs_client: Result<(journal::Client, proto_gazette::Claims)>,
-        ops_stats_client: Result<(journal::Client, proto_gazette::Claims)>,
-    },
-    /// Task has been migrated to a different dataplane
-    Redirect {
-        target_dataplane_fqdn: String,
-        spec: proto_flow::flow::MaterializationSpec,
-    },
+    Authorized(AuthorizedTask),
+    Redirect { target_dataplane_fqdn: String },
 }
 
-/// A wrapper around a TaskManager receiver that provides a method to get the current state.
-/// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
-#[derive(Clone)]
-pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<Arc<TaskState>>>>>);
-impl TaskStateListener {
-    /// Gets the current state, waiting if it's not yet available.
-    /// Returns a reference to the state or the cached error.
-    pub async fn get(&self) -> anyhow::Result<Arc<TaskState>> {
-        let mut temp_rx = (*self.0).clone();
-        loop {
-            // Scope to force the borrow to end before awaiting
-            {
-                if temp_rx.has_changed().is_err() {
-                    anyhow::bail!(
-                        "TaskManager is not running, can't trust that the task state will be updated."
-                    );
-                }
-
-                let current_value = temp_rx.borrow_and_update();
-                match &*current_value {
-                    Some(Ok(state)) => match state.as_ref() {
-                        TaskState::Authorized {
-                            access_token_claims,
-                            ..
-                        } if access_token_claims.exp
-                            <= time::OffsetDateTime::now_utc().unix_timestamp() as u64 =>
-                        {
-                            anyhow::bail!(
-                                "Access token has expired and the task manager has been unable to refresh it."
-                            );
-                        }
-                        _ => return Ok(state.clone()),
-                    },
-                    Some(res) => {
-                        return res.clone().map_err(anyhow::Error::from);
-                    }
-                    None => {
-                        tracing::debug!("No task state available yet, waiting for the next update");
-                    }
-                }
-            }
-
-            temp_rx
-                .changed()
-                .await
-                .map_err(anyhow::Error::from)
-                .context("TaskManager's watch channel sender was dropped unexpectedly")?;
-        }
-    }
-}
-
-/// TaskManager manages Dekaf's communication with the rest of Flow, _except_ for Read requests.
-/// Many Sessions may ask for the same information, so instead of each one independently fetching
-/// it, the TaskManager coordinates periodically fetching it and then distributing it to all the Sessions.
-/// A TaskManager is responsible for providing:
-///   - Information from `/authorize/dekaf`, refreshed periodically
-///     - MaterializationSpec
-///     - Control-plane access token and its claims
-///     - Ops journal names
-///   - Information from data planes about journals and partitions, refreshed periodically
-///     - Journal partitions by collection
+/// Centralized manager that caches and shares task watches across sessions.
 pub struct TaskManager {
-    // Key: materialization/task name
-    tasks: std::sync::Mutex<
-        HashMap<
-            String,
-            (
-                // Activity signal to keep the task manager alive
-                Arc<AtomicBool>,
-                std::sync::Weak<watch::Receiver<Option<Result<Arc<TaskState>>>>>,
-            ),
-        >,
-    >,
-    interval: Duration,
-    timeout: Duration,
-    client: flow_client::Client,
+    tasks: std::sync::Mutex<HashMap<String, tokens::PendingWatch<TaskState>>>,
+    api_client: flow_client::rest::Client,
     data_plane_fqdn: String,
-    data_plane_signer: jsonwebtoken::EncodingKey,
+    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    fragment_client: reqwest::Client,
+    router: gazette::Router,
 }
+
 impl TaskManager {
     pub fn new(
-        interval: Duration,
-        timeout: Duration,
-        client: flow_client::Client,
+        api_client: flow_client::rest::Client,
         data_plane_fqdn: String,
-        data_plane_signer: jsonwebtoken::EncodingKey,
+        data_plane_signing_key: jsonwebtoken::EncodingKey,
+        fragment_client: reqwest::Client,
+        router: gazette::Router,
     ) -> Self {
-        TaskManager {
+        Self {
             tasks: std::sync::Mutex::new(HashMap::new()),
-            interval,
-            timeout,
-            client,
+            api_client,
             data_plane_fqdn,
-            data_plane_signer: data_plane_signer,
+            data_plane_signing_key,
+            fragment_client,
+            router,
         }
     }
 
-    /// Returns a [`tokio::sync::watch::Receiver`] that will receive updates to the task state.
-    /// The receiver is weakly referenced, so it may be dropped if no one is listening.
-    #[tracing::instrument(skip(self))]
-    pub fn get_listener(self: &std::sync::Arc<Self>, task_name: &str) -> TaskStateListener {
-        // Scope to force the `tasks` lock to be released before awaiting
-        let (sender, receiver, activity_signal) = {
-            let mut tasks_guard = self.tasks.lock().unwrap();
-            if let Some((activity, weak_receiver)) = tasks_guard.get(task_name) {
-                if let Some(receiver) = weak_receiver.upgrade() {
-                    // Receiver::has_changed returns an error iff the sender has been dropped.
-                    // If it has, that means that the task manager has exited, so we need a new one.
-                    if receiver.has_changed().is_ok() {
-                        activity.store(true, Ordering::SeqCst);
-                        return TaskStateListener(receiver.clone());
-                    }
-                }
-            }
+    /// Get or create a task watch for the given task name.
+    /// The watch is cached and shared across sessions.
+    pub fn get(&self, task_name: &str) -> tokens::PendingWatch<TaskState> {
+        let mut tasks = self.tasks.lock().unwrap();
 
-            let (sender, receiver) = watch::channel(None);
-
-            let receiver = Arc::new(receiver);
-
-            let activity_signal = Arc::new(AtomicBool::new(true));
-
-            tasks_guard.insert(
-                task_name.to_string(),
-                (activity_signal.clone(), Arc::downgrade(&receiver)),
-            );
-
-            (sender, receiver, activity_signal)
-        };
-
-        tracing::info!("Spawning new task processor");
-
-        // Spawn a task to fetch the task state
-        let task_name = task_name.to_string();
-
-        let stop_signal = tokio_util::sync::CancellationToken::new();
-
-        // We can't just use `propagate_task_forwarder` here because the session that first spawns
-        // the task manager may not live long enough to see the task manager complete, and any log
-        // messages emitted by the task manager after that session is closed would be lost.
-        // Instead, we'll create a separate log forwarder for this task manager that will report
-        // its logs to the correct task's ops logs, irrespective of the session that spawned it.
-        tokio::spawn(logging::forward_logs(
-            GazetteWriter::new(self.clone()),
-            stop_signal.clone(),
-            self.clone().run_task_manager(
-                receiver.clone(),
-                sender,
-                stop_signal,
-                activity_signal,
-                task_name,
-            ),
-        ));
-
-        TaskStateListener(receiver)
-    }
-
-    /// Runs the task manager loop until either there are no more receivers or the stop signal is triggered.
-    #[tracing::instrument(skip(self, receiver, sender, stop_signal))]
-    async fn run_task_manager(
-        self: std::sync::Arc<Self>,
-        // Hold onto a strong reference to the receiver so we can keep it alive until the timeout runs out
-        receiver: Arc<watch::Receiver<Option<Result<Arc<TaskState>>>>>,
-        sender: watch::Sender<Option<Result<Arc<TaskState>>>>,
-        stop_signal: tokio_util::sync::CancellationToken,
-        activity_signal: Arc<AtomicBool>,
-        task_name: String,
-    ) -> anyhow::Result<()> {
-        // Start the loop at some random point between now and the interval duration
-        let jittered_start =
-            Duration::from_millis(rand::rng().random_range(0..self.interval.as_millis() as u64));
-        let mut interval =
-            tokio::time::interval_at(tokio::time::Instant::now() + jittered_start, self.interval);
-
-        let mut partitions_and_clients: HashMap<
-            String,
-            Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
-        > = HashMap::new();
-
-        let mut cached_ops_logs_client: Option<Result<(journal::Client, proto_gazette::Claims)>> =
-            None;
-        let mut cached_ops_stats_client: Option<Result<(journal::Client, proto_gazette::Claims)>> =
-            None;
-
-        let mut cached_dekaf_auth: Option<DekafTaskAuth> = None;
-
-        let mut timeout_start = None;
-
-        loop {
-            // No more receivers except us, time to shut down this task loop.
-            // Note that we only do this after waiting out the interval.
-            // This is to provide a grace period for any new receivers to be created
-            // before we shut down the task loop and cause any new sessions to have to
-            // block while the new task loop fetches its first state.
-            if Arc::strong_count(&receiver) == 1 && timeout_start.is_none() {
-                timeout_start = Some(tokio::time::Instant::now());
-            }
-            if Arc::strong_count(&receiver) > 1 || activity_signal.load(Ordering::SeqCst) {
-                timeout_start = None;
-                activity_signal.store(false, Ordering::SeqCst);
-            }
-
-            if let Some(start) = timeout_start {
-                if start.elapsed() > TASK_TIMEOUT {
-                    // Eagerly remove our receiver from the map so that it's impossible for a new
-                    // listener to race and get a reference to it in between here and when we
-                    // break out of the loop.
-                    self.tasks.lock().unwrap().remove(&task_name);
-                    let waited_for = start.elapsed();
-                    tracing::info!(
-                        ?waited_for,
-                        strong_count = Arc::strong_count(&receiver),
-                        "TaskManager hasn't had any listeners for a while, shutting down"
-                    );
-                    break;
-                }
-            }
-
-            let mut has_been_migrated = false;
-
-            let loop_result: Result<()> = async {
-                let dekaf_auth = get_or_refresh_dekaf_auth(
-                    cached_dekaf_auth.take(),
-                    &self.client,
-                    &task_name,
-                    &self.data_plane_fqdn,
-                    &self.data_plane_signer,
-                    self.timeout,
-                )
-                .await
-                .context("error fetching or refreshing dekaf task auth")?;
-                cached_dekaf_auth = Some(dekaf_auth.clone());
-
-                match dekaf_auth {
-                    DekafTaskAuth::Redirect {
-                        target_dataplane_fqdn,
-                        spec,
-                        ..
-                    } => {
-                        if !has_been_migrated {
-                            has_been_migrated = true;
-
-                            tracing::info!(
-                                task_name = %task_name,
-                                target_dataplane = %target_dataplane_fqdn,
-                                "Task has been migrated to different dataplane"
-                            );
-                        }
-
-                        let _ = sender.send(Some(Ok(Arc::new(TaskState::Redirect {
-                            target_dataplane_fqdn: target_dataplane_fqdn,
-                            spec,
-                        }))));
-
-                        Ok(())
-                    }
-                    DekafTaskAuth::Auth {
-                        token: access_token,
-                        claims: access_token_claims,
-                        ops_logs_journal,
-                        ops_stats_journal,
-                        spec,
-                        ..
-                    } => {
-                        // Continue with normal processing
-                        partitions_and_clients = update_partition_info(
-                            &self.client,
-                            &self.data_plane_fqdn,
-                            &self.data_plane_signer,
-                            &task_name,
-                            &spec,
-                            std::mem::take(&mut partitions_and_clients),
-                            self.timeout,
-                        )
-                        .await?;
-
-                        let logs_client_result = get_or_refresh_journal_client(
-                            &self.client,
-                            &self.data_plane_fqdn,
-                            &self.data_plane_signer,
-                            &task_name,
-                            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-                            broker::LabelSelector {
-                                include: Some(labels::build_set([(
-                                    "name",
-                                    ops_logs_journal.as_str(),
-                                )])),
-                                exclude: None,
-                            },
-                            cached_ops_logs_client
-                                .as_ref()
-                                .and_then(|r| r.as_ref().ok()),
-                            self.timeout,
-                        )
-                        .await
-                        .map_err(SharedError::from);
-                        cached_ops_logs_client = Some(logs_client_result);
-
-                        let stats_client_result = get_or_refresh_journal_client(
-                            &self.client,
-                            &self.data_plane_fqdn,
-                            &self.data_plane_signer,
-                            &task_name,
-                            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-                            broker::LabelSelector {
-                                include: Some(labels::build_set([(
-                                    "name",
-                                    ops_stats_journal.as_str(),
-                                )])),
-                                exclude: None,
-                            },
-                            cached_ops_stats_client
-                                .as_ref()
-                                .and_then(|r| r.as_ref().ok()),
-                            self.timeout,
-                        )
-                        .await
-                        .map_err(SharedError::from);
-                        cached_ops_stats_client = Some(stats_client_result);
-
-                        let partition_count = partitions_and_clients.len();
-
-                        let _ = sender.send(Some(Ok(Arc::new(TaskState::Authorized {
-                            access_token,
-                            access_token_claims: access_token_claims.clone(),
-                            ops_logs_journal,
-                            ops_stats_journal,
-                            spec,
-                            partitions: partitions_and_clients
-                                .iter()
-                                .sorted_by_key(|(k, _)| k.as_str())
-                                .map(|(k, v)| {
-                                    let mapped_val = match v {
-                                        Ok(p) => Ok(p.clone()),
-                                        Err(e) => Err(e.clone()),
-                                    };
-                                    let res = (k.clone(), mapped_val);
-
-                                    res
-                                })
-                                .collect_vec(),
-                            ops_logs_client: cached_ops_logs_client
-                                .as_ref()
-                                .expect("this is guaranteed to be present")
-                                .clone(),
-                            ops_stats_client: cached_ops_stats_client
-                                .as_ref()
-                                .expect("this is guaranteed to be present")
-                                .clone(),
-                        }))));
-
-                        tracing::info!(
-                            listeners=%Arc::strong_count(&receiver)-1,
-                            ?access_token_claims,
-                            partition_count,
-                            "Successful task manager run"
-                        );
-
-                        Ok(())
-                    }
-                } // End of match
-            }
-            .await;
-
-            if let Err(e) = loop_result {
-                tracing::error!(task_name, error=%e, "Error in task manager loop");
-                let _ = sender.send(Some(Err(SharedError::from(e))));
-            }
-
-            tokio::select! {
-                _ = stop_signal.cancelled() => {
-                    tracing::info!(task_name, "signalled to stop");
-                    break;
-                }
-                _ = interval.tick() => {}
-            }
+        // Check if we have an existing watch that's still valid
+        if let Some(existing) = tasks.get(task_name) {
+            // Clone returns a new handle to the same watch
+            return existing.clone();
         }
-        drop(receiver);
 
-        Ok(())
+        // Create a new task watch
+        let watch = new_task_watch(
+            self.api_client.clone(),
+            self.data_plane_fqdn.clone(),
+            self.data_plane_signing_key.clone(),
+            self.fragment_client.clone(),
+            self.router.clone(),
+            task_name.to_string(),
+        );
+
+        tasks.insert(task_name.to_string(), watch.clone());
+        watch
     }
 }
 
-#[tracing::instrument(skip_all, fields(task_name))]
-async fn update_partition_info(
-    flow_client: &flow_client::Client,
-    data_plane_fqdn: &str,
-    data_plane_signer: &jsonwebtoken::EncodingKey,
-    task_name: &str,
-    spec: &MaterializationSpec,
-    mut info: HashMap<String, Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>>,
-    timeout: Duration,
-) -> anyhow::Result<HashMap<String, Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>>>
-{
-    let mut tasks = Vec::with_capacity(spec.bindings.len());
+fn new_task_watch(
+    api_client: flow_client::rest::Client,
+    data_plane_fqdn: String,
+    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    fragment_client: reqwest::Client,
+    router: gazette::Router,
+    task_name: String,
+) -> tokens::PendingWatch<TaskState> {
+    // Create a token::Source that self-signs authorization requests for the Dekaf task.
+    let signed_source = flow_client::workflows::task_dekaf_auth::new_signed_source(
+        task_name,
+        data_plane_fqdn.clone(),
+        data_plane_signing_key.clone(),
+    );
+    // Map through the TaskDekafAuth workflow to obtain tokens from the authorization API.
+    let task_dekaf_auth = flow_client::workflows::TaskDekafAuth {
+        client: api_client.clone(),
+        signed_source,
+    };
 
-    for binding in &spec.bindings {
-        let collection_spec = binding
-            .collection
-            .as_ref()
-            .context("expected collection Spec")?;
-        let partition_template = collection_spec
-            .partition_template
-            .as_ref()
-            .context("expected partition template")?;
+    tokens::watch(task_dekaf_auth).map(move |response, prior| {
+        process_task(
+            &response,
+            prior,
+            api_client.clone(),
+            router.clone(),
+            fragment_client.clone(),
+            data_plane_fqdn.clone(),
+            data_plane_signing_key.clone(),
+        )
+    })
+}
 
-        let template_name = partition_template.name.clone();
-        let task_name_clone = task_name.to_string();
+pub fn process_task(
+    response: &DekafAuthResponse,
+    prior: Option<(&DekafAuthResponse, &TaskState)>,
+    api_client: flow_client::rest::Client,
+    router: gazette::Router,
+    fragment_client: reqwest::Client,
+    data_plane_fqdn: String,
+    data_plane_signing_key: jsonwebtoken::EncodingKey,
+) -> tonic::Result<TaskState> {
+    let DekafAuthResponse {
+        ops_logs_journal,
+        ops_stats_journal,
+        redirect_dataplane_fqdn,
+        task_spec,
+        token,
+        retry_millis: _,
+    } = response;
 
-        let partition_selector = binding
-            .partition_selector
-            .clone()
-            .map(|selector| {
-                let include = labels::set_value(
-                    selector.include.unwrap_or_default(),
-                    "name:prefix",
-                    &template_name,
-                );
-                proto_gazette::LabelSelector {
-                    include: Some(include),
-                    exclude: selector.exclude,
-                }
-            })
-            .context("expected partition selector")?;
-
-        let existing_client = match info.remove(template_name.as_str()) {
-            Some(Ok((client, claims, _))) => Some((client, claims)),
-            _ => None,
-        };
-
-        tasks.push(async move {
-            let journal_client_result = get_or_refresh_journal_client(
-                flow_client,
-                data_plane_fqdn,
-                data_plane_signer,
-                &task_name_clone,
-                proto_flow::capability::AUTHORIZE | proto_gazette::capability::LIST | proto_gazette::capability::READ,
-                broker::LabelSelector {
-                    include: Some(labels::build_set([("name:prefix", format!("{}/", template_name).as_str())])),
-                    exclude: None,
-                },
-                existing_client.as_ref(),
-                timeout
-            )
-            .await;
-
-            let (journal_client, claims) = match journal_client_result {
-                Ok(jc) => jc,
-                Err(task_error) => {
-                    tracing::warn!(task=%task_name_clone, template=%template_name, error=%task_error, "Failed to get journal client for binding");
-                    return (template_name, Err(SharedError::from(task_error)));
-                }
-            };
-
-            let partition_result = fetch_partitions(
-                &journal_client,
-                &collection_spec.name,
-                partition_selector
-            )
-            .await
-            .map(|partitions| {
-                (journal_client, claims, partitions)
-            })
-            .map_err(|e| {
-                SharedError::from(e.context(format!("Partition fetch failed for collection '{}'", collection_spec.name)))
-            });
-
-            // Return the result associated with this template name
-            (template_name, partition_result)
+    if let Some(redirect) = redirect_dataplane_fqdn.clone() {
+        return Ok(TaskState::Redirect {
+            target_dataplane_fqdn: redirect,
         });
     }
 
-    Ok(futures::stream::iter(tasks)
-        .buffer_unordered(10)
-        .collect::<HashMap<String, _>>()
-        .await)
-}
+    let spec = task_spec.as_ref().map(|s| s.get()).unwrap_or_default();
+    let spec: flow::MaterializationSpec = serde_json::from_str(spec).map_err(|e| {
+        tonic::Status::internal(format!("failed to parse MaterializationSpec: {e}"))
+    })?;
 
-#[tracing::instrument(skip_all, fields(task_name, identifier))]
-async fn get_or_refresh_journal_client(
-    flow_client: &flow_client::Client,
-    data_plane_fqdn: &str,
-    data_plane_signer: &jsonwebtoken::EncodingKey,
-    task_name: &str,
-    capability: u32,
-    selector: broker::LabelSelector,
-    cached_client_and_claims: Option<&(journal::Client, proto_gazette::Claims)>,
-    timeout: Duration,
-) -> anyhow::Result<(journal::Client, proto_gazette::Claims)> {
-    if let Some((cached_client, claims)) = cached_client_and_claims {
-        let now_unix = time::OffsetDateTime::now_utc().unix_timestamp();
-        // Refresh the client if its token is closer than REFRESH_START_AT to its expiration.
-        let refresh_from = (claims.exp - REFRESH_START_AT.as_secs()) as i64;
-        if now_unix < refresh_from {
-            tracing::debug!(task=%task_name, "Re-using existing journal client.");
-            return Ok((cached_client.clone(), claims.clone()));
+    let flow::MaterializationSpec {
+        bindings,
+        config_json,
+        connector_type,
+        inactive_bindings: _,
+        name,
+        network_ports: _,
+        recovery_log_template: _,
+        shard_template,
+    } = spec;
+
+    let shard_template = shard_template
+        .ok_or_else(|| tonic::Status::internal("MaterializationSpec missing shard_template"))?;
+
+    // Extract AuthorizedTask from prior TaskState for re-use, if available.
+    let prior_auth = match prior {
+        Some((_, TaskState::Authorized(auth))) => Some(auth),
+        _ => None,
+    };
+
+    // Create or reuse the DekafConfig watch
+    let config_json_vec = config_json.to_vec();
+    let dekaf_config = new_dekaf_config_watch(
+        config_json_vec.clone(),
+        connector_type,
+        prior_auth.map(|auth| (auth.config_json.as_slice(), &auth.dekaf_config)),
+    );
+
+    let bindings = bindings
+        .into_iter()
+        .map(|binding| {
+            process_task_binding(
+                binding,
+                prior_auth.map(|auth| auth.bindings.as_slice()).unwrap_or(&[]),
+                api_client.clone(),
+                router.clone(),
+                fragment_client.clone(),
+                data_plane_fqdn.clone(),
+                data_plane_signing_key.clone(),
+                &shard_template.id,
+            )
+        })
+        .collect::<tonic::Result<Vec<TaskBinding>>>()?;
+
+    // Extract journal::Clients for the logs and stats journals for re-use, if available.
+    // Otherwise, we must start new journal clients.
+    let (ops_logs_client, ops_stats_client) =
+        if let Some(auth) = prior_auth
+            && &auth.ops_logs_journal == ops_logs_journal
+            && &auth.ops_stats_journal == ops_stats_journal
+        {
+            (auth.ops_logs_client.clone(), auth.ops_stats_client.clone())
         } else {
-            tracing::debug!(task=%task_name, "Journal client token expired or nearing expiry.");
-        }
-    }
+            let slice = &[ops_logs_journal, ops_stats_journal];
+            let mut it = slice.iter().map(|journal_name| {
+                new_journal_client(
+                    api_client.clone(),
+                    proto_gazette::capability::APPEND,
+                    router.clone(),
+                    fragment_client.clone(),
+                    data_plane_fqdn.clone(),
+                    data_plane_signing_key.clone(),
+                    journal_name,
+                    &shard_template.id,
+                )
+            });
+            (it.next().unwrap(), it.next().unwrap())
+        };
 
-    let timeouts_allowed_until = if let Some((client, claims)) = cached_client_and_claims {
-        // If we have a cached client, we can use its expiration time to determine how long we can wait for the new client to be fetched.
-        Some((claims.exp, client, claims))
-    } else {
-        None
-    };
-
-    tracing::debug!(task=%task_name,  capability, "Fetching new task authorization for journal client.");
-    metrics::counter!("dekaf_fetch_auth", "endpoint" => "/authorize/task", "task_name" => task_name.to_owned()).increment(1);
-    match tokio::time::timeout(
-        timeout,
-        flow_client::fetch_task_authorization(
-            flow_client,
-            &crate::dekaf_shard_template_id(task_name),
-            data_plane_fqdn,
-            data_plane_signer,
-            capability,
-            selector,
-        ),
-    )
-    .await
-    {
-        Ok(resp) => resp,
-        Err(_) => {
-            if let Some((allowed_until, cached_client, cached_claims)) = timeouts_allowed_until {
-                if time::OffsetDateTime::now_utc().unix_timestamp() < allowed_until as i64 {
-                    tracing::warn!(task=%task_name, allowed_until, "Timed out while fetching task authorization for journal client within acceptable retry window.");
-                    return Ok((cached_client.clone(), cached_claims.clone()));
-                }
-            }
-            Err(anyhow::anyhow!(
-                "Timed out while fetching task authorization for journal client."
-            ))
-        }
-    }
+    Ok(TaskState::Authorized(AuthorizedTask {
+        bindings,
+        config_json: config_json_vec,
+        dekaf_config,
+        name,
+        ops_logs_client,
+        ops_logs_journal: ops_logs_journal.clone(),
+        ops_stats_client,
+        ops_stats_journal: ops_stats_journal.clone(),
+        schema_access_token: token.clone(),
+        shard_template,
+    }))
 }
 
-/// Fetch the journals of a collection and map into stable-order partitions.
-#[tracing::instrument(skip(journal_client))]
-pub async fn fetch_partitions(
-    journal_client: &journal::Client,
-    collection: &str,
-    partition_selector: proto_gazette::LabelSelector,
-) -> anyhow::Result<Vec<topology::Partition>> {
-    let request = broker::ListRequest {
-        selector: Some(partition_selector),
-        ..Default::default()
+/// Create a PendingWatch for DekafConfig that handles async sops decryption.
+/// If the config_json hasn't changed from the prior watch, reuse it to avoid re-decryption.
+fn new_dekaf_config_watch(
+    config_json: Vec<u8>,
+    connector_type: i32,
+    prior: Option<(&[u8], &tokens::PendingWatch<connector::DekafConfig>)>,
+) -> tokens::PendingWatch<connector::DekafConfig> {
+    // Check if config is unchanged - reuse prior watch to avoid expensive re-decryption
+    if let Some((prior_config, prior_watch)) = prior {
+        if prior_config == config_json {
+            return prior_watch.clone();
+        }
+    }
+
+    // Create manual watch for async decryption
+    let (pending, update_fn) = tokens::manual();
+    let update_fn = Arc::new(std::sync::Mutex::new(Some(update_fn)));
+
+    tokio::spawn(async move {
+        let result = decrypt_dekaf_config(config_json, connector_type).await;
+        if let Some(update) = update_fn.lock().unwrap().take() {
+            let _ = update(result);
+        }
+    });
+
+    pending
+}
+
+/// Decrypt the DekafConfig from the MaterializationSpec's config_json.
+async fn decrypt_dekaf_config(
+    config_json: Vec<u8>,
+    connector_type: i32,
+) -> tonic::Result<connector::DekafConfig> {
+    use models::RawValue;
+
+    if connector_type != flow::materialization_spec::ConnectorType::Dekaf as i32 {
+        return Err(tonic::Status::invalid_argument("Not a Dekaf materialization"));
+    }
+
+    let config: models::DekafConfig = serde_json::from_slice(&config_json).map_err(|e| {
+        tonic::Status::internal(format!("failed to parse DekafConfig wrapper: {e}"))
+    })?;
+
+    let raw_value = RawValue::from_str(&config.config.to_string()).map_err(|e| {
+        tonic::Status::internal(format!("failed to create RawValue: {e}"))
+    })?;
+
+    let decrypted = unseal::decrypt_sops(&raw_value).await.map_err(|e| {
+        tonic::Status::internal(format!("failed to decrypt sops config: {e}"))
+    })?;
+
+    let dekaf_config: connector::DekafConfig =
+        serde_json::from_str(decrypted.get()).map_err(|e| {
+            tonic::Status::internal(format!("failed to parse decrypted DekafConfig: {e}"))
+        })?;
+
+    Ok(dekaf_config)
+}
+
+fn process_task_binding(
+    binding: flow::materialization_spec::Binding,
+    prior_bindings: &[TaskBinding],
+    api_client: flow_client::rest::Client,
+    router: gazette::Router,
+    fragment_client: reqwest::Client,
+    data_plane_fqdn: String,
+    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    shard_template_id: &str,
+) -> tonic::Result<TaskBinding> {
+    let flow::materialization_spec::Binding {
+        collection,
+        resource_config_json: _,
+        resource_path,
+        partition_selector,
+        field_selection,
+        priority: _,
+        delta_updates: _,
+        deprecated_shuffle: _,
+        journal_read_suffix: _,
+        not_before,
+        not_after,
+        backfill,
+        state_key: _,
+        ser_policy: _,
+    } = binding;
+
+    let collection = some_or(collection, "MaterializationSpec.Binding missing collection")?;
+    let field_selection = some_or(
+        field_selection,
+        "MaterializationSpec.Binding missing field_selection",
+    )?;
+
+    let partition_template = some_or(
+        collection.partition_template.as_ref(),
+        "MaterializationSpec.Binding.Collection missing partition template",
+    )?;
+
+    let partition_selector = some_or(
+        partition_selector,
+        "MaterializationSpec.Binding missing partition selector",
+    )?;
+
+    // TODO(johnny): Remove once we're consistently populating this label.
+    let partition_selector = proto_gazette::LabelSelector {
+        include: Some(labels::set_value(
+            partition_selector.include.unwrap_or_default(),
+            "name:prefix",
+            &partition_template.name,
+        )),
+        exclude: partition_selector.exclude,
     };
 
-    let response = journal_client.list(request).await?;
+    // See if we can find a prior binding having the same partition selector.
+    let (journal_client, partitions) = if let Some(prior) = prior_bindings
+        .iter()
+        .find(|prior| prior.partition_selector == partition_selector)
+    {
+        // We can re-use this binding's journal client and partitions watch.
+        (prior.journal_client.clone(), prior.partitions.clone())
+    } else {
+        new_journal_client_with_partitions(
+            api_client,
+            router,
+            fragment_client,
+            data_plane_fqdn,
+            data_plane_signing_key,
+            partition_template.name.clone(),
+            shard_template_id,
+            partition_selector.clone(),
+        )
+    };
 
-    let mut partitions = Vec::with_capacity(response.journals.len());
+    Ok(TaskBinding {
+        backfill,
+        collection,
+        field_selection,
+        journal_client,
+        not_after,
+        not_before,
+        partition_selector,
+        partitions,
+        resource_path,
+    })
+}
 
-    for journal in response.journals {
-        partitions.push(Partition {
-            create_revision: journal.create_revision,
-            spec: journal.spec.context("expected journal Spec")?,
-            mod_revision: journal.mod_revision,
-            route: journal.route.context("expected journal Route")?,
+fn process_list_response(
+    list_response: proto_gazette::broker::ListResponse,
+) -> tonic::Result<Vec<topology::Partition>> {
+    fn map_journal(
+        journal: proto_gazette::broker::list_response::Journal,
+    ) -> tonic::Result<topology::Partition> {
+        let broker::list_response::Journal {
+            create_revision,
+            mod_revision,
+            route,
+            spec,
+        } = journal;
+
+        let route = some_or(route, "ListResponse journal missing Route")?;
+        let spec = some_or(spec, "ListResponse journal missing JournalSpec")?;
+
+        Ok(topology::Partition {
+            create_revision,
+            mod_revision,
+            route,
+            spec,
         })
     }
+
+    let mut partitions = list_response
+        .journals
+        .into_iter()
+        .map(map_journal)
+        .collect::<tonic::Result<Vec<topology::Partition>>>()?;
 
     // Establish stability of exposed partition indices by ordering journals
     // by their created revision, and _then_ by their name.
@@ -647,209 +417,90 @@ pub async fn fetch_partitions(
     Ok(partitions)
 }
 
-// Claims returned by `/authorize/dekaf`
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct AccessTokenClaims {
-    pub iat: u64,
-    pub exp: u64,
-}
-
-#[derive(Debug, Clone)]
-pub enum DekafTaskAuth {
-    /// Task has been migrated to a different dataplane, and the session should redirect to it.
-    Redirect {
-        target_dataplane_fqdn: String,
-        spec: MaterializationSpec,
-        fetched_at: time::OffsetDateTime,
-    },
-    /// Task authorization data.
-    Auth {
-        token: String,
-        claims: AccessTokenClaims,
-        ops_logs_journal: String,
-        ops_stats_journal: String,
-        spec: MaterializationSpec,
-        fetched_at: time::OffsetDateTime,
-    },
-}
-
-impl DekafTaskAuth {
-    fn exp(&self) -> anyhow::Result<time::OffsetDateTime> {
-        match self {
-            DekafTaskAuth::Redirect { fetched_at, .. } => {
-                // Redirects are valid for 10 minutes
-                Ok(*fetched_at + Duration::from_secs(60 * 10))
-            }
-            DekafTaskAuth::Auth { claims, .. } => {
-                time::OffsetDateTime::from_unix_timestamp(claims.exp as i64).map_err(|e| e.into())
-            }
-        }
-    }
-    fn refresh_at(&self) -> anyhow::Result<time::OffsetDateTime> {
-        let token_refresh_at = self.exp()? - REFRESH_START_AT;
-
-        let spec_refresh_at = match self {
-            DekafTaskAuth::Redirect { fetched_at, .. } => *fetched_at + SPEC_TTL,
-            DekafTaskAuth::Auth { fetched_at, .. } => *fetched_at + SPEC_TTL,
-        };
-
-        // Refresh when either the token is nearing expiry or the spec is stale
-        Ok(std::cmp::min(token_refresh_at, spec_refresh_at))
-    }
-}
-
-async fn get_or_refresh_dekaf_auth(
-    cached: Option<DekafTaskAuth>,
-    client: &flow_client::Client,
+fn new_journal_client_with_partitions(
+    api_client: flow_client::rest::Client,
+    router: gazette::Router,
+    fragment_client: reqwest::Client,
+    data_plane_fqdn: String,
+    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    partition_template_name: String,
     shard_template_id: &str,
-    data_plane_fqdn: &str,
-    data_plane_signer: &jsonwebtoken::EncodingKey,
-    timeout: Duration,
-) -> anyhow::Result<DekafTaskAuth> {
-    let now = time::OffsetDateTime::now_utc();
-
-    if let Some(cached_auth) = cached {
-        if now < cached_auth.refresh_at()? {
-            tracing::debug!("DekafTaskAuth is still valid, no need to refresh.");
-            return Ok(cached_auth);
-        }
-
-        // Try to refresh, but fall back to cached if timeout and still valid
-        match tokio::time::timeout(
-            timeout,
-            fetch_dekaf_task_auth(
-                client,
-                shard_template_id,
-                data_plane_fqdn,
-                data_plane_signer,
-            ),
-        )
-        .await
-        {
-            Ok(resp) => resp,
-            Err(_) => {
-                // This isn't checking SPEC_TTL, so it will potentially hand out
-                // stale specs up until the token's expiration
-                if time::OffsetDateTime::now_utc() < cached_auth.exp()? {
-                    tracing::warn!(
-                        "Timed out while refreshing DekafTaskAuth, but the token is still valid."
-                    );
-                    return Ok(cached_auth);
-                }
-                anyhow::bail!(
-                    "Timed out while refreshing DekafTaskAuth, and the token is expired."
-                );
-            }
-        }
-    } else {
-        // No cached value, fetch new one
-        tokio::time::timeout(
-            timeout,
-            fetch_dekaf_task_auth(
-                client,
-                shard_template_id,
-                data_plane_fqdn,
-                data_plane_signer,
-            ),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("Timed out while fetching dekaf task auth"))?
-    }
-}
-
-#[tracing::instrument(skip(client, data_plane_signer), err)]
-async fn fetch_dekaf_task_auth(
-    client: &flow_client::Client,
-    shard_template_id: &str,
-    data_plane_fqdn: &str,
-    data_plane_signer: &jsonwebtoken::EncodingKey,
-) -> anyhow::Result<DekafTaskAuth> {
-    let start = std::time::Instant::now();
-
-    let request_token = flow_client::client::build_task_authorization_request_token(
-        shard_template_id,
+    partition_selector: proto_gazette::LabelSelector,
+) -> (
+    journal::Client,
+    tokens::PendingWatch<Vec<topology::Partition>>,
+) {
+    // Create a journal client with LIST and READ capabilities for this journal prefix.
+    let journal_client = new_journal_client(
+        api_client,
+        proto_gazette::capability::LIST | proto_gazette::capability::READ,
+        router,
+        fragment_client,
         data_plane_fqdn,
-        data_plane_signer,
-        proto_flow::capability::AUTHORIZE,
-        Default::default(),
-    )?;
-    let models::authorizations::DekafAuthResponse {
-        token,
-        ops_logs_journal,
-        ops_stats_journal,
-        task_spec,
-        redirect_dataplane_fqdn,
-        ..
-    } = loop {
-        let response: models::authorizations::DekafAuthResponse = client
-            .agent_unary(
-                "/authorize/dekaf",
-                &models::authorizations::TaskAuthorizationRequest {
-                    token: request_token.clone(),
-                },
-            )
-            .await?;
-        if response.retry_millis != 0 {
-            tracing::warn!(
-                secs = response.retry_millis as f64 / 1000.0,
-                "authorization service tentatively rejected our request, but will retry before failing"
-            );
-            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
-            continue;
-        }
-        break response;
-    };
-
-    let parsed_spec = serde_json::from_str(
-        task_spec
-            .ok_or(anyhow::anyhow!(
-                "task_spec is only None when we need to retry the auth request"
-            ))?
-            .get(),
-    )?;
-
-    // Check if we got a redirect response
-    if let Some(redirect_fqdn) = redirect_dataplane_fqdn {
-        tracing::debug!(
-            redirect_target = redirect_fqdn,
-            "task has been migrated to different dataplane, returning redirect"
-        );
-        metrics::counter!(
-            "dekaf_fetch_auth",
-            "endpoint" => "/authorize/dekaf",
-            "redirect" => "true",
-            "task_name" => shard_template_id.to_owned()
-        )
-        .increment(1);
-
-        return Ok(DekafTaskAuth::Redirect {
-            target_dataplane_fqdn: redirect_fqdn,
-            spec: parsed_spec,
-            fetched_at: time::OffsetDateTime::now_utc(),
-        });
-    }
-
-    let claims = flow_client::parse_jwt_claims(token.as_str())?;
-
-    tracing::debug!(
-        runtime_ms = start.elapsed().as_millis(),
-        "fetched dekaf task auth",
+        data_plane_signing_key,
+        &partition_template_name,
+        shard_template_id,
     );
 
-    metrics::counter!(
-        "dekaf_fetch_auth",
-        "endpoint" => "/authorize/dekaf",
-        "redirect" => "false",
-        "task_name" => shard_template_id.to_owned()
-    )
-    .increment(1);
+    // Start a long-lived journal list watch RPC, so that brokers stream ongoing
+    // partition changes as they occur.
+    let list_request = proto_gazette::broker::ListRequest {
+        selector: Some(partition_selector),
+        ..Default::default()
+    };
+    let list_stream = journal_client.clone().list_watch(list_request);
 
-    Ok(DekafTaskAuth::Auth {
-        token,
-        claims,
-        ops_logs_journal,
-        ops_stats_journal,
-        spec: parsed_spec,
-        fetched_at: time::OffsetDateTime::now_utc(),
-    })
+    // Adapt from Stream<Item = gazette:RetryResult<..>> to Stream<Item = tonic::Result<..>>,
+    // where transient errors are logged and suppressed.
+    let list_stream = flow_client::adapt_gazette_retry_stream(list_stream, move |attempt, err| {
+        tracing::warn!(
+            "failed to list journals for prefix {} (attempt {}), will retry: {err:#}",
+            partition_template_name,
+            attempt
+        );
+        None
+    });
+    // Map ListResponses to Vec<topology::Partition>.
+    let list_stream = list_stream
+        .and_then(|list_response| std::future::ready(process_list_response(list_response)));
+
+    // Start a watch of the partitions stream.
+    let partitions = tokens::watch(tokens::StreamSource::new(list_stream));
+
+    (journal_client, partitions)
+}
+
+fn new_journal_client(
+    api_client: flow_client::rest::Client,
+    capability: u32,
+    router: gazette::Router,
+    fragment_client: reqwest::Client,
+    data_plane_fqdn: String,
+    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    journal_name_or_prefix: &str,
+    shard_template_id: &str,
+) -> journal::Client {
+    // Create a token::Source that self-signs authorization requests for the journal prefix.
+    let signed_source = flow_client::workflows::task_collection_auth::new_signed_source(
+        journal_name_or_prefix.to_string(),
+        shard_template_id.to_string(),
+        capability,
+        data_plane_fqdn,
+        data_plane_signing_key,
+    );
+    // Map through the TaskCollectionAuth workflow to obtain tokens from the authorization API.
+    let task_collection_auth = flow_client::workflows::TaskCollectionAuth {
+        client: api_client,
+        signed_source,
+    };
+    // Wrap the TaskCollectionAuth in a journal::Client.
+    flow_client::workflows::task_collection_auth::new_journal_client(
+        router,
+        fragment_client,
+        tokens::watch(task_collection_auth),
+    )
+}
+
+fn some_or<T>(opt: Option<T>, err_msg: &str) -> tonic::Result<T> {
+    opt.ok_or_else(|| tonic::Status::unknown(err_msg))
 }

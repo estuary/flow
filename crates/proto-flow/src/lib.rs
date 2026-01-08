@@ -8,6 +8,7 @@ mod internal;
 pub mod materialize;
 pub mod ops;
 pub mod runtime;
+pub mod shuffle;
 
 /// An enum representing any one of the types of built specs.
 #[derive(Clone, Debug, serde::Serialize)]

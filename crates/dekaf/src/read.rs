@@ -1,15 +1,13 @@
 use super::{Collection, Partition};
 use crate::{
-    SessionAuthentication,
     connector::DeletionMode,
     logging,
-    task_manager::{self, TaskStateListener},
     utils,
 };
 use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, BytesMut};
 use futures::StreamExt;
-use gazette::journal::{ReadJsonLine, ReadJsonLines};
+use gazette::journal::{self, ReadJsonLine, ReadJsonLines};
 use gazette::uuid::Clock;
 use gazette::{broker, uuid};
 use kafka_protocol::records::{Compression, TimestampType};
@@ -29,8 +27,9 @@ pub struct Read {
     not_before: Option<uuid::Clock>,   // Not before this clock.
     not_after: Option<uuid::Clock>,    // Not after this clock.
     stream: ReadJsonLines,             // Underlying document stream.
-    stream_exp: std::time::SystemTime, // When the stream's authorization expires.
-    listener: task_manager::TaskStateListener, // Provides up-to-date journal clients
+    #[allow(dead_code)] // Kept for potential future stream recreation
+    journal_client: journal::Client,   // Journal client for reading
+    #[allow(dead_code)] // Kept for potential future stream recreation
     buffer_size: usize,                // How many read chunks to buffer
     uuid_ptr: json::Pointer,           // Location of document UUID.
     value_schema_id: u32,              // Registry ID of the value's schema.
@@ -38,7 +37,6 @@ pub struct Read {
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
-    partition_template_name: String,
     // Stats are aggregated per collection
     collection_name: String,
 
@@ -74,33 +72,24 @@ pub enum ReadTarget {
 
 impl Read {
     pub async fn new(
-        task_state_listener: task_manager::TaskStateListener,
+        journal_client: journal::Client,
         collection: &Collection,
         partition: &Partition,
         offset: i64,
         key_schema_id: u32,
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
-        auth: &SessionAuthentication,
+        task_name: String,
+        deletes: DeletionMode,
         buffer_size: usize,
     ) -> anyhow::Result<Self> {
-        let partition_template_name = collection
-            .spec
-            .partition_template
-            .as_ref()
-            .context("missing partition template")?
-            .name
-            .as_str();
-
-        let (stream, stream_exp) = Self::new_stream(
+        let stream = Self::new_stream(
             collection.not_before,
-            task_state_listener.clone(),
-            partition_template_name.to_owned(),
+            journal_client.clone(),
             partition.spec.name.clone(),
             buffer_size,
             offset,
-        )
-        .await?;
+        );
 
         Ok(Self {
             offset,
@@ -112,84 +101,46 @@ impl Read {
             meta_op_ptr: json::Pointer::from_str("/_meta/op"),
             not_before: collection.not_before,
             not_after: collection.not_after,
-            listener: task_state_listener,
-            stream: stream,
-            stream_exp: stream_exp,
+            journal_client,
+            stream,
             buffer_size,
             uuid_ptr: collection.uuid_ptr.clone(),
             value_schema_id,
             extractors: collection.extractors.clone(),
 
-            partition_template_name: partition_template_name.to_owned(),
             journal_name: partition.spec.name.clone(),
             collection_name: collection.name.to_owned(),
-            task_name: match auth {
-                SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
-                SessionAuthentication::Redirect { .. } => {
-                    bail!("Redirected sessions cannot read data")
-                }
-            },
+            task_name,
             rewrite_offsets_from,
-            deletes: auth.deletions(),
+            deletes,
             offset_start: offset,
         })
     }
 
-    async fn new_stream(
+    fn new_stream(
         not_before: Option<Clock>,
-        listener: TaskStateListener,
-        partition_template_name: String,
+        journal_client: journal::Client,
         journal_name: String,
         buffer_size: usize,
         offset_start: i64,
-    ) -> anyhow::Result<(ReadJsonLines, std::time::SystemTime)> {
+    ) -> ReadJsonLines {
         let (not_before_sec, _) = not_before
             .map(|c: Clock| Clock::to_unix(&c))
             .unwrap_or((0, 0));
 
-        let task_state = listener.get().await?;
-
-        let partitions = match task_state.as_ref() {
-            crate::task_manager::TaskState::Authorized { partitions, .. } => partitions,
-            crate::task_manager::TaskState::Redirect {
-                target_dataplane_fqdn,
-                ..
-            } => {
-                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-            }
-        };
-
-        let (client, claims, _) = partitions
-            .to_owned()
-            .into_iter()
-            .find_map(|(k, v)| {
-                if k == partition_template_name {
-                    Some(v)
-                } else {
-                    None
-                }
-            })
-            .context(format!(
-                "Collection {} not found in task state listener.",
-                partition_template_name,
-            ))??;
-
-        Ok((
-            client.read_json_lines(
-                broker::ReadRequest {
-                    offset: offset_start,
-                    block: true,
-                    journal: journal_name.clone(),
-                    begin_mod_time: not_before_sec as i64,
-                    ..Default::default()
-                },
-                // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
-                // `dekaf` can do lots of useful transcoding work while waiting for
-                // network delay of the next fetch request.
-                buffer_size,
-            ),
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(claims.exp),
-        ))
+        journal_client.read_json_lines(
+            broker::ReadRequest {
+                offset: offset_start,
+                block: true,
+                journal: journal_name,
+                begin_mod_time: not_before_sec as i64,
+                ..Default::default()
+            },
+            // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
+            // `dekaf` can do lots of useful transcoding work while waiting for
+            // network delay of the next fetch request.
+            buffer_size,
+        )
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
@@ -202,21 +153,6 @@ impl Read {
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
 
-        let now = std::time::SystemTime::now();
-
-        if (now + timeout + std::time::Duration::from_secs(30)) > self.stream_exp {
-            tracing::debug!("stream auth expired, fetching new token");
-            (self.stream, self.stream_exp) = Self::new_stream(
-                self.not_before,
-                self.listener.clone(),
-                self.partition_template_name.clone(),
-                self.journal_name.clone(),
-                self.buffer_size,
-                self.offset,
-            )
-            .await?;
-        }
-
         let mut records: Vec<Record> = Vec::new();
         let mut stats_bytes: u64 = 0;
         let mut stats_records = 0;
@@ -227,22 +163,7 @@ impl Read {
         let mut tmp = Vec::new();
         let mut buf = bytes::BytesMut::new();
 
-        // If we happen to get a very long timeout, we want to make sure that
-        // we don't exceed the token expiration time
-        let capped_timeout = {
-            let mut timeout_at = now + timeout;
-            if timeout_at > self.stream_exp {
-                timeout_at = self.stream_exp;
-            }
-            if timeout_at < now {
-                anyhow::bail!(
-                    "Encountered a read stream with token expiring in the past. This should not happen, cancelling the read."
-                );
-            }
-            tokio::time::Instant::now() + timeout_at.duration_since(now)?
-        };
-
-        let timeout = tokio::time::sleep_until(capped_timeout);
+        let timeout = tokio::time::sleep(timeout);
         tokio::pin!(timeout);
 
         let mut did_timeout = false;
