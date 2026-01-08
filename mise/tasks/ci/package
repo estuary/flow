@@ -38,3 +38,4 @@ ln ${HOME}/go/bin/flowctl-go ${PACKAGE_DIR}/
 cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-web.tgz
 cp crates/data-plane-controller/entrypoint.sh ${PACKAGE_DIR}/data-plane-controller-entrypoint.sh
 cp crates/oidc-discovery-server/entrypoint.sh ${PACKAGE_DIR}/oidc-discovery-server-entrypoint.sh
+cp crates/agent/api-entrypoint.sh ${PACKAGE_DIR}/agent-api-entrypoint.sh
