@@ -556,26 +556,40 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
     .context("failed to fetch data-plane ops collections")?;
     let (ops_logs_template, ops_stats_template) = (r.logs.0, r.stats.0);
 
-    let mut metadata = gazette::Metadata::default();
-    metadata
-        .signed_claims(
-            proto_gazette::capability::APPEND
-                | proto_gazette::capability::APPLY
-                | proto_gazette::capability::LIST
-                | proto_gazette::capability::READ,
-            &row.data_plane_fqdn,
-            std::time::Duration::from_secs(900),
-            &row.hmac_keys,
-            broker::LabelSelector::default(),
-            "migrate-tool",
-        )
-        .context("failed to sign claims for data-plane")?;
+    // Parse first data-plane HMAC key (used for signing tokens).
+    let (encode_key, _decode) = tokens::jwt::parse_base64_hmac_keys(row.hmac_keys.iter().take(1))
+        .context("invalid data-plane HMAC key")?;
 
-    // Create the journal and shard clients that are used for interacting with the data plane
-    let router = gazette::Router::new("local");
-    let journal_client =
-        gazette::journal::Client::new(row.broker_address.clone(), metadata.clone(), router.clone());
-    let shard_client = gazette::shard::Client::new(row.reactor_address.clone(), metadata, router);
+    let iat = tokens::now();
+    let claims = proto_gazette::Claims {
+        cap: proto_gazette::capability::APPEND
+            | proto_gazette::capability::APPLY
+            | proto_gazette::capability::LIST
+            | proto_gazette::capability::READ,
+        iss: row.data_plane_fqdn.clone(),
+        exp: (iat + tokens::TimeDelta::minutes(5)).timestamp() as u64,
+        iat: iat.timestamp() as u64,
+        sub: "migrate-tool".to_string(),
+        sel: broker::LabelSelector::default(),
+    };
+    let token = tokens::jwt::sign(&claims, &encode_key)
+        .context("failed to sign claims for connector proxy")?;
+
+    let metadata = proto_grpc::Metadata::new()
+        .with_bearer_token(&token)
+        .expect("token is valid");
+
+    let journal_client = gazette::journal::Client::new(
+        row.broker_address.clone(),
+        gazette::journal::Client::new_fragment_client(),
+        metadata.clone(),
+        gazette::Router::new("local"),
+    );
+    let shard_client = gazette::shard::Client::new(
+        row.reactor_address.clone(),
+        metadata,
+        gazette::Router::new("local"),
+    );
 
     Ok(DataPlane {
         row,

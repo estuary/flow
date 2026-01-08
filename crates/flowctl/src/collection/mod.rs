@@ -362,7 +362,7 @@ async fn do_split_journals(
     // Create a minimal shard client
     let shard_client = gazette::shard::Client::new(
         String::new(),
-        gazette::Metadata::default(),
+        proto_grpc::Metadata::default(),
         gazette::Router::new("local"),
     );
 

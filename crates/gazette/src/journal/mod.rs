@@ -11,55 +11,94 @@ pub use read_json_lines::{ReadJsonLine, ReadJsonLines};
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::broker::journal_client::JournalClient<
-    tonic::service::interceptor::InterceptedService<Channel, crate::Metadata>,
+    tonic::service::interceptor::InterceptedService<Channel, proto_grpc::Metadata>,
 >;
 
+/// Client for interacting with Gazette journals.
 #[derive(Clone)]
 pub struct Client {
-    default: broker::process_spec::Id,
-    http: reqwest::Client,
-    metadata: crate::Metadata,
+    fragment_client: reqwest::Client,
     router: crate::Router,
+    tokens: tokens::PendingWatch<(proto_grpc::Metadata, broker::process_spec::Id)>,
 }
 
 impl Client {
+    /// Build a reqwest Client suited for fetching journal fragments.
+    /// This client should be built once and cloned across many Clients.
+    pub fn new_fragment_client() -> reqwest::Client {
+        // Use HTTP/1 for fetching fragments, as storage backends may have
+        // restricted HTTP/2 flow control and we may have concurrent streams
+        // with high throughput / stuffed flow control windows.
+        reqwest::Client::builder().http1_only().build().unwrap()
+    }
+
     /// Build a Client which dispatches request to the given default endpoint with the given Metadata.
-    /// The provider Router enables re-use of connections to brokers.
-    pub fn new(endpoint: String, metadata: crate::Metadata, router: crate::Router) -> Self {
-        Self {
-            default: broker::process_spec::Id {
-                zone: String::new(),
-                suffix: endpoint,
-            },
-            metadata,
-            // Use HTTP/1 for fetching fragments, as storage backends may have
-            // restricted HTTP/2 flow control and we may have concurrent streams
-            // with high throughput / stuffed flow control windows.
-            http: reqwest::Client::builder().http1_only().build().unwrap(),
+    pub fn new(
+        default_endpoint: String,
+        fragment_client: reqwest::Client,
+        metadata: proto_grpc::Metadata,
+        router: crate::Router,
+    ) -> Self {
+        Self::new_with_tokens(
+            |(metadata, endpoint)| Ok((metadata.clone(), endpoint.clone())),
+            fragment_client,
             router,
+            tokens::fixed(Ok((metadata, default_endpoint))),
+        )
+    }
+
+    /// Build a Client which draws Metadata and a default endpoint from a tokens::Watch.
+    /// The `extract` closure maps the arbitrary Token type into Metadata and default endpoint.
+    pub fn new_with_tokens<Token, Extract>(
+        extract: Extract,
+        fragment_client: reqwest::Client,
+        router: crate::Router,
+        tokens: tokens::PendingWatch<Token>,
+    ) -> Self
+    where
+        Token: Send + Sync + 'static,
+        Extract:
+            Fn(&Token) -> tonic::Result<(proto_grpc::Metadata, String)> + Send + Sync + 'static,
+    {
+        let tokens = tokens.map(move |token, _prior| {
+            let (metadata, default_endpoint) = extract(token)?;
+
+            let default_id = broker::process_spec::Id {
+                zone: String::new(),
+                suffix: default_endpoint,
+            };
+            Ok((metadata, default_id))
+        });
+
+        Self {
+            fragment_client,
+            router,
+            tokens,
         }
     }
 
-    /// Build a new Client which uses a different endpoint and metadata but re-uses underlying connections.
-    pub fn with_endpoint_and_metadata(&self, endpoint: String, metadata: crate::Metadata) -> Self {
-        Self {
-            default: broker::process_spec::Id {
-                zone: String::new(),
-                suffix: endpoint,
-            },
-            http: self.http.clone(),
+    // TODO(johnny): Remove this method once all clients use tokens.
+    pub fn with_endpoint_and_metadata(
+        &self,
+        default_endpoint: String,
+        metadata: proto_grpc::Metadata,
+    ) -> Self {
+        Self::new(
+            default_endpoint,
+            self.fragment_client.clone(),
             metadata,
-            router: self.router.clone(),
-        }
+            self.router.clone(),
+        )
     }
 
     /// Invoke the Gazette journal Apply API.
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
-        let mut client = self.into_sub(self.router.route(
-            None,
-            router::Mode::Default,
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can apply).
+                router::Mode::Default,
+            )
+            .await?;
 
         let resp = client
             .apply(req)
@@ -73,13 +112,18 @@ impl Client {
     /// Invoke the Gazette journal ListFragments API.
     pub async fn list_fragments(
         &self,
-        req: broker::FragmentsRequest,
+        mut req: broker::FragmentsRequest,
     ) -> crate::Result<broker::FragmentsResponse> {
-        let mut client = self.into_sub(self.router.route(
-            None,
-            router::Mode::Default,
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                req.header.as_mut(),
+                if req.do_not_proxy {
+                    router::Mode::Replica
+                } else {
+                    router::Mode::Default
+                },
+            )
+            .await?;
 
         let resp = client
             .list_fragments(req)
@@ -90,13 +134,23 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
-    fn into_sub(&self, (channel, _local): (Channel, bool)) -> SubClient {
-        proto_grpc::broker::journal_client::JournalClient::with_interceptor(
-            channel,
-            self.metadata.clone(),
-        )
+    async fn subclient(
+        &self,
+        route_header: Option<&mut broker::Header>,
+        route_mode: router::Mode,
+    ) -> crate::Result<SubClient> {
+        let token = self.tokens.ready().await.token();
+        let (metadata, default_id) = token.result()?;
+        let (channel, _local) = self.router.route(route_header, route_mode, default_id)?;
+
         // TODO(johnny): Use `_local` to selectively enable LZ4 compression
         // when traversing a non-local zone.
+        Ok(
+            proto_grpc::broker::journal_client::JournalClient::with_interceptor(
+                channel,
+                metadata.clone(),
+            ),
+        )
     }
 }
 

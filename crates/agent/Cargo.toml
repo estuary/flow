@@ -22,6 +22,7 @@ doc = { path = "../doc" }
 migrate = { path = "../migrate" }
 notifications = { path = "../notifications" }
 gazette = { path = "../gazette" }
+tokens = { path = "../tokens" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
@@ -52,7 +53,6 @@ futures = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
-jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }

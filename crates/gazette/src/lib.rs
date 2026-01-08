@@ -6,9 +6,6 @@ pub mod shard;
 mod router;
 pub use router::Router;
 
-pub mod metadata;
-pub use metadata::Metadata;
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("invalid gRPC endpoint: '{0}'")]

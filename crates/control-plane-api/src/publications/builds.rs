@@ -214,11 +214,17 @@ pub async fn test_catalog(
     let build_id = format!("{build_id}");
 
     // Activate all derivations.
-    let metadata = gazette::Metadata::default();
-    let router = gazette::Router::new("local");
-    let journal_client =
-        gazette::journal::Client::new(broker_sock.clone(), metadata.clone(), router.clone());
-    let shard_client = gazette::shard::Client::new(consumer_sock.clone(), metadata, router);
+    let journal_client = gazette::journal::Client::new(
+        broker_sock.clone(),
+        gazette::journal::Client::new_fragment_client(),
+        proto_grpc::Metadata::default(),
+        gazette::Router::new("local"),
+    );
+    let shard_client = gazette::shard::Client::new(
+        consumer_sock.clone(),
+        proto_grpc::Metadata::default(),
+        gazette::Router::new("local"),
+    );
 
     for built in catalog
         .built
