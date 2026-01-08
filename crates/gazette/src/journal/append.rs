@@ -55,15 +55,17 @@ impl Client {
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {
-        let mut client = self.into_sub(self.router.route(
-            req.header.as_mut(),
-            if req.do_not_proxy {
-                router::Mode::Primary
-            } else {
-                router::Mode::Default
-            },
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                req.header.as_mut(),
+                if req.do_not_proxy {
+                    router::Mode::Primary
+                } else {
+                    router::Mode::Default
+                },
+            )
+            .await?;
+
         let req_clone = req.clone();
 
         let (source_err_tx, source_err_rx) = tokio::sync::oneshot::channel();

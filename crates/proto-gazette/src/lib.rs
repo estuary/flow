@@ -40,6 +40,7 @@ pub mod message_flags {
     pub const ACK_TXN: u64 = 0x2;
 }
 
+/// Capability bit-mask values defined by Gazette, which scope broker operations.
 pub mod capability {
     pub const LIST: u32 = 1 << 1;
     pub const APPLY: u32 = 1 << 2;
