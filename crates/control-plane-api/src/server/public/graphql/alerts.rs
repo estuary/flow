@@ -1,13 +1,12 @@
-use async_graphql::{
-    Context,
-    types::{Json, connection},
-};
+use async_graphql::{Context, types::connection};
 use chrono::{DateTime, Utc};
 use models::status::AlertType;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::server::{App, ControlClaims};
+use crate::{
+    alerts::Alert,
+    server::{App, ControlClaims},
+};
 
 #[derive(Debug, Default)]
 pub struct AlertsQuery;
@@ -39,26 +38,6 @@ impl AlertsQuery {
     }
 }
 
-/// An alert from the alert_history table
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, async_graphql::SimpleObject)]
-pub struct Alert {
-    /// The type of the alert
-    pub alert_type: AlertType,
-    /// The catalog name that the alert pertains to.
-    pub catalog_name: String,
-    /// Time at which the alert became active.
-    pub fired_at: DateTime<Utc>,
-    /// The time at which the alert was resolved, or null if it is still active.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_at: Option<DateTime<Utc>>,
-    /// The alert arguments contain additional details about the alert, which
-    /// may be used in formatting the alert message.
-    pub arguments: Json<async_graphql::Value>,
-    // Note that resovled_arguments are omitted for now, because it's
-    // unclear whether we really have a use case for them in the API.
-    // pub resolved_arguments: Json<async_graphql::Value>,
-}
-
 /// A typed key for loading all of the currently active alerts for a given `catalog_name`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ActiveAlerts(pub String);
@@ -73,35 +52,13 @@ impl async_graphql::dataloader::Loader<ActiveAlerts> for super::PgDataLoader {
     ) -> Result<std::collections::HashMap<ActiveAlerts, Self::Value>, Self::Error> {
         use itertools::Itertools;
         let catalog_names = keys.iter().map(|k| k.0.as_str()).collect::<Vec<_>>();
-        let rows = sqlx::query!(
-            r#"select
-            alert_type as "alert_type: AlertType",
-            catalog_name,
-            fired_at,
-            resolved_at,
-            arguments as "arguments: crate::TextJson<async_graphql::Value>"
-        from alert_history
-        where catalog_name = any($1::text[])
-        and resolved_at is null
-        order by fired_at desc
-            "#,
-            &catalog_names as &[&str]
-        )
-        .fetch_all(&self.0)
-        .await
-        .map_err(|err| format!("failed to fetch alerts: {err:#}"))?;
 
-        let result = rows
+        let result = crate::alerts::fetch_open_alerts_by_catalog_name(&catalog_names, &self.0)
+            .await
+            .map_err(|e| format!("failed to fetch open alerts: {e:#}"))?
             .into_iter()
-            .map(|row| {
-                let key = ActiveAlerts(row.catalog_name.clone());
-                let alert = Alert {
-                    alert_type: row.alert_type,
-                    catalog_name: row.catalog_name,
-                    fired_at: row.fired_at,
-                    resolved_at: row.resolved_at,
-                    arguments: async_graphql::types::Json(row.arguments.0),
-                };
+            .map(|alert| {
+                let key = ActiveAlerts(alert.catalog_name.clone());
                 (key, alert)
             })
             .into_group_map();
@@ -236,11 +193,13 @@ async fn fetch_alert_history_by_prefix(
                     catalog_name: row.catalog_name.clone(),
                 };
                 let alert = Alert {
+                    id: row.id,
                     alert_type: row.alert_type,
                     catalog_name: row.catalog_name,
                     fired_at: row.fired_at,
                     resolved_at: row.resolved_at,
                     arguments: async_graphql::Json(row.arguments.0),
+                    resolved_arguments: None,
                 };
                 conn.edges.push(connection::Edge::new(cursor, alert));
             }
@@ -251,11 +210,12 @@ async fn fetch_alert_history_by_prefix(
 }
 
 struct AlertRow {
+    id: models::Id,
     fired_at: DateTime<Utc>,
     alert_type: AlertType,
     catalog_name: String,
     resolved_at: Option<DateTime<Utc>>,
-    arguments: crate::TextJson<async_graphql::Value>,
+    arguments: sqlx::types::Json<crate::alerts::ArgsObject>,
 }
 
 async fn fetch_alerts_by_prefix_before(
@@ -271,11 +231,12 @@ async fn fetch_alerts_by_prefix_before(
         AlertRow,
         r#"
         select
+            id as "id: models::Id",
             alert_type as "alert_type!: AlertType",
             catalog_name as "catalog_name!: String",
             fired_at,
             resolved_at,
-            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+            arguments as "arguments!: sqlx::types::Json<crate::alerts::ArgsObject>"
         from alert_history a
         where starts_with(a.catalog_name, $1)
             and (
@@ -322,11 +283,12 @@ async fn fetch_alerts_by_prefix_after(
         AlertRow,
         r#"
         select
+            id as "id: models::Id",
             alert_type as "alert_type!: AlertType",
             catalog_name as "catalog_name!: String",
             fired_at,
             resolved_at,
-            arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+            arguments as "arguments!: sqlx::types::Json<crate::alerts::ArgsObject>"
         from alert_history a
         where starts_with(a.catalog_name, $1)
             and (
@@ -385,11 +347,12 @@ pub async fn live_spec_alert_history_no_authz(
             let rows = sqlx::query!(
                 r#"
             select
+                id as "id: models::Id",
                 alert_type as "alert_type!: AlertType",
                 catalog_name as "catalog_name!: String",
                 fired_at,
                 resolved_at,
-                arguments as "arguments!: crate::TextJson<async_graphql::Value>"
+                arguments as "arguments!: sqlx::types::Json<crate::alerts::ArgsObject>"
             from alert_history a
             where a.catalog_name = $1
                 and a.resolved_at is not null
@@ -422,11 +385,13 @@ pub async fn live_spec_alert_history_no_authz(
                     catalog_name: row.catalog_name.clone(),
                 };
                 let alert = Alert {
+                    id: row.id,
                     alert_type: row.alert_type,
                     catalog_name: row.catalog_name,
                     fired_at: row.fired_at,
                     resolved_at: row.resolved_at,
                     arguments: async_graphql::Json(row.arguments.0),
+                    resolved_arguments: None,
                 };
                 conn.edges.push(connection::Edge::new(cursor, alert));
             }

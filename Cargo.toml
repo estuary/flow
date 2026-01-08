@@ -62,6 +62,7 @@ futures-core = "0"
 futures-util = "0"
 fxhash = "0"
 graphql_client = "*"
+handlebars = "6"
 hex = "0"
 hexdump = "0"
 humantime = "2"
@@ -114,6 +115,7 @@ reqwest = { version = "0", default-features = false, features = [
     "rustls-tls",
     "stream",
 ] }
+resend-rs = { version = "0.19" }
 rocksdb = { version = "0", default-features = false, features = [
     "bindgen-runtime",
     "rtti",
@@ -265,8 +267,8 @@ lto = "thin"
 # We leave `debug` off because it cuts local and CI builds by a third,
 # and it produces a 100x smaller Cargo build cache, which is important
 # for GitHub Actions caching. Use "full" if you want an actual debugger.
-debug = "none"
-strip = "debuginfo"
+#debug = "none"
+#strip = "debuginfo"
 incremental = true
 lto = "off"
 opt-level = 1 # Basic optimization. As fast to build as none.

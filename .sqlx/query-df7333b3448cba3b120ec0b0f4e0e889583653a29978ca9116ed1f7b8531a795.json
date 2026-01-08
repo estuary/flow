@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with history as (\n            update alert_history\n            set resolved_at = $2,\n            resolved_arguments = $3\n            where id = $1\n            returning id\n        )\n        select internal.send_to_task(id, '0000000000000000'::flowid, '{\"event\": \"resolved\"}')\n        from history\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "send_to_task",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Timestamptz",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "df7333b3448cba3b120ec0b0f4e0e889583653a29978ca9116ed1f7b8531a795"
+}

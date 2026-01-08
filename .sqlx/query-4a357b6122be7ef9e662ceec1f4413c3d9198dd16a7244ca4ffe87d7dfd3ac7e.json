@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n                catalog_name as \"catalog_name!: String\",\n                alert_type as \"alert_type!: AlertType\",\n                arguments as \"base_arguments: Json<ArgsObject>\",\n                coalesce(firing, false) as \"firing!: bool\"\n            from internal.tenant_alerts\n            where catalog_name is not null\n            and alert_type is not null\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "alert_type!: AlertType",
+        "type_info": {
+          "Custom": {
+            "name": "alert_type",
+            "kind": {
+              "Enum": [
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method",
+                "data_movement_stalled",
+                "data_not_processed_in_interval",
+                "auto_discover_failed",
+                "shard_failed"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "base_arguments: Json<ArgsObject>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "firing!: bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "4a357b6122be7ef9e662ceec1f4413c3d9198dd16a7244ca4ffe87d7dfd3ac7e"
+}
