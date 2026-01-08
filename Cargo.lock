@@ -3223,6 +3223,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "flow-client-next"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "gazette",
+ "jsonwebtoken",
+ "lazy_static",
+ "models",
+ "postgrest",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "reqwest 0.12.23",
+ "serde",
+ "serde_json",
+ "tokens",
+ "tokio",
+ "tonic",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "flow-web"
 version = "0.6.0"
 dependencies = [
