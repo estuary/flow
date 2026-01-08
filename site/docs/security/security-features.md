@@ -13,6 +13,7 @@ You can also find guides on setting up specific features, such as:
    * [IAM authentication](/guides/iam-auth/aws)
    * [PrivateLink](/private-byoc/privatelink)
    * [SSH tunneling](/guides/connect-network/#configure-connections-with-ssh-tunneling)
+* [Redacting fields during the capture process](/features/redaction)
 
 ### Data encryption in motion and at rest
 
