@@ -109,6 +109,15 @@ struct Args {
     #[arg(value_parser = humantime::parse_duration)]
     controller_publication_cooldown: std::time::Duration,
 
+    /// Whether to serve the alert notifcations handler. Set to false (default)
+    /// to disable the automations job that sends alert notifications. Note that
+    /// there's a separate way to disable sending emails, by setting
+    /// `RESEND_API_KEY=''`. Disabling via this flag will prevent the alert
+    /// notifications handlers from ever running, giving us a means of pausing
+    /// the sending of alert notifications and resuming later.
+    #[clap(long, env, default_value = "false")]
+    serve_alert_notifications: bool,
+
     /// Optional api key for sending alert notification emails via resend. If
     /// not provided, then sending alert emails will be disabled, and any alert
     /// emails that would be sent will instead be logged as warnings.
@@ -313,28 +322,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
     let automations_fut = if args.max_automations > 0 {
-        let sender = if let Some(api_key) = &args.resend_api_key {
-            // These two are required if api-key is provided, so clap should have ensured they are present
-            let from_email = args
-                .email_from_address
-                .clone()
-                .expect("missing email-from-address");
-            let reply_to_email = args
-                .email_reply_to_address
-                .clone()
-                .expect("missing email-reply-to-address");
-            agent::alerts::Sender::resend(api_key, from_email, reply_to_email, new_http_client()?)
-        } else {
-            // Hopefully this is a local env
-            tracing::warn!("Sending of alert emails is disabled");
-            agent::alerts::Sender::Disabled
-        };
-        let alert_notifications =
-            agent::alerts::AlertNotifications::new(&args.dashboard_base_url, sender)?;
-
         let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
         let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
-        automations::Server::new()
+        let mut automations_server = automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,
             ))
@@ -353,8 +343,37 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             ))
             .register(agent::alerts::new_data_movement_alerts_executor(
                 args.data_movement_alert_interval,
-            ))
-            .register(alert_notifications)
+            ));
+
+        if args.serve_alert_notifications {
+            let sender = if let Some(api_key) = &args.resend_api_key {
+                // These two are required if api-key is provided, so clap should have ensured they are present
+                let from_email = args
+                    .email_from_address
+                    .clone()
+                    .expect("missing email-from-address");
+                let reply_to_email = args
+                    .email_reply_to_address
+                    .clone()
+                    .expect("missing email-reply-to-address");
+                tracing::info!(%from_email, %reply_to_email, "Sending of alert emails is enabled");
+                agent::alerts::Sender::resend(
+                    api_key,
+                    from_email,
+                    reply_to_email,
+                    new_http_client()?,
+                )
+            } else {
+                // Hopefully this is a local env
+                tracing::warn!("Sending of alert emails is disabled");
+                agent::alerts::Sender::Disabled
+            };
+            let alert_notifications =
+                agent::alerts::AlertNotifications::new(&args.dashboard_base_url, sender)?;
+            automations_server = automations_server.register(alert_notifications);
+        }
+
+        automations_server
             .serve(
                 args.max_automations,
                 pg_pool.clone(),
