@@ -19,6 +19,7 @@ CONTROL_PLANE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
 DATABASE_URL=postgresql://postgres:postgres@db.flow.localhost:5432/postgres
 LOG_FORMAT=text
 CONTROLLER_MAX_JOBS=10
+SERVE_ALERT_NOTIFICATIONS=true
 NO_COLOR=1
 RUST_LOG=info
 SERVE_HANDLERS=true
