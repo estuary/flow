@@ -121,15 +121,20 @@ struct Args {
     /// Optional api key for sending alert notification emails via resend. If
     /// not provided, then sending alert emails will be disabled, and any alert
     /// emails that would be sent will instead be logged as warnings.
-    #[clap(long, env, requires = "email-args")]
+    #[clap(
+        long,
+        env,
+        requires = "email_from_address",
+        requires = "email_reply_to_address"
+    )]
     resend_api_key: Option<String>,
 
     /// Sender address for any emails that we send
-    #[clap(long, env, group = "email-args")]
+    #[clap(long, env)]
     email_from_address: Option<String>,
 
     /// Reply-to address for any emails that we send
-    #[clap(long, env, group = "email-args")]
+    #[clap(long, env)]
     email_reply_to_address: Option<String>,
 
     /// The URL of the dashboard UI, which is used when rendering links
