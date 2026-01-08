@@ -8335,6 +8335,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
+name = "tokens"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "jsonwebtoken",
+ "rand 0.9.2",
+ "reqwest 0.12.23",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
 name = "tokio"
 version = "1.47.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
