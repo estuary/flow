@@ -150,6 +150,7 @@ pub struct GCPBYOC {
 pub enum PrivateLink {
     AWS(AWSPrivateLink),
     Azure(AzurePrivateLink),
+    GCP(GCPPrivateServiceConnect),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -167,6 +168,14 @@ pub struct AzurePrivateLink {
     pub dns_name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub resource_type: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GCPPrivateServiceConnect {
+    pub service_attachment: String,
+    pub region: String,
+    pub dns_zone_name: String,
+    pub dns_record_names: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -275,6 +284,9 @@ pub struct ControlExports {
     pub azure_link_endpoints: Vec<serde_json::Value>,
     pub bastion_tunnel_private_key: Option<String>,
     pub cidr_blocks: Vec<sqlx::types::ipnetwork::IpNetwork>,
+    // TODO(whb): Remove #[serde(default)] once est-dry-dock is deployed with gcp_psc_endpoints output.
+    #[serde(default)]
+    pub gcp_psc_endpoints: Vec<serde_json::Value>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
@@ -584,6 +596,28 @@ mod test {
         assert_eq!(
             allow_cidrs_parsed.allow_cidrs,
             vec!["10.0.0.0/16", "192.168.1.0/24", "172.16.0.0/12"]
+        );
+
+        let gcp_psc_parsed = serde_json::from_value::<DataPlane>(
+            fixtures.get("gcp_private_service_connect").unwrap().clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            gcp_psc_parsed.private_links[0],
+            PrivateLink::GCP(GCPPrivateServiceConnect {
+                service_attachment:
+                    "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
+                        .to_string(),
+                region: "us-central1".to_string(),
+                dns_zone_name: "estuary-psc".to_string(),
+                dns_record_names: vec!["customer-db".to_string(), "customer-api".to_string()],
+            }),
+        );
+        assert_eq!(
+            gcp_psc_parsed.gcp_byoc,
+            Some(GCPBYOC {
+                project_id: "12345678".to_string(),
+            }),
         );
     }
 

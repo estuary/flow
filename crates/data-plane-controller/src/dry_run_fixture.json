@@ -30,6 +30,15 @@
         "service_name": "/subscriptions/subscriptionId/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc-bar"
       }
     ],
+    "gcp_psc_endpoints": [
+      {
+        "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db",
+        "ip_address": "10.128.0.100",
+        "region": "us-central1",
+        "dns_zone_name": "estuary-psc",
+        "dns_record_names": ["customer-db", "customer-api"]
+      }
+    ],
     "bastion_tunnel_private_key": "bastion_tunnel_private_key fixture",
     "cidr_blocks": [
       "2600:1234:567:8900::/56",
