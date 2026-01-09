@@ -238,7 +238,7 @@ bindings:
 
 ## Delta Updates and `flow_document`
 
-When using **delta updates** in a materialization, Flow's default field selection behavior changes for the special `flow_document` field.
+When using **delta updates** in a materialization, Estuary's default field selection behavior changes for the special `flow_document` field.
 
 ### Default Behavior
 
