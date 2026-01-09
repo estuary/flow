@@ -2,7 +2,7 @@ use async_graphql::Context;
 use proto_gazette::broker;
 use std::sync::Arc;
 
-use crate::server::{App, ControlClaims};
+use crate::server::{App, ControlClaims, snapshot::Snapshot};
 
 /// Result of testing storage health for a single data plane and store.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
@@ -206,8 +206,6 @@ impl StorageMappingsMutation {
             )));
         }
 
-        // TODO (greg): add logic to disallow new storage mappings that would impact existing specs
-
         // Verify user has admin capability to the catalog prefix
         app.verify_user_authorization_graphql(
             claims,
@@ -229,6 +227,41 @@ impl StorageMappingsMutation {
             return Err(async_graphql::Error::new(format!(
                 "A storage mapping already exists for catalog prefix '{}'",
                 input.catalog_prefix
+            )));
+        }
+
+        // Check if any existing tasks or collections would be affected by this new storage mapping.
+        // We disallow creating storage mappings that would change the storage for existing specs.
+        let prefix_str = input.catalog_prefix.as_str();
+        let affected_specs: Vec<String> =
+            Snapshot::evaluate(app.snapshot(), chrono::Utc::now(), |snapshot: &Snapshot| {
+                let affected_tasks = snapshot
+                    .tasks_by_prefix(prefix_str)
+                    .map(|t| t.task_name.to_string());
+                let affected_collections = snapshot
+                    .collections_by_prefix(prefix_str)
+                    .map(|c| c.collection_name.to_string());
+
+                let mut all_affected: Vec<String> =
+                    affected_tasks.chain(affected_collections).collect();
+                all_affected.sort();
+                Ok((None, all_affected))
+            })
+            .expect("evaluation cannot fail")
+            .1;
+
+        if !affected_specs.is_empty() {
+            let sample: Vec<_> = affected_specs.iter().take(5).cloned().collect();
+            let more = if affected_specs.len() > 5 {
+                format!(" (and {} more)", affected_specs.len() - 5)
+            } else {
+                String::new()
+            };
+            return Err(async_graphql::Error::new(format!(
+                "Cannot create storage mapping for '{}': existing specs would be affected: {}{}",
+                input.catalog_prefix,
+                sample.join(", "),
+                more
             )));
         }
 
