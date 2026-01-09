@@ -53,46 +53,6 @@ fn validate_storage_def(storage: &models::StorageDef) -> async_graphql::Result<(
     Ok(())
 }
 
-/// Resolved data planes and any that were not found or unauthorized.
-struct ResolvedDataPlanes {
-    found: Vec<tables::DataPlane>,
-    missing: Vec<String>,
-}
-
-/// Resolve data plane names to data plane records, checking authorization.
-async fn resolve_data_planes(
-    app: &App,
-    claims: &ControlClaims,
-    data_plane_names: &[String],
-) -> async_graphql::Result<ResolvedDataPlanes> {
-    let all_data_planes = crate::data_plane::fetch_all_data_planes(&app.pg_pool).await?;
-
-    let mut found = Vec::new();
-    let mut missing = Vec::new();
-
-    for name in data_plane_names {
-        let cap = app
-            .attach_user_capabilities(claims, std::iter::once(name.clone()), |n, c| Some((n, c)));
-
-        let has_cap = cap.first().map(|(_, c)| c.is_some()).unwrap_or(false);
-
-        if has_cap {
-            if let Some(dp) = all_data_planes
-                .iter()
-                .find(|dp| &dp.data_plane_name == name)
-            {
-                found.push(dp.clone());
-            } else {
-                missing.push(name.clone());
-            }
-        } else {
-            missing.push(name.clone());
-        }
-    }
-
-    Ok(ResolvedDataPlanes { found, missing })
-}
-
 const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Check storage health for a single data plane + store combination.
@@ -274,11 +234,33 @@ impl StorageMappingsMutation {
             .map(|store| store.to_url(&input.catalog_prefix).to_string())
             .collect();
 
-        // Resolve data planes, checking authorization
-        let ResolvedDataPlanes {
-            found: data_planes,
-            missing,
-        } = resolve_data_planes(app, claims, &storage.data_planes).await?;
+        // Verify user has authorization to all data planes
+        app.verify_user_authorization_graphql(
+            claims,
+            None,
+            storage.data_planes.clone(),
+            models::Capability::Read,
+        )
+        .await?;
+
+        // Fetch data plane records from the snapshot and identify any that don't exist
+        let (data_planes, missing) =
+            Snapshot::evaluate(app.snapshot(), chrono::Utc::now(), |snapshot: &Snapshot| {
+                let mut data_planes = Vec::new();
+                let mut missing = Vec::new();
+
+                for name in &storage.data_planes {
+                    if let Some(dp) = snapshot.data_plane_by_catalog_name(name) {
+                        data_planes.push(dp.clone());
+                    } else {
+                        missing.push(name.clone());
+                    }
+                }
+
+                Ok((None, (data_planes, missing)))
+            })
+            .expect("evaluation cannot fail")
+            .1;
 
         // Run health checks
         let mut health_checks =
