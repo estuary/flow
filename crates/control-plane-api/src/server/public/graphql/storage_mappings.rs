@@ -161,21 +161,6 @@ impl StorageMappingsMutation {
         )
         .await?;
 
-        // Check if a storage mapping already exists for this prefix
-        let existing = sqlx::query_scalar!(
-            r#"select true from storage_mappings where catalog_prefix = $1"#,
-            &input.catalog_prefix
-        )
-        .fetch_optional(&app.pg_pool)
-        .await?;
-
-        if existing.is_some() {
-            return Err(async_graphql::Error::new(format!(
-                "A storage mapping already exists for catalog prefix '{}'",
-                input.catalog_prefix
-            )));
-        }
-
         // Check if any existing tasks or collections would be affected by this new storage mapping.
         // We disallow creating storage mappings that would change the storage for existing specs.
         let prefix_str = input.catalog_prefix.as_str();
@@ -303,13 +288,24 @@ impl StorageMappingsMutation {
 
         let detail = input.detail.as_deref().unwrap_or("created via GraphQL API");
 
-        crate::directives::storage_mappings::insert_storage_mapping(
+        let insert_result = crate::directives::storage_mappings::insert_storage_mapping(
             detail,
             &input.catalog_prefix,
             storage,
             &mut txn,
         )
-        .await?;
+        .await;
+
+        if let Err(sqlx::Error::Database(db_err)) = &insert_result {
+            // 23505 is the PostgreSQL error code for unique_violation
+            if db_err.code() == Some(std::borrow::Cow::Borrowed("23505")) {
+                return Err(async_graphql::Error::new(format!(
+                    "A storage mapping already exists for catalog prefix '{}'",
+                    input.catalog_prefix
+                )));
+            }
+        }
+        insert_result?;
 
         txn.commit().await?;
 
