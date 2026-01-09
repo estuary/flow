@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n        id as \"id: models::Id\",\n        catalog_name,\n        alert_type as \"alert_type: AlertType\",\n        fired_at,\n        resolved_at,\n        arguments as \"arguments: Json<ArgsObject>\",\n        resolved_arguments as \"resolved_arguments: Json<ArgsObject>\"\n        from alert_history\n        where id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "alert_type: AlertType",
+        "type_info": {
+          "Custom": {
+            "name": "alert_type",
+            "kind": {
+              "Enum": [
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method",
+                "data_movement_stalled",
+                "data_not_processed_in_interval",
+                "auto_discover_failed",
+                "shard_failed"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fired_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "resolved_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "arguments: Json<ArgsObject>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "resolved_arguments: Json<ArgsObject>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "868f20122f1eca8d0e4e1f2d966200d9660793597e4220188e93c33c0e427e79"
+}

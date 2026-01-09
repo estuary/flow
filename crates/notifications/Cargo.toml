@@ -1,0 +1,26 @@
+[package]
+name = "notifications"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+models = { path = "../models", features = ["async-graphql", "sqlx-support"] }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+handlebars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+md5 = { workspace = true }
+uuid = { workspace = true }

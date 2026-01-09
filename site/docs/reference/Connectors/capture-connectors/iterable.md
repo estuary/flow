@@ -73,6 +73,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | `/apikey` | API Key | The value of the Iterable API Key generated. | string | Required |
 | `/start_date` | Start Date | UTC date and time in the format 2021-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
+| `/project_type` | Project Type | The type of Iterable project, which determines how users are uniquely identified. See [Iterable's documentation](https://support.iterable.com/hc/en-us/articles/9216719179796-Project-Types-and-Unique-Identifiers) for more information. | string |  |
 
 #### Bindings
 
@@ -93,6 +94,7 @@ captures:
         config:
           apikey: <secret>
           start_date: 2017-01-25T00:00:00Z
+          project_type: UserID-based
     bindings:
       - resource:
           stream: purchase

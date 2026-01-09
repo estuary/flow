@@ -74,7 +74,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials/client_id` | OAuth Client ID | The OAuth app's client ID. | string | Required for OAuth2 authentication |
 | `/credentials/client_secret` | OAuth Client Secret | The OAuth app's client secret. | string | Required for OAuth2 authentication |
 | `/credentials/refresh_token` | Refresh Token | The refresh token received from the OAuth app. | string | Required for OAuth2 authentication |
-| `/advanced/incremental_export_page_size` | Incremental Export Streams' Page Size | Page size for incremental export streams. Typically left as the default unless Estuary Support or the connector logs indicate otherwise. | integer | 1,000 |
 
 
 #### Bindings
@@ -93,8 +92,6 @@ captures:
       connector:
         image: ghcr.io/estuary/source-zendesk-support-native:dev
         config:
-            advanced:
-              incremental_export_page_size: 1000
             credentials:
               credentials: Email & API Token
               username: user@domain.com

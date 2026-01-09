@@ -262,6 +262,8 @@ pub struct AnsibleHost {
     pub starting: bool,
     pub stopping: bool,
     pub zone: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geo_region: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

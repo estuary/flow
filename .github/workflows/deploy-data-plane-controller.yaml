@@ -1,39 +1,38 @@
 name: Deploy data-plane-controller
 
 on:
-  push:
-    # Only on pushes to the master branch
+  workflow_run:
+    workflows: ["Platform Build"]
+    types:
+      - completed
     branches: [master]
-    # Only run if function code or the ci config itself has changed
-    paths:
-      - crates/data-plane-controller/**
-      - .github/workflows/deploy-data-plane-controller.yaml
-
-env:
-  CARGO_INCREMENTAL: 0 # Faster from-scratch builds.
+  workflow_dispatch: {}
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-24.04
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
-      # Permissions required of the Github token in order for
-      # federated identity and authorization to work.
       contents: read
       id-token: write
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: true
-          lfs: true
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0  # Required for git describe to find tags
 
-      - uses: supabase/setup-cli@v1
-      - run: supabase start
-
-      - name: Build `data-plane-controller`
-        run: cargo build --release -p data-plane-controller
-
-      - run: mv target/release/data-plane-controller crates/data-plane-controller/
+      - name: Get image tag
+        id: image-tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="dev-next"
+          else
+            TAG=$(git describe --tags --always)
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/data-plane-controller:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2
@@ -47,7 +46,7 @@ jobs:
           job: data-plane-controller
           project_id: estuary-control
           region: us-central1
-          source: crates/data-plane-controller/
+          image: ${{ steps.image-tag.outputs.image }}
           timeout: 2h # Self-cancels after 1 hour, with 1 hour grace period.
 
           env_vars: |-

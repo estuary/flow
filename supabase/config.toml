@@ -61,11 +61,6 @@ enabled = false
 client_id = ""
 secret = ""
 
-[functions.alerts]
-# Bypass the check for a valid JWT in the Authorization header of a request
-# for the alert-data-processing edge function.
-verify_jwt = false
-
 [storage]
 # The storage backend is used for storing large objects like images and videos.
 enabled = false

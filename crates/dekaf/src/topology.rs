@@ -59,6 +59,7 @@ pub struct Collection {
     pub uuid_ptr: json::Pointer,
     pub value_schema: avro::Schema,
     pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
+    pub binding_backfill_counter: u32,
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
@@ -227,6 +228,15 @@ impl Collection {
             uuid_ptr,
             value_schema,
             extractors,
+            // Start the backfill counter (which will map to the topic leader epoch) at 1, not 0.
+            // Kafka consumers don't seem to handle going from epoch 0 to epoch 1 gracefully. Specifically,
+            // they don't seem to execute their log truncation detection logic in this case, resulting in the
+            // first backfill (going from unset, 0) to 1 not causing the consumer to restart as it does for all
+            // subsequent backfill counter increments.
+            //
+            // TODO(jshearer): While this is a simple fix, it's not clear why exactly consumers behaves this way.
+            // It would be good to understand this better and see if there's a more principled fix.
+            binding_backfill_counter: binding.backfill + 1,
         }))
     }
 

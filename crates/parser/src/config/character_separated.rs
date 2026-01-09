@@ -40,10 +40,10 @@ pub struct AdvancedCsvConfig {
     /// Skip a number of lines at the beginning of the file before parsing begins.
     /// This is useful for skipping over metadata that is sometimes added to the top of files.
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub skip_lines: usize,
+    pub skip_lines: u64,
 }
 
-fn is_zero(i: &usize) -> bool {
+fn is_zero(i: &u64) -> bool {
     *i == 0
 }
 

@@ -174,6 +174,15 @@ To focus on components of a local stack:
  * Toggle to "User" (vs "System")
  * Enter `flow-` into the filter box.
 
+### SOPS
+
+For development we use an [age](https://github.com/FiloSottile/age) key for
+encryption, defined in `mise/tasks/local/reactor`.  To decrypt you will need to
+provide the key to sops:
+```
+export SOPS_AGE_KEY=AGE-SECRET-KEY-1AHW9QTMUTGWDZAC6JDXWC796K0NNDZDKLN8CXPYZM67F2DQVVTHQT3PCD4
+```
+
 ## IDE Setup
 
 ### VS Code with Remote SSH (recommended)

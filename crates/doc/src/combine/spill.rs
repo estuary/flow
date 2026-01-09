@@ -429,14 +429,14 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 // Safety: we allocated `reduced` out of `self.alloc`.
                 let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };
 
-                // Safety: we must hold `alloc` constant for all reductions of a yielded entry.
-                if bump_mem_used(&self.alloc) > BUMP_THRESHOLD {
-                    self.alloc = Arc::new(Bump::new());
-                }
-
                 OwnedNode::Heap(reduced)
             }
         };
+
+        // Safety: we must hold `alloc` constant for all reductions of a yielded entry.
+        if bump_mem_used(&self.alloc) > BUMP_THRESHOLD {
+            self.alloc = Arc::new(Bump::new());
+        }
 
         Ok(Some(DrainedDoc { meta, root }))
     }

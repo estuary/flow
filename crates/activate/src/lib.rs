@@ -835,7 +835,7 @@ pub fn map_partition_to_split(
 }
 
 /// Map a parent ShardSplit into two splits subdivided on either key or r-clock.
-#[allow(dead_code)]
+#[allow(dead_code, unused_variables, unused_assignments)]
 fn map_shard_to_split(
     parent: &ShardSplit,
     split_on_key: bool,

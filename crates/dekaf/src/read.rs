@@ -60,8 +60,10 @@ pub enum BatchResult {
     TimeoutExceededBeforeTarget(bytes::Bytes),
     /// Read no docs, stopped reading because reached timeout
     TimeoutNoData,
-    // Read no docs because the journal is suspended
+    /// Read no docs because the journal is suspended
     Suspended,
+    /// The journal no longer exists (was deleted, likely due to collection reset)
+    JournalNotFound,
 }
 
 #[derive(Copy, Clone)]
@@ -299,6 +301,10 @@ impl Read {
                         inner: gazette::Error::BrokerStatus(broker::Status::Suspended),
                         ..
                     }) => return Ok((self, BatchResult::Suspended)),
+                    Err(gazette::RetryError {
+                        inner: gazette::Error::BrokerStatus(broker::Status::JournalNotFound),
+                        ..
+                    }) => return Ok((self, BatchResult::JournalNotFound)),
                     Err(gazette::RetryError { inner, .. }) => Err(inner),
                 }?,
             };

@@ -2,6 +2,7 @@
 //!
 //! These tests cover end-to-end scenarios involving the control plane. The data plane and
 //! connectors are not exercised as part of these.
+mod alerts;
 mod auto_discovers;
 mod collection_resets;
 mod config_updates;
@@ -15,6 +16,7 @@ mod periodic_publications;
 mod quotas;
 mod shard_failures;
 mod source_captures;
+mod tenant_alerts;
 mod unknown_connectors;
 mod user_discovers;
 mod user_publications;

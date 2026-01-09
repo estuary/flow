@@ -2,13 +2,13 @@
 extern crate allocator;
 
 use anyhow::Context;
+use axum::http;
 use clap::Parser;
 use control_plane_api::{
     discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
 };
 use derivative::Derivative;
 use futures::FutureExt;
-use rand::Rng;
 use sqlx::{ConnectOptions, Connection};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -98,6 +98,9 @@ struct Args {
     )]
     auto_discover_probability: f64,
 
+    /// Minimum duration between two controller-initiated publications of
+    /// the same live spec. This is used to maintain overall system performance
+    /// in the face of bursty demands that get placed on our automation.
     #[clap(
         long = "controller-publication-cooldown",
         env = "CONTROLLER_PUBLICATION_COOLDOWN",
@@ -105,6 +108,48 @@ struct Args {
     )]
     #[arg(value_parser = humantime::parse_duration)]
     controller_publication_cooldown: std::time::Duration,
+
+    /// Whether to serve the alert notifcations handler. Set to false (default)
+    /// to disable the automations job that sends alert notifications. Note that
+    /// there's a separate way to disable sending emails, by setting
+    /// `RESEND_API_KEY=''`. Disabling via this flag will prevent the alert
+    /// notifications handlers from ever running, giving us a means of pausing
+    /// the sending of alert notifications and resuming later.
+    #[clap(long, env, default_value = "false")]
+    serve_alert_notifications: bool,
+
+    /// Optional api key for sending alert notification emails via resend. If
+    /// not provided, then sending alert emails will be disabled, and any alert
+    /// emails that would be sent will instead be logged as warnings.
+    #[clap(
+        long,
+        env,
+        requires = "email_from_address",
+        requires = "email_reply_to_address"
+    )]
+    resend_api_key: Option<String>,
+
+    /// Sender address for any emails that we send
+    #[clap(long, env)]
+    email_from_address: Option<String>,
+
+    /// Reply-to address for any emails that we send
+    #[clap(long, env)]
+    email_reply_to_address: Option<String>,
+
+    /// The URL of the dashboard UI, which is used when rendering links
+    #[clap(long, env, default_value = "https://dashboard.estuary.dev/")]
+    dashboard_base_url: String,
+
+    /// How frequently to evaluate tenant-related alert conditions.
+    #[clap(long, env, default_value = "1h")]
+    #[arg(value_parser = humantime::parse_duration)]
+    tenant_alert_interval: std::time::Duration,
+
+    /// How frequently to evaluate `data_movement_stalled` alert conditions
+    #[clap(long, env, default_value = "10m")]
+    #[arg(value_parser = humantime::parse_duration)]
+    data_movement_alert_interval: std::time::Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -233,10 +278,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
     let discover_handler = DiscoverHandler::new(connectors.clone());
 
-    // Generate a random shard ID to use for generating unique IDs.
-    // Range starts at 1 because 0 is always used for ids generated in postgres.
-    let id_gen_shard = rand::rng().random_range(1u16..1024u16);
-    let id_gen = models::IdGenerator::new(id_gen_shard);
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(
         flowctl_go,
@@ -244,7 +285,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         &args.connector_network,
         &logs_tx,
         pg_pool.clone(),
-        id_gen.clone(),
+        agent::id_generator::with_random_shard(),
         builder,
     );
     if args.skip_connector_table_check {
@@ -264,21 +305,19 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         system_user_id,
         publisher.clone(),
-        id_gen.clone(),
         discover_handler.clone(),
         logs_tx.clone(),
         decrypted_hmac_keys,
         args.auto_discover_probability,
         controller_publication_cooldown,
     );
-    let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
 
     // Share-able future which completes when the agent should exit.
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
 
     // Wire up the agent's API server.
     let api_router = control_plane_api::build_router(
-        id_gen.clone(),
+        agent::id_generator::with_random_shard(),
         jwt_secret.into_bytes(),
         pg_pool.clone(),
         publisher.clone(),
@@ -286,10 +325,11 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
-    let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
 
     let automations_fut = if args.max_automations > 0 {
-        automations::Server::new()
+        let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
+        let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
+        let mut automations_server = automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,
             ))
@@ -303,6 +343,42 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(directive_executor)
             .register(connector_tags_executor)
             .register(migrate::automation::MigrationExecutor)
+            .register(agent::alerts::new_tenant_alerts_executor(
+                args.tenant_alert_interval,
+            ))
+            .register(agent::alerts::new_data_movement_alerts_executor(
+                args.data_movement_alert_interval,
+            ));
+
+        if args.serve_alert_notifications {
+            let sender = if let Some(api_key) = &args.resend_api_key {
+                // These two are required if api-key is provided, so clap should have ensured they are present
+                let from_email = args
+                    .email_from_address
+                    .clone()
+                    .expect("missing email-from-address");
+                let reply_to_email = args
+                    .email_reply_to_address
+                    .clone()
+                    .expect("missing email-reply-to-address");
+                tracing::info!(%from_email, %reply_to_email, "Sending of alert emails is enabled");
+                agent::alerts::Sender::resend(
+                    api_key,
+                    from_email,
+                    reply_to_email,
+                    new_http_client()?,
+                )
+            } else {
+                // Hopefully this is a local env
+                tracing::warn!("Sending of alert emails is disabled");
+                agent::alerts::Sender::Disabled
+            };
+            let alert_notifications =
+                agent::alerts::AlertNotifications::new(&args.dashboard_base_url, sender)?;
+            automations_server = automations_server.register(alert_notifications);
+        }
+
+        automations_server
             .serve(
                 args.max_automations,
                 pg_pool.clone(),
@@ -320,6 +396,21 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let ((), (), ()) = tokio::try_join!(api_server, logs_sink, automations_fut)?;
 
     Ok(())
+}
+
+/// Creates a new http client. We probably ought to use this same client in all/most
+/// places in the app, but for now it's only use is just for sending alert notifications.
+fn new_http_client() -> anyhow::Result<reqwest::Client> {
+    let mut map = http::HeaderMap::new();
+    let version = env!("CARGO_PKG_VERSION");
+    let user_agent = format!("estuary-control-plane-agent:{version}");
+    map.append(
+        http::header::USER_AGENT,
+        http::HeaderValue::from_str(&user_agent)?,
+    );
+
+    let c = reqwest::Client::builder().default_headers(map).build()?;
+    Ok(c)
 }
 
 async fn refresh_decrypted_hmac_keys(

@@ -39,6 +39,12 @@ pub mod task_types {
     pub const APPLIED_DIRECTIVES: TaskType = TaskType(6);
     pub const CONNECTOR_TAGS: TaskType = TaskType(7);
     pub const DATA_PLANE_MIGRATION: TaskType = TaskType(8);
+    /// Sends notifications when alerts are fired or resolved
+    pub const ALERT_NOTIFICATIONS: TaskType = TaskType(9);
+    /// Evaluates tenant-related alerts
+    pub const TENANT_ALERT_EVALS: TaskType = TaskType(10);
+    /// Evaluates data_movement_stalled alerts
+    pub const DATA_MOVEMENT_ALERT_EVALS: TaskType = TaskType(11);
 }
 
 /// Outcome of an `Executor::poll()` for a given task, which encloses
