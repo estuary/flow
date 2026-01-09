@@ -1,27 +1,15 @@
-use async_graphql::Context;
+use async_graphql::{Context, ErrorExtensions};
 use proto_gazette::broker;
 use std::sync::Arc;
 
 use crate::server::{App, ControlClaims, snapshot::Snapshot};
 
 /// Result of testing storage health for a single data plane and store.
-#[derive(Debug, Clone, async_graphql::SimpleObject)]
-#[graphql(complex)]
-pub struct StorageHealthResult {
-    /// Name of the data plane that was tested.
-    pub data_plane_name: String,
-    /// The fragment store URL that was tested (e.g., "gs://bucket/prefix").
-    pub fragment_store: String,
-    /// Error message if the health check failed.
-    pub error: Option<String>,
-}
-
-#[async_graphql::ComplexObject]
-impl StorageHealthResult {
-    /// Whether the health check succeeded.
-    async fn success(&self) -> bool {
-        self.error.is_none()
-    }
+#[derive(Debug, Clone)]
+struct StorageHealthResult {
+    data_plane_name: String,
+    fragment_store: String,
+    error: Option<String>,
 }
 
 /// Input for creating a storage mapping.
@@ -82,12 +70,10 @@ async fn check_store_health(
 /// Result of creating a storage mapping.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct CreateStorageMappingResult {
-    /// Whether the storage mapping was created successfully.
-    pub success: bool,
+    /// Whether the storage mapping was created (false if dry_run was true).
+    pub created: bool,
     /// The catalog prefix for which the storage mapping was created.
     pub catalog_prefix: String,
-    /// Results of health checks for each data plane and store combination.
-    pub health_checks: Vec<StorageHealthResult>,
 }
 
 /// Run storage health checks for each data plane + store combination.
@@ -277,39 +263,66 @@ impl StorageMappingsMutation {
             }
         }
 
-        // Check if any health checks failed
-        let has_health_failures = health_checks.iter().any(|r| r.error.is_some());
+        // Collect only failing health checks
+        let failed_checks: Vec<_> = health_checks
+            .into_iter()
+            .filter(|r| r.error.is_some())
+            .collect();
 
-        // Determine if we can save the mapping
-        let can_save = !has_health_failures && !input.dry_run;
+        if !failed_checks.is_empty() {
+            let health_check_errors: Vec<serde_json::Value> = failed_checks
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "dataPlane": r.data_plane_name,
+                        "fragmentStore": r.fragment_store,
+                        "error": r.error.as_deref().unwrap_or("unknown error"),
+                    })
+                })
+                .collect();
 
-        if can_save {
-            let mut txn = app.pg_pool.begin().await?;
+            let errors_value: async_graphql::Value =
+                serde_json::from_value(serde_json::Value::Array(health_check_errors))
+                    .expect("valid JSON");
 
-            let detail = input.detail.as_deref().unwrap_or("created via GraphQL API");
-
-            crate::directives::storage_mappings::insert_storage_mapping(
-                detail,
-                &input.catalog_prefix,
-                storage,
-                &mut txn,
-            )
-            .await?;
-
-            txn.commit().await?;
-
-            tracing::info!(
-                catalog_prefix = %input.catalog_prefix,
-                data_planes = ?storage.data_planes,
-                stores_count = storage.stores.len(),
-                "created storage mapping"
+            return Err(
+                async_graphql::Error::new("Storage health checks failed").extend_with(|_, ext| {
+                    ext.set("healthCheckErrors", errors_value.clone());
+                }),
             );
         }
 
+        if input.dry_run {
+            return Ok(CreateStorageMappingResult {
+                created: false,
+                catalog_prefix: input.catalog_prefix.to_string(),
+            });
+        }
+
+        let mut txn = app.pg_pool.begin().await?;
+
+        let detail = input.detail.as_deref().unwrap_or("created via GraphQL API");
+
+        crate::directives::storage_mappings::insert_storage_mapping(
+            detail,
+            &input.catalog_prefix,
+            storage,
+            &mut txn,
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        tracing::info!(
+            catalog_prefix = %input.catalog_prefix,
+            data_planes = ?storage.data_planes,
+            stores_count = storage.stores.len(),
+            "created storage mapping"
+        );
+
         Ok(CreateStorageMappingResult {
-            success: can_save,
+            created: true,
             catalog_prefix: input.catalog_prefix.to_string(),
-            health_checks,
         })
     }
 }
