@@ -191,11 +191,13 @@ If your capture is failing with an `"unhandled query"` error, some SQL query is 
 
 In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
 
-### Metadata Errors
+### Inconsistent Metadata
 
-If your capture is failing with a `"metadata error"` then something has gone badly wrong with the capture's tracking of table metadata, such as column names or datatypes.
+If your capture logs contain the warning message `"detected inconsistent metadata for stream, will backfill"`, this indicates that the connector's internal tracking of table metadata (column names and types) does not match the changes observed via replication. The connector will attempt to recover automatically by triggering a fresh backfill of the affected table and reinitializing its metadata tracking.
 
-This should never happen, and most likely means that the binlog itself is corrupt in some way. If this occurs, it can be resolved by backfilling all collections from the source.
+This generally happens when the binlog does not include column metadata (`binlog_row_metadata=MINIMAL`), which forces the connector to rely on its own metadata tracking and use DDL query parsing to remain in sync. Unfortunately, it is possible to perform DDL updates which are not written to the binlog, and the connector cannot tell when this happens.
+
+If the same table repeatedly experiences metadata errors, the recommended solution is to set `binlog_row_metadata=FULL` in your MariaDB configuration. This causes the binlog to include complete column metadata with each row event, allowing the connector to always use authoritative information from the database rather than relying on its own tracking.
 
 ### Insufficient Binlog Retention
 
