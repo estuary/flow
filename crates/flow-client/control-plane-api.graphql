@@ -289,17 +289,13 @@ Result of creating a storage mapping.
 """
 type CreateStorageMappingResult {
 	"""
-	Whether the storage mapping was created successfully.
+	Whether the storage mapping was created (false if dry_run was true).
 	"""
-	success: Boolean!
+	created: Boolean!
 	"""
 	The catalog prefix for which the storage mapping was created.
 	"""
 	catalogPrefix: String!
-	"""
-	Results of health checks for each data plane and store combination.
-	"""
-	healthChecks: [StorageHealthResult!]!
 }
 
 """
@@ -987,28 +983,6 @@ enum StatusType {
 	The publication used the deprecated background flag, which is no longer supported.
 	"""
 	deprecatedBackground
-}
-
-"""
-Result of testing storage health for a single data plane and store.
-"""
-type StorageHealthResult {
-	"""
-	Name of the data plane that was tested.
-	"""
-	dataPlaneName: String!
-	"""
-	The fragment store URL that was tested (e.g., "gs://bucket/prefix").
-	"""
-	fragmentStore: String!
-	"""
-	Error message if the health check failed.
-	"""
-	error: String
-	"""
-	Whether the health check succeeded.
-	"""
-	success: Boolean!
 }
 
 """
