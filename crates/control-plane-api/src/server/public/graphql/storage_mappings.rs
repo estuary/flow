@@ -284,30 +284,22 @@ impl StorageMappingsMutation {
             });
         }
 
-        let mut txn = app.pg_pool.begin().await?;
-
         let detail = input.detail.as_deref().unwrap_or("created via GraphQL API");
 
-        let insert_result = crate::directives::storage_mappings::insert_storage_mapping(
+        let inserted = crate::directives::storage_mappings::insert_storage_mapping(
             detail,
             &input.catalog_prefix,
             storage,
-            &mut txn,
+            &app.pg_pool,
         )
-        .await;
+        .await?;
 
-        if let Err(sqlx::Error::Database(db_err)) = &insert_result {
-            // 23505 is the PostgreSQL error code for unique_violation
-            if db_err.code() == Some(std::borrow::Cow::Borrowed("23505")) {
-                return Err(async_graphql::Error::new(format!(
-                    "A storage mapping already exists for catalog prefix '{}'",
-                    input.catalog_prefix
-                )));
-            }
+        if !inserted {
+            return Err(async_graphql::Error::new(format!(
+                "A storage mapping already exists for catalog prefix '{}'",
+                input.catalog_prefix
+            )));
         }
-        insert_result?;
-
-        txn.commit().await?;
 
         tracing::info!(
             catalog_prefix = %input.catalog_prefix,
