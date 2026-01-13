@@ -90,32 +90,57 @@ impl Session {
         })
     }
 
-    /// For redirected tasks, this returns the target dataplane's broker address.
+    /// For redirected tasks, this returns the target dataplane's Dekaf broker address.
+    /// - Ok(None): do not redirect.
+    /// - Ok(Some(...)): redirect with a valid destination address.
     async fn get_redirect_address(&self) -> anyhow::Result<Option<(String, i32)>> {
-        let fqdn = match self.auth.as_ref() {
+        let (is_redirect, addr) = match self.auth.as_ref() {
             Some(SessionAuthentication::Task(auth)) => {
                 match auth.task_state_listener.get().await?.as_ref() {
                     TaskState::Redirect {
+                        target_dekaf_address,
                         target_dataplane_fqdn,
                         ..
-                    } => anyhow::Ok(Some(target_dataplane_fqdn.clone())),
-                    _ => Ok(None),
+                    } => (
+                        Some(target_dataplane_fqdn.clone()),
+                        target_dekaf_address.clone(),
+                    ),
+                    _ => (None, None),
                 }
             }
             Some(SessionAuthentication::Redirect {
+                target_dekaf_address,
                 target_dataplane_fqdn,
                 ..
-            }) => Ok(Some(target_dataplane_fqdn.clone())),
-            _ => Ok(None),
-        }?;
+            }) => (
+                Some(target_dataplane_fqdn.clone()),
+                target_dekaf_address.clone(),
+            ),
+            _ => (None, None),
+        };
 
-        if let Some(fqdn) = fqdn {
-            return Ok(Some((
-                format!("dekaf.{fqdn}"),
-                self.app.advertise_kafka_port as i32,
-            )));
-        }
-        Ok(None)
+        let Some(target_fqdn) = is_redirect else {
+            return Ok(None);
+        };
+
+        let Some(addr) = addr else {
+            anyhow::bail!(
+                "Cannot redirect to dataplane {target_fqdn}: it has no Dekaf instance configured"
+            );
+        };
+
+        // Parse as URL. Format must be tcp://host:port or tls://host:port
+        let url = url::Url::parse(&addr)
+            .with_context(|| format!("invalid redirect dekaf_address: {addr}"))?;
+        let host = url
+            .host_str()
+            .with_context(|| format!("dekaf_address missing host: {addr}"))?
+            .to_string();
+        let port =
+            url.port()
+                .with_context(|| format!("dekaf_address missing port: {addr}"))? as i32;
+
+        Ok(Some((host, port)))
     }
 
     async fn get_kafka_client(&mut self) -> anyhow::Result<&mut KafkaApiClient> {

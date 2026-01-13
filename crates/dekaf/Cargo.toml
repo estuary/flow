@@ -19,7 +19,7 @@ flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
-models = { path = "../models" }
+models = { path = "../models", features = ["sqlx-support"] }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
@@ -95,6 +95,8 @@ insta = { workspace = true }
 rdkafka = { workspace = true }
 schema_registry_converter = { workspace = true }
 serde_yaml = { workspace = true }
+sqlx = { workspace = true }
 tempfile = { workspace = true }
+url = { workspace = true }
 tracing-test = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

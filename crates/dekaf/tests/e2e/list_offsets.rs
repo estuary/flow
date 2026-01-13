@@ -24,7 +24,7 @@ async fn test_list_offsets_earliest_and_latest() -> anyhow::Result<()> {
     )
     .await?;
 
-    let consumer = env.kafka_consumer()?;
+    let consumer = env.kafka_consumer().await?;
 
     // fetch_watermarks internally uses ListOffsets with timestamp=-2 (earliest)
     // and timestamp=-1 (latest).
@@ -73,7 +73,7 @@ async fn test_list_offsets_unknown_partition() -> anyhow::Result<()> {
     env.inject_documents("data", vec![json!({"id": "1", "value": "test"})])
         .await?;
 
-    let info = env.connection_info();
+    let info = env.connection_info().await?;
     let token = env.dekaf_token()?;
     let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
 
@@ -112,7 +112,7 @@ async fn test_list_offsets_multiple_queries() -> anyhow::Result<()> {
     )
     .await?;
 
-    let consumer = env.kafka_consumer()?;
+    let consumer = env.kafka_consumer().await?;
 
     let (baseline_low, baseline_high) =
         consumer

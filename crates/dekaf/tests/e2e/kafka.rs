@@ -1,6 +1,7 @@
 use anyhow::Context;
 use futures::StreamExt;
 use rdkafka::Message;
+use rdkafka::config::RDKafkaLogLevel;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use schema_registry_converter::async_impl::avro::AvroDecoder;
 use schema_registry_converter::async_impl::schema_registry::SrSettings;
@@ -22,15 +23,34 @@ pub struct DecodedRecord {
 
 impl KafkaConsumer {
     pub fn new(broker: &str, registry: &str, username: &str, password: &str) -> Self {
+        Self::with_group_id(
+            broker,
+            registry,
+            username,
+            password,
+            &format!("test-{}", uuid::Uuid::new_v4()),
+        )
+    }
+
+    pub fn with_group_id(
+        broker: &str,
+        registry: &str,
+        username: &str,
+        password: &str,
+        group_id: &str,
+    ) -> Self {
         let consumer: StreamConsumer = rdkafka::ClientConfig::new()
             .set("bootstrap.servers", broker)
             .set("security.protocol", "SASL_PLAINTEXT")
             .set("sasl.mechanism", "PLAIN")
             .set("sasl.username", username)
             .set("sasl.password", password)
-            .set("group.id", &format!("test-{}", uuid::Uuid::new_v4()))
+            .set("group.id", group_id)
             .set("enable.auto.commit", "false")
             .set("auto.offset.reset", "earliest")
+            // Enable debug logging for broker connections and protocol messages
+            .set("debug", "broker,protocol,security,cgrp,fetch")
+            .set_log_level(RDKafkaLogLevel::Debug)
             .create()
             .expect("consumer creation failed");
 
@@ -81,6 +101,53 @@ impl KafkaConsumer {
                 Ok(Some(Err(e))) => return Err(e.into()),
                 Ok(None) => break,
                 Err(_) => break, // timeout, no more records available
+            }
+        }
+
+        Ok(records)
+    }
+
+    /// Fetch exactly N records, committing each as consumed.
+    pub async fn fetch_n_with_commit(&self, n: usize) -> anyhow::Result<Vec<DecodedRecord>> {
+        const TIMEOUT: Duration = Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + TIMEOUT;
+
+        let mut records = Vec::new();
+        let mut stream = self.consumer.stream();
+
+        while records.len() < n {
+            if std::time::Instant::now() > deadline {
+                anyhow::bail!("timeout waiting for {} records, got {}", n, records.len());
+            }
+
+            match tokio::time::timeout(Duration::from_secs(10), stream.next()).await {
+                Ok(Some(Ok(msg))) => {
+                    let key = self
+                        .decoder
+                        .decode(msg.key())
+                        .await
+                        .context("failed to decode key")?;
+                    let value = self
+                        .decoder
+                        .decode(msg.payload())
+                        .await
+                        .context("failed to decode value")?;
+
+                    records.push(DecodedRecord {
+                        topic: msg.topic().to_string(),
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: apache_avro::from_value(&key.value)?,
+                        value: apache_avro::from_value(&value.value)?,
+                    });
+
+                    self.consumer
+                        .commit_message(&msg, rdkafka::consumer::CommitMode::Sync)
+                        .context("failed to commit")?;
+                }
+                Ok(Some(Err(e))) => return Err(e.into()),
+                Ok(None) => break,
+                Err(_) => continue, // per-message timeout, retry
             }
         }
 

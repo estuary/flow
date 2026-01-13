@@ -19,7 +19,7 @@ async fn test_all_operations_return_leader_not_available_when_no_journals() -> a
     super::init_tracing();
 
     let env = DekafTestEnv::setup("not_ready", FIXTURE).await?;
-    let info = env.connection_info();
+    let info = env.connection_info().await?;
 
     env.inject_documents("data", vec![json!({"id": "1", "value": "initial"})])
         .await?;

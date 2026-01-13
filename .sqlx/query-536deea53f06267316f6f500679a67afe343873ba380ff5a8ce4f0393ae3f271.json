@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE data_planes SET\n                    aws_iam_user_arn = $3,\n                    aws_link_endpoints = $4,\n                    cidr_blocks = $5,\n                    gcp_psc_endpoints = $6,\n                    gcp_service_account_email = $7,\n                    hmac_keys = $8,\n                    encrypted_hmac_keys = $9,\n                    bastion_tunnel_private_key = $10,\n                    azure_application_name = $11,\n                    azure_link_endpoints = $12,\n                    azure_application_client_id = $13,\n                    dekaf_address = $14,\n                    dekaf_registry_address = $15\n                WHERE id = $1 AND controller_task_id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Macaddr8",
+        "Text",
+        "JsonArray",
+        "CidrArray",
+        "JsonArray",
+        "Text",
+        "TextArray",
+        "Json",
+        "Text",
+        "Text",
+        "JsonArray",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "536deea53f06267316f6f500679a67afe343873ba380ff5a8ce4f0393ae3f271"
+}

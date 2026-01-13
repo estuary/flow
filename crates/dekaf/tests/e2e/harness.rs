@@ -1,5 +1,6 @@
 use anyhow::Context;
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Prefix for test namespaces. Requires storage mappings and user grants
@@ -244,14 +245,11 @@ impl DekafTestEnv {
         Ok(())
     }
 
-    /// Get Kafka connection info for external clients.
-    pub fn connection_info(&self) -> ConnectionInfo {
-        ConnectionInfo {
-            broker: std::env::var("DEKAF_BROKER").unwrap_or("localhost:9092".into()),
-            registry: std::env::var("DEKAF_REGISTRY").unwrap_or("http://localhost:9093".into()),
-            username: self.materialization_name().unwrap_or_default().to_string(),
-            collections: self.collection_names().map(String::from).collect(),
-        }
+    /// Get Kafka connection info for the default dataplane (local-cluster).
+    pub async fn connection_info(&self) -> anyhow::Result<ConnectionInfo> {
+        let username = self.materialization_name().unwrap_or_default();
+        let collections = self.collection_names().map(String::from).collect();
+        connection_info_for_dataplane("local-cluster", username, collections).await
     }
 
     /// Get the Dekaf auth token from the fixture's materialization config.
@@ -280,14 +278,49 @@ impl DekafTestEnv {
     /// Create a high-level consumer connected to Dekaf.
     ///
     /// Uses the token from the fixture's materialization config.
-    pub fn kafka_consumer(&self) -> anyhow::Result<super::kafka::KafkaConsumer> {
-        let info = self.connection_info();
+    pub async fn kafka_consumer(&self) -> anyhow::Result<super::kafka::KafkaConsumer> {
+        let info = self.connection_info().await?;
         let token = self.dekaf_token()?;
         Ok(super::kafka::KafkaConsumer::new(
             &info.broker,
             &info.registry,
             &info.username,
             &token,
+        ))
+    }
+
+    /// Create a Rust Kafka consumer connected to a specific dataplane's Dekaf instance.
+    pub async fn kafka_consumer_for_dataplane(
+        &self,
+        dataplane: &str,
+    ) -> anyhow::Result<super::kafka::KafkaConsumer> {
+        let username = self.materialization_name().unwrap_or_default();
+        let collections = self.collection_names().map(String::from).collect();
+        let info = connection_info_for_dataplane(dataplane, username, collections).await?;
+        let token = self.dekaf_token()?;
+        Ok(super::kafka::KafkaConsumer::new(
+            &info.broker,
+            &info.registry,
+            &info.username,
+            &token,
+        ))
+    }
+
+    pub async fn kafka_consumer_with_group_id(
+        &self,
+        dataplane: &str,
+        group_id: &str,
+    ) -> anyhow::Result<super::kafka::KafkaConsumer> {
+        let username = self.materialization_name().unwrap_or_default();
+        let collections = self.collection_names().map(String::from).collect();
+        let info = connection_info_for_dataplane(dataplane, username, collections).await?;
+        let token = self.dekaf_token()?;
+        Ok(super::kafka::KafkaConsumer::with_group_id(
+            &info.broker,
+            &info.registry,
+            &info.username,
+            &token,
+            group_id,
         ))
     }
 
@@ -446,6 +479,208 @@ pub struct ConnectionInfo {
     pub registry: String,
     pub username: String,
     pub collections: Vec<String>,
+}
+
+const LOCAL_DB_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+
+static DB_POOL: OnceLock<sqlx::PgPool> = OnceLock::new();
+
+pub async fn db_pool() -> anyhow::Result<&'static sqlx::PgPool> {
+    if let Some(pool) = DB_POOL.get() {
+        return Ok(pool);
+    }
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(LOCAL_DB_URL)
+        .await
+        .context("failed to connect to local postgres")?;
+
+    Ok(DB_POOL.get_or_init(|| pool))
+}
+
+/// Get connection info for a specific dataplane by querying the database.
+///
+/// Returns the Dekaf broker address and schema registry address for the given dataplane.
+pub async fn connection_info_for_dataplane(
+    dataplane_name: &str,
+    username: &str,
+    collections: Vec<String>,
+) -> anyhow::Result<ConnectionInfo> {
+    let pool = db_pool().await?;
+
+    let full_name = format!("ops/dp/public/{dataplane_name}");
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT dekaf_address, dekaf_registry_address FROM data_planes WHERE data_plane_name = $1",
+    )
+    .bind(&full_name)
+    .fetch_optional(pool)
+    .await
+    .with_context(|| format!("failed to query dataplane {full_name}"))?;
+
+    let (dekaf_address, dekaf_registry_address) =
+        row.with_context(|| format!("dataplane {full_name} not found"))?;
+
+    let dekaf_address = dekaf_address
+        .with_context(|| format!("dataplane {full_name} has no dekaf_address configured"))?;
+
+    let dekaf_registry_address = dekaf_registry_address.with_context(|| {
+        format!("dataplane {full_name} has no dekaf_registry_address configured")
+    })?;
+
+    // Parse the Kafka address URL (format: tcp://host:port or tls://host:port)
+    let kafka_url = url::Url::parse(&dekaf_address)
+        .with_context(|| format!("invalid dekaf_address: {dekaf_address}"))?;
+
+    let host = kafka_url
+        .host_str()
+        .with_context(|| format!("dekaf_address missing host: {dekaf_address}"))?;
+    let kafka_port = kafka_url
+        .port()
+        .with_context(|| format!("dekaf_address missing port: {dekaf_address}"))?;
+
+    Ok(ConnectionInfo {
+        broker: format!("{host}:{kafka_port}"),
+        registry: dekaf_registry_address,
+        username: username.to_string(),
+        collections,
+    })
+}
+
+/// Trigger a cross-dataplane migration.
+///
+/// Inserts a row into `data_plane_migrations` to initiate the migration.
+/// Returns the migration ID.
+pub async fn trigger_migration(
+    catalog_name_or_prefix: &str,
+    src_dataplane: &str,
+    tgt_dataplane: &str,
+) -> anyhow::Result<models::Id> {
+    let pool = db_pool().await?;
+
+    let src_name = format!("ops/dp/public/{src_dataplane}");
+    let tgt_name = format!("ops/dp/public/{tgt_dataplane}");
+
+    tracing::info!(
+        %catalog_name_or_prefix,
+        %src_name,
+        %tgt_name,
+        "Triggering migration"
+    );
+
+    let migration_id: (models::Id,) = sqlx::query_as(
+        r#"
+        INSERT INTO data_plane_migrations (
+            catalog_name_or_prefix,
+            src_plane_id,
+            tgt_plane_id,
+            cordon_at
+        )
+        SELECT $1, src.id, tgt.id, NOW()
+        FROM data_planes src, data_planes tgt
+        WHERE src.data_plane_name = $2
+          AND tgt.data_plane_name = $3
+        RETURNING id
+        "#,
+    )
+    .bind(catalog_name_or_prefix)
+    .bind(&src_name)
+    .bind(&tgt_name)
+    .fetch_one(pool)
+    .await?;
+
+    tracing::info!(migration_id = %migration_id.0, "Migration triggered");
+    Ok(migration_id.0)
+}
+
+/// Wait for a migration to complete (active = false).
+pub async fn wait_for_migration_complete(
+    migration_id: models::Id,
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    let pool = db_pool().await?;
+    let deadline = std::time::Instant::now() + timeout;
+
+    tracing::info!(%migration_id, "Waiting for migration to complete");
+
+    loop {
+        let row: (bool,) = sqlx::query_as("SELECT active FROM data_plane_migrations WHERE id = $1")
+            .bind(migration_id)
+            .fetch_one(pool)
+            .await
+            .context("failed to query migration status")?;
+
+        if !row.0 {
+            tracing::info!(%migration_id, "Migration completed");
+            return Ok(());
+        }
+
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!("migration {migration_id} did not complete within timeout");
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+/// Wait until Dekaf on the source dataplane returns a redirect to the target dataplane.
+///
+/// This polls the source Dekaf's metadata endpoint until the broker address in the response
+/// matches the target dataplane's Dekaf address, indicating Dekaf knows about the migration.
+pub async fn wait_for_dekaf_redirect(
+    src_dataplane: &str,
+    tgt_dataplane: &str,
+    username: &str,
+    password: &str,
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    let src_info = connection_info_for_dataplane(src_dataplane, username, vec![]).await?;
+    let tgt_info = connection_info_for_dataplane(tgt_dataplane, username, vec![]).await?;
+
+    tracing::info!(
+        src_broker = %src_info.broker,
+        tgt_broker = %tgt_info.broker,
+        "Waiting for Dekaf redirect"
+    );
+
+    let mut client: Option<super::raw_kafka::TestKafkaClient> = None;
+
+    loop {
+        if client.is_none() {
+            client =
+                super::raw_kafka::TestKafkaClient::connect(&src_info.broker, username, password)
+                    .await
+                    .ok();
+        }
+
+        if let Some(c) = client.as_mut() {
+            match c.metadata(&[]).await {
+                Ok(metadata) => {
+                    for broker in &metadata.brokers {
+                        let broker_addr = format!("{}:{}", broker.host.as_str(), broker.port);
+                        tracing::debug!(%broker_addr, "Got broker from metadata");
+
+                        if broker_addr == tgt_info.broker {
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(_) => client = None,
+            }
+        }
+
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!(
+                "timeout waiting for Dekaf redirect from {} to {}",
+                src_dataplane,
+                tgt_dataplane
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }
 
 /// Rewrite fixture names to include test namespace.
