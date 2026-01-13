@@ -189,17 +189,17 @@ where
 }
 
 async fn proxy_request_to_target(
-    target_dataplane_fqdn: String,
+    target_dekaf_registry_address: &str,
     uri: axum::http::Uri,
     auth: headers::Authorization<headers::authorization::Basic>,
 ) -> Response {
-    let client = reqwest::Client::new();
-
     let target_url = format!(
-        "https://dekaf.{}{}",
-        target_dataplane_fqdn,
+        "{}{}",
+        target_dekaf_registry_address,
         uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
     );
+
+    let client = reqwest::Client::new();
 
     match client
         .get(&target_url)
@@ -258,9 +258,20 @@ async fn authenticate_and_proxy(
 ) -> Response {
     match app.authenticate(auth.username(), auth.password()).await {
         Ok(SessionAuthentication::Redirect {
+            target_dekaf_registry_address,
             target_dataplane_fqdn,
             ..
-        }) => proxy_request_to_target(target_dataplane_fqdn, uri, auth).await,
+        }) => match target_dekaf_registry_address {
+            Some(addr) => proxy_request_to_target(&addr, uri, auth).await,
+            None => {
+                let err = format!(
+                    "Cannot redirect to dataplane {}: it has no Dekaf schema registry configured",
+                    target_dataplane_fqdn
+                );
+                tracing::error!(err, "proxy request failed");
+                (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
+            }
+        },
         Ok(auth) => {
             // Insert the authentication into request extensions so handlers can access it
             req.extensions_mut().insert(auth);

@@ -446,6 +446,8 @@ pub async fn try_fetch(
             d.encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
             d.broker_address,
             d.reactor_address,
+            d.dekaf_address,
+            d.dekaf_registry_address,
             d.ops_logs_name AS "ops_logs_name: models::Collection",
             d.ops_stats_name AS "ops_stats_name: models::Collection"
         FROM data_planes d

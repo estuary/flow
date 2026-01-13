@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Run Dekaf E2E tests"
-#MISE depends=["local:test-tenant", "local:dekaf"]
+#MISE depends=["local:test-tenant"]
 #USAGE flag "--filter <filter>" help="Test filter pattern for nextest"
 #USAGE flag "--update-snapshots" help="Update insta snapshots"
 #USAGE flag "--concurrency <concurrency>" help="How many tests to run at once"
@@ -14,8 +14,9 @@ CONCURRENCY="${usage_concurrency:-"num-cpus"}"
 
 FLOW_LOCAL="${HOME}/flow-local"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
-KAFKA_PORT=9092
-REGISTRY_PORT=9093
+
+DEKAF1_KAFKA_PORT=8050  # 8000 + 50
+DEKAF2_KAFKA_PORT=8250  # 8200 + 50
 
 
 # Wait for agent to be ready by checking if it's listening
@@ -32,27 +33,41 @@ until nc -z localhost 8675 2>/dev/null; do
 done
 echo "Agent is ready"
 
-# Build Dekaf and flowctl
-echo "Building Dekaf and flowctl..."
-cargo build -p dekaf -p flowctl --quiet
+echo "Building flowctl..."
+cargo build -p flowctl --quiet
 
-# Wait for Dekaf to be ready (started by local:dekaf dependency)
-echo "Waiting for Dekaf..."
-TIMEOUT=30
-ELAPSED=0
-until nc -z localhost ${KAFKA_PORT} 2>/dev/null; do
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
-        echo "Error: Dekaf failed to start within ${TIMEOUT} seconds"
-        exit 1
-    fi
+# local-cluster with Dekaf is expected to already be running from local:stack
+# Only set up local-cluster-2 for migration tests
+echo "Setting up local-cluster-2 dataplane with Dekaf..."
+mise run local:data-plane local-cluster-2 8200 --num-brokers 4 --num-reactors 1 --link --dekaf
+
+echo "Updating storage mappings for migration tests..."
+psql "postgresql://postgres:postgres@localhost:5432/postgres" -c "
+    UPDATE storage_mappings
+    SET spec = jsonb_set(spec::jsonb, '{data_planes}', '[\"ops/dp/public/local-cluster\", \"ops/dp/public/local-cluster-2\"]')
+    WHERE catalog_prefix = 'test/';
+"
+
+echo "Waiting for Dekaf instances..."
+TIMEOUT=60
+for port in ${DEKAF1_KAFKA_PORT} ${DEKAF2_KAFKA_PORT}; do
+    ELAPSED=0
+    until nc -z localhost ${port} 2>/dev/null; do
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+        if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+            echo "Error: Dekaf on port ${port} failed to start within ${TIMEOUT} seconds"
+            journalctl --user -u "flow-dekaf@*" --no-pager -n 100 || true
+            exit 1
+        fi
+    done
+    echo "Dekaf on port ${port} is ready"
 done
 
 echo "Running Dekaf E2E tests..."
 
-export DEKAF_BROKER="localhost:${KAFKA_PORT}"
-export DEKAF_REGISTRY="http://localhost:${REGISTRY_PORT}"
+export DEKAF_BROKER="localhost:${DEKAF1_KAFKA_PORT}"
+export DEKAF_REGISTRY="http://localhost:$((DEKAF1_KAFKA_PORT + 1))"
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
 
 # A token for the local-stack system user signed against the local-stack
@@ -60,11 +75,18 @@ export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
 export FLOW_ACCESS_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
 
 TEST_EXIT_CODE=0
+INSTA_ENV=""
+if [ "${UPDATE_SNAPSHOTS}" = "true" ]; then
+    INSTA_ENV="INSTA_UPDATE=always"
+fi
+
 if [ -n "${FILTER}" ]; then
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
+    env ${INSTA_ENV} \
     cargo nextest run --profile dekaf-e2e -p dekaf --no-capture --failure-output=immediate --success-output=immediate -E "test(${FILTER})" || TEST_EXIT_CODE=$?
 else
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
+    env ${INSTA_ENV} \
     cargo nextest run --profile dekaf-e2e -p dekaf -j "${CONCURRENCY}" --no-fail-fast --retries=1 || TEST_EXIT_CODE=$?
 fi
 
@@ -75,8 +97,11 @@ if [ "${TEST_EXIT_CODE}" -ne 0 ]; then
     echo "Tests failed! Dumping service logs..."
     echo "========================================"
     echo ""
-    echo "--- Dekaf logs ---"
-    journalctl --user -u flow-dekaf --no-pager -n 200 || true
+    echo "--- Dekaf (local-cluster) logs ---"
+    journalctl --user -u flow-dekaf@local-cluster --no-pager -n 200 || true
+    echo ""
+    echo "--- Dekaf (local-cluster-2) logs ---"
+    journalctl --user -u flow-dekaf@local-cluster-2 --no-pager -n 200 || true
     echo ""
     echo "--- Agent logs ---"
     journalctl --user -u flow-control-agent --no-pager -n 200 || true

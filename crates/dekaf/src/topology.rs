@@ -183,11 +183,14 @@ impl Collection {
                     TaskState::Authorized { partitions, .. } => partitions,
                     TaskState::Redirect {
                         target_dataplane_fqdn,
+                        target_dekaf_address,
+                        target_dekaf_registry_address,
                         spec,
-                        ..
                     } => {
                         return Err(crate::DekafError::from_redirect(
                             target_dataplane_fqdn.to_owned(),
+                            target_dekaf_address.to_owned(),
+                            target_dekaf_registry_address.to_owned(),
                             spec.clone(),
                         )
                         .await?
@@ -207,12 +210,16 @@ impl Collection {
             }
             SessionAuthentication::Redirect {
                 target_dataplane_fqdn,
+                target_dekaf_address,
+                target_dekaf_registry_address,
                 spec,
                 config,
                 ..
             } => {
                 return Err(crate::DekafError::TaskRedirected {
                     target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+                    target_dekaf_address: target_dekaf_address.clone(),
+                    target_dekaf_registry_address: target_dekaf_registry_address.clone(),
                     spec: spec.clone(),
                     config: config.clone(),
                 }

@@ -349,6 +349,8 @@ impl Resolver {
                 models::Collection::default(), // ops_stats_name
                 String::new(),                 // broker_address
                 String::new(),                 // reactor_address
+                None,                          // dekaf_address
+                None,                          // dekaf_registry_address
             );
         }
 
