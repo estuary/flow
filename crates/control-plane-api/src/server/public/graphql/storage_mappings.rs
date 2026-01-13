@@ -163,23 +163,9 @@ impl StorageMappingsMutation {
 
         // Check if any existing tasks or collections would be affected by this new storage mapping.
         // We disallow creating storage mappings that would change the storage for existing specs.
-        let prefix_str = input.catalog_prefix.as_str();
-        let affected_specs: Vec<String> =
-            Snapshot::evaluate(app.snapshot(), chrono::Utc::now(), |snapshot: &Snapshot| {
-                let affected_tasks = snapshot
-                    .tasks_by_prefix(prefix_str)
-                    .map(|t| t.task_name.to_string());
-                let affected_collections = snapshot
-                    .collections_by_prefix(prefix_str)
-                    .map(|c| c.collection_name.to_string());
-
-                let mut all_affected: Vec<String> =
-                    affected_tasks.chain(affected_collections).collect();
-                all_affected.sort();
-                Ok((None, all_affected))
-            })
-            .expect("evaluation cannot fail")
-            .1;
+        let affected_specs =
+            crate::live_specs::fetch_live_spec_names_by_prefix(input.catalog_prefix.as_str(), &app.pg_pool)
+                .await?;
 
         if !affected_specs.is_empty() {
             let sample: Vec<_> = affected_specs.iter().take(5).cloned().collect();
