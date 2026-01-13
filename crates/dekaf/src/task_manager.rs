@@ -71,6 +71,8 @@ pub enum TaskState {
     /// Task has been migrated to a different dataplane
     Redirect {
         target_dataplane_fqdn: String,
+        target_dekaf_address: Option<String>,
+        target_dekaf_registry_address: Option<String>,
         spec: proto_flow::flow::MaterializationSpec,
     },
 }
@@ -314,6 +316,8 @@ impl TaskManager {
                 match dekaf_auth {
                     DekafTaskAuth::Redirect {
                         target_dataplane_fqdn,
+                        target_dekaf_address,
+                        target_dekaf_registry_address,
                         spec,
                         ..
                     } => {
@@ -328,7 +332,9 @@ impl TaskManager {
                         }
 
                         let _ = sender.send(Some(Ok(Arc::new(TaskState::Redirect {
-                            target_dataplane_fqdn: target_dataplane_fqdn,
+                            target_dataplane_fqdn,
+                            target_dekaf_address,
+                            target_dekaf_registry_address,
                             spec,
                         }))));
 
@@ -661,6 +667,8 @@ pub enum DekafTaskAuth {
     /// Task has been migrated to a different dataplane, and the session should redirect to it.
     Redirect {
         target_dataplane_fqdn: String,
+        target_dekaf_address: Option<String>,
+        target_dekaf_registry_address: Option<String>,
         spec: MaterializationSpec,
         fetched_at: time::OffsetDateTime,
     },
@@ -781,6 +789,8 @@ async fn fetch_dekaf_task_auth(
         ops_stats_journal,
         task_spec,
         redirect_dataplane_fqdn,
+        redirect_dekaf_address,
+        redirect_dekaf_registry_address,
         ..
     } = loop {
         let response: models::authorizations::DekafAuthResponse = client
@@ -826,6 +836,8 @@ async fn fetch_dekaf_task_auth(
 
         return Ok(DekafTaskAuth::Redirect {
             target_dataplane_fqdn: redirect_fqdn,
+            target_dekaf_address: redirect_dekaf_address,
+            target_dekaf_registry_address: redirect_dekaf_registry_address,
             spec: parsed_spec,
             fetched_at: time::OffsetDateTime::now_utc(),
         });

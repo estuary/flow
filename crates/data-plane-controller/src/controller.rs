@@ -591,6 +591,27 @@ impl Controller {
             .deployments
             .retain_mut(stack::Deployment::mark_current);
 
+        // Compute dekaf addresses based on whether Dekaf is deployed with current > 0.
+        let dekaf_deployed = state
+            .stack
+            .config
+            .model
+            .deployments
+            .iter()
+            .any(|d| d.role == stack::Role::Dekaf && d.current > 0);
+
+        let (dekaf_address, dekaf_registry_address) =
+            match (dekaf_deployed, &state.stack.config.model.fqdn) {
+                (true, Some(fqdn)) => (
+                    Some(format!("tls://dekaf.{fqdn}:9092")),
+                    Some(format!("https://dekaf.{fqdn}:443")),
+                ),
+                _ => (None, None),
+            };
+
+        control.dekaf_address = dekaf_address;
+        control.dekaf_registry_address = dekaf_registry_address;
+
         state.status = Status::PulumiUp2;
         state.publish_exports = Some(control);
         state.publish_stack = Some(state.stack.clone());
@@ -1043,6 +1064,8 @@ impl automations::Outcome for Outcome {
             bastion_tunnel_private_key,
             azure_application_name,
             azure_application_client_id,
+            dekaf_address,
+            dekaf_registry_address,
         }) = self.publish_exports
         {
             let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys.clone()).await?;
@@ -1060,7 +1083,9 @@ impl automations::Outcome for Outcome {
                     bastion_tunnel_private_key = $10,
                     azure_application_name = $11,
                     azure_link_endpoints = $12,
-                    azure_application_client_id = $13
+                    azure_application_client_id = $13,
+                    dekaf_address = $14,
+                    dekaf_registry_address = $15
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -1076,6 +1101,8 @@ impl automations::Outcome for Outcome {
                 azure_application_name,
                 &azure_link_endpoints,
                 azure_application_client_id,
+                dekaf_address,
+                dekaf_registry_address,
             )
             .execute(&mut *txn)
             .await

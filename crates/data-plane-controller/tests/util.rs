@@ -107,6 +107,18 @@ pub fn initial_state() -> stack::State {
             "provider": "vultr"
           },
           "oci_image": "ghcr.io/gazette/broker:v1.2.3"
+        },
+        {
+          "role": "dekaf",
+          "current": 0,
+          "desired": 1,
+          "template": {
+            "plan": "vc2-1c-2gb",
+            "os_id": 2284,
+            "region": "ord",
+            "provider": "vultr"
+          },
+          "oci_image": "ghcr.io/estuary/dekaf:v1.0.0"
         }
       ],
       "gcp_project": "some-gcp-project",

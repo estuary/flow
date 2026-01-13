@@ -77,6 +77,8 @@ pub enum SessionAuthentication {
     Task(TaskAuth),
     Redirect {
         target_dataplane_fqdn: String,
+        target_dekaf_address: Option<String>,
+        target_dekaf_registry_address: Option<String>,
         spec: MaterializationSpec,
         config: connector::DekafConfig,
         task_state_listener: task_manager::TaskStateListener,
@@ -99,11 +101,15 @@ impl SessionAuthentication {
             SessionAuthentication::Task(auth) => auth.authenticated_client().await,
             SessionAuthentication::Redirect {
                 target_dataplane_fqdn,
+                target_dekaf_address,
+                target_dekaf_registry_address,
                 spec,
                 config,
                 ..
             } => Err(DekafError::TaskRedirected {
                 target_dataplane_fqdn: target_dataplane_fqdn.clone(),
+                target_dekaf_address: target_dekaf_address.clone(),
+                target_dekaf_registry_address: target_dekaf_registry_address.clone(),
                 spec: spec.clone(),
                 config: config.clone(),
             }),
@@ -155,12 +161,16 @@ impl TaskAuth {
             }
             TaskState::Redirect {
                 target_dataplane_fqdn,
+                target_dekaf_address,
+                target_dekaf_registry_address,
                 spec,
-                ..
-            } => Err(
-                DekafError::from_redirect(target_dataplane_fqdn.to_owned(), spec.to_owned())
-                    .await?,
-            ),
+            } => Err(DekafError::from_redirect(
+                target_dataplane_fqdn.to_owned(),
+                target_dekaf_address.to_owned(),
+                target_dekaf_registry_address.to_owned(),
+                spec.to_owned(),
+            )
+            .await?),
         }
     }
 
@@ -205,6 +215,8 @@ pub enum DekafError {
     #[error("Task redirected to {target_dataplane_fqdn}")]
     TaskRedirected {
         target_dataplane_fqdn: String,
+        target_dekaf_address: Option<String>,
+        target_dekaf_registry_address: Option<String>,
         spec: MaterializationSpec,
         config: connector::DekafConfig,
     },
@@ -219,6 +231,8 @@ pub enum DekafError {
 impl DekafError {
     pub async fn from_redirect(
         target_dataplane_fqdn: String,
+        target_dekaf_address: Option<String>,
+        target_dekaf_registry_address: Option<String>,
         spec: MaterializationSpec,
     ) -> anyhow::Result<Self> {
         let config = topology::extract_dekaf_config(&spec)
@@ -226,6 +240,8 @@ impl DekafError {
             .context("Failed to extract Dekaf config from spec")?;
         Ok(DekafError::TaskRedirected {
             target_dataplane_fqdn,
+            target_dekaf_address,
+            target_dekaf_registry_address,
             spec,
             config,
         })
@@ -293,8 +309,9 @@ impl App {
                 }
                 TaskState::Redirect {
                     target_dataplane_fqdn,
+                    target_dekaf_address,
+                    target_dekaf_registry_address,
                     spec,
-                    ..
                 } => {
                     // We don't have a dataplane access token when redirecting,
                     // so we cannot write out any logs. Shutting down the log forwarder
@@ -310,6 +327,8 @@ impl App {
                     // the session to cause it to redirected its consumer.
                     Ok(SessionAuthentication::Redirect {
                         target_dataplane_fqdn: target_dataplane_fqdn.to_owned(),
+                        target_dekaf_address: target_dekaf_address.to_owned(),
+                        target_dekaf_registry_address: target_dekaf_registry_address.to_owned(),
                         spec: spec.to_owned(),
                         config,
                         task_state_listener: listener,

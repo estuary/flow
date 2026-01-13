@@ -290,6 +290,12 @@ pub struct ControlExports {
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
+    // Computed by the controller based on Dekaf deployment status.
+    // Not exported by Pulumi, hence the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dekaf_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dekaf_registry_address: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]

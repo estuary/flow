@@ -48,17 +48,25 @@ pub async fn authorize_dekaf(
     );
 
     // Legacy: return a custom 200 response for client-side retries.
-    let (expiry, (ops_logs_journal, ops_stats_journal, redirect_fqdn)) =
-        match env.authorization_outcome(policy_result).await {
-            Ok(ok) => ok,
-            Err(crate::ApiError::AuthZRetry(retry)) => {
-                return Ok(axum::Json(Response {
-                    retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
-                    ..Default::default()
-                }));
-            }
-            Err(err @ crate::ApiError::Status(_)) => return Err(err),
-        };
+    let (
+        expiry,
+        AuthorizationResult {
+            ops_logs_journal,
+            ops_stats_journal,
+            redirect_fqdn,
+            redirect_dekaf_address,
+            redirect_dekaf_registry_address,
+        },
+    ) = match env.authorization_outcome(policy_result).await {
+        Ok(ok) => ok,
+        Err(crate::ApiError::AuthZRetry(retry)) => {
+            return Ok(axum::Json(Response {
+                retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                ..Default::default()
+            }));
+        }
+        Err(err @ crate::ApiError::Status(_)) => return Err(err),
+    };
 
     let (spec_type, built_spec) = sqlx::query!(
         r#"
@@ -102,7 +110,18 @@ pub async fn authorize_dekaf(
         task_spec: Some(built_spec),
         retry_millis: 0,
         redirect_dataplane_fqdn: redirect_fqdn,
+        redirect_dekaf_address: redirect_dekaf_address,
+        redirect_dekaf_registry_address: redirect_dekaf_registry_address,
     }))
+}
+
+#[derive(serde::Serialize)]
+struct AuthorizationResult {
+    ops_logs_journal: String,
+    ops_stats_journal: String,
+    redirect_fqdn: Option<String>,
+    redirect_dekaf_address: Option<String>,
+    redirect_dekaf_registry_address: Option<String>,
 }
 
 fn evaluate_authorization(
@@ -110,7 +129,7 @@ fn evaluate_authorization(
     task_name: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
-) -> crate::AuthZResult<(String, String, Option<String>)> {
+) -> crate::AuthZResult<AuthorizationResult> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
     else {
@@ -148,7 +167,13 @@ fn evaluate_authorization(
 
         return Ok((
             snapshot.cordon_at(&task.task_name, task_data_plane),
-            (ops_logs_journal, ops_stats_journal, None), // No redirect needed
+            AuthorizationResult {
+                ops_logs_journal,
+                ops_stats_journal,
+                redirect_fqdn: None,
+                redirect_dekaf_address: None,
+                redirect_dekaf_registry_address: None,
+            },
         ));
     }
 
@@ -173,11 +198,13 @@ fn evaluate_authorization(
 
         return Ok((
             snapshot.cordon_at(&task.task_name, task_data_plane),
-            (
-                String::new(),
-                String::new(),
-                Some(target_dataplane.data_plane_fqdn.clone()),
-            ),
+            AuthorizationResult {
+                ops_logs_journal: String::new(),
+                ops_stats_journal: String::new(),
+                redirect_fqdn: Some(target_dataplane.data_plane_fqdn.clone()),
+                redirect_dekaf_address: target_dataplane.dekaf_address.clone(),
+                redirect_dekaf_registry_address: target_dataplane.dekaf_registry_address.clone(),
+            },
         ));
     }
 
@@ -199,15 +226,17 @@ mod tests {
             "fqdn2", // Request from data-plane 2 where this task lives
         );
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Ok": {
             "ops_logs_journal": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
             "ops_stats_journal": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
-            "redirect_fqdn": null
+            "redirect_fqdn": null,
+            "redirect_dekaf_address": null,
+            "redirect_dekaf_registry_address": null
           }
         }
-        "###);
+        "#);
     }
 
     #[test]
@@ -242,15 +271,17 @@ mod tests {
     fn test_cordon_task() {
         let outcome = run("bobCo/widgets/materialize-mango", "fqdn2");
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Ok_Cordoned": {
             "ops_logs_journal": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
             "ops_stats_journal": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
-            "redirect_fqdn": null
+            "redirect_fqdn": null,
+            "redirect_dekaf_address": null,
+            "redirect_dekaf_registry_address": null
           }
         }
-        "###);
+        "#);
     }
 
     #[test]
@@ -260,29 +291,24 @@ mod tests {
             "fqdn2",                   // Request from dataplane 2
         );
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Ok": {
             "ops_logs_journal": "",
             "ops_stats_journal": "",
-            "redirect_fqdn": "fqdn1"
+            "redirect_fqdn": "fqdn1",
+            "redirect_dekaf_address": "tls://dekaf.fqdn1:9092",
+            "redirect_dekaf_registry_address": "https://dekaf.fqdn1:443"
           }
         }
-        "###);
-    }
-
-    #[derive(serde::Serialize)]
-    struct SuccessOutput {
-        ops_logs_journal: String,
-        ops_stats_journal: String,
-        redirect_fqdn: Option<String>,
+        "#);
     }
 
     #[derive(serde::Serialize)]
     enum Outcome {
-        Ok(SuccessOutput),
+        Ok(AuthorizationResult),
         #[serde(rename = "Ok_Cordoned")]
-        OkCordoned(SuccessOutput),
+        OkCordoned(AuthorizationResult),
         Err {
             status: u16,
             error: String,
@@ -316,17 +342,11 @@ mod tests {
         .unwrap();
 
         match evaluate_authorization(&snapshot, task_name, shard_data_plane_fqdn, &token) {
-            Ok((cordon_at, (ops_logs_journal, ops_stats_journal, redirect_fqdn))) => {
-                let output = SuccessOutput {
-                    ops_logs_journal,
-                    ops_stats_journal,
-                    redirect_fqdn,
-                };
-
+            Ok((cordon_at, authz_result)) => {
                 if cordon_at.is_some() {
-                    Outcome::OkCordoned(output)
+                    Outcome::OkCordoned(authz_result)
                 } else {
-                    Outcome::Ok(output)
+                    Outcome::Ok(authz_result)
                 }
             }
             Err(status) => Outcome::Err {

@@ -437,6 +437,8 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
                 models::Collection::new("ops/stats"),
                 "broker:address".to_string(),
                 "reactor:address".to_string(),
+                Some("tls://dekaf.noop.dp.estuary-data.com:9092".to_string()),
+                Some("https://dekaf.noop.dp.estuary-data.com:443".to_string()),
             );
 
             live

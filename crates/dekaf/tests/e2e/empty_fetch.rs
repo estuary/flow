@@ -25,7 +25,7 @@ async fn test_empty_fetch_valid_message_set_size() -> anyhow::Result<()> {
     )
     .await?;
 
-    let consumer = env.kafka_consumer()?;
+    let consumer = env.kafka_consumer().await?;
     consumer.subscribe(&["test_topic"])?;
 
     let records = consumer.fetch().await?;

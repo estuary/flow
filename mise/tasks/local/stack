@@ -4,7 +4,7 @@ set -euo pipefail
 #MISE description="Start a local stack (control plane and 'local-cluster' data plane)"
 #MISE depends=["build:connector-init", "build:rocksdb", "local:control-plane"]
 
-mise run local:data-plane local-cluster 8000 --num-brokers 4 --num-reactors 1 --link
+mise run local:data-plane local-cluster 8000 --num-brokers 4 --num-reactors 1 --link --dekaf
 
 # Publish the bundled local-view ops catalog to the control plane.
 BUNDLED_CATALOG=$(cat ./ops-catalog/local-view.bundle.json | sed "s/'/''/g")

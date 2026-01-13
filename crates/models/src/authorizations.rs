@@ -237,6 +237,14 @@ pub struct DekafAuthResponse {
     /// # Target dataplane FQDN for redirect when task has been migrated
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redirect_dataplane_fqdn: Option<String>,
+    /// # Target Dekaf Kafka URI for redirect when task has been migrated.
+    /// Used for Kafka protocol redirects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_dekaf_address: Option<String>,
+    /// # Target redirect Dekaf instance's schema registry URL.
+    /// Used for serving schema registry HTTP redirects when a task has been migrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_dekaf_registry_address: Option<String>,
 }
 
 const fn capability_read() -> crate::Capability {

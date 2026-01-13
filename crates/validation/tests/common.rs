@@ -126,6 +126,8 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             models::Collection::new("ops/stats"),
             "broker:address".to_string(),
             "reactor:address".to_string(),
+            None::<String>, // dekaf_address
+            None::<String>, // dekaf_registry_address
         );
     }
 
