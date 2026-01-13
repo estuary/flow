@@ -15,11 +15,11 @@ async-process = { path = "../async-process" }
 build = { path = "../build" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
-migrate = { path = "../migrate" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
+migrate = { path = "../migrate" }
 models = { path = "../models", features = ["async-graphql", "sqlx-support"] }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
@@ -28,6 +28,7 @@ proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
 runtime = { path = "../runtime" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
+tokens = { path = "../tokens" }
 validation = { path = "../validation" }
 
 aide = { workspace = true }

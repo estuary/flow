@@ -2,42 +2,65 @@ use crate::router;
 use proto_gazette::{broker, consumer};
 use tonic::transport::Channel;
 
-// SubClient is the routed sub-client of Client.
-type SubClient = proto_grpc::consumer::shard_client::ShardClient<
-    tonic::service::interceptor::InterceptedService<Channel, crate::Metadata>,
->;
-
+/// Client for interacting with Gazette shards.
 #[derive(Clone)]
 pub struct Client {
-    default: broker::process_spec::Id,
-    metadata: crate::Metadata,
     router: crate::Router,
+    tokens: tokens::PendingWatch<(proto_grpc::Metadata, broker::process_spec::Id)>,
 }
+
+// SubClient is the routed sub-client of Client.
+type SubClient = proto_grpc::consumer::shard_client::ShardClient<
+    tonic::service::interceptor::InterceptedService<Channel, proto_grpc::Metadata>,
+>;
 
 impl Client {
     /// Build a Client which dispatches request to the given default endpoint with the given Metadata.
-    /// The provider Router enables re-use of connections to consumers.
-    pub fn new(endpoint: String, metadata: crate::Metadata, router: crate::Router) -> Self {
-        Self {
-            default: broker::process_spec::Id {
-                zone: String::new(),
-                suffix: endpoint,
-            },
-            metadata,
+    pub fn new(
+        default_endpoint: String,
+        metadata: proto_grpc::Metadata,
+        router: crate::Router,
+    ) -> Self {
+        Self::new_with_tokens(
+            |(metadata, endpoint)| Ok((metadata.clone(), endpoint.clone())),
             router,
-        }
+            tokens::fixed(Ok((metadata, default_endpoint))),
+        )
     }
 
-    /// Build a new Client which uses a different endpoint and metadata but re-uses underlying connections.
-    pub fn with_endpoint_and_metadata(&self, endpoint: String, metadata: crate::Metadata) -> Self {
-        Self {
-            default: broker::process_spec::Id {
+    /// Build a Client which draws Metadata and a default endpoint from a tokens::Watch.
+    /// The `extract` closure maps the arbitrary Token type into Metadata and default endpoint.
+    pub fn new_with_tokens<Token, Extract>(
+        extract: Extract,
+        router: crate::Router,
+        tokens: tokens::PendingWatch<Token>,
+    ) -> Self
+    where
+        Token: Send + Sync + 'static,
+        Extract:
+            Fn(&Token) -> tonic::Result<(proto_grpc::Metadata, String)> + Send + Sync + 'static,
+    {
+        let tokens = tokens.map(move |token, _prior| {
+            let (metadata, default_endpoint) = extract(token)?;
+
+            let default_id = broker::process_spec::Id {
                 zone: String::new(),
-                suffix: endpoint,
-            },
-            metadata,
-            router: self.router.clone(),
-        }
+                suffix: default_endpoint,
+            };
+
+            Ok((metadata, default_id))
+        });
+
+        Self { router, tokens }
+    }
+
+    // TODO(johnny): Remove this method once all clients use tokens.
+    pub fn with_endpoint_and_metadata(
+        &self,
+        default_endpoint: String,
+        metadata: proto_grpc::Metadata,
+    ) -> Self {
+        Self::new(default_endpoint, metadata, self.router.clone())
     }
 
     /// Invoke the Gazette shard List RPC.
@@ -45,11 +68,12 @@ impl Client {
         &self,
         req: consumer::ListRequest,
     ) -> Result<consumer::ListResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(
-            None,
-            router::Mode::Default,
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can answer).
+                router::Mode::Default,
+            )
+            .await?;
 
         let resp = client
             .list(req)
@@ -65,11 +89,12 @@ impl Client {
         &self,
         req: consumer::ApplyRequest,
     ) -> Result<consumer::ApplyResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(
-            None,
-            router::Mode::Default,
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can apply).
+                router::Mode::Default,
+            )
+            .await?;
 
         let resp = client
             .apply(req)
@@ -85,11 +110,13 @@ impl Client {
         &self,
         req: consumer::UnassignRequest,
     ) -> Result<consumer::UnassignResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(
-            None,
-            router::Mode::Default,
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can unassign).
+                router::Mode::Default,
+            )
+            .await?;
+
         let only_failed = req.only_failed;
 
         let resp = client
@@ -112,11 +139,12 @@ impl Client {
         &self,
         req: consumer::GetHintsRequest,
     ) -> Result<consumer::GetHintsResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(
-            None,
-            router::Mode::Default,
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can get hints).
+                router::Mode::Default,
+            )
+            .await?;
 
         let resp = client
             .get_hints(req)
@@ -127,10 +155,20 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
-    fn into_sub(&self, (channel, _local): (Channel, bool)) -> SubClient {
-        proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
-            channel,
-            self.metadata.clone(),
+    async fn subclient(
+        &self,
+        route_header: Option<&mut broker::Header>,
+        route_mode: router::Mode,
+    ) -> crate::Result<SubClient> {
+        let token = self.tokens.ready().await.token();
+        let (metadata, default_id) = token.result()?;
+        let (channel, _local) = self.router.route(route_header, route_mode, default_id)?;
+
+        Ok(
+            proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
+                channel,
+                metadata.clone(),
+            ),
         )
     }
 }

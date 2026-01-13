@@ -101,3 +101,54 @@ Once you have your Private Link Service set up, we need these details from you t
 * Location for the private endpoint, like `westus`
 
 After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary Flow web app.
+
+## GCP Private Service Connect
+
+For GCP private or BYOC deployments, we can establish connections to your endpoints using [Private Service Connect](https://cloud.google.com/vpc/docs/private-service-connect).
+
+You will first need to publish a service with Private Service Connect. The exact steps vary depending on whether you're using a managed service like Cloud SQL or a self-hosted service.
+
+:::tip
+See the [GCP documentation](https://cloud.google.com/vpc/docs/configure-private-service-connect-producer) for the most up-to-date, detailed instructions on publishing services with Private Service Connect.
+:::
+
+Once you have your service published, we need these details from you to establish the connection. Send them to your Estuary point of contact:
+
+* The service attachment URI, such as `projects/my-project/regions/us-central1/serviceAttachments/my-attachment`
+* The region of the service attachment, such as `us-central1`
+* Your desired DNS zone name, such as `estuary-poc`
+* Your desired DNS record name(s), such as `my-database`
+
+To activate the connection, accept the Private Service Connect connection request from Estuary. We will then configure an endpoint in your data plane, and you can connect using the hostname you selected (such as `my-database.estuary-poc`).
+
+### Cloud SQL
+
+Cloud SQL for MySQL, PostgreSQL, and SQL Server all support Private Service Connect. You can enable PSC when creating a new instance or configure it on an existing instance.
+
+You must add the Estuary project to your instance's allowed PSC projects list:
+
+* For private deployments, add `helpful-kingdom-273219`
+* For BYOC deployments, add your own GCP project name
+
+You can update this list in the Cloud SQL instance settings under **Connections > Private Service Connect allowed projects**, or via the `--allowed-psc-projects` flag in `gcloud`.
+
+To find the service attachment URI for your Cloud SQL instance:
+
+1. In the Google Cloud console, go to the **Cloud SQL Instances** page.
+2. Click on your instance to open its details.
+3. In the **Connect to this instance** section, locate the **Service attachment** field.
+
+The URI will look like `projects/my-project/regions/us-central1/serviceAttachments/my-instance-psc-attachment`.
+
+See the [Cloud SQL documentation](https://cloud.google.com/sql/docs/mysql/configure-private-service-connect) for detailed setup instructions.
+
+### Self-Hosted Services
+
+For self-hosted services running in GCP (such as databases on Compute Engine VMs), you will need to publish a Private Service Connect service. This requires:
+
+* A [PSC NAT subnet](https://cloud.google.com/vpc/docs/configure-private-service-connect-producer#psc-subnets) for consumer traffic
+* An [internal load balancer](https://cloud.google.com/load-balancing/docs/internal) with a forwarding rule pointing to your backend service
+* Firewall rules permitting traffic from the PSC NAT subnet to your service
+* A [service attachment](https://cloud.google.com/vpc/docs/configure-private-service-connect-producer#create-service-attachment) referencing the internal forwarding rule
+
+See the [GCP documentation](https://cloud.google.com/vpc/docs/configure-private-service-connect-producer) for detailed setup instructions.

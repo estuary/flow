@@ -43,12 +43,13 @@ impl Client {
 
         let journal_client = gazette::journal::Client::new(
             String::new(),
-            gazette::Metadata::default(),
+            gazette::journal::Client::new_fragment_client(),
+            proto_grpc::Metadata::default(),
             router.clone(),
         );
         let shard_client = gazette::shard::Client::new(
             String::new(),
-            gazette::Metadata::default(),
+            proto_grpc::Metadata::default(),
             router.clone(),
         );
 
@@ -256,8 +257,7 @@ pub async fn fetch_task_authorization(
 
     let parsed_claims: proto_gazette::Claims = parse_jwt_claims(&token)?;
 
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&token)?;
+    let md = proto_grpc::Metadata::default().with_bearer_token(&token)?;
 
     let journal_client = client
         .journal_client
@@ -350,15 +350,13 @@ pub async fn fetch_user_task_authorization(
         "resolved task data-plane and authorization"
     );
 
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&reactor_token)?;
+    let md = proto_grpc::Metadata::default().with_bearer_token(&reactor_token)?;
 
     let shard_client = client
         .shard_client
         .with_endpoint_and_metadata(reactor_address, md);
 
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&broker_token)?;
+    let md = proto_grpc::Metadata::default().with_bearer_token(&broker_token)?;
 
     let journal_client = client
         .journal_client
@@ -423,8 +421,7 @@ pub async fn fetch_user_collection_authorization(
         "resolved collection data-plane and authorization"
     );
 
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&broker_token)?;
+    let md = proto_grpc::Metadata::default().with_bearer_token(&broker_token)?;
 
     let journal_client = client
         .journal_client

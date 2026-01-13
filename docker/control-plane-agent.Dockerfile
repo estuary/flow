@@ -34,6 +34,7 @@ RUN ln -s /usr/local/aws-cli/v2/current/bin/aws \
 ARG TARGETARCH
 COPY ${TARGETARCH}/agent /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
+COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
 COPY ${TARGETARCH}/agent-api-entrypoint.sh /usr/local/bin/
 
 CMD [ "/usr/local/bin/agent-api-entrypoint.sh" ]

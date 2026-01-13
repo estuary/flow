@@ -1,5 +1,6 @@
 ---
 source: crates/data-plane-controller/tests/test_initial_convergence_and_release.rs
+assertion_line: 71
 expression: trace.lock().unwrap().as_slice()
 ---
 [
@@ -290,6 +291,18 @@ expression: trace.lock().unwrap().as_slice()
         "2600:1234:567:8900::/56",
         "12.34.56.78/32",
         "23.45.67.89/32"
+      ],
+      "gcp_psc_endpoints": [
+        {
+          "dns_record_names": [
+            "customer-db",
+            "customer-api"
+          ],
+          "dns_zone_name": "estuary-psc",
+          "ip_address": "10.128.0.100",
+          "region": "us-central1",
+          "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
+        }
       ],
       "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
       "hmac_keys": [
@@ -651,6 +664,18 @@ expression: trace.lock().unwrap().as_slice()
         "12.34.56.78/32",
         "23.45.67.89/32"
       ],
+      "gcp_psc_endpoints": [
+        {
+          "dns_record_names": [
+            "customer-db",
+            "customer-api"
+          ],
+          "dns_zone_name": "estuary-psc",
+          "ip_address": "10.128.0.100",
+          "region": "us-central1",
+          "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
+        }
+      ],
       "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
       "hmac_keys": [
         "a2V5MQ==",
@@ -1030,6 +1055,18 @@ expression: trace.lock().unwrap().as_slice()
         "2600:1234:567:8900::/56",
         "12.34.56.78/32",
         "23.45.67.89/32"
+      ],
+      "gcp_psc_endpoints": [
+        {
+          "dns_record_names": [
+            "customer-db",
+            "customer-api"
+          ],
+          "dns_zone_name": "estuary-psc",
+          "ip_address": "10.128.0.100",
+          "region": "us-central1",
+          "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
+        }
       ],
       "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
       "hmac_keys": [
@@ -1402,6 +1439,18 @@ expression: trace.lock().unwrap().as_slice()
         "2600:1234:567:8900::/56",
         "12.34.56.78/32",
         "23.45.67.89/32"
+      ],
+      "gcp_psc_endpoints": [
+        {
+          "dns_record_names": [
+            "customer-db",
+            "customer-api"
+          ],
+          "dns_zone_name": "estuary-psc",
+          "ip_address": "10.128.0.100",
+          "region": "us-central1",
+          "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
+        }
       ],
       "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
       "hmac_keys": [

@@ -16,6 +16,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "broker_client",
     "consumer_client",
 ] }
+tokens = { path = "../tokens" }
 
 async-compression = { workspace = true }
 bytes = { workspace = true }
@@ -43,8 +44,3 @@ serde_json = { workspace = true }
 
 tracing-subscriber = { workspace = true }
 hexdump = { workspace = true }
-
-# anyhow = { workspace = true }
-# serde_json = { workspace = true }
-# memchr = { workspace = true }
-# pin-project-lite = { workspace = true }
