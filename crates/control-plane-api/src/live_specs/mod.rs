@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 pub use db::{
     InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
-    fetch_live_specs, hard_delete_live_spec,
+    fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
 
 /// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally

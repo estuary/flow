@@ -124,6 +124,8 @@ mod serde_ops {
 // We don't generate serde support for the `runtime` protobuf package,
 // as it's not intended for JSON serialization.
 
+/// Capability bit-mask values which scope Estuary platform operations.
+/// These values share the Gazette capability namespace.
 pub mod capability {
     pub const AUTHORIZE: u32 = 1 << 16;
     pub const SHUFFLE: u32 = 1 << 17;

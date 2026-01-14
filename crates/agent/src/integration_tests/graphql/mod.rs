@@ -1,3 +1,4 @@
+pub mod mutations;
 pub mod queries;
 
 use std::collections::BTreeMap;

@@ -10,7 +10,8 @@ impl Client {
     pub fn read(
         self,
         mut req: broker::ReadRequest,
-    ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + 'static {
+    ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + Send + 'static
+    {
         coroutines::coroutine(move |mut co| async move {
             let mut write_head = i64::MAX;
             let mut attempt = 0;
@@ -57,15 +58,16 @@ impl Client {
         req: &mut broker::ReadRequest,
         write_head: &mut i64,
     ) -> crate::Result<()> {
-        let mut client = self.into_sub(self.router.route(
-            req.header.as_mut(),
-            if req.do_not_proxy {
-                router::Mode::Replica
-            } else {
-                router::Mode::Default
-            },
-            &self.default,
-        )?);
+        let mut client = self
+            .subclient(
+                req.header.as_mut(),
+                if req.do_not_proxy {
+                    router::Mode::Replica
+                } else {
+                    router::Mode::Default
+                },
+            )
+            .await?;
 
         // Fetch metadata first before we start the actual read.
         req.metadata_only = true;
@@ -92,7 +94,7 @@ impl Client {
             *write_head = metadata.write_head;
             let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
-            return read_fragment_url(co, fragment, fragment_url, &self.http, req).await;
+            return read_fragment_url(co, fragment, &self.fragment_client, fragment_url, req).await;
         }
 
         tracing::trace!(req.offset, write_head, "started direct journal read");
@@ -136,11 +138,11 @@ impl Client {
 async fn read_fragment_url(
     co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
     fragment: broker::Fragment,
+    fragment_client: &reqwest::Client,
     fragment_url: String,
-    http: &reqwest::Client,
     req: &mut broker::ReadRequest,
 ) -> crate::Result<()> {
-    let mut get = http.get(fragment_url);
+    let mut get = fragment_client.get(fragment_url);
 
     match fragment.compression_codec() {
         broker::CompressionCodec::GzipOffloadDecompression => {

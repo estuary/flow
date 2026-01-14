@@ -211,7 +211,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         task: &str,
     ) -> anyhow::Result<(
         tonic::transport::Channel,
-        gazette::Metadata,
+        proto_grpc::Metadata,
         (
             futures::channel::oneshot::Sender<()>,
             impl Future<Output = anyhow::Result<()>> + 'a,
@@ -227,18 +227,25 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             ..
         } = dp;
 
-        let mut metadata = gazette::Metadata::default();
+        // Parse first data-plane HMAC key (used for signing tokens).
+        let (encode_key, _decode) = tokens::jwt::parse_base64_hmac_keys(hmac_keys.iter().take(1))
+            .context("invalid data-plane HMAC key")?;
 
-        metadata
-            .signed_claims(
-                proto_flow::capability::PROXY_CONNECTOR,
-                &data_plane_fqdn,
-                *CONNECTOR_TIMEOUT * 2,
-                &hmac_keys,
-                Default::default(),
-                task,
-            )
+        let iat = tokens::now();
+        let claims = proto_gazette::Claims {
+            cap: proto_flow::capability::PROXY_CONNECTOR,
+            exp: (iat + (*CONNECTOR_TIMEOUT * 2)).timestamp() as u64,
+            iat: iat.timestamp() as u64,
+            iss: data_plane_fqdn,
+            sel: Default::default(),
+            sub: task.to_string(),
+        };
+        let token = tokens::jwt::sign(&claims, &encode_key)
             .context("failed to sign claims for connector proxy")?;
+
+        let mut metadata = proto_grpc::Metadata::new()
+            .with_bearer_token(&token)
+            .expect("token is valid");
 
         // Start an RPC against the base reactor service to start a connector proxy.
         // Use a request stream which blocks until cancelled, and then sends EOF.
@@ -265,7 +272,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         };
 
         // `proxy-id` is attached to RPCs issued to this proxy.
-        metadata.insert("proxy-id", proxy_id.parse()?);
+        metadata.0.insert("proxy-id", proxy_id.parse()?);
 
         tracing::debug!(address, proxy_id, task=?ops::DebugJson(&task), "started proxy runtime");
 

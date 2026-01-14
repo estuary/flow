@@ -11,14 +11,16 @@ license.workspace = true
 [dependencies]
 activate = { path = "../activate" }
 assemble = { path = "../assemble" }
+automations = { path = "../automations" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }
 models = { path = "../models", features = ["sqlx-support"] }
 ops = { path = "../ops" }
-tables = { path = "../tables" }
-automations = { path = "../automations" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc" }
+tables = { path = "../tables" }
+tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
 itertools = { workspace = true }

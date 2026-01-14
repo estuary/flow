@@ -34,14 +34,16 @@ where
                 (node, types::ARRAY)
             }
             node @ Node::Object(fields) => {
-                for (child_index, field) in fields.iter().enumerate() {
+                let mut iter = fields.iter().enumerate().peekable();
+                while let Some((child_index, field)) = iter.next() {
                     let property = field.property();
+                    let next_property = iter.peek().map(|(_, f)| f.property());
 
                     if self.wind_property_name() {
                         self.walk_property_name::<N>(child_index, property);
                     }
 
-                    if self.wind_property(property, field.value()) {
+                    if self.wind_property(property, field.value(), next_property) {
                         self.walk(child_index, field.value());
                     } else {
                         self.next_tape_index += field.value().tape_length(); // Skip child.
@@ -176,7 +178,12 @@ where
     }
 
     #[inline]
-    fn wind_property<'n, N: AsNode>(&mut self, property: &str, node: &'n N) -> bool {
+    fn wind_property<'n, N: AsNode>(
+        &mut self,
+        property: &str,
+        node: &'n N,
+        next_property: Option<&str>,
+    ) -> bool {
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
         for frame in active.start..active.end {
@@ -199,7 +206,12 @@ where
                                     }
                                 }
                                 Ordering::Equal => {
-                                    me.counter += 1;
+                                    // Only advance counter if this is the last occurrence
+                                    // of this property. This allows duplicate properties to
+                                    // all match against the same schema.
+                                    if next_property != Some(property) {
+                                        me.counter += 1;
+                                    }
                                     if next.as_bytes()[0] == b'+' {
                                         // `property` appeared in a "required" keyword but not "properties".
                                         // It's schema is a placeholder and it's not evaluated with respect

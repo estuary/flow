@@ -253,6 +253,36 @@ impl Snapshot {
         Err(Ok(backoff.to_std().unwrap()))
     }
 
+    // Retrieve all tasks whose names start with the given `prefix`.
+    pub fn tasks_by_prefix<'s>(
+        &'s self,
+        prefix: &'s str,
+    ) -> impl Iterator<Item = &'s SnapshotTask> + 's {
+        let start = self
+            .tasks_idx_name
+            .partition_point(|i| self.tasks[*i].task_name.as_str() < prefix);
+
+        self.tasks_idx_name[start..]
+            .iter()
+            .map(|i| &self.tasks[*i])
+            .take_while(move |task| task.task_name.as_str().starts_with(prefix))
+    }
+
+    // Retrieve all collections whose names start with the given `prefix`.
+    pub fn collections_by_prefix<'s>(
+        &'s self,
+        prefix: &'s str,
+    ) -> impl Iterator<Item = &'s SnapshotCollection> + 's {
+        let start = self
+            .collections_idx_name
+            .partition_point(|i| self.collections[*i].collection_name.as_str() < prefix);
+
+        self.collections_idx_name[start..]
+            .iter()
+            .map(|i| &self.collections[*i])
+            .take_while(move |coll| coll.collection_name.as_str().starts_with(prefix))
+    }
+
     // Retrieve task having the exact catalog `name`.
     pub fn task_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s SnapshotTask> {
         self.tasks_idx_name

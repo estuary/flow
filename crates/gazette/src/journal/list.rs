@@ -7,7 +7,7 @@ impl Client {
     /// List journals that match the ListRequest.
     pub async fn list(&self, mut req: broker::ListRequest) -> crate::Result<broker::ListResponse> {
         assert!(!req.watch, "list() requires ListRequest.watch is not set");
-        let mut stream = self.start_list(&self.router, &req).await?;
+        let mut stream = self.start_list(&req).await?;
         recv_snapshot(&mut req, &mut stream).await
     }
 
@@ -34,7 +34,7 @@ impl Client {
                         }
                         Err(err) => err,
                     },
-                    None => match self.start_list(&self.router, &req).await {
+                    None => match self.start_list(&req).await {
                         Ok(stream) => {
                             maybe_stream = Some(stream);
                             continue;
@@ -58,10 +58,15 @@ impl Client {
 
     async fn start_list(
         &self,
-        router: &crate::Router,
         req: &broker::ListRequest,
     ) -> crate::Result<tonic::Streaming<broker::ListResponse>> {
-        let mut client = self.into_sub(router.route(None, router::Mode::Default, &self.default)?);
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can answer).
+                router::Mode::Default,
+            )
+            .await?;
+
         Ok(client.list(req.clone()).await?.into_inner())
     }
 }

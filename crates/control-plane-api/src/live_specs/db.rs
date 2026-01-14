@@ -176,3 +176,22 @@ pub async fn fetch_expanded_live_specs(
     .fetch_all(db)
     .await
 }
+
+/// Returns all live spec names under the given prefix.
+pub async fn fetch_live_spec_names_by_prefix(
+    prefix: &str,
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"
+        select catalog_name
+        from live_specs
+        where starts_with(catalog_name, $1)
+        and spec is not null
+        order by catalog_name
+        "#,
+        prefix,
+    )
+    .fetch_all(db)
+    .await
+}

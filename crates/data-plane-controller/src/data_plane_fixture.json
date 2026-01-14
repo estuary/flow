@@ -89,5 +89,31 @@
     ],
     "private_links": [],
     "control_plane_api": "https://agent-api.app/"
+  },
+  "gcp_private_service_connect": {
+    "builds_root": "gs://estuary-control/builds/",
+    "deployments": [],
+    "gcp_project": "testing-ground-123456",
+    "ssh_subnets": [],
+    "allow_cidrs": [],
+    "data_buckets": [
+      "gs://estuary-trial",
+      "gs://estuary-flow-poc"
+    ],
+    "builds_kms_keys": [
+      "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
+    ],
+    "private_links": [
+      {
+        "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db",
+        "region": "us-central1",
+        "dns_zone_name": "estuary-psc",
+        "dns_record_names": ["customer-db", "customer-api"]
+      }
+    ],
+    "gcp_byoc": {
+      "project_id": "12345678"
+    },
+    "control_plane_api": "https://agent-api.app/"
   }
 }
