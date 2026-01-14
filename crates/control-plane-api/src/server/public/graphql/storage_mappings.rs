@@ -163,9 +163,11 @@ impl StorageMappingsMutation {
 
         // Check if any existing tasks or collections would be affected by this new storage mapping.
         // We disallow creating storage mappings that would change the storage for existing specs.
-        let affected_specs =
-            crate::live_specs::fetch_live_spec_names_by_prefix(input.catalog_prefix.as_str(), &app.pg_pool)
-                .await?;
+        let affected_specs = crate::live_specs::fetch_live_spec_names_by_prefix(
+            input.catalog_prefix.as_str(),
+            &app.pg_pool,
+        )
+        .await?;
 
         if !affected_specs.is_empty() {
             let sample: Vec<_> = affected_specs.iter().take(5).cloned().collect();
