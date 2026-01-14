@@ -190,6 +190,28 @@ For help generating a valid query, see [Google's query builder documentation](ht
 
 If a query fails to validate against a given Google Ads account, it will be skipped.
 
+### Incremental vs. Snapshot Streams
+
+Custom queries automatically determine their sync behavior based on the primary key configuration:
+
+- **Incremental streams**: If your primary key includes `segments.date`, the stream will operate incrementally, capturing data changes over time based on the date segment.
+- **Snapshot streams**: If your primary key does not include `segments.date`, the stream will operate as a full refresh, capturing a complete snapshot of the aggregated data on each sync.
+
+**Example:**
+
+```yaml
+custom_queries:
+  # Incremental stream - includes segments.date in primary key
+  - query: SELECT customer.id, segments.date, metrics.impressions FROM customer
+    table_name: customer_metrics_daily
+    primary_key: customer.id,segments.date
+
+  # Snapshot stream - no segments.date in primary key
+  - query: SELECT customer.id, metrics.impressions FROM customer
+    table_name: customer_metrics_total
+    primary_key: customer.id
+```
+
 ## Stream Limitations
 
 ### ClickView
