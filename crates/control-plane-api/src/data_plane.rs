@@ -108,21 +108,33 @@ pub fn build_journal_client(
         );
     }
 
-    let mut metadata = gazette::Metadata::default();
-    metadata
-        .signed_claims(
-            proto_gazette::capability::LIST | proto_gazette::capability::READ,
-            &data_plane.data_plane_fqdn,
-            std::time::Duration::from_secs(60),
-            &keys,
-            broker::LabelSelector::default(),
-            "control-plane-api",
-        )
-        .context("failed to sign claims for data-plane")?;
+    // Parse first data-plane HMAC key (used for signing tokens).
+    let (encode_key, _decode) = tokens::jwt::parse_base64_hmac_keys(keys.iter().take(1))
+        .context("invalid data-plane HMAC key")?;
+
+    let iat = tokens::now();
+    let claims = proto_gazette::Claims {
+        cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
+        exp: (iat + tokens::TimeDelta::seconds(60)).timestamp() as u64,
+        iat: iat.timestamp() as u64,
+        iss: data_plane.data_plane_fqdn.clone(),
+        sel: broker::LabelSelector::default(),
+        sub: "control-plane-api".to_string(),
+    };
+    let token =
+        tokens::jwt::sign(&claims, &encode_key).context("failed to sign claims for data-plane")?;
+
+    let metadata = proto_grpc::Metadata::new()
+        .with_bearer_token(&token)
+        .expect("token is valid");
 
     let router = gazette::Router::new("local");
-    let journal_client =
-        gazette::journal::Client::new(data_plane.broker_address.clone(), metadata, router);
+    let journal_client = gazette::journal::Client::new(
+        data_plane.broker_address.clone(),
+        gazette::journal::Client::new_fragment_client(),
+        metadata,
+        router,
+    );
 
     Ok(journal_client)
 }
