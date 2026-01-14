@@ -8,15 +8,16 @@ mod live_specs;
 mod prefixes;
 mod publication_history;
 pub mod status;
+mod storage_mappings;
 
-use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use async_graphql::{EmptySubscription, Schema};
 use axum::Extension;
 use std::sync::Arc;
 
 use crate::server::{App, ControlClaims};
 
 // This type represents the complete graphql schema.
-pub type GraphQLSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
+pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
 pub struct PgDataLoader(pub sqlx::PgPool);
 
@@ -32,8 +33,17 @@ pub struct QueryRoot(
     prefixes::PrefixesQuery,
 );
 
+// Represents the portion of the GraphQL schema that deals with mutations.
+#[derive(Debug, Default, async_graphql::MergedObject)]
+pub struct MutationRoot(storage_mappings::StorageMappingsMutation);
+
 pub fn create_schema() -> GraphQLSchema {
-    Schema::build(QueryRoot::default(), EmptyMutation, EmptySubscription).finish()
+    Schema::build(
+        QueryRoot::default(),
+        MutationRoot::default(),
+        EmptySubscription,
+    )
+    .finish()
 }
 
 /// Returns the GraphQL SDL (Schema Definition Language) as a string.

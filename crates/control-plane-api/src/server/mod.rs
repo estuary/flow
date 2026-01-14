@@ -1,6 +1,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use base64::Engine;
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
 use tables::UserGrant;
 
 mod authorize_dekaf;
@@ -48,6 +49,9 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
+/// Type alias for the decrypted HMAC keys cache, keyed by data plane name.
+pub type HmacKeys = Arc<RwLock<HashMap<String, Vec<String>>>>;
+
 pub struct App {
     _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
@@ -55,7 +59,8 @@ pub struct App {
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
-    snapshot: std::sync::RwLock<Snapshot>,
+    snapshot: RwLock<Snapshot>,
+    hmac_keys: HmacKeys,
 }
 
 impl App {
@@ -65,6 +70,7 @@ impl App {
         jwt_secret: Vec<u8>,
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
+        hmac_keys: HmacKeys,
     ) -> Self {
         let mut jwt_validation = jsonwebtoken::Validation::default();
         jwt_validation.set_audience(&["authenticated"]);
@@ -76,8 +82,13 @@ impl App {
             jwt_validation,
             pg_pool,
             publisher,
-            snapshot: std::sync::RwLock::new(Snapshot::empty()),
+            snapshot: RwLock::new(Snapshot::empty()),
+            hmac_keys,
         }
+    }
+
+    pub fn hmac_keys(&self) -> &HmacKeys {
+        &self.hmac_keys
     }
 
     // TODO(johnny): This should return a VerifiedClaims struct which
@@ -234,11 +245,18 @@ pub fn build_router(
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
     allow_origin: &[String],
+    hmac_keys: HmacKeys,
 ) -> anyhow::Result<axum::Router<()>> {
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
-    let app = Arc::new(App::new(id_generator, jwt_secret, pg_pool, publisher));
+    let app = Arc::new(App::new(
+        id_generator,
+        jwt_secret,
+        pg_pool,
+        publisher,
+        hmac_keys,
+    ));
     tokio::spawn(snapshot::fetch_loop(app.clone()));
 
     use axum::routing::post;

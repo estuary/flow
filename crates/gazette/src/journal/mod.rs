@@ -134,6 +134,26 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
+    pub async fn fragment_store_health(
+        &self,
+        req: broker::FragmentStoreHealthRequest,
+    ) -> crate::Result<broker::FragmentStoreHealthResponse> {
+        let mut client = self
+            .subclient(
+                None, // No route header (any member can check health).
+                router::Mode::Default,
+            )
+            .await?;
+
+        let resp = client
+            .fragment_store_health(req)
+            .await
+            .map_err(crate::Error::Grpc)?
+            .into_inner();
+
+        check_ok(resp.status(), resp)
+    }
+
     async fn subclient(
         &self,
         route_header: Option<&mut broker::Header>,
