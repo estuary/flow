@@ -1,13 +1,49 @@
 begin;
 
--- Roles which are created by supabase: anon, authenticated, supabase_admin, service_role.
+DO $$
+BEGIN
+    -- Are we applying migrations for supabase?
+    -- In this case, we need to create expected roles that will be referenced
+    -- in the compacted schema.
+    IF current_database() = 'postgres' THEN
 
-create role stats_loader with login password 'stats_loader_password' bypassrls;
-create role marketplace_integration;
-create role gatsby_reader;
-create role github_action_connector_refresh;
-create role wgd_automation;
-create role reporting_user;
+        -- Roles which are created by supabase: anon, authenticated, supabase_admin, service_role.
+        create role data_plane_releases_ci;
+        create role dekaf;
+        create role gatsby_reader;
+        create role github_action_connector_refresh;
+        create role marketplace_integration;
+        create role reporting_user;
+        create role stats_loader with login password 'stats_loader_password' bypassrls;
+        create role wgd_automation;
+
+        -- Enable pg_cron.
+        create extension pg_cron with schema pg_catalog;
+        grant usage on schema cron to postgres;
+        grant all privileges on all tables in schema cron to postgres;
+
+    ELSE
+        -- We're applying migrations for a sqlx::test.
+        -- Roles are cluster-wide and already exist from migrations applied to the
+        -- primary `postgres` database. We only need to stub Supabase schemas.
+
+        -- Create auth schema with minimal users table stub.
+        create schema auth;
+        create table auth.users (
+            id uuid primary key,
+            email text,
+            is_sso_user boolean,
+            raw_user_meta_data jsonb
+        );
+
+        -- Stub for auth.uid() function.
+        create function auth.uid() returns uuid as $uid$
+            select null::uuid;
+        $uid$ language sql stable;
+
+    END IF;
+END
+$$;
 
 -- Required for postgres to give ownership of catalog_stats to stats_loader.
 grant stats_loader to postgres;
