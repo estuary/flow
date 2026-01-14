@@ -3,14 +3,15 @@
 --
 
 -- Dumped from database version 15.1 (Ubuntu 15.1-1.pgdg20.04+1)
--- Dumped by pg_dump version 16.4 (Ubuntu 16.4-0ubuntu0.24.04.1)
+-- Dumped by pg_dump version 15.15 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
+-- Removed: SELECT pg_catalog.set_config('search_path', '', false);
+-- This breaks sqlx migration tracking. All objects use explicit schema qualification.
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
@@ -50,7 +51,9 @@ CREATE TYPE public.alert_type AS ENUM (
     'free_trial_stalled',
     'missing_payment_method',
     'data_movement_stalled',
-    'data_not_processed_in_interval'
+    'data_not_processed_in_interval',
+    'shard_failed',
+    'auto_discover_failed'
 );
 
 
@@ -699,8 +702,9 @@ CREATE FUNCTION internal.access_token_jwt_secret() RETURNS text
     LANGUAGE sql STABLE
     AS $$
 
-  select coalesce(current_setting('app.settings.jwt_secret', true), 'super-secret-jwt-token-with-at-least-32-characters-long') limit 1
-
+    select decrypted_secret
+       from vault.decrypted_secrets
+       where name = 'app.jwt_secret';
 $$;
 
 
@@ -757,7 +761,7 @@ begin
       sum(bytes_written_by_me + bytes_read_by_me) / (10.0^9.0) as data_gb,
       sum(usage_seconds) / (60.0 * 60) as task_hours
     from catalog_stats, vars
-      where catalog_name ^@ billed_prefix -- Name starts with prefix.
+      where catalog_name = billed_prefix   -- Direct lookup of tenant rollup
       and grain = 'daily'
       and billed_range @> ts
       group by ts
@@ -919,6 +923,58 @@ $$;
 ALTER FUNCTION internal.billing_report_202308(billed_prefix public.catalog_prefix, billed_month timestamp with time zone) OWNER TO postgres;
 
 --
+-- Name: check_changes_when_status_not_idle(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.check_changes_when_status_not_idle() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO ''
+    AS $$
+BEGIN
+  -- Allow updates only when Idle.
+  IF OLD.status <> 'Idle' THEN
+      IF OLD.config::text IS DISTINCT FROM NEW.config::text THEN
+          RAISE EXCEPTION 'Cannot change column "config" when status is not "Idle"';
+      END IF;
+
+      IF OLD.deploy_branch IS DISTINCT FROM NEW.deploy_branch THEN
+          RAISE EXCEPTION 'Cannot change column "deploy_branch" when status is not "Idle"';
+      END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION internal.check_changes_when_status_not_idle() OWNER TO postgres;
+
+--
+-- Name: cleanup_old_alerts(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.cleanup_old_alerts() RETURNS integer
+    LANGUAGE sql SECURITY DEFINER
+    AS $$
+   with d as (
+        delete from public.alert_history
+        where fired_at < (now() - '1 year'::interval) and resolved_at is not null
+        returning resolved_at
+   )
+   select count(*) from d;
+$$;
+
+
+ALTER FUNCTION internal.cleanup_old_alerts() OWNER TO postgres;
+
+--
+-- Name: FUNCTION cleanup_old_alerts(); Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON FUNCTION internal.cleanup_old_alerts() IS 'Removes resolved alert history records older than 1 year to prevent unbounded growth';
+
+
+--
 -- Name: compute_incremental_line_items(text, text, numeric, integer[], numeric); Type: FUNCTION; Schema: internal; Owner: postgres
 --
 
@@ -1047,6 +1103,149 @@ created discovers jobs.';
 
 
 --
+-- Name: create_connector_tag_task(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_connector_tag_task() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+begin
+    execute internal.create_handler_task(new.id, 7);
+    return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.create_connector_tag_task() OWNER TO postgres;
+
+--
+-- Name: create_directive_task(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_directive_task() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+begin
+    execute internal.create_handler_task(new.id, 6);
+    return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.create_directive_task() OWNER TO postgres;
+
+--
+-- Name: create_discover_task(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_discover_task() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+begin
+    execute internal.create_handler_task(new.id, 4);
+    return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.create_discover_task() OWNER TO postgres;
+
+--
+-- Name: create_evolution_task(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_evolution_task() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+begin
+    execute internal.create_handler_task(new.id, 5);
+    return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.create_evolution_task() OWNER TO postgres;
+
+--
+-- Name: create_handler_task(public.flowid, integer); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_handler_task(task_id public.flowid, task_type integer) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+begin
+    insert into internal.tasks (task_id, task_type, wake_at, inbox)
+    values (task_id, task_type, now(), array[
+        json_build_array('0000000000000000', json_build_object('type', 'queued'))
+    ]);
+end;
+$$;
+
+
+ALTER FUNCTION internal.create_handler_task(task_id public.flowid, task_type integer) OWNER TO postgres;
+
+--
+-- Name: FUNCTION create_handler_task(task_id public.flowid, task_type integer); Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON FUNCTION internal.create_handler_task(task_id public.flowid, task_type integer) IS 'Create a task with the given task_id and task_type, which must not exist.
+The task is initially queued. Raises an error if the task already exists.';
+
+
+--
+-- Name: create_publication_task(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_publication_task() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+begin
+    execute internal.create_handler_task(new.id, 3);
+    return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.create_publication_task() OWNER TO postgres;
+
+--
+-- Name: create_task(public.flowid, smallint, public.flowid); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.create_task(p_task_id public.flowid, p_task_type smallint, p_parent_id public.flowid) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO ''
+    AS $$
+BEGIN
+
+    INSERT INTO internal.tasks (task_id, task_type, parent_id)
+    VALUES (p_task_id, p_task_type, p_parent_id);
+
+END;
+$$;
+
+
+ALTER FUNCTION internal.create_task(p_task_id public.flowid, p_task_type smallint, p_parent_id public.flowid) OWNER TO postgres;
+
+--
+-- Name: delete_old_config_updates(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.delete_old_config_updates() RETURNS integer
+    LANGUAGE sql SECURITY DEFINER
+    AS $$
+    with deleted as (
+        delete from public.config_updates
+        where ts < (now() - '48h'::interval)
+        returning ts
+    )
+    select count(*) from deleted;
+$$;
+
+
+ALTER FUNCTION internal.delete_old_config_updates() OWNER TO postgres;
+
+--
 -- Name: delete_old_cron_runs(); Type: FUNCTION; Schema: internal; Owner: postgres
 --
 
@@ -1139,67 +1338,132 @@ COMMENT ON FUNCTION internal.delete_old_log_lines() IS 'deletes internal.log_lin
 
 
 --
+-- Name: delete_old_shard_failures(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.delete_old_shard_failures() RETURNS integer
+    LANGUAGE sql SECURITY DEFINER
+    AS $$
+    with deleted as (
+        delete from public.shard_failures
+        where ts < (now() - '48h'::interval)
+        returning ts
+    )
+    select count(*) from deleted;
+$$;
+
+
+ALTER FUNCTION internal.delete_old_shard_failures() OWNER TO postgres;
+
+--
 -- Name: evaluate_alert_events(); Type: FUNCTION; Schema: internal; Owner: postgres
 --
 
 CREATE FUNCTION internal.evaluate_alert_events() RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
-begin
+  begin
 
-  -- Create alerts which have transitioned from !firing => firing
-  with open_alerts as (
-    select alert_type, catalog_name from alert_history
-    where resolved_at is null
-  )
-  insert into alert_history (alert_type, catalog_name, fired_at, arguments)
-    select alert_all.alert_type, alert_all.catalog_name, now(), alert_all.arguments
-    from alert_all
-    left join open_alerts on
-      alert_all.alert_type = open_alerts.alert_type and
-      alert_all.catalog_name = open_alerts.catalog_name
-    where alert_all.firing and open_alerts is null;
+    with all_alerts as (
+      select alert_type, catalog_name, arguments, firing
+      from internal.alert_all
+    ),
+    current_alerts as (
+      select alert_type, catalog_name, arguments, firing
+      from all_alerts
+      where firing = true
+    ),
+    open_alerts as (
+      select alert_type, catalog_name, fired_at, arguments
+      from public.alert_history
+      where resolved_at is null
+    ),
+    new_alerts as (
+      insert into public.alert_history (alert_type, catalog_name, fired_at, arguments)
+      select
+        ca.alert_type,
+        ca.catalog_name,
+        now(),
+        jsonb_set(
+          ca.arguments,
+          '{recipients}',
+          coalesce(
+            jsonb_agg(
+              jsonb_build_object(
+                'email', asub.email,
+                'full_name', au.raw_user_meta_data->>'full_name'
+              ) order by asub.email
+            ) filter (
+              where asub.email is not null
+              and ca.alert_type = any(asub.include_alert_types)
+            ),
+            '[]'::jsonb
+          )
+        )
+      from current_alerts ca
+      left join public.alert_subscriptions asub on starts_with(ca.catalog_name, asub.catalog_prefix)
+      left join auth.users au on asub.email = au.email and au.is_sso_user is false
+      left join open_alerts oa on
+        ca.alert_type = oa.alert_type and
+        ca.catalog_name = oa.catalog_name
+      where oa.alert_type is null -- filter out alerts that are already firing
+      group by ca.alert_type, ca.catalog_name, ca.arguments
+      returning fired_at
+    ),
+    resolving_alerts as (
+      select
+        oa.alert_type,
+        oa.catalog_name,
+        oa.fired_at,
+        jsonb_set(
+          -- Prefer to use `alert_all.arguments` if present (which would be the
+          -- case when the alert has a row present with `firing = false`). This
+          -- is so that the resolved_arguments will be the most up-to-date
+          -- arguments.
+          coalesce(aa.arguments, oa.arguments),
+          '{recipients}',
+          coalesce(
+            jsonb_agg(
+              jsonb_build_object(
+                'email', asub.email,
+                'full_name', au.raw_user_meta_data->>'full_name'
+              ) order by asub.email
+            ) filter (
+              where asub.email is not null
+              and oa.alert_type = any(asub.include_alert_types)
+            ),
+            '[]'::jsonb
+          )
+        )::json as resolved_arguments
+       from open_alerts oa
+       left join all_alerts aa on oa.alert_type = aa.alert_type and oa.catalog_name = aa.catalog_name
+       left join public.alert_subscriptions asub on starts_with(oa.catalog_name, asub.catalog_prefix)
+       left join auth.users au on asub.email = au.email and au.is_sso_user is false
+       where aa.alert_type is null or not aa.firing
+       group by oa.alert_type, oa.catalog_name, oa.fired_at, aa.arguments, oa.arguments
+     )
+     -- Update alert_history to resolve alerts that are no longer firing
+     update public.alert_history
+       set resolved_at = now(), resolved_arguments = ra.resolved_arguments
+       from resolving_alerts ra
+       where public.alert_history.alert_type = ra.alert_type
+         and public.alert_history.catalog_name = ra.catalog_name
+         and public.alert_history.fired_at = ra.fired_at;
 
-  -- Resolve alerts that have transitioned from firing => !firing
-  with open_alerts as (
-    select
-      alert_history.alert_type,
-      alert_history.catalog_name,
-      fired_at
-    from alert_history
-    where resolved_at is null
-  ),
-  -- Find all open_alerts for which either there is not a row in alerts_all,
-  -- or there is but its firing field is false.
-  closing_alerts as (
-    select
-      open_alerts.alert_type,
-      open_alerts.catalog_name,
-      fired_at,
-      coalesce(alert_all.arguments, null) as arguments
-    from open_alerts
-    left join alert_all on
-      alert_all.alert_type = open_alerts.alert_type and
-      alert_all.catalog_name = open_alerts.catalog_name
-    where
-      -- The open alert is no longer in alert_all, therefore it's no longer firing
-      alert_all.alert_type is null or
-      -- The open is still tracked, but it has stopped firing
-      not alert_all.firing
-  )
-  update alert_history
-    set resolved_at = now(),
-        resolved_arguments = closing_alerts.arguments
-    from closing_alerts
-    where alert_history.alert_type = closing_alerts.alert_type
-      and alert_history.catalog_name = closing_alerts.catalog_name
-      and alert_history.fired_at = closing_alerts.fired_at;
-
-end;
-$$;
+   end;
+   $$;
 
 
 ALTER FUNCTION internal.evaluate_alert_events() OWNER TO postgres;
+
+--
+-- Name: FUNCTION evaluate_alert_events(); Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON FUNCTION internal.evaluate_alert_events() IS 'Processes alert state changes: creates new alert history entries for newly
+firing alerts and resolves alerts that are no longer firing. Adds recipient
+information to both new and resolved alerts based on alert_subscriptions.';
+
 
 --
 -- Name: freeze_billing_month(timestamp with time zone); Type: FUNCTION; Schema: internal; Owner: postgres
@@ -1476,18 +1740,59 @@ $$;
 ALTER FUNCTION internal.on_applied_directives_update() OWNER TO postgres;
 
 --
+-- Name: on_config_update(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.on_config_update() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+declare
+    controller_task_id public.flowid;
+begin
+
+    select ls.controller_task_id into controller_task_id
+    from live_specs ls
+    where ls.catalog_name = new.catalog_name;
+
+    -- It is possible for config updates to be observed after the task has been deleted.
+    -- In that case, we just ignore the update.
+    if controller_task_id is not null then
+        perform internal.send_to_task(
+            controller_task_id,
+            '00:00:00:00:00:00:00:00'::flowid,
+            '{"type":"config_updated"}'
+            );
+    end if;
+return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.on_config_update() OWNER TO postgres;
+
+--
 -- Name: on_inferred_schema_update(); Type: FUNCTION; Schema: internal; Owner: postgres
 --
 
 CREATE FUNCTION internal.on_inferred_schema_update() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
+declare
+    controller_task_id flowid;
 begin
 
--- The least function is necessary in order to avoid delaying a controller job in scenarios
--- where there is a backlog of controller runs that are due.
-update live_specs set controller_next_run = least(controller_next_run, now())
-where catalog_name = new.collection_name and spec_type = 'collection';
+    -- There's no need to have a `for update of ls` clause here because
+    -- `send_to_task` does not modify the `live_specs` table.
+    select ls.controller_task_id into controller_task_id
+    from public.live_specs ls
+    where ls.catalog_name = new.collection_name and ls.spec_type = 'collection';
+    if controller_task_id is not null then
+        perform internal.send_to_task(
+            controller_task_id,
+            '00:00:00:00:00:00:00:00'::flowid,
+            '{"type":"inferred_schema_updated"}'::json
+        );
+    end if;
 
 return null;
 end;
@@ -1504,6 +1809,37 @@ COMMENT ON FUNCTION internal.on_inferred_schema_update() IS 'Schedules a run of 
 
 
 --
+-- Name: on_shard_failure(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.on_shard_failure() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+declare
+    controller_task_id public.flowid;
+begin
+
+    select ls.controller_task_id into controller_task_id
+    from live_specs ls
+    where ls.catalog_name = new.catalog_name;
+
+    -- It is possible for shard failures to be observed after the task has been deleted.
+    -- In that case, we just ignore the failure.
+    if controller_task_id is not null then
+        perform internal.send_to_task(
+            controller_task_id,
+            '00:00:00:00:00:00:00:00'::flowid,
+            '{"type":"shard_failed"}'
+            );
+    end if;
+return null;
+end;
+$$;
+
+
+ALTER FUNCTION internal.on_shard_failure() OWNER TO postgres;
+
+--
 -- Name: send_alerts(); Type: FUNCTION; Schema: internal; Owner: postgres
 --
 
@@ -1516,8 +1852,7 @@ begin
   select decrypted_secret into token from vault.decrypted_secrets where name = 'alert-email-fn-shared-secret' limit 1;
     perform
       net.http_post(
-        -- 'http://host.docker.internal:5431/functions/v1/alerts',
-        'https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alerts',
+        'https://alerts-1084703453822.us-central1.run.app/',
         to_jsonb(new.*),
         headers:=format('{"Content-Type": "application/json", "Authorization": "Basic %s"}', token)::jsonb,
         timeout_milliseconds:=90000
@@ -1528,6 +1863,36 @@ $$;
 
 
 ALTER FUNCTION internal.send_alerts() OWNER TO postgres;
+
+--
+-- Name: send_to_task(public.flowid, public.flowid, json); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.send_to_task(p_task_id public.flowid, p_from_id public.flowid, p_message json) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO ''
+    AS $$
+BEGIN
+
+    UPDATE internal.tasks SET
+        wake_at = LEAST(wake_at, NOW()),
+        inbox =
+            CASE WHEN heartbeat = '0001-01-01T00:00:00Z'
+            THEN ARRAY_APPEND(inbox, JSON_BUILD_ARRAY(p_from_id, p_message))
+            ELSE inbox
+            END,
+        inbox_next =
+            CASE WHEN heartbeat = '0001-01-01T00:00:00Z'
+            THEN inbox_next
+            ELSE ARRAY_APPEND(inbox_next, JSON_BUILD_ARRAY(p_from_id, p_message))
+            END
+    WHERE task_id = p_task_id;
+
+END;
+$$;
+
+
+ALTER FUNCTION internal.send_to_task(p_task_id public.flowid, p_from_id public.flowid, p_message json) OWNER TO postgres;
 
 --
 -- Name: set_new_free_trials(); Type: FUNCTION; Schema: internal; Owner: postgres
@@ -1801,6 +2166,43 @@ $_$;
 ALTER FUNCTION internal.tier_line_items(amount integer, tiers integer[], name text, unit text) OWNER TO postgres;
 
 --
+-- Name: trigger_create_data_plane_migration_task(); Type: FUNCTION; Schema: internal; Owner: postgres
+--
+
+CREATE FUNCTION internal.trigger_create_data_plane_migration_task() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    new_task_id public.flowid;
+    task_message JSON;
+    -- This MUST match the i16 value of automations::task_types::DATA_PLANE_MIGRATION
+    -- which we defined as TaskType(8) in flow/crates/automations/src/lib.rs
+    data_plane_migration_task_type_id SMALLINT := 8;
+BEGIN
+    new_task_id := internal.id_generator();
+
+    -- Construct the JSON message for MigrationTaskMessage::Initialize { migration_id: NEW.id }
+    task_message := json_build_object(
+        'initialize', json_build_object(
+            'migration_id', NEW.id
+        )
+    );
+
+    -- Use the value of automations::task_types::DATA_PLANE_MIGRATION
+    -- which we defined as TaskType(8) in flow/crates/automations/src/lib.rs
+    PERFORM internal.create_task(new_task_id, data_plane_migration_task_type_id, NULL);
+
+    -- Sender task_id is zero flowid as this is a system-initiated message.
+    PERFORM internal.send_to_task(new_task_id, '00:00:00:00:00:00:00:00'::public.flowid, task_message);
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION internal.trigger_create_data_plane_migration_task() OWNER TO postgres;
+
+--
 -- Name: update_support_role(); Type: FUNCTION; Schema: internal; Owner: postgres
 --
 
@@ -1808,26 +2210,15 @@ CREATE FUNCTION internal.update_support_role() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
-  insert into role_grants (
-    detail,
-    subject_role,
-    object_role,
-    capability
-  )
-  select
-    'Automagically grant support role access to new tenant',
-    'estuary_support/',
-    tenants.tenant,
-    'admin'
-  from tenants
-  left join role_grants on
-    role_grants.object_role = tenants.tenant and
-    role_grants.subject_role = 'estuary_support/'
-  where role_grants.id is null and
-  tenants.tenant not in ('ops/', 'estuary/');
-
-  return null;
-END;
+    insert into role_grants (subject_role, object_role, capability, detail)
+    values (
+        'estuary_support/',
+        NEW.tenant,
+        'admin',
+        'Automagically grant support role access to new tenant'
+    );
+    return null;
+end;
 $$;
 
 
@@ -2213,9 +2604,9 @@ declare
   -- The distinct prefixes, filtered by whether or not they are authorized.
   authorized_prefixes text[];
 begin
-  
+
   select array_agg(distinct p) into authorized_prefixes
-    from 
+    from
       unnest(prefixes) as p
       join auth_roles() as r on starts_with(p, r.role_prefix);
 
@@ -2574,18 +2965,36 @@ COMMENT ON FUNCTION public.view_logs(bearer_token uuid) IS 'view_logs accepts a 
 
 
 --
+-- Name: view_logs(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.view_logs(bearer_token uuid, last_logged_at timestamp with time zone) RETURNS SETOF internal.log_lines
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+  SELECT *
+  FROM internal.log_lines
+  WHERE internal.log_lines.token = bearer_token
+    AND internal.log_lines.logged_at > COALESCE(last_logged_at, '0001-01-01T00:00:00Z')
+  ORDER BY logged_at ASC;
+$$;
+
+
+ALTER FUNCTION public.view_logs(bearer_token uuid, last_logged_at timestamp with time zone) OWNER TO postgres;
+
+--
 -- Name: view_user_profile(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.view_user_profile(bearer_user_id uuid) RETURNS public.user_profile
     LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$                                               
-  select                                                                       
-    user_id,                              
-    email,                       
-    full_name,                                                                 
-    avatar_url                                                
-  from internal.user_profiles where user_id = bearer_user_id; 
+    AS $$
+  select
+    user_id,
+    email,
+    full_name,
+    avatar_url
+  from internal.user_profiles where user_id = bearer_user_id;
 $$;
 
 
@@ -2733,55 +3142,11 @@ CREATE TABLE public.alert_data_processing (
 ALTER TABLE public.alert_data_processing OWNER TO postgres;
 
 --
--- Name: alert_subscriptions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.alert_subscriptions (
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    detail text,
-    id public.flowid NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    catalog_prefix public.catalog_prefix NOT NULL,
-    email text
-);
-
-
-ALTER TABLE public.alert_subscriptions OWNER TO postgres;
-
---
--- Name: COLUMN alert_subscriptions.created_at; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.alert_subscriptions.created_at IS 'Time at which the record was created';
-
-
---
--- Name: COLUMN alert_subscriptions.detail; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.alert_subscriptions.detail IS 'Description of the record';
-
-
---
--- Name: COLUMN alert_subscriptions.id; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.alert_subscriptions.id IS 'ID of the record';
-
-
---
--- Name: COLUMN alert_subscriptions.updated_at; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.alert_subscriptions.updated_at IS 'Time at which the record was last updated';
-
-
---
 -- Name: catalog_stats; Type: TABLE; Schema: public; Owner: stats_loader
 --
 
 CREATE TABLE public.catalog_stats (
-    catalog_name public.catalog_name NOT NULL,
+    catalog_name text NOT NULL,
     grain text NOT NULL,
     ts timestamp with time zone NOT NULL,
     bytes_written_by_me bigint DEFAULT 0 NOT NULL,
@@ -2792,11 +3157,12 @@ CREATE TABLE public.catalog_stats (
     docs_written_to_me bigint DEFAULT 0 NOT NULL,
     bytes_read_from_me bigint DEFAULT 0 NOT NULL,
     docs_read_from_me bigint DEFAULT 0 NOT NULL,
-    usage_seconds integer DEFAULT 0 NOT NULL,
+    usage_seconds bigint DEFAULT 0 NOT NULL,
     warnings integer DEFAULT 0 NOT NULL,
     errors integer DEFAULT 0 NOT NULL,
     failures integer DEFAULT 0 NOT NULL,
-    flow_document json NOT NULL
+    flow_document json NOT NULL,
+    txn_count bigint
 )
 PARTITION BY LIST (grain);
 
@@ -2905,11 +3271,18 @@ COMMENT ON COLUMN public.catalog_stats.flow_document IS 'Aggregated statistics d
 
 
 --
+-- Name: COLUMN catalog_stats.txn_count; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.catalog_stats.txn_count IS 'Total number of transactions that have been successfully processed';
+
+
+--
 -- Name: catalog_stats_hourly; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.catalog_stats_hourly (
-    catalog_name public.catalog_name NOT NULL,
+    catalog_name text NOT NULL,
     grain text NOT NULL,
     ts timestamp with time zone NOT NULL,
     bytes_written_by_me bigint DEFAULT 0 NOT NULL,
@@ -2920,11 +3293,12 @@ CREATE TABLE public.catalog_stats_hourly (
     docs_written_to_me bigint DEFAULT 0 NOT NULL,
     bytes_read_from_me bigint DEFAULT 0 NOT NULL,
     docs_read_from_me bigint DEFAULT 0 NOT NULL,
-    usage_seconds integer DEFAULT 0 NOT NULL,
+    usage_seconds bigint DEFAULT 0 NOT NULL,
     warnings integer DEFAULT 0 NOT NULL,
     errors integer DEFAULT 0 NOT NULL,
     failures integer DEFAULT 0 NOT NULL,
-    flow_document json NOT NULL
+    flow_document json NOT NULL,
+    txn_count bigint
 );
 
 
@@ -2951,11 +3325,11 @@ CREATE TABLE public.live_specs (
     md5 text GENERATED ALWAYS AS (md5(TRIM(BOTH FROM (spec)::text))) STORED,
     built_spec json,
     inferred_schema_md5 text,
-    controller_next_run timestamp with time zone,
     data_plane_id public.flowid DEFAULT '0e:8e:17:d0:4f:ac:d4:00'::macaddr8 NOT NULL,
     journal_template_name text GENERATED ALWAYS AS (((built_spec -> 'partitionTemplate'::text) ->> 'name'::text)) STORED,
     shard_template_id text GENERATED ALWAYS AS (COALESCE(((built_spec -> 'shardTemplate'::text) ->> 'id'::text), (((built_spec -> 'derivation'::text) -> 'shardTemplate'::text) ->> 'id'::text))) STORED,
-    dependency_hash text
+    dependency_hash text,
+    controller_task_id public.flowid DEFAULT internal.id_generator() NOT NULL
 );
 
 
@@ -3090,13 +3464,6 @@ COMMENT ON COLUMN public.live_specs.inferred_schema_md5 IS 'The md5 sum of the i
 
 
 --
--- Name: COLUMN live_specs.controller_next_run; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.live_specs.controller_next_run IS 'The next time the controller for this spec should run.';
-
-
---
 -- Name: COLUMN live_specs.dependency_hash; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -3107,25 +3474,153 @@ model change will not change the hash.';
 
 
 --
+-- Name: COLUMN live_specs.controller_task_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.live_specs.controller_task_id IS 'The task id of the controller task that is responsible for this spec';
+
+
+--
 -- Name: alert_data_movement_stalled; Type: VIEW; Schema: internal; Owner: postgres
 --
 
 CREATE VIEW internal.alert_data_movement_stalled AS
  SELECT 'data_movement_stalled'::public.alert_type AS alert_type,
     alert_data_processing.catalog_name,
-    json_build_object('bytes_processed', (COALESCE(sum(((catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me) + catalog_stats_hourly.bytes_read_by_me)), (0)::numeric))::bigint, 'recipients', array_agg(DISTINCT jsonb_build_object('email', alert_subscriptions.email, 'full_name', (users.raw_user_meta_data ->> 'full_name'::text))), 'evaluation_interval', alert_data_processing.evaluation_interval, 'spec_type', live_specs.spec_type) AS arguments,
+    jsonb_build_object('bytes_processed', (COALESCE(sum(((catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me) + catalog_stats_hourly.bytes_read_by_me)), (0)::numeric))::bigint, 'evaluation_interval', alert_data_processing.evaluation_interval, 'spec_type', live_specs.spec_type) AS arguments,
     true AS firing
-   FROM ((((public.alert_data_processing
+   FROM ((public.alert_data_processing
      LEFT JOIN public.live_specs ON ((((alert_data_processing.catalog_name)::text = (live_specs.catalog_name)::text) AND (live_specs.spec IS NOT NULL) AND ((((live_specs.spec -> 'shards'::text) ->> 'disable'::text))::boolean IS NOT TRUE))))
-     LEFT JOIN public.catalog_stats_hourly ON ((((alert_data_processing.catalog_name)::text = (catalog_stats_hourly.catalog_name)::text) AND (catalog_stats_hourly.ts >= date_trunc('hour'::text, (now() - alert_data_processing.evaluation_interval))))))
-     LEFT JOIN public.alert_subscriptions ON ((((alert_data_processing.catalog_name)::text ^@ (alert_subscriptions.catalog_prefix)::text) AND (alert_subscriptions.email IS NOT NULL))))
-     LEFT JOIN auth.users ON ((((users.email)::text = alert_subscriptions.email) AND (users.is_sso_user IS FALSE))))
+     LEFT JOIN public.catalog_stats_hourly ON ((((alert_data_processing.catalog_name)::text = catalog_stats_hourly.catalog_name) AND (catalog_stats_hourly.ts >= date_trunc('hour'::text, (now() - alert_data_processing.evaluation_interval))))))
   WHERE (live_specs.created_at <= date_trunc('hour'::text, (now() - alert_data_processing.evaluation_interval)))
   GROUP BY alert_data_processing.catalog_name, alert_data_processing.evaluation_interval, live_specs.spec_type
  HAVING ((COALESCE(sum(((catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me) + catalog_stats_hourly.bytes_read_by_me)), (0)::numeric))::bigint = 0);
 
 
-ALTER VIEW internal.alert_data_movement_stalled OWNER TO postgres;
+ALTER TABLE internal.alert_data_movement_stalled OWNER TO postgres;
+
+--
+-- Name: controller_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.controller_jobs (
+    live_spec_id public.flowid NOT NULL,
+    controller_version integer DEFAULT 0 NOT NULL,
+    status json DEFAULT '{}'::json NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    logs_token uuid DEFAULT gen_random_uuid() NOT NULL,
+    failures integer DEFAULT 0 NOT NULL,
+    error text,
+    has_alert boolean GENERATED ALWAYS AS (jsonb_path_exists((status)::jsonb, '$."alerts"'::jsonpath)) STORED
+);
+
+
+ALTER TABLE public.controller_jobs OWNER TO postgres;
+
+--
+-- Name: TABLE controller_jobs; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.controller_jobs IS 'Controller jobs reflect the state of the automated background processes that
+  manage live specs. Controllers are responsible for things like updating
+  inferred schemas, activating and deleting shard and journal specs in the data
+  plane, and any other type of background automation.';
+
+
+--
+-- Name: COLUMN controller_jobs.live_spec_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.live_spec_id IS 'The id of the live_specs row that this contoller job pertains to.';
+
+
+--
+-- Name: COLUMN controller_jobs.controller_version; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.controller_version IS 'The version of the controller that last ran. This number only increases
+  monotonically, and only when a breaking change to the controller status
+  is released. Every controller_job starts out with a controller_version of 0,
+  and will subsequently be upgraded to the current controller version by the
+  first controller run.';
+
+
+--
+-- Name: COLUMN controller_jobs.status; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.status IS 'Contains type-specific information about the controller and the actions it
+  has performed.';
+
+
+--
+-- Name: COLUMN controller_jobs.updated_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.updated_at IS 'Timestamp of the last update to the controller_job.';
+
+
+--
+-- Name: COLUMN controller_jobs.logs_token; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.logs_token IS 'Token that can be used to query logs from controller runs from
+  internal.log_lines.';
+
+
+--
+-- Name: COLUMN controller_jobs.failures; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.failures IS 'Count of consecutive failures of this controller. This is reset to 0 upon
+  any successful controller run. If failures is > 0, then error will be set';
+
+
+--
+-- Name: COLUMN controller_jobs.error; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.error IS 'The error from the most recent controller run, which will be null if the
+  run was successful. If this is set, then failures will be > 0';
+
+
+--
+-- Name: COLUMN controller_jobs.has_alert; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.controller_jobs.has_alert IS 'Computed column indicating whether any alerts are currently present for this
+controller job. Note that a present alert may not necessarily be firing, but it
+will at least need to be looked at by the evaluate_alert_events function as it
+could provide resolved_arguments.';
+
+
+--
+-- Name: controller_alerts; Type: VIEW; Schema: internal; Owner: postgres
+--
+
+CREATE VIEW internal.controller_alerts AS
+ SELECT (alert_status.key)::public.alert_type AS alert_type,
+    ls.catalog_name,
+    (alert_status.value)::jsonb AS arguments,
+    ((alert_status.value ->> 'state'::text) = 'firing'::text) AS firing
+   FROM ((public.controller_jobs cj
+     JOIN public.live_specs ls ON (((cj.live_spec_id)::macaddr8 = (ls.id)::macaddr8)))
+     JOIN LATERAL ( SELECT a_status.key,
+            a_status.value
+           FROM json_each(json_extract_path(cj.status, VARIADIC ARRAY['alerts'::text])) a_status(key, value)
+          WHERE (a_status.key = ANY ((enum_range(NULL::public.alert_type))::text[]))) alert_status ON (true))
+  WHERE cj.has_alert;
+
+
+ALTER TABLE internal.controller_alerts OWNER TO postgres;
+
+--
+-- Name: VIEW controller_alerts; Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON VIEW internal.controller_alerts IS 'View of alerts from controller jobs, extracted from the status JSON.
+Alerts in this view may be either firing or resolved.';
+
 
 --
 -- Name: tenants; Type: TABLE; Schema: public; Owner: postgres
@@ -3260,82 +3755,118 @@ Hide data preview in the collections page for this tenant, used as a measure for
 
 
 --
--- Name: alert_free_trial; Type: VIEW; Schema: internal; Owner: postgres
+-- Name: tenant_alerts; Type: VIEW; Schema: internal; Owner: postgres
 --
 
-CREATE VIEW internal.alert_free_trial AS
- SELECT 'free_trial'::public.alert_type AS alert_type,
-    (((tenants.tenant)::text || 'alerts/free_trial'::text))::public.catalog_name AS catalog_name,
-    json_build_object('tenant', tenants.tenant, 'recipients', array_agg(DISTINCT jsonb_build_object('email', alert_subscriptions.email, 'full_name', (users.raw_user_meta_data ->> 'full_name'::text))), 'trial_start', tenants.trial_start, 'trial_end', ((tenants.trial_start + '1 mon'::interval))::date, 'has_credit_card', bool_or((customers."invoice_settings/default_payment_method" IS NOT NULL))) AS arguments,
-    ((tenants.trial_start IS NOT NULL) AND ((now() - (tenants.trial_start)::timestamp with time zone) < '1 mon'::interval) AND (tenants.trial_start <= now())) AS firing
-   FROM (((public.tenants
-     LEFT JOIN public.alert_subscriptions ON ((((alert_subscriptions.catalog_prefix)::text ^@ (tenants.tenant)::text) AND (alert_subscriptions.email IS NOT NULL))))
-     LEFT JOIN stripe.customers ON ((customers.name = (tenants.tenant)::text)))
-     LEFT JOIN auth.users ON ((((users.email)::text = alert_subscriptions.email) AND (users.is_sso_user IS FALSE))))
-  GROUP BY tenants.tenant, tenants.trial_start;
-
-
-ALTER VIEW internal.alert_free_trial OWNER TO postgres;
-
---
--- Name: alert_free_trial_ending; Type: VIEW; Schema: internal; Owner: postgres
---
-
-CREATE VIEW internal.alert_free_trial_ending AS
- SELECT 'free_trial_ending'::public.alert_type AS alert_type,
-    (((tenants.tenant)::text || 'alerts/free_trial_ending'::text))::public.catalog_name AS catalog_name,
-    json_build_object('tenant', tenants.tenant, 'recipients', array_agg(DISTINCT jsonb_build_object('email', alert_subscriptions.email, 'full_name', (users.raw_user_meta_data ->> 'full_name'::text))), 'trial_start', tenants.trial_start, 'trial_end', ((tenants.trial_start + '1 mon'::interval))::date, 'has_credit_card', bool_or((customers."invoice_settings/default_payment_method" IS NOT NULL))) AS arguments,
-    ((tenants.trial_start IS NOT NULL) AND ((now() - (tenants.trial_start)::timestamp with time zone) >= ('1 mon'::interval - '5 days'::interval)) AND ((now() - (tenants.trial_start)::timestamp with time zone) < ('1 mon'::interval - '4 days'::interval)) AND (tenants.trial_start <= now())) AS firing
-   FROM (((public.tenants
-     LEFT JOIN public.alert_subscriptions ON ((((alert_subscriptions.catalog_prefix)::text ^@ (tenants.tenant)::text) AND (alert_subscriptions.email IS NOT NULL))))
-     LEFT JOIN stripe.customers ON ((customers.name = (tenants.tenant)::text)))
-     LEFT JOIN auth.users ON ((((users.email)::text = alert_subscriptions.email) AND (users.is_sso_user IS FALSE))))
-  GROUP BY tenants.tenant, tenants.trial_start;
-
-
-ALTER VIEW internal.alert_free_trial_ending OWNER TO postgres;
-
---
--- Name: alert_free_trial_stalled; Type: VIEW; Schema: internal; Owner: postgres
---
-
-CREATE VIEW internal.alert_free_trial_stalled AS
- SELECT 'free_trial_stalled'::public.alert_type AS alert_type,
-    (((tenants.tenant)::text || 'alerts/free_trial_stalled'::text))::public.catalog_name AS catalog_name,
-    json_build_object('tenant', tenants.tenant, 'recipients', array_agg(DISTINCT jsonb_build_object('email', alert_subscriptions.email, 'full_name', (users.raw_user_meta_data ->> 'full_name'::text))), 'trial_start', tenants.trial_start, 'trial_end', ((tenants.trial_start + '1 mon'::interval))::date) AS arguments,
-    true AS firing
-   FROM (((public.tenants
-     LEFT JOIN public.alert_subscriptions ON ((((alert_subscriptions.catalog_prefix)::text ^@ (tenants.tenant)::text) AND (alert_subscriptions.email IS NOT NULL))))
-     LEFT JOIN stripe.customers ON ((customers.name = (tenants.tenant)::text)))
-     LEFT JOIN auth.users ON ((((users.email)::text = alert_subscriptions.email) AND (users.is_sso_user IS FALSE))))
-  WHERE ((tenants.trial_start IS NOT NULL) AND ((now() - (tenants.trial_start)::timestamp with time zone) >= ('1 mon'::interval + '5 days'::interval)) AND (tenants.trial_start <= now()) AND (customers."invoice_settings/default_payment_method" IS NULL))
-  GROUP BY tenants.tenant, tenants.trial_start;
-
-
-ALTER VIEW internal.alert_free_trial_stalled OWNER TO postgres;
-
---
--- Name: alert_missing_payment_method; Type: VIEW; Schema: internal; Owner: postgres
---
-
-CREATE VIEW internal.alert_missing_payment_method AS
- SELECT 'missing_payment_method'::public.alert_type AS alert_type,
-    (((tenants.tenant)::text || 'alerts/missing_payment_method'::text))::public.catalog_name AS catalog_name,
-    json_build_object('tenant', tenants.tenant, 'recipients', array_agg(DISTINCT jsonb_build_object('email', alert_subscriptions.email, 'full_name', (users.raw_user_meta_data ->> 'full_name'::text))), 'trial_start', tenants.trial_start, 'trial_end', ((tenants.trial_start + '1 mon'::interval))::date, 'plan_state',
+CREATE VIEW internal.tenant_alerts AS
+ WITH all_tenants AS (
+         SELECT tenants.tenant,
+            tenants.trial_start,
+            bool_or(((customers."invoice_settings/default_payment_method" IS NOT NULL) OR (tenants.payment_provider = 'external'::public.payment_provider_type))) AS has_payment_info
+           FROM (public.tenants
+             LEFT JOIN stripe.customers ON ((customers.name = (tenants.tenant)::text)))
+          GROUP BY tenants.tenant, tenants.trial_start
+        ), missing_payment_method AS (
+         SELECT all_tenants.tenant,
+            all_tenants.trial_start,
+            (NOT all_tenants.has_payment_info) AS firing
+           FROM all_tenants
+        ), free_trial AS (
+         SELECT all_tenants.tenant,
+            all_tenants.trial_start,
+            all_tenants.has_payment_info,
+            ((all_tenants.trial_start IS NOT NULL) AND (all_tenants.trial_start < now()) AND ((now() - (all_tenants.trial_start)::timestamp with time zone) < '1 mon'::interval)) AS firing
+           FROM all_tenants
+        ), trial_ending AS (
+         SELECT all_tenants.tenant,
+            all_tenants.trial_start,
+            all_tenants.has_payment_info,
+                CASE
+                    WHEN (((now() - (all_tenants.trial_start)::timestamp with time zone) >= ('1 mon'::interval - '5 days'::interval)) AND ((now() - (all_tenants.trial_start)::timestamp with time zone) < ('1 mon'::interval - '4 days'::interval))) THEN 'free_trial_ending'::public.alert_type
+                    WHEN (((now() - (all_tenants.trial_start)::timestamp with time zone) >= ('1 mon'::interval + '5 days'::interval)) AND (NOT all_tenants.has_payment_info)) THEN 'free_trial_stalled'::public.alert_type
+                    ELSE NULL::public.alert_type
+                END AS alert_type
+           FROM all_tenants
+          WHERE ((all_tenants.trial_start IS NOT NULL) AND (all_tenants.trial_start < now()))
+        ), alerting AS (
+         SELECT trial_ending.tenant,
+            trial_ending.trial_start,
+            trial_ending.has_payment_info,
+            trial_ending.alert_type,
+            true AS firing
+           FROM trial_ending
+          WHERE (trial_ending.alert_type IS NOT NULL)
+        UNION ALL
+         SELECT missing_payment_method.tenant,
+            missing_payment_method.trial_start,
+            false AS has_payment_info,
+            'missing_payment_method'::public.alert_type AS alert_type,
+            missing_payment_method.firing
+           FROM missing_payment_method
+        UNION ALL
+         SELECT free_trial.tenant,
+            free_trial.trial_start,
+            free_trial.has_payment_info,
+            'free_trial'::public.alert_type AS alert_type,
+            free_trial.firing
+           FROM free_trial
+        )
+ SELECT ((((alerting.tenant)::text || 'alerts/'::text) || alerting.alert_type))::public.catalog_name AS catalog_name,
+    alerting.alert_type,
+    jsonb_build_object('tenant', alerting.tenant, 'trial_start', alerting.trial_start, 'trial_end', (alerting.trial_start + '1 mon'::interval), 'has_credit_card', alerting.has_payment_info, 'plan_state',
         CASE
-            WHEN (tenants.trial_start IS NULL) THEN 'free_tier'::text
-            WHEN ((now() - (tenants.trial_start)::timestamp with time zone) < '1 mon'::interval) THEN 'free_trial'::text
+            WHEN (alerting.trial_start IS NULL) THEN 'free_tier'::text
+            WHEN ((now() - (alerting.trial_start)::timestamp with time zone) < '1 mon'::interval) THEN 'free_trial'::text
             ELSE 'paid'::text
         END) AS arguments,
-    bool_or((customers."invoice_settings/default_payment_method" IS NULL)) AS firing
-   FROM (((public.tenants
-     LEFT JOIN public.alert_subscriptions ON ((((alert_subscriptions.catalog_prefix)::text ^@ (tenants.tenant)::text) AND (alert_subscriptions.email IS NOT NULL))))
-     LEFT JOIN stripe.customers ON ((customers.name = (tenants.tenant)::text)))
-     LEFT JOIN auth.users ON ((((users.email)::text = alert_subscriptions.email) AND (users.is_sso_user IS FALSE))))
-  GROUP BY tenants.tenant, tenants.trial_start;
+    alerting.firing
+   FROM alerting;
 
 
-ALTER VIEW internal.alert_missing_payment_method OWNER TO postgres;
+ALTER TABLE internal.tenant_alerts OWNER TO postgres;
+
+--
+-- Name: VIEW tenant_alerts; Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON VIEW internal.tenant_alerts IS 'View of tenant-level alerts including free trial notifications and missing payment method alerts.
+These alerts are combined into a single query for performance reasons.';
+
+
+--
+-- Name: alert_all; Type: VIEW; Schema: internal; Owner: postgres
+--
+
+CREATE VIEW internal.alert_all AS
+ SELECT tenant_alerts.catalog_name,
+    tenant_alerts.alert_type,
+    tenant_alerts.arguments,
+    tenant_alerts.firing
+   FROM internal.tenant_alerts
+UNION ALL
+ SELECT alert_data_movement_stalled.catalog_name,
+    alert_data_movement_stalled.alert_type,
+    alert_data_movement_stalled.arguments,
+    alert_data_movement_stalled.firing
+   FROM internal.alert_data_movement_stalled
+UNION ALL
+ SELECT controller_alerts.catalog_name,
+    controller_alerts.alert_type,
+    controller_alerts.arguments,
+    controller_alerts.firing
+   FROM internal.controller_alerts;
+
+
+ALTER TABLE internal.alert_all OWNER TO postgres;
+
+--
+-- Name: VIEW alert_all; Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON VIEW internal.alert_all IS 'Unified view of all alert types. Alerts in this view can be either firing or
+ not. This view is not intended to be queried by end users, as it can be rather
+ slow.';
+
 
 --
 -- Name: billing_adjustments; Type: TABLE; Schema: internal; Owner: postgres
@@ -3460,6 +3991,109 @@ COMMENT ON COLUMN internal.billing_historicals.billed_month IS 'The month for th
 
 COMMENT ON COLUMN internal.billing_historicals.report IS 'The historical billing report generated by billing_report_202308()';
 
+
+--
+-- Name: alert_subscriptions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.alert_subscriptions (
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    detail text,
+    id public.flowid NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    catalog_prefix public.catalog_prefix NOT NULL,
+    email text,
+    include_alert_types public.alert_type[] DEFAULT ARRAY['free_trial'::public.alert_type, 'free_trial_ending'::public.alert_type, 'free_trial_stalled'::public.alert_type, 'missing_payment_method'::public.alert_type, 'data_movement_stalled'::public.alert_type] NOT NULL
+);
+
+
+ALTER TABLE public.alert_subscriptions OWNER TO postgres;
+
+--
+-- Name: COLUMN alert_subscriptions.created_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.alert_subscriptions.created_at IS 'Time at which the record was created';
+
+
+--
+-- Name: COLUMN alert_subscriptions.detail; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.alert_subscriptions.detail IS 'Description of the record';
+
+
+--
+-- Name: COLUMN alert_subscriptions.id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.alert_subscriptions.id IS 'ID of the record';
+
+
+--
+-- Name: COLUMN alert_subscriptions.updated_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.alert_subscriptions.updated_at IS 'Time at which the record was last updated';
+
+
+--
+-- Name: COLUMN alert_subscriptions.include_alert_types; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.alert_subscriptions.include_alert_types IS 'Array of alert types that this subscription should include for receiving
+notifications. Any alert type that is not included here will not result in a
+notification being sent.';
+
+
+--
+-- Name: free_trial_alerts; Type: VIEW; Schema: internal; Owner: postgres
+--
+
+CREATE VIEW internal.free_trial_alerts AS
+ WITH trial_tenants AS (
+         SELECT tenants.tenant,
+            tenants.trial_start,
+            bool_or(((customers."invoice_settings/default_payment_method" IS NOT NULL) OR (tenants.payment_provider = 'external'::public.payment_provider_type))) AS has_payment_info
+           FROM (public.tenants
+             LEFT JOIN stripe.customers ON ((customers.name = (tenants.tenant)::text)))
+          WHERE ((tenants.trial_start IS NOT NULL) AND (tenants.trial_start < now()))
+          GROUP BY tenants.tenant, tenants.trial_start
+        ), trial_alerting AS (
+         SELECT trial_tenants.tenant,
+            trial_tenants.trial_start,
+            trial_tenants.has_payment_info,
+                CASE
+                    WHEN (((now() - (trial_tenants.trial_start)::timestamp with time zone) >= ('1 mon'::interval - '5 days'::interval)) AND ((now() - (trial_tenants.trial_start)::timestamp with time zone) < ('1 mon'::interval - '4 days'::interval))) THEN 'free_trial_ending'::text
+                    WHEN ((now() - (trial_tenants.trial_start)::timestamp with time zone) < '1 mon'::interval) THEN 'free_trial'::text
+                    WHEN (((now() - (trial_tenants.trial_start)::timestamp with time zone) >= ('1 mon'::interval + '5 days'::interval)) AND (NOT trial_tenants.has_payment_info)) THEN 'free_trial_stalled'::text
+                    ELSE NULL::text
+                END AS alert_type
+           FROM trial_tenants
+        ), alerts AS (
+         SELECT ((((trial_alerting.tenant)::text || 'alerts/'::text) || trial_alerting.alert_type))::public.catalog_name AS catalog_name,
+            trial_alerting.alert_type,
+            json_build_object('tenant', trial_alerting.tenant, 'trial_start', trial_alerting.trial_start, 'trial_end', (trial_alerting.trial_start + '1 mon'::interval), 'has_credit_card', trial_alerting.has_payment_info) AS arguments,
+            true AS firing
+           FROM trial_alerting
+          WHERE (trial_alerting.alert_type IS NOT NULL)
+        ), subscribed AS (
+         SELECT alerts.catalog_name,
+            alerts.alert_type,
+            alerts.arguments,
+            alerts.firing
+           FROM alerts
+          WHERE (EXISTS ( SELECT 1
+                   FROM public.alert_subscriptions
+                  WHERE ((alerts.catalog_name)::text ^@ (alert_subscriptions.catalog_prefix)::text)))
+        )
+ SELECT subscribed.alert_type,
+    count(*) AS count
+   FROM subscribed
+  GROUP BY subscribed.alert_type;
+
+
+ALTER TABLE internal.free_trial_alerts OWNER TO postgres;
 
 --
 -- Name: gateway_auth_keys; Type: TABLE; Schema: internal; Owner: postgres
@@ -3629,7 +4263,7 @@ COMMENT ON TABLE internal.manual_bills IS 'Manually entered bills that span an a
 --
 
 CREATE TABLE public.catalog_stats_daily (
-    catalog_name public.catalog_name NOT NULL,
+    catalog_name text NOT NULL,
     grain text NOT NULL,
     ts timestamp with time zone NOT NULL,
     bytes_written_by_me bigint DEFAULT 0 NOT NULL,
@@ -3640,11 +4274,12 @@ CREATE TABLE public.catalog_stats_daily (
     docs_written_to_me bigint DEFAULT 0 NOT NULL,
     bytes_read_from_me bigint DEFAULT 0 NOT NULL,
     docs_read_from_me bigint DEFAULT 0 NOT NULL,
-    usage_seconds integer DEFAULT 0 NOT NULL,
+    usage_seconds bigint DEFAULT 0 NOT NULL,
     warnings integer DEFAULT 0 NOT NULL,
     errors integer DEFAULT 0 NOT NULL,
     failures integer DEFAULT 0 NOT NULL,
-    flow_document json NOT NULL
+    flow_document json NOT NULL,
+    txn_count bigint
 );
 
 
@@ -3655,7 +4290,7 @@ ALTER TABLE public.catalog_stats_daily OWNER TO postgres;
 --
 
 CREATE TABLE public.catalog_stats_monthly (
-    catalog_name public.catalog_name NOT NULL,
+    catalog_name text NOT NULL,
     grain text NOT NULL,
     ts timestamp with time zone NOT NULL,
     bytes_written_by_me bigint DEFAULT 0 NOT NULL,
@@ -3666,11 +4301,12 @@ CREATE TABLE public.catalog_stats_monthly (
     docs_written_to_me bigint DEFAULT 0 NOT NULL,
     bytes_read_from_me bigint DEFAULT 0 NOT NULL,
     docs_read_from_me bigint DEFAULT 0 NOT NULL,
-    usage_seconds integer DEFAULT 0 NOT NULL,
+    usage_seconds bigint DEFAULT 0 NOT NULL,
     warnings integer DEFAULT 0 NOT NULL,
     errors integer DEFAULT 0 NOT NULL,
     failures integer DEFAULT 0 NOT NULL,
-    flow_document json NOT NULL
+    flow_document json NOT NULL,
+    txn_count bigint
 );
 
 
@@ -3682,50 +4318,41 @@ ALTER TABLE public.catalog_stats_monthly OWNER TO postgres;
 
 CREATE VIEW internal.new_free_trial_tenants AS
  WITH hours_by_day AS (
-         SELECT tenants_1.tenant,
-            catalog_stats_daily.ts,
-            sum(((catalog_stats_daily.usage_seconds)::numeric / (60.0 * (60)::numeric))) AS daily_usage_hours
-           FROM (public.catalog_stats_daily
-             JOIN public.tenants tenants_1 ON (((catalog_stats_daily.catalog_name)::text ^@ (tenants_1.tenant)::text)))
-          WHERE (tenants_1.trial_start IS NULL)
-          GROUP BY tenants_1.tenant, catalog_stats_daily.ts
-         HAVING (sum(((catalog_stats_daily.usage_seconds)::numeric / (60.0 * (60)::numeric))) > (((2 * 24))::numeric * 1.1))
+         SELECT t_1.tenant,
+            cs.ts,
+            ((cs.usage_seconds)::numeric / 3600.0) AS daily_usage_hours
+           FROM (public.tenants t_1
+             JOIN public.catalog_stats_daily cs ON (((t_1.tenant)::text = cs.catalog_name)))
+          WHERE ((cs.ts >= (now() - '7 days'::interval)) AND (t_1.trial_start IS NULL) AND (((cs.usage_seconds)::numeric / 3600.0) > 52.8))
         ), hours_by_month AS (
-         SELECT tenants_1.tenant,
-            catalog_stats_monthly.ts,
-            sum(((catalog_stats_monthly.usage_seconds)::numeric / (60.0 * (60)::numeric))) AS monthly_usage_hours
-           FROM (public.catalog_stats_monthly
-             JOIN public.tenants tenants_1 ON (((catalog_stats_monthly.catalog_name)::text ^@ (tenants_1.tenant)::text)))
-          WHERE (tenants_1.trial_start IS NULL)
-          GROUP BY tenants_1.tenant, catalog_stats_monthly.ts
-         HAVING (sum(((catalog_stats_monthly.usage_seconds)::numeric / (60.0 * (60)::numeric))) > ((((24 * 31) * 2))::numeric * 1.1))
+         SELECT t_1.tenant,
+            cs.ts,
+            ((cs.usage_seconds)::numeric / 3600.0) AS monthly_usage_hours
+           FROM (public.tenants t_1
+             JOIN public.catalog_stats_monthly cs ON (((t_1.tenant)::text = cs.catalog_name)))
+          WHERE ((cs.ts >= date_trunc('month'::text, (now() AT TIME ZONE 'UTC'::text))) AND (t_1.trial_start IS NULL) AND (((cs.usage_seconds)::numeric / 3600.0) > ((((24 * 31) * 2))::numeric * 1.1)))
         ), gbs_by_month AS (
-         SELECT tenants_1.tenant,
-            catalog_stats_monthly.ts,
-            ceil(sum((((catalog_stats_monthly.bytes_written_by_me + catalog_stats_monthly.bytes_read_by_me))::numeric / (10.0 ^ 9.0)))) AS monthly_usage_gbs
-           FROM (public.catalog_stats_monthly
-             JOIN public.tenants tenants_1 ON (((catalog_stats_monthly.catalog_name)::text ^@ (tenants_1.tenant)::text)))
-          WHERE (tenants_1.trial_start IS NULL)
-          GROUP BY tenants_1.tenant, catalog_stats_monthly.ts
-         HAVING (ceil(sum((((catalog_stats_monthly.bytes_written_by_me + catalog_stats_monthly.bytes_read_by_me))::numeric / (10.0 ^ 9.0)))) > (10)::numeric)
+         SELECT t_1.tenant,
+            cs.ts,
+            ceil((((cs.bytes_written_by_me + cs.bytes_read_by_me))::numeric / (10.0 ^ 9.0))) AS monthly_usage_gbs
+           FROM (public.tenants t_1
+             JOIN public.catalog_stats_monthly cs ON (((t_1.tenant)::text = cs.catalog_name)))
+          WHERE ((cs.ts >= date_trunc('month'::text, (now() AT TIME ZONE 'UTC'::text))) AND (t_1.trial_start IS NULL) AND (ceil((((cs.bytes_written_by_me + cs.bytes_read_by_me))::numeric / (10.0 ^ 9.0))) > 10.0))
         )
- SELECT tenants.tenant,
+ SELECT t.tenant,
     max(hours_by_day.daily_usage_hours) AS max_daily_usage_hours,
     max(hours_by_month.monthly_usage_hours) AS max_monthly_usage_hours,
-    max(gbs_by_month.monthly_usage_gbs) AS max_monthly_gb,
-    count(DISTINCT live_specs.id) FILTER (WHERE (live_specs.spec_type = 'capture'::public.catalog_spec_type)) AS today_captures,
-    count(DISTINCT live_specs.id) FILTER (WHERE (live_specs.spec_type = 'materialization'::public.catalog_spec_type)) AS today_materializations
-   FROM ((((public.tenants
-     LEFT JOIN hours_by_day ON (((hours_by_day.tenant)::text = (tenants.tenant)::text)))
-     LEFT JOIN hours_by_month ON (((hours_by_month.tenant)::text = (tenants.tenant)::text)))
-     LEFT JOIN gbs_by_month ON (((gbs_by_month.tenant)::text = (tenants.tenant)::text)))
-     JOIN public.live_specs ON ((((split_part((live_specs.catalog_name)::text, '/'::text, 1) || '/'::text) = (tenants.tenant)::text) AND (((live_specs.spec #>> '{shards,disable}'::text[]))::boolean IS NOT TRUE))))
-  WHERE (tenants.trial_start IS NULL)
-  GROUP BY tenants.tenant
+    max(gbs_by_month.monthly_usage_gbs) AS max_monthly_gb
+   FROM (((public.tenants t
+     LEFT JOIN hours_by_day ON (((t.tenant)::text = (hours_by_day.tenant)::text)))
+     LEFT JOIN hours_by_month ON (((t.tenant)::text = (hours_by_month.tenant)::text)))
+     LEFT JOIN gbs_by_month ON (((t.tenant)::text = (gbs_by_month.tenant)::text)))
+  WHERE (t.trial_start IS NULL)
+  GROUP BY t.tenant
  HAVING ((count(hours_by_month.*) > 0) OR (count(hours_by_day.*) > 0) OR (count(gbs_by_month.*) > 0));
 
 
-ALTER VIEW internal.new_free_trial_tenants OWNER TO postgres;
+ALTER TABLE internal.new_free_trial_tenants OWNER TO postgres;
 
 --
 -- Name: next_auto_discovers; Type: VIEW; Schema: internal; Owner: postgres
@@ -3742,7 +4369,7 @@ SELECT
     NULL::interval AS overdue_interval;
 
 
-ALTER VIEW internal.next_auto_discovers OWNER TO postgres;
+ALTER TABLE internal.next_auto_discovers OWNER TO postgres;
 
 --
 -- Name: VIEW next_auto_discovers; Type: COMMENT; Schema: internal; Owner: postgres
@@ -3807,7 +4434,52 @@ CREATE SEQUENCE internal.shard_0_id_sequence
     CACHE 1;
 
 
-ALTER SEQUENCE internal.shard_0_id_sequence OWNER TO postgres;
+ALTER TABLE internal.shard_0_id_sequence OWNER TO postgres;
+
+--
+-- Name: tasks; Type: TABLE; Schema: internal; Owner: postgres
+--
+
+CREATE TABLE internal.tasks (
+    task_id public.flowid NOT NULL,
+    task_type smallint NOT NULL,
+    parent_id public.flowid,
+    inner_state json,
+    wake_at timestamp with time zone,
+    inbox json[],
+    inbox_next json[],
+    heartbeat timestamp with time zone DEFAULT '0001-01-01 00:00:00+00'::timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE internal.tasks OWNER TO postgres;
+
+--
+-- Name: TABLE tasks; Type: COMMENT; Schema: internal; Owner: postgres
+--
+
+COMMENT ON TABLE internal.tasks IS '
+The tasks table supports a distributed and asynchronous task execution system
+implemented in the Rust "automations" crate.
+
+Tasks are poll-able coroutines which are identified by task_id and have a task_type.
+They may be short-lived and polled just once, or very long-lived and polled
+many times over their life-cycle.
+
+Tasks are polled by executors which dequeue from the tasks table and run
+bespoke executors parameterized by the task type. A polling routine may take
+an arbitrarily long amount of time to finish, and the executor
+is required to periodically update the task heartbeat as it runs.
+
+A task is polled by at-most one executor at a time. Executor failures are
+detected through a failure to update the task heartbeat within a threshold amount
+of time, which makes the task re-eligible for dequeue by another executor.
+
+Tasks are coroutines and may send messages to one another, which is tracked in the
+inbox of each task and processed by the task executor. If a task is currently being
+polled (its heartbeat is not the DEFAULT), then messages accrue in inbox_next.
+';
+
 
 --
 -- Name: user_profiles; Type: VIEW; Schema: internal; Owner: postgres
@@ -3821,45 +4493,7 @@ CREATE VIEW internal.user_profiles AS
    FROM auth.users;
 
 
-ALTER VIEW internal.user_profiles OWNER TO postgres;
-
---
--- Name: alert_all; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.alert_all AS
- SELECT alert_free_trial.alert_type,
-    alert_free_trial.catalog_name,
-    alert_free_trial.arguments,
-    alert_free_trial.firing
-   FROM internal.alert_free_trial
-UNION ALL
- SELECT alert_free_trial_ending.alert_type,
-    alert_free_trial_ending.catalog_name,
-    alert_free_trial_ending.arguments,
-    alert_free_trial_ending.firing
-   FROM internal.alert_free_trial_ending
-UNION ALL
- SELECT alert_free_trial_stalled.alert_type,
-    alert_free_trial_stalled.catalog_name,
-    alert_free_trial_stalled.arguments,
-    alert_free_trial_stalled.firing
-   FROM internal.alert_free_trial_stalled
-UNION ALL
- SELECT alert_missing_payment_method.alert_type,
-    alert_missing_payment_method.catalog_name,
-    alert_missing_payment_method.arguments,
-    alert_missing_payment_method.firing
-   FROM internal.alert_missing_payment_method
-UNION ALL
- SELECT alert_data_movement_stalled.alert_type,
-    alert_data_movement_stalled.catalog_name,
-    alert_data_movement_stalled.arguments,
-    alert_data_movement_stalled.firing
-   FROM internal.alert_data_movement_stalled;
-
-
-ALTER VIEW public.alert_all OWNER TO postgres;
+ALTER TABLE internal.user_profiles OWNER TO postgres;
 
 --
 -- Name: alert_history; Type: TABLE; Schema: public; Owner: postgres
@@ -3870,12 +4504,22 @@ CREATE TABLE public.alert_history (
     catalog_name public.catalog_name NOT NULL,
     fired_at timestamp with time zone NOT NULL,
     resolved_at timestamp with time zone,
-    arguments json NOT NULL,
-    resolved_arguments jsonb
+    arguments jsonb NOT NULL,
+    resolved_arguments jsonb,
+    id public.flowid DEFAULT internal.id_generator() NOT NULL
 );
 
 
 ALTER TABLE public.alert_history OWNER TO postgres;
+
+--
+-- Name: COLUMN alert_history.id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.alert_history.id IS 'Unique id of this alert instance. This id is also used as the task_id of \
+the automations task that sends alert notifications, since there is a 1-1 \
+relationship between alert instances and notifier tasks.';
+
 
 --
 -- Name: role_grants; Type: TABLE; Schema: public; Owner: postgres
@@ -4073,13 +4717,102 @@ UNION ALL
                    FROM user_id)) OR ((g_1.object_role)::text ^@ (r.role_prefix)::text))));
 
 
-ALTER VIEW public.combined_grants_ext OWNER TO postgres;
+ALTER TABLE public.combined_grants_ext OWNER TO postgres;
 
 --
 -- Name: VIEW combined_grants_ext; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON VIEW public.combined_grants_ext IS 'Combined view of `role_grants` and `user_grants` extended with user metadata';
+
+
+--
+-- Name: config_updates; Type: TABLE; Schema: public; Owner: stats_loader
+--
+
+CREATE TABLE public.config_updates (
+    catalog_name public.catalog_name NOT NULL,
+    build public.flowid,
+    ts timestamp with time zone NOT NULL,
+    flow_document json NOT NULL
+);
+
+
+ALTER TABLE public.config_updates OWNER TO stats_loader;
+
+--
+-- Name: TABLE config_updates; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON TABLE public.config_updates IS 'Records of task config updates, which are materialized by the ops catalog.
+An insert into this table will trigger a run of the corresponding live spec
+controller, which will respond to the config update.';
+
+
+--
+-- Name: COLUMN config_updates.catalog_name; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.config_updates.catalog_name IS 'The name of the task that the updated config is for.';
+
+
+--
+-- Name: COLUMN config_updates.build; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.config_updates.build IS 'The id of the build that the shard was running when the updated config was created.';
+
+
+--
+-- Name: COLUMN config_updates.ts; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.config_updates.ts IS 'The timestamp of when the config update event was generated by the connector';
+
+
+--
+-- Name: COLUMN config_updates.flow_document; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.config_updates.flow_document IS 'The contents of the `flow_document` column are serialized instances of the
+`ConfigUpdate` struct defined in `crates/models/src/status/connector.rs`.';
+
+
+--
+-- Name: connector_status; Type: TABLE; Schema: public; Owner: stats_loader
+--
+
+CREATE TABLE public.connector_status (
+    catalog_name public.catalog_name NOT NULL,
+    flow_document json NOT NULL
+);
+
+
+ALTER TABLE public.connector_status OWNER TO stats_loader;
+
+--
+-- Name: TABLE connector_status; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON TABLE public.connector_status IS 'Holds the most recent status of the connector for each task, which is materialized
+by the ops catalog.';
+
+
+--
+-- Name: COLUMN connector_status.catalog_name; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.connector_status.catalog_name IS 'The name of the task that the connector status is for. Tasks having multiple
+shards will have a single connector status row, with the status itself being a
+reduction of the statuses from all shards';
+
+
+--
+-- Name: COLUMN connector_status.flow_document; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.connector_status.flow_document IS 'The contents of the `flow_document` column are serialized instances of the
+`ConnectorStatus` struct defined in `crates/models/src/status/connector.rs`.';
 
 
 --
@@ -4378,87 +5111,85 @@ COMMENT ON COLUMN public.connectors.long_description IS 'A longform description 
 
 
 --
--- Name: controller_jobs; Type: TABLE; Schema: public; Owner: postgres
+-- Name: data_plane_migrations; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.controller_jobs (
-    live_spec_id public.flowid NOT NULL,
-    controller_version integer DEFAULT 0 NOT NULL,
-    status json DEFAULT '{}'::json NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    logs_token uuid DEFAULT gen_random_uuid() NOT NULL,
-    failures integer DEFAULT 0 NOT NULL,
-    error text
+CREATE TABLE public.data_plane_migrations (
+    id public.flowid DEFAULT internal.id_generator() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    catalog_name_or_prefix text NOT NULL,
+    src_plane_id public.flowid NOT NULL,
+    tgt_plane_id public.flowid NOT NULL,
+    cordon_at timestamp with time zone DEFAULT (now() + '01:30:00'::interval) NOT NULL
 );
 
 
-ALTER TABLE public.controller_jobs OWNER TO postgres;
+ALTER TABLE public.data_plane_migrations OWNER TO postgres;
 
 --
--- Name: TABLE controller_jobs; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: data_plane_releases; Type: TABLE; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.controller_jobs IS 'Controller jobs reflect the state of the automated background processes that
-  manage live specs. Controllers are responsible for things like updating
-  inferred schemas, activating and deleting shard and journal specs in the data
-  plane, and any other type of background automation.';
+CREATE TABLE public.data_plane_releases (
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    prev_image text NOT NULL,
+    next_image text NOT NULL,
+    step integer NOT NULL,
+    data_plane_id public.flowid NOT NULL
+);
 
+
+ALTER TABLE public.data_plane_releases OWNER TO postgres;
 
 --
--- Name: COLUMN controller_jobs.live_spec_id; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: TABLE data_plane_releases; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.controller_jobs.live_spec_id IS 'The id of the live_specs row that this contoller job pertains to.';
-
-
---
--- Name: COLUMN controller_jobs.controller_version; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.controller_jobs.controller_version IS 'The version of the controller that last ran. This number only increases
-  monotonically, and only when a breaking change to the controller status
-  is released. Every controller_job starts out with a controller_version of 0,
-  and will subsequently be upgraded to the current controller version by the
-  first controller run.';
+COMMENT ON TABLE public.data_plane_releases IS 'Releases which are or have been deployed to data planes';
 
 
 --
--- Name: COLUMN controller_jobs.status; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN data_plane_releases.created_at; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.controller_jobs.status IS 'Contains type-specific information about the controller and the actions it
-  has performed.';
-
-
---
--- Name: COLUMN controller_jobs.updated_at; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.controller_jobs.updated_at IS 'Timestamp of the last update to the controller_job.';
+COMMENT ON COLUMN public.data_plane_releases.created_at IS 'Time of the creation of this release';
 
 
 --
--- Name: COLUMN controller_jobs.logs_token; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN data_plane_releases.active; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.controller_jobs.logs_token IS 'Token that can be used to query logs from controller runs from
-  internal.log_lines.';
-
-
---
--- Name: COLUMN controller_jobs.failures; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.controller_jobs.failures IS 'Count of consecutive failures of this controller. This is reset to 0 upon
-  any successful controller run. If failures is > 0, then error will be set';
+COMMENT ON COLUMN public.data_plane_releases.active IS 'Active releases are matched against current deployments to start a rollout. Inactive releases are not, and exist only as a historical record';
 
 
 --
--- Name: COLUMN controller_jobs.error; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: COLUMN data_plane_releases.prev_image; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.controller_jobs.error IS 'The error from the most recent controller run, which will be null if the
-  run was successful. If this is set, then failures will be > 0';
+COMMENT ON COLUMN public.data_plane_releases.prev_image IS 'Previous deployment OCI image being replaced by this release';
+
+
+--
+-- Name: COLUMN data_plane_releases.next_image; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.data_plane_releases.next_image IS 'Next deployment OCI image being applied by this release';
+
+
+--
+-- Name: COLUMN data_plane_releases.step; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.data_plane_releases.step IS 'Number of instances to replace (when negative) or surge (when positive) with each rollout step of this release';
+
+
+--
+-- Name: COLUMN data_plane_releases.data_plane_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.data_plane_releases.data_plane_id IS 'Data-plane to which this release is filtered. If "00:00:00:00:00:00:00:00", then the release applies to all data-planes';
 
 
 --
@@ -4481,14 +5212,27 @@ CREATE TABLE public.data_planes (
     broker_address text NOT NULL,
     reactor_address text NOT NULL,
     config json DEFAULT '{}'::json NOT NULL,
-    status json DEFAULT '{}'::json NOT NULL,
     logs_token uuid DEFAULT gen_random_uuid() NOT NULL,
     hmac_keys text[] NOT NULL,
     aws_iam_user_arn text,
     cidr_blocks cidr[] DEFAULT '{}'::cidr[] NOT NULL,
     enable_l2 boolean NOT NULL,
     gcp_service_account_email text,
-    ssh_private_key text
+    aws_link_endpoints json[],
+    controller_task_id public.flowid DEFAULT internal.id_generator(),
+    deploy_branch text,
+    pulumi_key text,
+    pulumi_stack text,
+    status text,
+    bastion_tunnel_private_key text,
+    azure_application_name text,
+    ops_l1_events_name public.catalog_name NOT NULL,
+    ops_l2_events_transform text NOT NULL,
+    azure_link_endpoints json[],
+    azure_application_client_id text,
+    private_links json[] DEFAULT ARRAY[]::json[] NOT NULL,
+    encrypted_hmac_keys json DEFAULT '{}'::json NOT NULL,
+    gcp_psc_endpoints json[]
 );
 
 
@@ -4520,6 +5264,76 @@ COMMENT ON COLUMN public.data_planes.id IS 'ID of the record';
 --
 
 COMMENT ON COLUMN public.data_planes.updated_at IS 'Time at which the record was last updated';
+
+
+--
+-- Name: COLUMN data_planes.ops_l1_events_name; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.data_planes.ops_l1_events_name IS 'The name of the L1 events derivation in the ops catalog';
+
+
+--
+-- Name: COLUMN data_planes.ops_l2_events_transform; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.data_planes.ops_l2_events_transform IS 'The name of the events transform in the L2 events rollup of the ops catalog';
+
+
+--
+-- Name: data_planes_overview; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.data_planes_overview AS
+ SELECT dp.data_plane_name,
+    dp.data_plane_fqdn,
+    (((((dp.config)::jsonb -> 'deployments'::text) -> 0) -> 'template'::text) ->> 'provider'::text) AS cloud_provider,
+    dp.status,
+    ( SELECT (d.value ->> 'oci_image'::text)
+           FROM jsonb_array_elements(((dp.config)::jsonb -> 'deployments'::text)) d(value)
+          WHERE ((d.value ->> 'role'::text) = 'etcd'::text)
+         LIMIT 1) AS etcd_version,
+    ( SELECT (d.value ->> 'oci_image'::text)
+           FROM jsonb_array_elements(((dp.config)::jsonb -> 'deployments'::text)) d(value)
+          WHERE ((d.value ->> 'role'::text) = 'gazette'::text)
+         LIMIT 1) AS gazette_version,
+    ( SELECT (d.value ->> 'oci_image'::text)
+           FROM jsonb_array_elements(((dp.config)::jsonb -> 'deployments'::text)) d(value)
+          WHERE ((d.value ->> 'role'::text) = 'reactor'::text)
+         LIMIT 1) AS reactor_version,
+    ( SELECT (d.value ->> 'oci_image'::text)
+           FROM jsonb_array_elements(((dp.config)::jsonb -> 'deployments'::text)) d(value)
+          WHERE ((d.value ->> 'role'::text) = 'dekaf'::text)
+         LIMIT 1) AS dekaf_version,
+        CASE
+            WHEN (((dp.config)::jsonb ? 'azure_byoc'::text) OR ((dp.config)::jsonb ? 'aws_assume_role'::text) OR ((dp.config)::jsonb ? 'gcp_byoc'::text)) THEN 'BYOC'::text
+            ELSE 'Private'::text
+        END AS deployment_type,
+    (now() - (((t.inner_state)::jsonb ->> 'last_pulumi_up'::text))::timestamp with time zone) AS time_since_last_successful_run,
+    ( SELECT ((d.value ->> 'desired'::text))::integer AS int4
+           FROM jsonb_array_elements(((dp.config)::jsonb -> 'deployments'::text)) d(value)
+          WHERE ((d.value ->> 'role'::text) = 'reactor'::text)
+         LIMIT 1) AS reactors_desired,
+    ( SELECT ((d.value ->> 'current'::text))::integer AS int4
+           FROM jsonb_array_elements(((dp.config)::jsonb -> 'deployments'::text)) d(value)
+          WHERE ((d.value ->> 'role'::text) = 'reactor'::text)
+         LIMIT 1) AS reactors_current,
+    dp.private_links,
+    dp.aws_link_endpoints,
+    dp.azure_link_endpoints,
+    dp.gcp_psc_endpoints,
+    dp.enable_l2
+   FROM (public.data_planes dp
+     LEFT JOIN internal.tasks t ON (((dp.controller_task_id)::macaddr8 = (t.task_id)::macaddr8)));
+
+
+ALTER TABLE public.data_planes_overview OWNER TO postgres;
+
+--
+-- Name: VIEW data_planes_overview; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.data_planes_overview IS 'Overview of data planes with key operational metrics including versions, deployment type, and health indicators.';
 
 
 --
@@ -5025,7 +5839,6 @@ CREATE VIEW public.live_specs_ext AS
     l.md5,
     l.built_spec,
     l.inferred_schema_md5,
-    l.controller_next_run,
     c.external_url AS connector_external_url,
     c.id AS connector_id,
     c.title AS connector_title,
@@ -5057,14 +5870,7 @@ CREATE VIEW public.live_specs_ext AS
            FROM authorized_specs)));
 
 
-ALTER VIEW public.live_specs_ext OWNER TO postgres;
-
---
--- Name: VIEW live_specs_ext; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.live_specs_ext IS 'View of `live_specs` extended with metadata of its last publication';
-
+ALTER TABLE public.live_specs_ext OWNER TO postgres;
 
 --
 -- Name: draft_specs_ext; Type: VIEW; Schema: public; Owner: postgres
@@ -5108,14 +5914,7 @@ CREATE VIEW public.draft_specs_ext AS
            FROM authorized_drafts)));
 
 
-ALTER VIEW public.draft_specs_ext OWNER TO postgres;
-
---
--- Name: VIEW draft_specs_ext; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.draft_specs_ext IS 'View of `draft_specs` extended with metadata of its live specification';
-
+ALTER TABLE public.draft_specs_ext OWNER TO postgres;
 
 --
 -- Name: drafts_ext; Type: VIEW; Schema: public; Owner: authenticated
@@ -5134,7 +5933,7 @@ CREATE VIEW public.drafts_ext AS
           WHERE ((draft_specs.draft_id)::macaddr8 = (d.id)::macaddr8)) s;
 
 
-ALTER VIEW public.drafts_ext OWNER TO authenticated;
+ALTER TABLE public.drafts_ext OWNER TO authenticated;
 
 --
 -- Name: VIEW drafts_ext; Type: COMMENT; Schema: public; Owner: authenticated
@@ -5312,7 +6111,7 @@ UNION ALL
      JOIN authorized_tenants ON (((manual_bills.tenant)::text ^@ (authorized_tenants.tenant)::text)));
 
 
-ALTER VIEW public.invoices_ext OWNER TO postgres;
+ALTER TABLE public.invoices_ext OWNER TO postgres;
 
 --
 -- Name: live_spec_flows; Type: TABLE; Schema: public; Owner: postgres
@@ -5349,6 +6148,37 @@ COMMENT ON COLUMN public.live_spec_flows.target_id IS 'Specification to which da
 
 
 --
+-- Name: live_specs_backup; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.live_specs_backup (
+    created_at timestamp with time zone,
+    detail text,
+    id public.flowid,
+    updated_at timestamp with time zone,
+    catalog_name public.catalog_name,
+    connector_image_name text,
+    connector_image_tag text,
+    last_pub_id public.flowid,
+    reads_from text[],
+    spec json,
+    spec_type public.catalog_spec_type,
+    writes_to text[],
+    last_build_id public.flowid,
+    md5 text,
+    built_spec json,
+    inferred_schema_md5 text,
+    data_plane_id public.flowid,
+    journal_template_name text,
+    shard_template_id text,
+    dependency_hash text,
+    controller_task_id public.flowid
+);
+
+
+ALTER TABLE public.live_specs_backup OWNER TO postgres;
+
+--
 -- Name: lock_monitor; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5368,7 +6198,7 @@ CREATE VIEW public.lock_monitor AS
   WHERE ((NOT blockedl.granted) AND (blockinga.datname = current_database()));
 
 
-ALTER VIEW public.lock_monitor OWNER TO postgres;
+ALTER TABLE public.lock_monitor OWNER TO postgres;
 
 --
 -- Name: old_catalog_stats; Type: TABLE; Schema: public; Owner: postgres
@@ -5525,6 +6355,24 @@ user-provided projection of JSON at: /statsSummary/warnings with inferred types:
 
 
 --
+-- Name: publication_specs_backup; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.publication_specs_backup (
+    catalog_name public.catalog_name,
+    live_spec_id public.flowid,
+    pub_id public.flowid,
+    detail text,
+    published_at timestamp with time zone,
+    spec json,
+    spec_type public.catalog_spec_type,
+    user_id uuid
+);
+
+
+ALTER TABLE public.publication_specs_backup OWNER TO postgres;
+
+--
 -- Name: publication_specs_ext; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5550,7 +6398,7 @@ CREATE VIEW public.publication_specs_ext AS
           WHERE ((ls.catalog_name)::text ^@ (r.role_prefix)::text)));
 
 
-ALTER VIEW public.publication_specs_ext OWNER TO postgres;
+ALTER TABLE public.publication_specs_ext OWNER TO postgres;
 
 --
 -- Name: publications; Type: TABLE; Schema: public; Owner: postgres
@@ -5568,7 +6416,7 @@ CREATE TABLE public.publications (
     dry_run boolean DEFAULT false NOT NULL,
     auto_evolve boolean DEFAULT false NOT NULL,
     background boolean DEFAULT false NOT NULL,
-    data_plane_name text DEFAULT 'ops/dp/public/gcp-us-central1-c1'::text NOT NULL,
+    data_plane_name text,
     pub_id public.flowid
 );
 
@@ -5790,13 +6638,65 @@ CREATE SEQUENCE public.registered_avro_schemas_registry_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.registered_avro_schemas_registry_id_seq OWNER TO postgres;
+ALTER TABLE public.registered_avro_schemas_registry_id_seq OWNER TO postgres;
 
 --
 -- Name: registered_avro_schemas_registry_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.registered_avro_schemas_registry_id_seq OWNED BY public.registered_avro_schemas.registry_id;
+
+
+--
+-- Name: shard_failures; Type: TABLE; Schema: public; Owner: stats_loader
+--
+
+CREATE TABLE public.shard_failures (
+    catalog_name public.catalog_name NOT NULL,
+    build public.flowid,
+    ts timestamp with time zone NOT NULL,
+    flow_document json NOT NULL
+);
+
+
+ALTER TABLE public.shard_failures OWNER TO stats_loader;
+
+--
+-- Name: TABLE shard_failures; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON TABLE public.shard_failures IS 'Records of task shard failures, which are materialized by the ops catalog using delta updates.
+This table is effectively append-only. An insert into this table will trigger a run of the
+corresponding live spec controller, which will respond to the failure and cleanup unneeded rows.';
+
+
+--
+-- Name: COLUMN shard_failures.catalog_name; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.shard_failures.catalog_name IS 'The name of the task that the shard failure is for.';
+
+
+--
+-- Name: COLUMN shard_failures.build; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.shard_failures.build IS 'The id of the build that the shard was running when it failed.';
+
+
+--
+-- Name: COLUMN shard_failures.ts; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.shard_failures.ts IS 'The timestamp of when the failure event was generated by the Flow runtime';
+
+
+--
+-- Name: COLUMN shard_failures.flow_document; Type: COMMENT; Schema: public; Owner: stats_loader
+--
+
+COMMENT ON COLUMN public.shard_failures.flow_document IS 'The contents of the `flow_document` column are serialized instances of the
+`ShardFailure` struct defined in `crates/models/src/status/activation.rs`.';
 
 
 --
@@ -5865,6 +6765,22 @@ COMMENT ON COLUMN public.storage_mappings.spec IS 'Specification of this storage
 
 
 --
+-- Name: storage_mappings_bak_20250922; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.storage_mappings_bak_20250922 (
+    created_at timestamp with time zone,
+    detail text,
+    id public.flowid,
+    updated_at timestamp with time zone,
+    catalog_prefix public.catalog_prefix,
+    spec json
+);
+
+
+ALTER TABLE public.storage_mappings_bak_20250922 OWNER TO postgres;
+
+--
 -- Name: test_publication_specs_ext; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5890,7 +6806,7 @@ CREATE VIEW public.test_publication_specs_ext AS
           WHERE ((ls.catalog_name)::text ^@ (r.role_prefix)::text)));
 
 
-ALTER VIEW public.test_publication_specs_ext OWNER TO postgres;
+ALTER TABLE public.test_publication_specs_ext OWNER TO postgres;
 
 --
 -- Name: unchanged_draft_specs; Type: VIEW; Schema: public; Owner: postgres
@@ -5908,15 +6824,7 @@ CREATE VIEW public.unchanged_draft_specs AS
   WHERE (d.draft_spec_md5 = d.live_spec_md5);
 
 
-ALTER VIEW public.unchanged_draft_specs OWNER TO postgres;
-
---
--- Name: VIEW unchanged_draft_specs; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.unchanged_draft_specs IS 'View of `draft_specs_ext` that is filtered to only include specs that are identical to the
- current `live_specs`.';
-
+ALTER TABLE public.unchanged_draft_specs OWNER TO postgres;
 
 --
 -- Name: catalog_stats_daily; Type: TABLE ATTACH; Schema: public; Owner: postgres
@@ -6021,6 +6929,14 @@ ALTER TABLE ONLY internal.manual_bills
 
 
 --
+-- Name: tasks tasks_pkey; Type: CONSTRAINT; Schema: internal; Owner: postgres
+--
+
+ALTER TABLE ONLY internal.tasks
+    ADD CONSTRAINT tasks_pkey PRIMARY KEY (task_id);
+
+
+--
 -- Name: alert_data_processing alert_data_processing_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6085,6 +7001,22 @@ ALTER TABLE ONLY public.catalog_stats_monthly
 
 
 --
+-- Name: config_updates config_updates_pkey; Type: CONSTRAINT; Schema: public; Owner: stats_loader
+--
+
+ALTER TABLE ONLY public.config_updates
+    ADD CONSTRAINT config_updates_pkey PRIMARY KEY (catalog_name);
+
+
+--
+-- Name: connector_status connector_status_pkey; Type: CONSTRAINT; Schema: public; Owner: stats_loader
+--
+
+ALTER TABLE ONLY public.connector_status
+    ADD CONSTRAINT connector_status_pkey PRIMARY KEY (catalog_name);
+
+
+--
 -- Name: connector_tags connector_tags_connector_id_image_tag_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6122,6 +7054,22 @@ ALTER TABLE ONLY public.connectors
 
 ALTER TABLE ONLY public.controller_jobs
     ADD CONSTRAINT controller_jobs_pkey PRIMARY KEY (live_spec_id);
+
+
+--
+-- Name: data_plane_migrations data_plane_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.data_plane_migrations
+    ADD CONSTRAINT data_plane_migrations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: data_plane_releases data_plane_releases_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.data_plane_releases
+    ADD CONSTRAINT data_plane_releases_pkey PRIMARY KEY (active, prev_image, data_plane_id);
 
 
 --
@@ -6325,6 +7273,14 @@ ALTER TABLE ONLY public.tenants
 
 
 --
+-- Name: data_planes unique_pulumi_stack; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.data_planes
+    ADD CONSTRAINT unique_pulumi_stack UNIQUE (pulumi_stack);
+
+
+--
 -- Name: user_grants user_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6362,31 +7318,31 @@ CREATE INDEX idx_logs_token ON internal.log_lines USING btree (token);
 
 
 --
--- Name: catalog_stats_catalog_index; Type: INDEX; Schema: public; Owner: stats_loader
+-- Name: idx_tasks_ready_at; Type: INDEX; Schema: internal; Owner: postgres
 --
 
-CREATE INDEX catalog_stats_catalog_index ON ONLY public.catalog_stats USING btree (catalog_name);
-
-
---
--- Name: catalog_stats_catalog_index_spgist; Type: INDEX; Schema: public; Owner: stats_loader
---
-
-CREATE INDEX catalog_stats_catalog_index_spgist ON ONLY public.catalog_stats USING spgist (((catalog_name)::text));
+CREATE INDEX idx_tasks_ready_at ON internal.tasks USING btree (wake_at) INCLUDE (task_type);
 
 
 --
--- Name: catalog_stats_daily_catalog_name_idx; Type: INDEX; Schema: public; Owner: postgres
+-- Name: alert_history_open_alerts; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX catalog_stats_daily_catalog_name_idx ON public.catalog_stats_daily USING btree (catalog_name);
+CREATE INDEX alert_history_open_alerts ON public.alert_history USING btree (catalog_name) WHERE (resolved_at IS NULL);
 
 
 --
--- Name: catalog_stats_daily_catalog_name_idx3; Type: INDEX; Schema: public; Owner: postgres
+-- Name: INDEX alert_history_open_alerts; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-CREATE INDEX catalog_stats_daily_catalog_name_idx3 ON public.catalog_stats_daily USING spgist (((catalog_name)::text));
+COMMENT ON INDEX public.alert_history_open_alerts IS 'Partial index for efficiently querying open alerts (where resolved_at is null)';
+
+
+--
+-- Name: alert_subscriptions_catalog_prefix_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX alert_subscriptions_catalog_prefix_idx ON public.alert_subscriptions USING btree (catalog_prefix);
 
 
 --
@@ -6397,24 +7353,164 @@ CREATE INDEX catalog_stats_hourly_catalog_name_idx ON public.catalog_stats_hourl
 
 
 --
--- Name: catalog_stats_hourly_catalog_name_idx3; Type: INDEX; Schema: public; Owner: postgres
+-- Name: catalog_stats_hourly_pkey_ccnew; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX catalog_stats_hourly_catalog_name_idx3 ON public.catalog_stats_hourly USING spgist (((catalog_name)::text));
-
-
---
--- Name: catalog_stats_monthly_catalog_name_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX catalog_stats_monthly_catalog_name_idx ON public.catalog_stats_monthly USING btree (catalog_name);
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
 
 
 --
--- Name: catalog_stats_monthly_catalog_name_idx3; Type: INDEX; Schema: public; Owner: postgres
+-- Name: catalog_stats_hourly_pkey_ccnew1; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX catalog_stats_monthly_catalog_name_idx3 ON public.catalog_stats_monthly USING spgist (((catalog_name)::text));
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew1 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew10; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew10 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew11; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew11 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew12; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew12 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew13; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew13 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew14; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew14 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew15; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew15 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew16; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew16 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew17; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew17 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew2; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew2 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew3; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew3 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew4; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew4 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew5; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew5 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew6; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew6 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew7; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew7 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew8; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew8 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_pkey_ccnew9; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX catalog_stats_hourly_pkey_ccnew9 ON public.catalog_stats_hourly USING btree (catalog_name, grain, ts);
+
+
+--
+-- Name: catalog_stats_hourly_ts; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX catalog_stats_hourly_ts ON public.catalog_stats_hourly USING btree (ts);
+
+
+--
+-- Name: config_updates_catalog_name_build_idx; Type: INDEX; Schema: public; Owner: stats_loader
+--
+
+CREATE INDEX config_updates_catalog_name_build_idx ON public.config_updates USING btree (catalog_name, build);
+
+
+--
+-- Name: config_updates_ts_idx; Type: INDEX; Schema: public; Owner: stats_loader
+--
+
+CREATE INDEX config_updates_ts_idx ON public.config_updates USING btree (ts);
+
+
+--
+-- Name: controller_alerts_index; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX controller_alerts_index ON public.controller_jobs USING btree (live_spec_id) WHERE (has_alert IS TRUE);
+
+
+--
+-- Name: INDEX controller_alerts_index; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON INDEX public.controller_alerts_index IS 'Partial index for efficiently querying controller jobs that have firing alerts';
 
 
 --
@@ -6429,6 +7525,13 @@ CREATE INDEX discovers_queued ON public.discovers USING btree (id) WHERE (((job_
 --
 
 CREATE INDEX evolutions_queued ON public.evolutions USING btree (id) WHERE (((job_status)::jsonb ->> 'type'::text) = 'queued'::text);
+
+
+--
+-- Name: id_uniq; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX id_uniq ON public.alert_history USING btree (id);
 
 
 --
@@ -6488,6 +7591,13 @@ CREATE UNIQUE INDEX idx_live_spec_flows_reverse ON public.live_spec_flows USING 
 
 
 --
+-- Name: idx_live_specs_catalog_name_enabled_spgist; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_live_specs_catalog_name_enabled_spgist ON public.live_specs USING spgist (((catalog_name)::text)) WHERE ((((spec -> 'shards'::text) ->> 'disable'::text))::boolean IS NOT TRUE);
+
+
+--
 -- Name: idx_live_specs_catalog_name_spgist; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6537,10 +7647,10 @@ CREATE INDEX idx_user_grants_object_role_spgist ON public.user_grants USING spgi
 
 
 --
--- Name: live_specs_controller_next_run; Type: INDEX; Schema: public; Owner: postgres
+-- Name: live_specs_controller_task_id_uindex; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX live_specs_controller_next_run ON public.live_specs USING btree (controller_next_run) INCLUDE (id) WHERE (controller_next_run IS NOT NULL);
+CREATE UNIQUE INDEX live_specs_controller_task_id_uindex ON public.live_specs USING btree (controller_task_id);
 
 
 --
@@ -6551,17 +7661,17 @@ CREATE INDEX publications_queued ON public.publications USING btree (id) WHERE (
 
 
 --
--- Name: catalog_stats_daily_catalog_name_idx; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
+-- Name: shard_failures_catalog_name_build_idx; Type: INDEX; Schema: public; Owner: stats_loader
 --
 
-ALTER INDEX public.catalog_stats_catalog_index ATTACH PARTITION public.catalog_stats_daily_catalog_name_idx;
+CREATE INDEX shard_failures_catalog_name_build_idx ON public.shard_failures USING btree (catalog_name, build);
 
 
 --
--- Name: catalog_stats_daily_catalog_name_idx3; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
+-- Name: shard_failures_ts_idx; Type: INDEX; Schema: public; Owner: stats_loader
 --
 
-ALTER INDEX public.catalog_stats_catalog_index_spgist ATTACH PARTITION public.catalog_stats_daily_catalog_name_idx3;
+CREATE INDEX shard_failures_ts_idx ON public.shard_failures USING btree (ts);
 
 
 --
@@ -6572,38 +7682,10 @@ ALTER INDEX public.catalog_stats_pkey1 ATTACH PARTITION public.catalog_stats_dai
 
 
 --
--- Name: catalog_stats_hourly_catalog_name_idx; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
---
-
-ALTER INDEX public.catalog_stats_catalog_index ATTACH PARTITION public.catalog_stats_hourly_catalog_name_idx;
-
-
---
--- Name: catalog_stats_hourly_catalog_name_idx3; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
---
-
-ALTER INDEX public.catalog_stats_catalog_index_spgist ATTACH PARTITION public.catalog_stats_hourly_catalog_name_idx3;
-
-
---
 -- Name: catalog_stats_hourly_pkey; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
 --
 
 ALTER INDEX public.catalog_stats_pkey1 ATTACH PARTITION public.catalog_stats_hourly_pkey;
-
-
---
--- Name: catalog_stats_monthly_catalog_name_idx; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
---
-
-ALTER INDEX public.catalog_stats_catalog_index ATTACH PARTITION public.catalog_stats_monthly_catalog_name_idx;
-
-
---
--- Name: catalog_stats_monthly_catalog_name_idx3; Type: INDEX ATTACH; Schema: public; Owner: stats_loader
---
-
-ALTER INDEX public.catalog_stats_catalog_index_spgist ATTACH PARTITION public.catalog_stats_monthly_catalog_name_idx3;
 
 
 --
@@ -6639,7 +7721,7 @@ CREATE OR REPLACE VIEW internal.next_auto_discovers AS
 -- Name: tenants Grant support role access to tenants; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER "Grant support role access to tenants" AFTER INSERT OR UPDATE ON public.tenants FOR EACH STATEMENT EXECUTE FUNCTION internal.update_support_role();
+CREATE TRIGGER "Grant support role access to tenants" AFTER INSERT ON public.tenants FOR EACH ROW EXECUTE FUNCTION internal.update_support_role();
 
 
 --
@@ -6648,12 +7730,16 @@ CREATE TRIGGER "Grant support role access to tenants" AFTER INSERT OR UPDATE ON 
 
 CREATE TRIGGER "Send email after alert fired" AFTER INSERT ON public.alert_history FOR EACH ROW EXECUTE FUNCTION internal.send_alerts();
 
+ALTER TABLE public.alert_history DISABLE TRIGGER "Send email after alert fired";
+
 
 --
 -- Name: alert_history Send email after alert resolved; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
 CREATE TRIGGER "Send email after alert resolved" AFTER UPDATE ON public.alert_history FOR EACH ROW WHEN (((old.resolved_at IS NULL) AND (new.resolved_at IS NOT NULL))) EXECUTE FUNCTION internal.send_alerts();
+
+ALTER TABLE public.alert_history DISABLE TRIGGER "Send email after alert resolved";
 
 
 --
@@ -6678,10 +7764,52 @@ CREATE TRIGGER applied_directives_agent_notifications AFTER INSERT OR UPDATE ON 
 
 
 --
+-- Name: data_planes check_changes_when_status_not_idle_trigger; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER check_changes_when_status_not_idle_trigger BEFORE UPDATE ON public.data_planes FOR EACH ROW EXECUTE FUNCTION internal.check_changes_when_status_not_idle();
+
+
+--
 -- Name: connector_tags connector_tags_agent_notifications; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
 CREATE TRIGGER connector_tags_agent_notifications AFTER INSERT OR UPDATE ON public.connector_tags FOR EACH ROW WHEN ((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text)) EXECUTE FUNCTION internal.notify_agent();
+
+
+--
+-- Name: connector_tags create_connector_tag_task; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER create_connector_tag_task AFTER INSERT OR UPDATE ON public.connector_tags FOR EACH ROW WHEN ((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text)) EXECUTE FUNCTION internal.create_connector_tag_task();
+
+
+--
+-- Name: applied_directives create_directive_task; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER create_directive_task AFTER INSERT OR UPDATE ON public.applied_directives FOR EACH ROW WHEN (((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text) AND (new.user_claims IS NOT NULL))) EXECUTE FUNCTION internal.create_directive_task();
+
+
+--
+-- Name: discovers create_discover_task; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER create_discover_task AFTER INSERT OR UPDATE ON public.discovers FOR EACH ROW WHEN ((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text)) EXECUTE FUNCTION internal.create_discover_task();
+
+
+--
+-- Name: evolutions create_evolution_task; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER create_evolution_task AFTER INSERT OR UPDATE ON public.evolutions FOR EACH ROW WHEN ((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text)) EXECUTE FUNCTION internal.create_evolution_task();
+
+
+--
+-- Name: publications create_publication_task; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER create_publication_task AFTER INSERT OR UPDATE ON public.publications FOR EACH ROW WHEN ((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text)) EXECUTE FUNCTION internal.create_publication_task();
 
 
 --
@@ -6713,24 +7841,31 @@ CREATE TRIGGER inferred_schema_controller_update AFTER UPDATE ON public.inferred
 
 
 --
+-- Name: config_updates on_config_update; Type: TRIGGER; Schema: public; Owner: stats_loader
+--
+
+CREATE TRIGGER on_config_update AFTER INSERT OR UPDATE ON public.config_updates FOR EACH ROW EXECUTE FUNCTION internal.on_config_update();
+
+
+--
+-- Name: data_plane_migrations on_data_plane_migration_insert; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER on_data_plane_migration_insert AFTER INSERT ON public.data_plane_migrations FOR EACH ROW EXECUTE FUNCTION internal.trigger_create_data_plane_migration_task();
+
+
+--
+-- Name: shard_failures on_shard_failure_insert; Type: TRIGGER; Schema: public; Owner: stats_loader
+--
+
+CREATE TRIGGER on_shard_failure_insert AFTER INSERT ON public.shard_failures FOR EACH ROW EXECUTE FUNCTION internal.on_shard_failure();
+
+
+--
 -- Name: publications publications_agent_notifications; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
 CREATE TRIGGER publications_agent_notifications AFTER INSERT OR UPDATE ON public.publications FOR EACH ROW WHEN ((((new.job_status)::jsonb ->> 'type'::text) = 'queued'::text)) EXECUTE FUNCTION internal.notify_agent();
-
-
---
--- Name: connectors update-marketing-site-on-connector-change; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER "update-marketing-site-on-connector-change" AFTER INSERT OR DELETE OR UPDATE ON public.connectors FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://strapi.estuary.dev/api', 'POST', '{"Authorization":"Bearer supersecretpassword"}', '{"event_type":"database_updated","repo":"estuary/marketing-site"}', '1000');
-
-
---
--- Name: connector_tags update-marketing-site-on-connector-tags-change; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER "update-marketing-site-on-connector-tags-change" AFTER INSERT OR DELETE OR UPDATE ON public.connector_tags FOR EACH ROW EXECUTE FUNCTION supabase_functions.http_request('https://strapi.estuary.dev/api', 'POST', '{"Authorization":"Bearer supersecretpassword"}', '{"event_type":"database_updated","repo":"estuary/marketing-site"}', '1000');
 
 
 --
@@ -6851,6 +7986,14 @@ ALTER TABLE ONLY public.live_spec_flows
 
 ALTER TABLE ONLY public.live_spec_flows
     ADD CONSTRAINT live_spec_flows_target_id_fkey FOREIGN KEY (target_id) REFERENCES public.live_specs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: live_specs live_specs_controller_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.live_specs
+    ADD CONSTRAINT live_specs_controller_task_id_fkey FOREIGN KEY (controller_task_id) REFERENCES internal.tasks(task_id);
 
 
 --
@@ -7081,7 +8224,7 @@ CREATE POLICY "Users must be authorized to one referenced specification" ON publ
 
 CREATE POLICY "Users must be authorized to the catalog name" ON public.catalog_stats FOR SELECT USING ((EXISTS ( SELECT 1
    FROM public.auth_roles('read'::public.grant_capability) r(role_prefix, capability)
-  WHERE ((catalog_stats.catalog_name)::text ^@ (r.role_prefix)::text))));
+  WHERE (catalog_stats.catalog_name ^@ (r.role_prefix)::text))));
 
 
 --
@@ -7368,6 +8511,8 @@ GRANT ALL ON SCHEMA public TO stats_loader;
 GRANT USAGE ON SCHEMA public TO github_action_connector_refresh;
 GRANT USAGE ON SCHEMA public TO marketplace_integration;
 GRANT USAGE ON SCHEMA public TO wgd_automation;
+GRANT USAGE ON SCHEMA public TO dekaf;
+GRANT USAGE ON SCHEMA public TO data_plane_releases_ci;
 
 
 --
@@ -7494,6 +8639,13 @@ GRANT ALL ON FUNCTION public.view_logs(bearer_token uuid) TO service_role;
 
 
 --
+-- Name: FUNCTION view_logs(bearer_token uuid, last_logged_at timestamp with time zone); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.view_logs(bearer_token uuid, last_logged_at timestamp with time zone) TO service_role;
+
+
+--
 -- Name: FUNCTION view_user_profile(bearer_user_id uuid); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7513,14 +8665,6 @@ GRANT SELECT,INSERT,DELETE ON TABLE public.alert_data_processing TO authenticate
 --
 
 GRANT UPDATE(evaluation_interval) ON TABLE public.alert_data_processing TO authenticated;
-
-
---
--- Name: TABLE alert_subscriptions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.alert_subscriptions TO service_role;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.alert_subscriptions TO authenticated;
 
 
 --
@@ -7550,6 +8694,14 @@ GRANT SELECT ON TABLE public.live_specs TO wgd_automation;
 
 
 --
+-- Name: TABLE controller_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.controller_jobs TO service_role;
+GRANT SELECT ON TABLE public.controller_jobs TO reporting_user;
+
+
+--
 -- Name: TABLE tenants; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7564,6 +8716,14 @@ GRANT SELECT,REFERENCES,UPDATE ON TABLE public.tenants TO marketplace_integratio
 --
 
 GRANT ALL ON TABLE internal.billing_historicals TO service_role;
+
+
+--
+-- Name: TABLE alert_subscriptions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.alert_subscriptions TO service_role;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.alert_subscriptions TO authenticated;
 
 
 --
@@ -7604,13 +8764,6 @@ GRANT SELECT ON TABLE internal.user_profiles TO reporting_user;
 
 
 --
--- Name: TABLE alert_all; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.alert_all TO service_role;
-
-
---
 -- Name: TABLE alert_history; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7644,6 +8797,22 @@ GRANT SELECT ON TABLE public.user_grants TO reporting_user;
 GRANT ALL ON TABLE public.combined_grants_ext TO service_role;
 GRANT SELECT ON TABLE public.combined_grants_ext TO authenticated;
 GRANT SELECT ON TABLE public.combined_grants_ext TO reporting_user;
+
+
+--
+-- Name: TABLE config_updates; Type: ACL; Schema: public; Owner: stats_loader
+--
+
+GRANT ALL ON TABLE public.config_updates TO service_role;
+GRANT SELECT ON TABLE public.config_updates TO reporting_user;
+
+
+--
+-- Name: TABLE connector_status; Type: ACL; Schema: public; Owner: stats_loader
+--
+
+GRANT ALL ON TABLE public.connector_status TO service_role;
+GRANT SELECT ON TABLE public.connector_status TO reporting_user;
 
 
 --
@@ -7745,11 +8914,20 @@ GRANT SELECT(recommended) ON TABLE public.connectors TO authenticated;
 
 
 --
--- Name: TABLE controller_jobs; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE data_plane_migrations; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.controller_jobs TO service_role;
-GRANT SELECT ON TABLE public.controller_jobs TO reporting_user;
+GRANT ALL ON TABLE public.data_plane_migrations TO service_role;
+GRANT SELECT ON TABLE public.data_plane_migrations TO reporting_user;
+
+
+--
+-- Name: TABLE data_plane_releases; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.data_plane_releases TO service_role;
+GRANT SELECT ON TABLE public.data_plane_releases TO reporting_user;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.data_plane_releases TO data_plane_releases_ci;
 
 
 --
@@ -7831,13 +9009,6 @@ GRANT SELECT(config) ON TABLE public.data_planes TO authenticated;
 
 
 --
--- Name: COLUMN data_planes.status; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT SELECT(status) ON TABLE public.data_planes TO authenticated;
-
-
---
 -- Name: COLUMN data_planes.aws_iam_user_arn; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7856,6 +9027,49 @@ GRANT SELECT(cidr_blocks) ON TABLE public.data_planes TO authenticated;
 --
 
 GRANT SELECT(gcp_service_account_email) ON TABLE public.data_planes TO authenticated;
+
+
+--
+-- Name: COLUMN data_planes.aws_link_endpoints; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT(aws_link_endpoints) ON TABLE public.data_planes TO authenticated;
+
+
+--
+-- Name: COLUMN data_planes.azure_link_endpoints; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT(azure_link_endpoints) ON TABLE public.data_planes TO authenticated;
+
+
+--
+-- Name: COLUMN data_planes.azure_application_client_id; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT(azure_application_client_id) ON TABLE public.data_planes TO authenticated;
+
+
+--
+-- Name: COLUMN data_planes.private_links; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT(private_links) ON TABLE public.data_planes TO authenticated;
+
+
+--
+-- Name: COLUMN data_planes.gcp_psc_endpoints; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT(gcp_psc_endpoints) ON TABLE public.data_planes TO authenticated;
+
+
+--
+-- Name: TABLE data_planes_overview; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.data_planes_overview TO service_role;
+GRANT SELECT ON TABLE public.data_planes_overview TO reporting_user;
 
 
 --
@@ -7967,6 +9181,7 @@ GRANT SELECT ON TABLE public.publication_specs TO reporting_user;
 GRANT ALL ON TABLE public.live_specs_ext TO service_role;
 GRANT SELECT ON TABLE public.live_specs_ext TO reporting_user;
 GRANT SELECT ON TABLE public.live_specs_ext TO authenticated;
+GRANT SELECT ON TABLE public.live_specs_ext TO dekaf;
 
 
 --
@@ -8041,6 +9256,14 @@ GRANT SELECT ON TABLE public.live_spec_flows TO authenticated;
 
 
 --
+-- Name: TABLE live_specs_backup; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.live_specs_backup TO service_role;
+GRANT SELECT ON TABLE public.live_specs_backup TO reporting_user;
+
+
+--
 -- Name: TABLE lock_monitor; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8055,6 +9278,14 @@ GRANT SELECT ON TABLE public.lock_monitor TO reporting_user;
 GRANT ALL ON TABLE public.old_catalog_stats TO service_role;
 GRANT SELECT ON TABLE public.old_catalog_stats TO authenticated;
 GRANT SELECT ON TABLE public.old_catalog_stats TO reporting_user;
+
+
+--
+-- Name: TABLE publication_specs_backup; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.publication_specs_backup TO service_role;
+GRANT SELECT ON TABLE public.publication_specs_backup TO reporting_user;
 
 
 --
@@ -8175,6 +9406,7 @@ GRANT SELECT(uses) ON TABLE public.refresh_tokens TO authenticated;
 GRANT ALL ON TABLE public.registered_avro_schemas TO service_role;
 GRANT SELECT ON TABLE public.registered_avro_schemas TO reporting_user;
 GRANT SELECT ON TABLE public.registered_avro_schemas TO authenticated;
+GRANT ALL ON TABLE public.registered_avro_schemas TO dekaf;
 
 
 --
@@ -8204,6 +9436,15 @@ GRANT INSERT(catalog_name) ON TABLE public.registered_avro_schemas TO authentica
 
 GRANT ALL ON SEQUENCE public.registered_avro_schemas_registry_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.registered_avro_schemas_registry_id_seq TO authenticated;
+GRANT SELECT,USAGE ON SEQUENCE public.registered_avro_schemas_registry_id_seq TO dekaf;
+
+
+--
+-- Name: TABLE shard_failures; Type: ACL; Schema: public; Owner: stats_loader
+--
+
+GRANT ALL ON TABLE public.shard_failures TO service_role;
+GRANT SELECT ON TABLE public.shard_failures TO reporting_user;
 
 
 --
@@ -8213,6 +9454,14 @@ GRANT USAGE ON SEQUENCE public.registered_avro_schemas_registry_id_seq TO authen
 GRANT ALL ON TABLE public.storage_mappings TO service_role;
 GRANT SELECT ON TABLE public.storage_mappings TO authenticated;
 GRANT SELECT ON TABLE public.storage_mappings TO reporting_user;
+
+
+--
+-- Name: TABLE storage_mappings_bak_20250922; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.storage_mappings_bak_20250922 TO service_role;
+GRANT SELECT ON TABLE public.storage_mappings_bak_20250922 TO reporting_user;
 
 
 --
@@ -8237,8 +9486,8 @@ GRANT SELECT ON TABLE public.unchanged_draft_specs TO authenticated;
 -- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: postgres
 --
 
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES  TO service_role;
 
 
 --
@@ -8251,8 +9500,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENC
 -- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: postgres
 --
 
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS  TO service_role;
 
 
 --
@@ -8265,9 +9514,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIO
 -- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: postgres
 --
 
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO postgres;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO reporting_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES  TO reporting_user;
 
 
 --
