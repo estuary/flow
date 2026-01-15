@@ -2,4 +2,4 @@
 source: crates/agent/src/integration_tests/graphql/queries/mod.rs
 expression: alice_result
 ---
-"GraphQL query failed with error: GraphQL errors: [ServerError { message: \"user is not authorized to bobCo/private/materialization\", locations: [Pos(2:5)], path: [Field(\"lastThree\")], extensions: None }]"
+"GraphQL query failed with error: GraphQL errors: [ServerError { message: \"PermissionDenied: user@example.com is not authorized to access prefix or name 'bobCo/private/materialization' with required capability read\", locations: [Pos(2:5)], path: [Field(\"lastThree\")], extensions: None }]"

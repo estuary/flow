@@ -9,8 +9,8 @@ use models::{
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
-use std::collections::{BTreeSet, HashMap};
-use std::sync::{Arc, RwLock};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use control_plane_api::{
     connector_tags, controllers, data_plane,
@@ -205,7 +205,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub publications_handler: Publisher,
     pub discovers_handler: DiscoverHandler<C>,
     pub logs_tx: logs::Tx,
-    pub decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     pub auto_discover_probability: f64,
     pub controller_publication_cooldown: chrono::Duration,
 }
@@ -217,7 +217,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         publications_handler: Publisher,
         discovers_handler: DiscoverHandler<C>,
         logs_tx: logs::Tx,
-        decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
+        snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
         auto_discover_probability: f64,
         controller_publication_cooldown: chrono::Duration,
     ) -> Self {
@@ -227,7 +227,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             publications_handler,
             discovers_handler,
             logs_tx,
-            decrypted_hmac_keys,
+            snapshot_watch,
             auto_discover_probability,
             controller_publication_cooldown,
         }
@@ -242,24 +242,22 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         Option<broker::JournalSpec>, // ops logs template.
         Option<broker::JournalSpec>, // ops stats template.
     )> {
-        let mut data_plane = data_plane::fetch_data_plane(&self.pool, data_plane_id).await?;
+        let refresh = self.snapshot_watch.token();
+        let snapshot = refresh.result().unwrap();
+
+        let Some(data_plane) = snapshot.data_planes.get_by_key(&data_plane_id) else {
+            snapshot.revoke.cancel();
+            return Err(anyhow::anyhow!(
+                "data-plane {data_plane_id} not in snapshot"
+            ));
+        };
+
         let ops_logs_template =
             data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_logs_name);
         let ops_stats_template =
             data_plane::fetch_ops_journal_template(&self.pool, &data_plane.ops_stats_name);
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
-
-        if data_plane.hmac_keys.is_empty() {
-            if let Some(hmac_keys) = self
-                .decrypted_hmac_keys
-                .read()
-                .unwrap()
-                .get(&data_plane.data_plane_name)
-            {
-                data_plane.hmac_keys = hmac_keys.clone();
-            }
-        }
 
         // Parse first data-plane HMAC key (used for signing tokens).
         let (encode_key, _decode) =
@@ -285,13 +283,13 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         // Create the journal and shard clients that are used for interacting with the data plane
         let router = gazette::Router::new("local");
         let journal_client = gazette::journal::Client::new(
-            data_plane.broker_address,
+            data_plane.broker_address.clone(),
             journal::Client::new_fragment_client(),
             metadata.clone(),
             router.clone(),
         );
         let shard_client =
-            gazette::shard::Client::new(data_plane.reactor_address, metadata, router);
+            gazette::shard::Client::new(data_plane.reactor_address.clone(), metadata, router);
 
         Ok((
             shard_client,
@@ -538,9 +536,17 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             pool,
             discovers_handler,
             system_user_id,
+            snapshot_watch,
             ..
         } = self;
-        let data_plane = data_plane::fetch_data_plane(&self.pool, data_plane_id).await?;
+
+        let refresh = snapshot_watch.token();
+        let snapshot = refresh.result().unwrap();
+
+        let data_plane = snapshot
+            .data_planes
+            .get_by_key(&data_plane_id)
+            .with_context(|| format!("data-plane {data_plane_id} not in snapshot"))?;
 
         let req = Discover {
             user_id: *system_user_id,
@@ -550,7 +556,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             update_only,
             reset_on_key_change,
             logs_token,
-            data_plane,
+            data_plane: data_plane.clone(),
         };
         discovers_handler.discover(pool, req).await
     }

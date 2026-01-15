@@ -1,9 +1,9 @@
 use anyhow::Context;
 use control_plane_api::{
-    Id,
     connector_tags::{self, Row, fetch_connector_tag, resolve},
     logs,
 };
+use models::Id;
 use proto_flow::flow;
 use runtime::{LogHandler, Runtime, RuntimeProtocol};
 use serde::{Deserialize, Serialize};

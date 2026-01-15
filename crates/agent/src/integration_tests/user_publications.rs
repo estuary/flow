@@ -1,7 +1,6 @@
 use super::harness::{TestHarness, draft_catalog, set_of};
 use crate::{ControlPlane, controllers::ControllerState};
-use control_plane_api::Capability;
-use models::{CatalogType, Id};
+use models::{Capability, CatalogType, Id};
 
 #[tokio::test]
 async fn test_user_publications() {

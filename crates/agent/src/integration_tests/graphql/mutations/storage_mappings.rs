@@ -1,9 +1,9 @@
 use crate::integration_tests::harness::TestHarness;
 use serde_json::json;
 
-const CREATE_STORAGE_MAPPING_MUTATION: &str = r#"
-mutation CreateStorageMapping($input: CreateStorageMappingInput!) {
-    createStorageMapping(input: $input) {
+const UPSERT_STORAGE_MAPPING_MUTATION: &str = r#"
+mutation UpsertStorageMapping($catalogPrefix: Prefix!, $storage: JSON!, $dryRun: Boolean!) {
+    upsertStorageMapping(catalogPrefix: $catalogPrefix, storage: $storage, dryRun: $dryRun) {
         created
         catalogPrefix
     }
@@ -11,7 +11,7 @@ mutation CreateStorageMapping($input: CreateStorageMappingInput!) {
 "#;
 
 #[tokio::test]
-async fn test_create_storage_mapping_validation_errors() {
+async fn test_upsert_storage_mapping_validation_errors() {
     let mut harness = TestHarness::init("storage_mapping_validation").await;
     let alice_user_id = harness.setup_tenant("aliceCo").await;
 
@@ -19,15 +19,14 @@ async fn test_create_storage_mapping_validation_errors() {
     let result: Result<serde_json::Value, _> = harness
         .execute_graphql_query(
             alice_user_id,
-            CREATE_STORAGE_MAPPING_MUTATION,
+            UPSERT_STORAGE_MAPPING_MUTATION,
             &json!({
-                "input": {
-                    "catalogPrefix": "aliceCo/sub/",
-                    "storage": {
-                        "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
-                        "data_planes": []
-                    }
-                }
+                "catalogPrefix": "aliceCo/sub/",
+                "storage": {
+                    "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
+                    "data_planes": []
+                },
+                "dryRun": false
             }),
         )
         .await;
@@ -42,15 +41,14 @@ async fn test_create_storage_mapping_validation_errors() {
     let result: Result<serde_json::Value, _> = harness
         .execute_graphql_query(
             alice_user_id,
-            CREATE_STORAGE_MAPPING_MUTATION,
+            UPSERT_STORAGE_MAPPING_MUTATION,
             &json!({
-                "input": {
-                    "catalogPrefix": "aliceCo/sub/",
-                    "storage": {
-                        "stores": [],
-                        "data_planes": ["ops/dp/public/test"]
-                    }
-                }
+                "catalogPrefix": "aliceCo/sub/",
+                "storage": {
+                    "stores": [],
+                    "data_planes": ["ops/dp/public/test"]
+                },
+                "dryRun": false
             }),
         )
         .await;
@@ -65,22 +63,21 @@ async fn test_create_storage_mapping_validation_errors() {
     let result: Result<serde_json::Value, _> = harness
         .execute_graphql_query(
             alice_user_id,
-            CREATE_STORAGE_MAPPING_MUTATION,
+            UPSERT_STORAGE_MAPPING_MUTATION,
             &json!({
-                "input": {
-                    "catalogPrefix": "aliceCo",
-                    "storage": {
-                        "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
-                        "data_planes": ["ops/dp/public/test"]
-                    }
-                }
+                "catalogPrefix": "aliceCo",
+                "storage": {
+                    "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
+                    "data_planes": ["ops/dp/public/test"]
+                },
+                "dryRun": false
             }),
         )
         .await;
     let err = result.unwrap_err().to_string();
 
     assert!(
-        err.contains("Invalid catalog prefix"),
+        err.contains("invalid catalog prefix"),
         "expected invalid prefix error, got: {err}"
     );
 }

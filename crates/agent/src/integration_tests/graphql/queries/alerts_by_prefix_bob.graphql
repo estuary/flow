@@ -4,7 +4,6 @@ query AlertsByPrefixBob {
     alerts(
         by: { prefix: "bobCo/" }
         last: 10
-        startedAt: "2035-10-01T01:01:01Z"
     ) {
         edges {
             node {

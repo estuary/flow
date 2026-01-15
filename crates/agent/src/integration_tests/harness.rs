@@ -177,7 +177,7 @@ pub struct TestHarness {
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
     // Control plane API app instance for GraphQL queries
-    control_plane_app: Option<Arc<control_plane_api::server::App>>,
+    control_plane_app: Option<Arc<control_plane_api::App>>,
 }
 
 pub struct HarnessBuilder {
@@ -246,13 +246,16 @@ impl HarnessBuilder {
         )
         .with_skip_all_tests();
 
+        let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
+        let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
+
         let control_plane = TestControlPlane::new(PGControlPlane::new(
             pool.clone(),
             system_user_id,
             publisher.clone(),
             discover_handler.clone(),
             logs_tx.clone(),
-            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            snapshot_watch,
             1.0, // auto_discover_probability
             publication_cooldown,
         ));
@@ -1424,7 +1427,7 @@ impl TestHarness {
                 draft_id,
                 row.capture.as_str(),
                 row.model(),
-                control_plane_api::CatalogType::Capture,
+                models::CatalogType::Capture,
                 row.expect_pub_id.map(Into::into),
                 &mut *txn,
             )
@@ -1436,7 +1439,7 @@ impl TestHarness {
                 draft_id,
                 row.collection.as_str(),
                 row.model(),
-                control_plane_api::CatalogType::Collection,
+                models::CatalogType::Collection,
                 row.expect_pub_id.map(Into::into),
                 &mut *txn,
             )
@@ -1448,7 +1451,7 @@ impl TestHarness {
                 draft_id,
                 row.materialization.as_str(),
                 row.model(),
-                control_plane_api::CatalogType::Materialization,
+                models::CatalogType::Materialization,
                 row.expect_pub_id.map(Into::into),
                 &mut *txn,
             )
@@ -1460,7 +1463,7 @@ impl TestHarness {
                 draft_id,
                 row.test.as_str(),
                 row.model(),
-                control_plane_api::CatalogType::Test,
+                models::CatalogType::Test,
                 row.expect_pub_id.map(Into::into),
                 &mut *txn,
             )
@@ -1574,11 +1577,26 @@ impl TestHarness {
         // Create control claims for the user
         let req_start = chrono::Utc::now();
         let claims = models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
             sub: user_id,
             iat: req_start.timestamp() as u64,
             exp: (req_start + chrono::Duration::hours(1)).timestamp() as u64,
             role: "authenticated".to_string(),
-            email: Some(format!("user-{user_id}@example.com")),
+            email: Some("user@example.com".to_string()),
+        };
+
+        let token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)
+            .expect("failed to sign test JWT");
+        let verified = tokens::jwt::verify(token.as_bytes(), 0, &app.control_plane_jwt_decode_keys)
+            .expect("failed to verify test JWT");
+
+        let envelope = control_plane_api::Envelope {
+            maybe_claims: control_plane_api::MaybeControlClaims::with_verified(verified),
+            original_uri: axum::http::Uri::from_static("/graphql"),
+            pg_pool: self.pool.clone(),
+            refresh: app.snapshot.token(),
+            retry_after: tokens::DateTime::UNIX_EPOCH,
+            started: tokens::now(),
         };
 
         // Create GraphQL schema
@@ -1587,8 +1605,7 @@ impl TestHarness {
         // Create GraphQL request
         let request = async_graphql::Request::new(query)
             .variables(async_graphql::Variables::from_json(variables.clone()))
-            .data(app.clone())
-            .data(claims)
+            .data(envelope)
             .data(async_graphql::dataloader::DataLoader::new(
                 control_plane_api::server::public::graphql::PgDataLoader(self.pool.clone()),
                 tokio::spawn,
@@ -1643,24 +1660,21 @@ impl TestHarness {
     async fn init_control_plane_app(&mut self) {
         let jwt_secret = vec![0u8; 32]; // Test JWT secret
         let id_gen = models::IdGenerator::new(1);
-        let hmac_keys =
-            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
-        let app = Arc::new(control_plane_api::server::App::new(
+        let snapshot_data =
+            control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
+                .await
+                .expect("failed to fetch Snapshot");
+        let snapshot = control_plane_api::Snapshot::new(tokens::now(), snapshot_data);
+        let snapshot_watch = tokens::fixed(Ok(snapshot)).ready_owned().await;
+
+        let app = Arc::new(control_plane_api::App::new(
             id_gen,
-            jwt_secret,
+            &jwt_secret,
             self.pool.clone(),
             self.publisher.clone(),
-            hmac_keys,
+            snapshot_watch.clone(),
         ));
-        {
-            let snapshot =
-                control_plane_api::server::snapshot::try_fetch(&self.pool, &mut Default::default())
-                    .await
-                    .expect("failed to fetch Snapshot");
-            let mut lock = app.snapshot().write().unwrap();
-            *lock = snapshot;
-        }
 
         self.control_plane_app = Some(app);
     }
