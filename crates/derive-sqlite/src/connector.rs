@@ -358,5 +358,5 @@ impl Drop for Handle {
 }
 
 fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
-    tonic::Status::internal(format!("{err:#}"))
+    tonic::Status::unknown(format!("{err:#}"))
 }

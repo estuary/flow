@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 pub mod jwt;
-mod rest;
+pub mod rest;
 mod stream;
 mod watch;
 
@@ -86,6 +86,18 @@ impl<Token> Refresh<Token> {
     }
 }
 
+impl<Token> std::fmt::Debug for Refresh<Token> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let token_type = std::any::type_name::<Token>();
+
+        f.debug_struct(&format!("Refresh<{token_type}>"))
+            .field("result", &self.result().map(|_ok| "Ok(...)"))
+            .field("version", &self.version)
+            .field("is_expired", &self.is_expired())
+            .finish()
+    }
+}
+
 /// Watch provides access to a Token that is periodically refreshed.
 pub trait Watch<Token>: Send + Sync {
     /// Get the current Refresh of the Token.
@@ -153,9 +165,16 @@ impl<Token> PendingWatch<Token> {
 ///
 /// Use this routine over SystemTime or jsonwebtoken::get_current_timestamp().
 pub fn now() -> DateTime {
-    // In debug builds, use a fixed point to map between Instant and DateTime,
+    // In testing contexts, use a fixed point to map between Instant and DateTime,
     // allowing tokio test time to influence the result.
-    #[cfg(debug_assertions)]
+    // CurrentThread is the default for tokio::test / sqlx::test, is not
+    // typically used outside of tests and WASM, and is the only executor that
+    // supports paused time.
+    if cfg!(debug_assertions)
+        && tokio::runtime::Handle::try_current()
+            .ok()
+            .map(|h| h.runtime_flavor())
+            == Some(tokio::runtime::RuntimeFlavor::CurrentThread)
     {
         // TIME_POINT is a (Instant, DateTime) pair captured at the same time.
         // It allows for mapping between Instant and DateTime.
@@ -171,11 +190,7 @@ pub fn now() -> DateTime {
             .duration_since(tokio::time::Instant::from_std(start_instant));
 
         start_unix + elapsed
-    }
-
-    // In release builds, just use chrono (system time) directly.
-    #[cfg(not(debug_assertions))]
-    {
+    } else {
         chrono::Utc::now()
     }
 }

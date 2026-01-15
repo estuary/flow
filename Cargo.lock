@@ -3229,7 +3229,6 @@ dependencies = [
  "anyhow",
  "futures",
  "gazette",
- "jsonwebtoken",
  "lazy_static",
  "models",
  "postgrest",

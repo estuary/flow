@@ -90,6 +90,57 @@ where
     }
 }
 
+/// Map a gRPC status code to an HTTP near-equivalent status code.
+/// This mapping is bijective: every gRPC Code maps to a unique HTTP code.
+pub fn grpc_status_code_to_http(code: tonic::Code) -> u16 {
+    use tonic::Code as C;
+    match code {
+        C::Aborted => 423,            // Locked
+        C::AlreadyExists => 409,      // Conflict
+        C::Cancelled => 499,          // Client Closed Request
+        C::DataLoss => 507,           // Insufficient Storage
+        C::DeadlineExceeded => 504,   // Gateway Timeout
+        C::FailedPrecondition => 412, // Precondition Failed
+        C::Internal => 500,           // Internal Server Error
+        C::InvalidArgument => 400,    // Bad Request
+        C::NotFound => 404,           // Not Found
+        C::Ok => 200,                 // OK
+        C::OutOfRange => 416,         // Range Not Satisfiable
+        C::PermissionDenied => 403,   // Forbidden
+        C::ResourceExhausted => 429,  // Too Many Requests
+        C::Unauthenticated => 401,    // Unauthorized
+        C::Unavailable => 503,        // Service Unavailable
+        C::Unimplemented => 501,      // Not Implemented
+        C::Unknown => 422,            // Unprocessable Entity
+    }
+}
+
+/// Map an HTTP status code to a gRPC status code.
+/// This is the inverse of `grpc_status_code_to_http`.
+pub fn http_status_code_to_grpc(code: u16) -> tonic::Code {
+    use tonic::Code as C;
+    match code {
+        200 => C::Ok,
+        400 => C::InvalidArgument,
+        401 => C::Unauthenticated,
+        403 => C::PermissionDenied,
+        404 => C::NotFound,
+        409 => C::AlreadyExists,
+        412 => C::FailedPrecondition,
+        416 => C::OutOfRange,
+        422 => C::Unknown,
+        423 => C::Aborted,
+        429 => C::ResourceExhausted,
+        499 => C::Cancelled,
+        500 => C::Internal,
+        501 => C::Unimplemented,
+        503 => C::Unavailable,
+        504 => C::DeadlineExceeded,
+        507 => C::DataLoss,
+        _ => C::Unknown,
+    }
+}
+
 fn map_reqwest_status(
     status: reqwest::StatusCode,
     body: bytes::Bytes,
@@ -98,21 +149,46 @@ fn map_reqwest_status(
         return Ok(body);
     }
 
-    let code = if status.as_u16() == 401 {
-        tonic::Code::Unauthenticated
-    } else if status.as_u16() == 403 {
-        tonic::Code::PermissionDenied
-    } else if status.is_client_error() {
-        tonic::Code::InvalidArgument
-    } else {
-        tonic::Code::Unknown
-    };
+    let code = http_status_code_to_grpc(status.as_u16());
 
     Err(tonic::Status::new(
         code,
-        format!(
-            "HTTP status {status}: {}",
-            String::from_utf8_lossy(&body[..(body.len().min(512))])
-        ),
+        String::from_utf8_lossy(&body[..(body.len().min(512))]),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_grpc_http_status_code_roundtrip() {
+        use tonic::Code as C;
+
+        let all_codes = [
+            C::Aborted,
+            C::AlreadyExists,
+            C::Cancelled,
+            C::DataLoss,
+            C::DeadlineExceeded,
+            C::FailedPrecondition,
+            C::Internal,
+            C::InvalidArgument,
+            C::NotFound,
+            C::Ok,
+            C::OutOfRange,
+            C::PermissionDenied,
+            C::ResourceExhausted,
+            C::Unauthenticated,
+            C::Unavailable,
+            C::Unimplemented,
+            C::Unknown,
+        ];
+
+        for code in all_codes {
+            let http = grpc_status_code_to_http(code);
+            let back = http_status_code_to_grpc(http);
+            assert_eq!(code, back, "roundtrip failed for {code:?} -> HTTP {http}");
+        }
+    }
 }

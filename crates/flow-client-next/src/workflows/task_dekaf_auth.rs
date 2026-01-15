@@ -22,7 +22,7 @@ pub struct TaskDekafAuth {
 pub fn new_signed_source(
     task_name: String,
     data_plane_fqdn: String,
-    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    data_plane_signing_key: tokens::jwt::EncodingKey,
 ) -> tokens::jwt::SignedSource<proto_gazette::Claims> {
     let claims = proto_gazette::Claims {
         cap: proto_flow::capability::AUTHORIZE,

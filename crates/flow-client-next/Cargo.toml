@@ -18,7 +18,6 @@ tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
 futures = { workspace = true }
-jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
 postgrest = { workspace = true }
 reqwest = { workspace = true }

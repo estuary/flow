@@ -7,6 +7,8 @@ pub struct ControlClaims {
     // Note that many more fields, such as additional user metadata,
     // are available if we choose to parse them.
 
+    // Audience for which the token is intended.
+    pub aud: String,
     // Unix timestamp, in seconds, at which the token was issued.
     pub iat: u64,
     // Unix timestamp, in seconds, at which the token expires.
@@ -34,7 +36,9 @@ impl ControlClaims {
 
 /// TaskAuthorizationRequest is sent by data-plane reactors to request
 /// an authorization to a collection which is sourced or produced.
-#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskAuthorizationRequest {
     /// # JWT token to be authorized and signed.
