@@ -175,7 +175,8 @@ async fn read_fragment_url(
             read_fragment_url_body(co, fragment, raw_reader, req).await
         }
         broker::CompressionCodec::Gzip => {
-            let decoder = async_compression::futures::bufread::GzipDecoder::new(raw_reader);
+            let mut decoder = async_compression::futures::bufread::GzipDecoder::new(raw_reader);
+            decoder.multiple_members(true);
             read_fragment_url_body(co, fragment, decoder, req).await
         }
         broker::CompressionCodec::Zstandard => {
