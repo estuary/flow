@@ -2,6 +2,9 @@
 
 serial-db-tests = { max-threads = 1 }
 
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 4 }
+
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'
 test-group = 'serial-db-tests'
