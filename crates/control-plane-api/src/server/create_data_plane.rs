@@ -1,12 +1,8 @@
-use super::App;
 use crate::directives::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
 use crate::publications::{
     DoNotRetry, DraftPublication, NoopInitialize, NoopWithCommit, PruneUnboundCollections,
 };
-use crate::server::error::ApiErrorExt;
 use anyhow::Context;
-use axum::http::StatusCode;
-use std::sync::Arc;
 use validator::Validate;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -50,34 +46,30 @@ pub struct Request {
 #[serde(rename_all = "camelCase")]
 pub struct Response {}
 
-#[axum::debug_handler]
-#[tracing::instrument(
-    skip(app),
-    ret,
-    err(level = tracing::Level::WARN),
-)]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
+#[tracing::instrument(skip(app, env), ret, err(Debug, level = tracing::Level::WARN))]
 pub async fn create_data_plane(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(super::ControlClaims { sub: user_id, .. }): axum::Extension<
-        super::ControlClaims,
-    >,
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
+    env: crate::Envelope,
     super::Request(Request {
         name,
         private,
         category,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
+    let models::authorizations::ControlClaims { sub: user_id, .. } = env.claims()?;
+
     if let None = sqlx::query!(
         "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
         user_id,
     )
-    .fetch_optional(&app.pg_pool)
+    .fetch_optional(&env.pg_pool)
     .await?
     {
-        return Err(
-            anyhow::anyhow!("authenticated user is not an admin of the 'ops/' tenant")
-                .with_status(StatusCode::FORBIDDEN),
-        );
+        return Err(tonic::Status::permission_denied(
+            "authenticated user is not an admin of the 'ops/' tenant",
+        )
+        .into());
     }
 
     let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
@@ -139,7 +131,7 @@ pub async fn create_data_plane(
             "#,
             &prefix as &str,
         )
-        .execute(&app.pg_pool)
+        .execute(&env.pg_pool)
         .await?;
     }
 
@@ -189,7 +181,7 @@ pub async fn create_data_plane(
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
     )
-    .fetch_one(&app.pg_pool)
+    .fetch_one(&env.pg_pool)
     .await?;
 
     // Install ops logs and stats collections, as well as L1 roll-ups.
@@ -201,7 +193,7 @@ pub async fn create_data_plane(
         .into();
 
     let publication = DraftPublication {
-        user_id,
+        user_id: *user_id,
         logs_token: insert.logs_token,
         draft,
         dry_run: false,

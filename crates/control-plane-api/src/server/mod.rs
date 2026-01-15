@@ -1,8 +1,7 @@
+use crate::AuthZResult;
+use anyhow::Context;
 use axum::{http::StatusCode, response::IntoResponse};
-use base64::Engine;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
-use tables::UserGrant;
+use std::sync::Arc;
 
 mod authorize_dekaf;
 mod authorize_task;
@@ -15,30 +14,13 @@ pub mod public;
 pub mod snapshot;
 mod update_l2_reporting;
 
-use anyhow::Context;
-use snapshot::Snapshot;
-
-pub use error::{ApiError, ApiErrorExt};
+pub use error::{ApiError, AuthZRetry};
+pub use snapshot::Snapshot;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Request<T>(pub T);
-
-/// ControlClaims are claims encoded within control-plane access tokens.
-type ControlClaims = models::authorizations::ControlClaims;
-
-/// DataClaims are claims encoded within data-plane access tokens.
-/// TODO(johnny): This should be a bare alias for proto_gazette::Claims.
-/// We can do this once data-plane-gateway is updated to be a "dumb" proxy
-/// which requires / forwards authorizations but doesn't inspect them.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct DataClaims {
-    #[serde(flatten)]
-    inner: proto_gazette::Claims,
-    // prefixes exclusively used by legacy auth checks in data-plane-gateway.
-    prefixes: Vec<String>,
-}
 
 /// Rejection is an error type of reasons why an API request may fail.
 #[derive(Debug, thiserror::Error)]
@@ -49,216 +31,100 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
-/// Type alias for the decrypted HMAC keys cache, keyed by data plane name.
-pub type HmacKeys = Arc<RwLock<HashMap<String, Vec<String>>>>;
-
+/// App is the wired application state of the control-plane API.
 pub struct App {
-    _id_generator: Mutex<models::IdGenerator>,
-    control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
-    control_plane_jwt_signer: jsonwebtoken::EncodingKey,
-    jwt_validation: jsonwebtoken::Validation,
-    pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher,
-    snapshot: RwLock<Snapshot>,
-    hmac_keys: HmacKeys,
+    pub _id_generator: std::sync::Mutex<models::IdGenerator>,
+    pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
+    pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
+    pub pg_pool: sqlx::PgPool,
+    pub publisher: crate::publications::Publisher,
+    pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl App {
-    /// Create a new App instance for testing or other uses
     pub fn new(
         id_generator: models::IdGenerator,
-        jwt_secret: Vec<u8>,
+        jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
-        hmac_keys: HmacKeys,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
     ) -> Self {
-        let mut jwt_validation = jsonwebtoken::Validation::default();
-        jwt_validation.set_audience(&["authenticated"]);
-
         Self {
-            _id_generator: Mutex::new(id_generator),
-            control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
-            control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
-            jwt_validation,
+            _id_generator: std::sync::Mutex::new(id_generator),
+            control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
+            control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,
             publisher,
-            snapshot: RwLock::new(Snapshot::empty()),
-            hmac_keys,
+            snapshot,
         }
-    }
-
-    pub fn hmac_keys(&self) -> &HmacKeys {
-        &self.hmac_keys
-    }
-
-    // TODO(johnny): This should return a VerifiedClaims struct which
-    // wraps the validated prefixes, with a const generic over the Capability.
-    // It's a larger lift then I want to do right now, because models::Capability
-    // cannot directly be used as a const generic, so IMO we'll instead want to
-    // switch to using a u32 for representing const capability expectations,
-    // with automatic Into conversions into lower const capabilities.
-    // The intended purpose of the proposed VerifiedClaims struct is to wire it
-    // through APIs such that we cannot possibly forget to verify authorizations.
-    // Note: graphql resolvers should instead use `verify_user_authorization_graphql`.
-    /// Verifies that the authenticated user identified by `claims` has at least
-    /// `capability` to each of the given `prefixes_or_names`. This function may
-    /// block until the next snapshot refresh if `req_started_at` is `None` and
-    /// the user does not have the required capability. If `req_started_at` is
-    /// `Some`, then this function will never block. It will either return a
-    /// terminal error if `req_started_at` is earlier than the time of the last
-    /// snapshot refresh, or it will return a retryable error if it's later.
-    /// This is to account for the fact that new role grants could have been
-    /// added after the last snapshot refresh, which permit what we otherwise
-    /// would reject.
-    pub async fn verify_user_authorization(
-        &self,
-        claims: &ControlClaims,
-        req_started_at: Option<chrono::DateTime<chrono::Utc>>,
-        prefixes_or_names: Vec<String>,
-        capability: models::Capability,
-    ) -> Result<Vec<String>, ApiError> {
-        let is_blocking = req_started_at.is_none();
-        let started_at = req_started_at.unwrap_or(chrono::Utc::now());
-        loop {
-            match Snapshot::evaluate(&self.snapshot, started_at, |snapshot: &Snapshot| {
-                for prefix in &prefixes_or_names {
-                    if !tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        claims.sub,
-                        prefix,
-                        capability,
-                    ) {
-                        return Err(ApiError::unauthorized(prefix.as_str()));
-                    }
-                }
-                Ok((None, ()))
-            }) {
-                Ok((_exp, ())) => return Ok(prefixes_or_names),
-                Err(Ok(backoff)) if is_blocking => {
-                    tracing::debug!(?backoff, "waiting before retrying authZ check");
-                    () = tokio::time::sleep(backoff).await;
-                }
-                Err(Ok(backoff)) => {
-                    // Don't use `req_started_at` when computing the retry time, as that value comes from the client.
-                    return Err(ApiError::retry_authz_failure(chrono::Utc::now() + backoff));
-                }
-                Err(Err(err)) => return Err(err),
-            }
-        }
-    }
-
-    /// Verifies tha the user has at least `capability` to each of the
-    /// `prefixes_or_names`. This ensures that the error extensions will include
-    /// a `retryAt` timestamp when appropriate, so that clients can retry the
-    /// request after the snapshot is refreshed.
-    pub async fn verify_user_authorization_graphql(
-        &self,
-        claims: &ControlClaims,
-        req_started_at: Option<chrono::DateTime<chrono::Utc>>,
-        prefixes_or_names: Vec<String>,
-        capability: models::Capability,
-    ) -> async_graphql::Result<Vec<String>> {
-        use async_graphql::ResultExt;
-
-        self.verify_user_authorization(claims, req_started_at, prefixes_or_names, capability)
-            .await
-            .extend()
-    }
-
-    /// Looks up the user's authorization grants for each item in
-    /// `prefixes_or_names`, and calls the provided `attach` function with each
-    /// item and its capability. The `Some` results are returned in a vec.
-    pub fn attach_user_capabilities<I, F, T>(
-        &self,
-        claims: &ControlClaims,
-        prefixes_or_names: I,
-        mut attach: F,
-    ) -> Vec<T>
-    where
-        I: IntoIterator<Item = String>,
-        F: FnMut(String, Option<models::Capability>) -> Option<T>,
-    {
-        let snapshot = self.snapshot.read().unwrap();
-        prefixes_or_names
-            .into_iter()
-            .flat_map(|prefix| {
-                let capability = UserGrant::get_user_capability(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    claims.sub,
-                    &prefix,
-                );
-                attach(prefix, capability)
-            })
-            .collect()
-    }
-
-    pub fn snapshot(&self) -> &std::sync::RwLock<Snapshot> {
-        &self.snapshot
-    }
-
-    /// Uses the current authorization snapshot to filter `unfiltered_results`
-    /// to include only the items that the user has `min_capability` to. The
-    /// authorization snapshot won't be refreshed, so if it is empty or missing
-    /// authorizations that have recently been added, then the filtering could
-    /// be too strict.
-    pub fn filter_results<I, R, F>(
-        &self,
-        claims: &ControlClaims,
-        min_capability: models::Capability,
-        unfiltered_results: I,
-        extract_prefix: F,
-    ) -> Vec<R>
-    where
-        I: IntoIterator<Item = R>,
-        F: for<'a> Fn(&'a R) -> &'a str,
-    {
-        let started = chrono::Utc::now();
-        let unfiltered_results = unfiltered_results.into_iter();
-        let mut results = Vec::with_capacity(unfiltered_results.size_hint().0);
-
-        Snapshot::evaluate(&self.snapshot, started, |snapshot: &Snapshot| {
-            for candidate in unfiltered_results {
-                let name = extract_prefix(&candidate);
-                if tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    claims.sub,
-                    name,
-                    min_capability,
-                ) {
-                    results.push(candidate);
-                }
-            }
-            Ok((None, ()))
-        })
-        .expect("filter_results Snapshot::evaluate always returns Ok");
-        results
     }
 }
 
+/// Evaluate whether the user identified by `claims` is authorized to access all
+/// of the enumerated `prefixes_or_names` with at least `min_capability`.
+/// Return a policy_result shape which fits Envelope::authorization_outcome.
+pub fn evaluate_names_authorization<'r, Iter, S>(
+    snapshot: &Snapshot,
+    claims: &crate::ControlClaims,
+    min_capability: models::Capability,
+    prefixes_or_names: Iter,
+) -> AuthZResult<()>
+where
+    Iter: IntoIterator<Item = S>,
+    S: AsRef<str> + std::fmt::Display,
+{
+    let models::authorizations::ControlClaims {
+        sub: user_id,
+        email: user_email,
+        ..
+    } = claims;
+    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+
+    for prefix_or_name in prefixes_or_names.into_iter() {
+        if !tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            *user_id,
+            prefix_or_name.as_ref(),
+            min_capability,
+        ) {
+            return Err(tonic::Status::permission_denied(format!(
+                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
+            )));
+        }
+    }
+    Ok((None, ()))
+}
+
+/// Looks up the user's authorization grants for each item in
+/// `prefixes_or_names`, and calls the provided `attach` function with each
+/// item and its capability. The `Some` results are returned in a vec.
+pub fn attach_user_capabilities<I, F, T>(
+    snapshot: &Snapshot,
+    claims: &crate::ControlClaims,
+    prefixes_or_names: I,
+    mut attach: F,
+) -> Vec<T>
+where
+    I: IntoIterator<Item = String>,
+    F: FnMut(String, Option<models::Capability>) -> Option<T>,
+{
+    prefixes_or_names
+        .into_iter()
+        .flat_map(|prefix| {
+            let capability = tables::UserGrant::get_user_capability(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                claims.sub,
+                &prefix,
+            );
+            attach(prefix, capability)
+        })
+        .collect()
+}
+
 /// Build the agent's API router.
-pub fn build_router(
-    id_generator: models::IdGenerator,
-    jwt_secret: Vec<u8>,
-    pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher,
-    allow_origin: &[String],
-    hmac_keys: HmacKeys,
-) -> anyhow::Result<axum::Router<()>> {
-    let mut jwt_validation = jsonwebtoken::Validation::default();
-    jwt_validation.set_audience(&["authenticated"]);
-
-    let app = Arc::new(App::new(
-        id_generator,
-        jwt_secret,
-        pg_pool,
-        publisher,
-        hmac_keys,
-    ));
-    tokio::spawn(snapshot::fetch_loop(app.clone()));
-
+pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<axum::Router<()>> {
     use axum::routing::post;
 
     let allow_origin = allow_origin
@@ -299,31 +165,23 @@ pub fn build_router(
         .route("/authorize/dekaf", post(authorize_dekaf::authorize_dekaf))
         .route(
             "/authorize/user/collection",
-            post(authorize_user_collection::authorize_user_collection)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
-                .options(preflight_handler),
+            post(authorize_user_collection::authorize_user_collection).options(preflight_handler),
         )
         .route(
             "/authorize/user/prefix",
-            post(authorize_user_prefix::authorize_user_prefix)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
-                .options(preflight_handler),
+            post(authorize_user_prefix::authorize_user_prefix).options(preflight_handler),
         )
         .route(
             "/authorize/user/task",
-            post(authorize_user_task::authorize_user_task)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
-                .options(preflight_handler),
+            post(authorize_user_task::authorize_user_task).options(preflight_handler),
         )
         .route(
             "/admin/create-data-plane",
-            post(create_data_plane::create_data_plane)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
+            post(create_data_plane::create_data_plane),
         )
         .route(
             "/admin/update-l2-reporting",
-            post(update_l2_reporting::update_l2_reporting)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
+            post(update_l2_reporting::update_l2_reporting),
         )
         .merge(public_api_router)
         .layer(
@@ -374,56 +232,10 @@ impl axum::response::IntoResponse for Rejection {
     }
 }
 
-// Middleware which accepts either a refresh token or a control-plane access token,
-// verifies it before proceeding, and then attaches verified Claims.
-async fn authorize(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum_extra::TypedHeader(bearer): axum_extra::TypedHeader<
-        axum_extra::headers::Authorization<axum_extra::headers::authorization::Bearer>,
-    >,
-    mut req: axum::http::Request<axum::body::Body>,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    let mut token = bearer.token();
-    let exchanged_token: Option<String>;
-
-    // Is this is a refresh token? If so, first exchange for an access token.
-    if !token.contains(".") {
-        match exchange_refresh_token(&app, token).await {
-            Ok(exchanged) => {
-                exchanged_token = Some(exchanged);
-                token = exchanged_token.as_ref().unwrap();
-            }
-            Err(err) => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    format!("failed to exchange refresh token: {err}"),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    let token = match jsonwebtoken::decode::<ControlClaims>(
-        token,
-        &app.control_plane_jwt_verifier,
-        &app.jwt_validation,
-    ) {
-        Ok(claims) => claims,
-        Err(err) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                format!("failed to parse authorization token: {err}"),
-            )
-                .into_response();
-        }
-    };
-
-    req.extensions_mut().insert(token.claims);
-    next.run(req).await
-}
-
-async fn exchange_refresh_token(app: &App, refresh_token: &str) -> anyhow::Result<String> {
+pub async fn exchange_refresh_token(
+    pg_pool: &sqlx::PgPool,
+    refresh_token: &str,
+) -> tonic::Result<String> {
     #[derive(Debug, serde::Deserialize)]
     struct RefreshToken {
         id: models::Id,
@@ -434,61 +246,56 @@ async fn exchange_refresh_token(app: &App, refresh_token: &str) -> anyhow::Resul
         access_token: String,
     }
 
-    let bearer = base64::engine::general_purpose::STANDARD
-        .decode(refresh_token)
-        .context("failed to base64-decode bearer token")?;
-    let bearer: RefreshToken =
-        serde_json::from_slice(&bearer).context("failed to decode refresh token")?;
+    let bearer = tokens::jwt::parse_base64(refresh_token)?;
+    let bearer: RefreshToken = serde_json::from_slice(&bearer)
+        .map_err(|err| tonic::Status::invalid_argument(format!("invalid bearer token: {err}")))?;
 
     let response = sqlx::query!(
         "select generate_access_token($1, $2) as token",
         bearer.id as models::Id,
         bearer.secret,
     )
-    .fetch_one(&app.pg_pool)
+    .fetch_one(pg_pool)
     .await
-    .context("failed to generate access token")?;
+    .map_err(|err| {
+        tonic::Status::unauthenticated(format!("failed to exchange refresh token: {err}"))
+    })?;
 
-    let GenerateTokenResponse { access_token } = response
-        .token
-        .map(|token| serde_json::from_value(token))
-        .context("token response was null")?
-        .context("failed to decode generated access token")?;
+    let GenerateTokenResponse { access_token } =
+        serde_json::from_value(response.token.unwrap_or_default()).map_err(|err| {
+            tonic::Status::internal(format!("invalid access token generated: {err}"))
+        })?;
 
     Ok(access_token)
 }
 
-// Parse a data-plane claims token without verifying it's signature.
+/// Parse a data-plane claims token without verifying its signature.
+/// Returns an `Unverified` wrapper to make clear the claims have not been verified.
 fn parse_untrusted_data_plane_claims(
     token: &str,
-) -> Result<(jsonwebtoken::Header, proto_gazette::Claims), ApiError> {
-    use error::ApiErrorExt;
+) -> tonic::Result<tokens::jwt::Unverified<proto_gazette::Claims>> {
+    let unverified = tokens::jwt::parse_unverified::<proto_gazette::Claims>(token.as_bytes())?;
+    let claims = unverified.claims();
 
-    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> = {
-        // In this pass we do not validate the signature,
-        // because we don't yet know which data-plane the JWT is signed by.
-        let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
-        let mut validation = jsonwebtoken::Validation::default();
-        validation.insecure_disable_signature_validation();
-        jsonwebtoken::decode(token, &empty_key, &validation)
-            .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
-    };
-    tracing::debug!(?claims, ?header, "decoded authorization request");
+    tracing::debug!(?claims, "decoded authorization request");
 
     if claims.sub.is_empty() {
-        return Err(
-            anyhow::anyhow!("missing required JWT `sub` claim (task or shard ID)")
-                .with_status(StatusCode::BAD_REQUEST),
-        );
+        return Err(tonic::Status::unauthenticated(
+            "missing required JWT `sub` claim (task or shard ID)",
+        ));
     }
     if claims.iss.is_empty() {
-        return Err(
-            anyhow::anyhow!("missing required JWT `iss` claim (data-plane FQDN)")
-                .with_status(StatusCode::BAD_REQUEST),
-        );
+        return Err(tonic::Status::unauthenticated(
+            "missing required JWT `iss` claim (data-plane FQDN)",
+        ));
+    }
+    if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
+        return Err(tonic::Status::unauthenticated(
+            "missing required AUTHORIZE capability",
+        ));
     }
 
-    Ok((header, claims))
+    Ok(unverified)
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
@@ -502,16 +309,6 @@ fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
         "/kind={ops_kind}/name={}/pivot=00",
         labels::percent_encoding(&task.task_name).to_string(),
     )
-}
-
-// Support the legacy data-plane by re-writing its internal service
-// addresses to use the data-plane-gateway in external contexts.
-fn maybe_rewrite_address(external: bool, address: &str) -> String {
-    if external && address.contains("svc.cluster.local:") {
-        "https://us-central1.v1.estuary-data.dev".to_string()
-    } else {
-        address.to_string()
-    }
 }
 
 const fn map_capability_to_gazette(capability: models::Capability) -> u32 {

@@ -1,12 +1,7 @@
+use crate::alerts::Alert;
 use async_graphql::{Context, types::connection};
 use chrono::{DateTime, Utc};
 use models::status::AlertType;
-use std::sync::Arc;
-
-use crate::{
-    alerts::Alert,
-    server::{App, ControlClaims},
-};
 
 #[derive(Debug, Default)]
 pub struct AlertsQuery;
@@ -28,13 +23,12 @@ impl AlertsQuery {
         &self,
         ctx: &Context<'_>,
         by: AlertsBy,
-        started_at: Option<chrono::DateTime<chrono::Utc>>,
         before: Option<String>,
         last: Option<i32>,
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlerts> {
-        fetch_alert_history_by_prefix(ctx, by, started_at, before, last, after, first).await
+        fetch_alert_history_by_prefix(ctx, by, before, last, after, first).await
     }
 }
 
@@ -137,24 +131,21 @@ const DEFAULT_PAGE_SIZE: usize = 20;
 async fn fetch_alert_history_by_prefix(
     ctx: &Context<'_>,
     by: AlertsBy,
-    started_at: Option<chrono::DateTime<chrono::Utc>>,
     before: Option<String>,
     last: Option<i32>,
     after: Option<String>,
     first: Option<i32>,
 ) -> async_graphql::Result<PaginatedAlerts> {
-    let app = ctx.data::<Arc<App>>()?;
-    let claims = ctx.data::<ControlClaims>()?;
+    let env = ctx.data::<crate::Envelope>()?;
 
-    // Verify user authorization
-    let _ = app
-        .verify_user_authorization_graphql(
-            claims,
-            started_at,
-            vec![by.prefix.to_string()],
-            models::Capability::Read,
-        )
-        .await?;
+    // Verify user authorization to read alerts for the given prefix.
+    let policy_result = crate::server::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        models::Capability::Read,
+        [&by.prefix],
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     connection::query_with::<PaginatedAlertsCursor, _, _, _, _>(
         after,
@@ -165,7 +156,7 @@ async fn fetch_alert_history_by_prefix(
             let (rows, has_prev, has_next) = if let Some(after_cursor) = after {
                 let limit = first.unwrap_or(DEFAULT_PAGE_SIZE);
                 let (rows, has_next) =
-                    fetch_alerts_by_prefix_after(by, after_cursor, limit, &app.pg_pool).await?;
+                    fetch_alerts_by_prefix_after(by, after_cursor, limit, &env.pg_pool).await?;
                 // We cannot efficiently determine whether alerts exist before
                 // this cursor, so return `hasPreviousPage: false`, as per the
                 // spec.
@@ -173,12 +164,12 @@ async fn fetch_alert_history_by_prefix(
             } else {
                 let limit = last.unwrap_or(DEFAULT_PAGE_SIZE);
                 let before_cursor = before.unwrap_or(PaginatedAlertsCursor {
-                    fired_at: Utc::now() + chrono::Duration::minutes(1),
+                    fired_at: tokens::now() + chrono::Duration::minutes(1),
                     catalog_name: String::new(),
                     alert_type: AlertType::ShardFailed,
                 });
                 let (rows, has_prev) =
-                    fetch_alerts_by_prefix_before(by, before_cursor, limit, &app.pg_pool).await?;
+                    fetch_alerts_by_prefix_before(by, before_cursor, limit, &env.pg_pool).await?;
                 // We cannot efficiently determine whether alerts exist after
                 // this cursor, so return `hasNextPage: false`, as per the spec.
                 (rows, has_prev, false)
@@ -335,7 +326,8 @@ pub async fn live_spec_alert_history_no_authz(
     before_date: Option<String>,
     limit: i32,
 ) -> async_graphql::Result<PaginatedAlerts> {
-    let app = ctx.data::<Arc<App>>()?;
+    let env = ctx.data::<crate::Envelope>()?;
+
     connection::query(
         None,
         before_date,
@@ -371,7 +363,7 @@ pub async fn live_spec_alert_history_no_authz(
                 before_name,
                 effective_limit as i64,
             )
-            .fetch_all(&app.pg_pool)
+            .fetch_all(&env.pg_pool)
             .await
             .map_err(|e| async_graphql::Error::new(format!("Failed to fetch alerts: {}", e)))?;
 

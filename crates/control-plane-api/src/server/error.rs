@@ -1,195 +1,230 @@
-//! Defines the `ApiError` type that can be returned from an API handler, which
-//! specifies an HTTP status code and wraps an `anyhow::Error`. It implements
-//! `IntoResponse`, allowing handlers to return a `Result<Json<T>, ApiError>`.
-//! `From` impls exist for `anyhow::Error`, `Rejection`, and `sqlx::Error` with
-//! reasonable default status codes. The http status code can be customized
-//! using `ApiErrorExt::with_status` if you need to return a specific response
-//! status for a given error.
-//!
-//! These types are written with the aim of making them easy to use in the
-//! server. It's unclear whether we need an error struct defined in the `models`
-//! crate, but in this case it's probably easiest to just use separate structs
-//! for the client and server.
-use axum::http::StatusCode;
-use schemars::JsonSchema;
-
-use super::Rejection;
-
-pub trait ApiErrorExt {
-    /// Sets the given http response status to use when responding with this error.
-    fn with_status(self, status: axum::http::StatusCode) -> ApiError;
+/// AuthZRetry represents a provisional authorization failure that must
+/// be retried by the client at a later time (after a Snapshot refresh).
+#[derive(Debug)]
+pub struct AuthZRetry {
+    /// The original request URI.
+    pub original_uri: axum::http::Uri,
+    /// DateTime at which the logical request was started.
+    /// This may be client-provided or initialized by this server, and is held
+    /// constant throughout retries.
+    pub started: tokens::DateTime,
+    /// DateTime of this provisional authorization failure, as measured by this server.
+    pub failed: tokens::DateTime,
+    /// The DateTime after which the request can be retried by the client.
+    pub retry_after: tokens::DateTime,
+    /// The Status representing specifics of the authorization failure.
+    pub status: tonic::Status,
 }
 
-impl<E: Into<ApiError> + Sized> ApiErrorExt for E {
-    fn with_status(self, status: axum::http::StatusCode) -> ApiError {
-        let mut err: ApiError = self.into();
-        err.status = status;
-        err
-    }
-}
+impl AuthZRetry {
+    /// Generate a 307 Temporary Redirect response for this authorization retry.
+    pub fn to_response(&self) -> axum::response::Response {
+        let mut builder =
+            axum::response::Response::builder().status(axum::http::StatusCode::TEMPORARY_REDIRECT);
+        let headers = builder.headers_mut().unwrap();
 
-/// An error response
-#[derive(
-    Debug, thiserror::Error, serde::Serialize, serde::Deserialize, JsonSchema, aide::OperationIo,
-)]
-#[aide(output)]
-#[error("status: {status}, error: {error}")]
-pub struct ApiError {
-    /// The HTTP status code
-    #[serde(with = "status_serde")]
-    #[schemars(schema_with = "status_serde::schema")]
-    pub status: axum::http::StatusCode,
+        // Build Location header, replacing any existing `started` or `retryAfter` parameters.
+        let mut location = String::new();
+        location.push_str(self.original_uri.path());
+        location.push('?');
 
-    /// The error message
-    #[serde(with = "error_serde")]
-    #[schemars(schema_with = "error_serde::schema")]
-    #[source]
-    pub error: anyhow::Error,
-
-    /// Certain requests may fail due to authorization failures, but
-    /// can be retried after a time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(schema_with = "models::option_datetime_schema")]
-    pub retry_after: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-mod status_serde {
-    use serde::{
-        de::{self, Deserialize, Deserializer},
-        ser::{Serialize, Serializer},
-    };
-
-    pub fn schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        serde_json::from_value(serde_json::json!({
-            "type": "integer",
-            "minimum": 100,
-            "maximum": 599,
-        }))
-        .unwrap()
-    }
-    pub fn serialize<S: Serializer>(
-        status: &axum::http::StatusCode,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        status.as_u16().serialize(s)
-    }
-    pub fn deserialize<'a, D: Deserializer<'a>>(
-        deserializer: D,
-    ) -> Result<axum::http::StatusCode, D::Error> {
-        let int_val = <u16 as Deserialize>::deserialize(deserializer)?;
-        axum::http::StatusCode::from_u16(int_val).map_err(|e| de::Error::custom(e))
-    }
-}
-
-mod error_serde {
-    use serde::{
-        de::{Deserialize, Deserializer},
-        ser::Serializer,
-    };
-
-    pub fn schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        serde_json::from_value(serde_json::json!({
-            "type": "string",
-        }))
-        .unwrap()
-    }
-    pub fn serialize<S: Serializer>(error: &anyhow::Error, s: S) -> Result<S::Ok, S::Error> {
-        let err_str = format!("{error:#}"); // alternate renders nested causes
-        s.serialize_str(&err_str)
-    }
-    pub fn deserialize<'a, D: Deserializer<'a>>(
-        deserializer: D,
-    ) -> Result<anyhow::Error, D::Error> {
-        let str_val = <String as Deserialize>::deserialize(deserializer)?;
-        Ok(anyhow::anyhow!(str_val))
-    }
-}
-
-impl ApiError {
-    pub fn unauthorized(prefix: &str) -> ApiError {
-        ApiError {
-            status: StatusCode::UNAUTHORIZED,
-            error: anyhow::anyhow!("user is not authorized to {prefix}"),
-            retry_after: None,
-        }
-    }
-
-    pub fn retry_authz_failure(retry_after: chrono::DateTime<chrono::Utc>) -> ApiError {
-        ApiError {
-            status: StatusCode::UNAUTHORIZED,
-            error: anyhow::anyhow!(
-                "user was provisionally unauthorized to one or more requested resources, but the request can be retried"
-            ),
-            retry_after: Some(retry_after),
-        }
-    }
-
-    fn status_for(err: &anyhow::Error) -> StatusCode {
-        // Ensure that we set the proper status code if the anyhow error itself
-        // wraps a Rejection. This might not be necessary since we generally
-        // convert Rejections into ApiErrors directly, using `From` impl, which
-        // always sets the proper status. But this check is cheap, and it
-        // ensures that we'll set the proper status in case a `?` operator
-        // somewhere converts the Rejection into an `anyhow::Error` before
-        // converting that error into an `ApiError`.
-        if let Some(_rejection) = err.downcast_ref::<Rejection>() {
-            return StatusCode::BAD_REQUEST;
-        }
-        if let Some(api_error) = err.downcast_ref::<ApiError>() {
-            return api_error.status;
-        }
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-}
-
-impl async_graphql::ErrorExtensions for ApiError {
-    fn extend(&self) -> async_graphql::Error {
-        let err = async_graphql::Error::new(format!("{:#}", self.error));
-        if let Some(retry_after) = self.retry_after {
-            err.extend_with(|_, ee| {
-                ee.set("retryAfter", retry_after.to_rfc3339());
+        let filtered_query = self
+            .original_uri
+            .query()
+            .iter()
+            .flat_map(|query| {
+                query
+                    .split('&')
+                    .filter(|p| !p.starts_with("started=") && !p.starts_with("retryAfter="))
             })
-        } else {
-            err
+            .collect::<Vec<_>>();
+
+        if !filtered_query.is_empty() {
+            location.push_str(&filtered_query.join("&"));
+            location.push('&');
+        };
+
+        // Format `started` and `retryAfter` as RFC 3339 timestamps with millisecond precision.
+        // Use 'Z' (Zulu) to mark UTC, as it's trivially URL-safe ('+00' is not).
+        let started_3339 = self
+            .started
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+        location.push_str("started=");
+        location.push_str(&started_3339);
+
+        if self.retry_after != tokens::DateTime::UNIX_EPOCH {
+            let retry_after_3339 = self
+                .retry_after
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+            location.push_str("&retryAfter=");
+            location.push_str(&retry_after_3339);
+
+            headers.insert(
+                axum::http::header::RETRY_AFTER,
+                self.retry_after.to_rfc2822().parse().unwrap(),
+            );
         }
+
+        headers.insert(
+            axum::http::header::DATE,
+            self.failed.to_rfc2822().parse().unwrap(),
+        );
+        headers.insert(axum::http::header::LOCATION, location.parse().unwrap());
+
+        let body = axum::body::Body::from(format!(
+            "provisional {:?} error: {}",
+            self.status.code(),
+            self.status.message()
+        ));
+
+        builder.body(body).unwrap()
     }
+}
+
+/// ApiError is the fundamental error type returned by the API.
+/// It distinguishes between a terminal Status error vs a provisional
+/// authorization failure that the client may retry.
+#[derive(Debug)]
+pub enum ApiError {
+    Status(tonic::Status),
+    AuthZRetry(AuthZRetry),
 }
 
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> ApiError {
         tracing::error!(?error, "API responding with database error");
-        ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            error: anyhow::anyhow!("database error, please retry the request"),
-            retry_after: None,
-        }
+
+        ApiError::Status(tonic::Status::internal(
+            "database error, please retry the request",
+        ))
     }
 }
 
 impl From<anyhow::Error> for ApiError {
     fn from(error: anyhow::Error) -> Self {
-        let status = Self::status_for(&error);
-        ApiError {
-            status,
-            error,
-            retry_after: None,
-        }
+        let status = match error.downcast::<tonic::Status>() {
+            Ok(status) => status,
+            Err(err) => tonic::Status::unknown(format!("{err:#}")),
+        };
+        ApiError::Status(status)
     }
 }
 
-impl From<Rejection> for ApiError {
-    fn from(value: Rejection) -> Self {
-        ApiError {
-            status: StatusCode::BAD_REQUEST,
-            error: anyhow::Error::from(value).context("Input validation error"),
-            retry_after: None,
-        }
+impl From<tonic::Status> for ApiError {
+    fn from(status: tonic::Status) -> Self {
+        ApiError::Status(status)
+    }
+}
+
+impl From<super::Rejection> for ApiError {
+    fn from(value: super::Rejection) -> Self {
+        let message = format!("{:#}", anyhow::Error::from(value));
+        Self::Status(tonic::Status::invalid_argument(message))
     }
 }
 
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let status = self.status;
-        (status, axum::Json(self)).into_response()
+        match self {
+            Self::Status(status) => crate::status_into_response(status),
+            Self::AuthZRetry(retry) => retry.to_response(),
+        }
+    }
+}
+
+impl From<ApiError> for async_graphql::Error {
+    fn from(api_error: ApiError) -> Self {
+        let status = match &api_error {
+            ApiError::Status(status) => status,
+            ApiError::AuthZRetry(retry) => &retry.status,
+        };
+        let message = format!("{:?}: {}", status.code(), status.message());
+
+        let mut err = Self::new(message);
+        err.source = Some(std::sync::Arc::new(api_error));
+
+        err
+    }
+}
+
+// Required for aide OpenAPI generation - handlers returning Result<T, ApiError>
+// need both T and ApiError to implement OperationOutput.
+impl aide::operation::OperationOutput for ApiError {
+    type Inner = ();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[tokio::test]
+    async fn test_authz_retry_to_response() {
+        for (name, uri, status_code, status_msg) in [
+            (
+                "path_only",
+                "/api/test",
+                tonic::Code::PermissionDenied,
+                "not allowed",
+            ),
+            (
+                "with_query",
+                "/api/test?foo=bar",
+                tonic::Code::Unauthenticated,
+                "bad token",
+            ),
+            (
+                "replaces_existing_started",
+                "/api/test?foo=bar&started=2023-01-01T00:00:00.000Z",
+                tonic::Code::PermissionDenied,
+                "retry",
+            ),
+            (
+                "replaces_existing_retry_after",
+                "/api/test?retryAfter=2023-01-01T00:00:00.000Z&baz=qux",
+                tonic::Code::PermissionDenied,
+                "retry",
+            ),
+            (
+                "replaces_both_existing",
+                "/api/test?started=2023-01-01T00:00:00.000Z&retryAfter=2023-01-01T00:00:00.000Z",
+                tonic::Code::PermissionDenied,
+                "retry",
+            ),
+            (
+                "replaces_both_preserves_other",
+                "/api/test?a=1&started=old&b=2&retryAfter=old&c=3",
+                tonic::Code::PermissionDenied,
+                "retry",
+            ),
+        ] {
+            let retry = AuthZRetry {
+                original_uri: uri.parse().unwrap(),
+                started: chrono::Utc.with_ymd_and_hms(2024, 1, 15, 10, 0, 0).unwrap(),
+                failed: chrono::Utc.with_ymd_and_hms(2024, 1, 15, 10, 0, 5).unwrap(),
+                retry_after: chrono::Utc
+                    .with_ymd_and_hms(2024, 1, 15, 10, 0, 10)
+                    .unwrap(),
+                status: tonic::Status::new(status_code, status_msg),
+            };
+
+            let response = retry.to_response();
+            let (parts, body) = response.into_parts();
+            let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+            let body_str = String::from_utf8_lossy(&body_bytes);
+
+            let mut headers = parts.headers.iter().collect::<Vec<_>>();
+            headers.sort_by_key(|(name, _)| name.as_str());
+
+            insta::assert_snapshot!(
+                name,
+                format!(
+                    "status: {:?}\nheaders: {:?}\nbody: {}",
+                    parts.status, headers, body_str
+                )
+            );
+        }
     }
 }

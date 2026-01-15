@@ -17,6 +17,7 @@ aes-siv = "0"
 addr = { version = "0", default-features = false, features = ["std"] }
 aide = { version = "0", features = [
     "axum",
+    "axum-original-uri",
     "axum-json",
     "macros",
     "scalar",

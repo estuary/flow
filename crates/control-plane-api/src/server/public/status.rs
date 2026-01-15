@@ -1,17 +1,8 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-
-use crate::server::error::ApiErrorExt;
-use crate::server::{App, ControlClaims, error::ApiError};
-use axum::http::StatusCode;
-use axum::{Extension, Json};
-// axum_extra's `Query` is needed here because unlike the one from `axum`, it
-// handles multiple query parameters with the same name
-use axum_extra::extract::Query;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use models::status::{self, StatusResponse, Summary, connector::ConnectorStatus};
 use models::{CatalogType, Id};
+use std::collections::BTreeSet;
 
 /// Query parameters for the status endpoint
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -26,43 +17,49 @@ pub struct StatusQuery {
     pub connected: bool,
 }
 
-#[axum::debug_handler]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn handle_get_status(
-    state: axum::extract::State<Arc<App>>,
-    Extension(claims): Extension<ControlClaims>,
-    Query(StatusQuery {
-        name,
+    env: crate::Envelope,
+    axum_extra::extract::Query(StatusQuery {
+        name, // axum_extra handles multiple `name` params.
         short,
         connected,
-    }): Query<StatusQuery>,
-) -> Result<Json<Vec<StatusResponse>>, ApiError> {
-    // Any requested names must be directly authorized. Passing `None` for
-    // `req_started_at` here, so we'll block until the next snapshot refresh if
-    // the user is unauthorized to the prefix.
-    let name = state
-        .0
-        .verify_user_authorization(&claims, None, name, models::Capability::Read)
-        .await?;
+    }): axum_extra::extract::Query<StatusQuery>,
+) -> Result<axum::Json<Vec<StatusResponse>>, crate::ApiError> {
+    let policy_result = crate::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        models::Capability::Read,
+        &name,
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let mut require_names = name.iter().map(|s| s.as_str()).collect::<BTreeSet<_>>();
-
-    let pool = state.0.pg_pool.clone();
 
     // If we need to return statuses of connected specs, then resolve their
     // names now, and filter out those that the user isn't authorized to before
     // querying for the statuses.
     let status = if connected {
         // Filter out any names that the user cannot read before fetching the statuses
-        let unfiltered_names = add_connected_names(&name, &pool).await?;
-        let filtered = state.0.filter_results(
-            &claims,
-            models::Capability::Read,
-            unfiltered_names,
-            String::as_str,
-        );
-        fetch_status(&pool, &filtered, short).await?
+        let unfiltered_names = add_connected_names(&name, &env.pg_pool).await?;
+        let (snapshot, claims) = (env.snapshot(), env.claims()?);
+
+        let filtered = unfiltered_names
+            .into_iter()
+            .filter(|name| {
+                tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    name,
+                    models::Capability::Read,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        fetch_status(&env.pg_pool, &filtered, short).await?
     } else {
-        fetch_status(&pool, &name, short).await?
+        fetch_status(&env.pg_pool, &name, short).await?
     };
 
     // Check whether all of the names that were explicitly requested are present
@@ -72,20 +69,20 @@ pub(crate) async fn handle_get_status(
         require_names.remove(result.catalog_name.as_str());
     }
     if !require_names.is_empty() {
-        return Err(anyhow::anyhow!(
+        return Err(tonic::Status::not_found(format!(
             "no live specs found for names: [{}]",
             require_names.iter().format(", ")
-        )
-        .with_status(StatusCode::NOT_FOUND));
+        ))
+        .into());
     }
-    Ok(Json(status))
+    Ok(axum::Json(status))
 }
 
 pub async fn fetch_status(
     pool: &sqlx::PgPool,
     catalog_names: &[String],
     short: bool,
-) -> Result<Vec<StatusResponse>, ApiError> {
+) -> Result<Vec<StatusResponse>, crate::ApiError> {
     let rows = sqlx::query_as!(StatusRow, r#"select
         ls.catalog_name as "catalog_name!: String",
         ls.id as "live_spec_id: Id",

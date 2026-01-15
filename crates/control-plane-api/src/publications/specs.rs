@@ -1,9 +1,9 @@
 use super::{LockFailure, UncommittedBuild};
-use crate::Capability;
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
 use anyhow::Context;
 use itertools::Itertools;
+use models::Capability;
 use models::{Id, ModelDef, SourceType, TargetNaming, split_image_tag};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;

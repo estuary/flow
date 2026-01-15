@@ -1,10 +1,7 @@
+use crate::server::public::graphql::PgDataLoader;
 use async_graphql::{Context, connection};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use crate::server::App;
-use crate::server::public::graphql::PgDataLoader;
 
 #[derive(async_graphql::SimpleObject, Clone, Debug)]
 #[graphql(complex)]
@@ -139,7 +136,7 @@ pub async fn fetch_spec_history_no_authz(
 ) -> async_graphql::Result<SpecHistoryConnection> {
     const DEFAULT_PAGE_SIZE: usize = 10;
 
-    let app = ctx.data::<Arc<App>>()?;
+    let env = ctx.data::<crate::Envelope>()?;
 
     connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(
         after,
@@ -153,9 +150,9 @@ pub async fn fetch_spec_history_no_authz(
                     include_model,
                     before
                         .map(|c| c.0)
-                        .unwrap_or(Utc::now() + chrono::Duration::minutes(5)),
+                        .unwrap_or(tokens::now() + chrono::Duration::minutes(5)),
                     last.unwrap_or(DEFAULT_PAGE_SIZE),
-                    &app.pg_pool,
+                    &env.pg_pool,
                 )
                 .await
                 .map_err(async_graphql::Error::from)?;
@@ -168,7 +165,7 @@ pub async fn fetch_spec_history_no_authz(
                         .map(|c| c.0)
                         .unwrap_or_else(|| "2020-01-01T00:00:00Z".parse().unwrap()),
                     first.unwrap_or(DEFAULT_PAGE_SIZE),
-                    &app.pg_pool,
+                    &env.pg_pool,
                 )
                 .await
                 .map_err(async_graphql::Error::from)?;

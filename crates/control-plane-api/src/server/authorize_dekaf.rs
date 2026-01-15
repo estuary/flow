@@ -1,11 +1,4 @@
-use super::App;
-use crate::server::error::ApiErrorExt;
-use crate::server::snapshot::Snapshot;
-use anyhow::Context;
-use axum::http::StatusCode;
-use futures::{FutureExt, TryFutureExt};
-use models::CatalogType;
-use std::sync::Arc;
+use futures::TryFutureExt;
 
 type Request = models::authorizations::TaskAuthorizationRequest;
 type Response = models::authorizations::DekafAuthResponse;
@@ -33,156 +26,120 @@ type Response = models::authorizations::DekafAuthResponse;
 ///      as identified by the `sub` JWT claim
 ///    * The ops logs and stats journal names for the materialization. This will allow Dekaf to
 ///      write ops logs and stats.
-#[axum::debug_handler]
-#[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
+#[tracing::instrument(skip(app, env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_dekaf(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Json(Request { token }): axum::Json<Request>,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let fetch_spec = |task: String| {
-        sqlx::query!(
-            r#"
-            SELECT
-                spec_type AS "spec_type!: models::CatalogType",
-                built_spec AS "built_spec!: sqlx::types::Json<models::RawValue>"
-            FROM live_specs
-            WHERE live_specs.catalog_name = $1 AND built_spec IS NOT NULL
-            "#,
-            task
-        )
-        .fetch_one(&app.pg_pool)
-        .map_ok(|r| (r.spec_type, r.built_spec.0))
-        .boxed()
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
+    mut env: crate::Envelope,
+    super::Request(Request { token }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::ApiError> {
+    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
+
+    // Use the `iat` claim to establish the logical start of the request,
+    // rounded up to the next second (as it was round down when encoded).
+    env.started = tokens::DateTime::from_timestamp_secs(1 + unverified.claims().iat as i64)
+        .unwrap_or_default();
+
+    let policy_result = evaluate_authorization(
+        env.snapshot(),
+        &unverified.claims().sub,
+        &unverified.claims().iss,
+        &token,
+    );
+
+    // Legacy: return a custom 200 response for client-side retries.
+    let (expiry, (ops_logs_journal, ops_stats_journal, redirect_fqdn)) =
+        match env.authorization_outcome(policy_result).await {
+            Ok(ok) => ok,
+            Err(crate::ApiError::AuthZRetry(retry)) => {
+                return Ok(axum::Json(Response {
+                    retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                    ..Default::default()
+                }));
+            }
+            Err(err @ crate::ApiError::Status(_)) => return Err(err),
+        };
+
+    let (spec_type, built_spec) = sqlx::query!(
+        r#"
+        SELECT
+            spec_type AS "spec_type!: models::CatalogType",
+            built_spec AS "built_spec!: sqlx::types::Json<models::RawValue>"
+        FROM live_specs
+        WHERE live_specs.catalog_name = $1 AND built_spec IS NOT NULL
+        "#,
+        &unverified.claims().sub
+    )
+    .fetch_one(&env.pg_pool)
+    .map_ok(|r| (r.spec_type, r.built_spec.0))
+    .await
+    .map_err(|err| tonic::Status::internal(format!("failed to fetch task spec: {err}")))?;
+
+    if !matches!(spec_type, models::CatalogType::Materialization) {
+        return Err(tonic::Status::internal(format!("unexpected spec type {spec_type:?}")).into());
+    }
+
+    let response_claims = models::authorizations::ControlClaims {
+        aud: "authenticated".to_string(),
+        iat: unverified.claims().iat,
+        exp: expiry.timestamp() as u64,
+        sub: uuid::Uuid::nil(),
+        role: DEKAF_ROLE.to_string(),
+        email: None,
     };
 
-    do_authorize_dekaf(
-        &app.snapshot,
+    // Only return a token if we are not redirecting
+    let token = if redirect_fqdn.is_none() {
+        tokens::jwt::sign(&response_claims, &app.control_plane_jwt_encode_key)?
+    } else {
+        String::new()
+    };
+
+    Ok(axum::Json(Response {
         token,
-        &app.control_plane_jwt_signer,
-        fetch_spec,
-    )
-    .await
-}
-
-pub async fn do_authorize_dekaf<'a>(
-    snapshot: &'a std::sync::RwLock<Snapshot>,
-    token: String,
-    control_key: &'a jsonwebtoken::EncodingKey,
-    fetch_spec: impl FnOnce(
-        String,
-    ) -> futures::future::BoxFuture<
-        'a,
-        sqlx::Result<(models::CatalogType, models::RawValue)>,
-    >,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let (_header, claims) = super::parse_untrusted_data_plane_claims(&token)?;
-
-    let task_name = claims.sub.as_str();
-    let shard_data_plane_fqdn = claims.iss.as_str();
-
-    if claims.cap != proto_flow::capability::AUTHORIZE {
-        return Err(
-            anyhow::anyhow!("invalid capability, must be AUTHORIZE only: {}", claims.cap)
-                .with_status(StatusCode::FORBIDDEN),
-        );
-    }
-
-    match Snapshot::evaluate(
-        snapshot,
-        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
-        |snapshot: &Snapshot| {
-            evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
-        },
-    ) {
-        Ok((exp, (ops_logs_journal, ops_stats_journal, redirect_fqdn))) => {
-            let (spec_type, built_spec) = fetch_spec(task_name.to_string())
-                .await
-                .context("failed to fetch task spec")?;
-
-            if !matches!(spec_type, models::CatalogType::Materialization) {
-                return Err(anyhow::anyhow!("Unexpected spec type {:?}", spec_type)
-                    .with_status(StatusCode::INTERNAL_SERVER_ERROR));
-            }
-
-            let claims = models::authorizations::ControlClaims {
-                iat: claims.iat,
-                exp: exp.timestamp() as u64,
-                sub: uuid::Uuid::nil(),
-                role: DEKAF_ROLE.to_string(),
-                email: None,
-            };
-
-            // Only return a token if we are not redirecting
-            let token = if redirect_fqdn.is_none() {
-                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, control_key)
-                    .context("failed to encode authorized JWT")?
-            } else {
-                "".to_string()
-            };
-
-            Ok(axum::Json(Response {
-                token,
-                ops_logs_journal,
-                ops_stats_journal,
-                task_spec: Some(built_spec),
-                retry_millis: 0,
-                redirect_dataplane_fqdn: redirect_fqdn,
-            }))
-        }
-        Err(Ok(backoff)) => Ok(axum::Json(Response {
-            retry_millis: backoff.as_millis() as u64,
-            ..Default::default()
-        })),
-        Err(Err(err)) => Err(err),
-    }
+        ops_logs_journal,
+        ops_stats_journal,
+        task_spec: Some(built_spec),
+        retry_millis: 0,
+        redirect_dataplane_fqdn: redirect_fqdn,
+    }))
 }
 
 fn evaluate_authorization(
-    snapshot: &Snapshot,
+    snapshot: &crate::Snapshot,
     task_name: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
-) -> Result<
-    (
-        Option<chrono::DateTime<chrono::Utc>>,
-        (String, String, Option<String>),
-    ),
-    crate::server::error::ApiError,
-> {
+) -> crate::AuthZResult<(String, String, Option<String>)> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
-    let Some(task_data_plane) = snapshot
-        .verify_data_plane_token(shard_data_plane_fqdn, token)
-        .context("invalid data-plane hmac key")?
+    let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
     else {
-        return Err(
-            anyhow::anyhow!("no data-plane keys validated against the token signature")
-                .with_status(StatusCode::FORBIDDEN),
-        );
+        return Err(tonic::Status::unauthenticated(
+            "no data-plane keys validated against the token signature",
+        ));
     };
 
     // First, try to find task in the requesting dataplane by mapping
-    // `claims.sub`, a task name, into a task running in `task_data_plane`.
+    // `task name` (the `sub` claim) into a task running in `task_data_plane`.
     if let Some(task) = snapshot
-        .task_by_catalog_name(&task_name)
+        .task_by_catalog_name(task_name)
         .filter(|task| task.data_plane_id == task_data_plane.control_id)
     {
-        if task.spec_type != CatalogType::Materialization {
-            return Err(anyhow::anyhow!(
+        if task.spec_type != models::CatalogType::Materialization {
+            return Err(tonic::Status::failed_precondition(format!(
                 "task {task_name} must be a materialization, but is {:?} instead",
                 task.spec_type
-            )
-            .with_status(StatusCode::PRECONDITION_FAILED));
+            )));
         }
 
         let (Some(ops_logs), Some(ops_stats)) = (
             snapshot.collection_by_catalog_name(&task_data_plane.ops_logs_name),
             snapshot.collection_by_catalog_name(&task_data_plane.ops_stats_name),
         ) else {
-            return Err(anyhow::anyhow!(
+            return Err(tonic::Status::internal(format!(
                 "couldn't resolve data-plane {} ops collections",
                 task.data_plane_id
-            )
-            .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+            )));
         };
 
         let ops_suffix = super::ops_suffix(task);
@@ -196,23 +153,23 @@ fn evaluate_authorization(
     }
 
     // Task not found in requesting dataplane, check if it exists elsewhere to redirect
-    if let Some(task) = snapshot.task_by_catalog_name(&task_name) {
-        if task.spec_type != CatalogType::Materialization {
-            return Err(anyhow::anyhow!(
+    if let Some(task) = snapshot.task_by_catalog_name(task_name) {
+        if task.spec_type != models::CatalogType::Materialization {
+            return Err(tonic::Status::failed_precondition(format!(
                 "task {task_name} must be a materialization, but is {:?} instead",
                 task.spec_type
-            )
-            .with_status(StatusCode::PRECONDITION_FAILED));
+            )));
         }
 
-        let target_dataplane = snapshot
+        let Some(target_dataplane) = snapshot
             .data_planes
             .iter()
             .find(|dp| dp.control_id == task.data_plane_id)
-            .ok_or_else(|| {
-                anyhow::anyhow!("target dataplane for task {task_name} not found")
-                    .with_status(StatusCode::INTERNAL_SERVER_ERROR)
-            })?;
+        else {
+            return Err(tonic::Status::internal(format!(
+                "target dataplane for task {task_name} not found"
+            )));
+        };
 
         return Ok((
             snapshot.cordon_at(&task.task_name, task_data_plane),
@@ -224,11 +181,9 @@ fn evaluate_authorization(
         ));
     }
 
-    // Task not found anywhere
-    Err(
-        anyhow::anyhow!("task {task_name} not found in any dataplane")
-            .with_status(StatusCode::PRECONDITION_FAILED),
-    )
+    Err(tonic::Status::not_found(format!(
+        "task {task_name} not found"
+    )))
 }
 
 const DEKAF_ROLE: &str = "dekaf";
@@ -237,48 +192,27 @@ const DEKAF_ROLE: &str = "dekaf";
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_success() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE,
-            iss: "fqdn2".to_string(),
-            sel: proto_gazette::LabelSelector::default(),
-            sub: "bobCo/anvils/materialize-orange".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_success() {
+        let outcome = run(
+            "bobCo/anvils/materialize-orange",
+            "fqdn2", // Request from data-plane 2 where this task lives
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Ok": [
-            {
-              "iat": 0,
-              "exp": 0,
-              "sub": "00000000-0000-0000-0000-000000000000",
-              "role": "dekaf"
-            },
-            "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
-            "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
-            {
-              "$serde_json::private::RawValue": "{\"spec\":\"fixture\"}"
-            }
-          ]
+          "Ok": {
+            "ops_logs_journal": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
+            "ops_stats_journal": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
+            "redirect_fqdn": null
+          }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_materialization() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE,
-            iss: "fqdn2".to_string(),
-            sel: proto_gazette::LabelSelector::default(),
-            sub: "bobCo/widgets/source-squash".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_not_materialization() {
+        let outcome = run("bobCo/widgets/source-squash", "fqdn2");
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -290,142 +224,115 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_found() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE,
-            iss: "fqdn2".to_string(),
-            sel: proto_gazette::LabelSelector::default(),
-            sub: "bobCo/bananas".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_not_found() {
+        let outcome = run("bobCo/bananas", "fqdn2");
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
           "Err": {
-            "status": 412,
-            "error": "task bobCo/bananas not found in any dataplane"
+            "status": 404,
+            "error": "task bobCo/bananas not found"
           }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_cordon_task() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE,
-            iss: "fqdn2".to_string(),
-            sel: proto_gazette::LabelSelector::default(),
-            sub: "bobCo/widgets/materialize-mango".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_cordon_task() {
+        let outcome = run("bobCo/widgets/materialize-mango", "fqdn2");
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Err": {
-            "status": 500,
-            "error": "retry"
+          "Ok_Cordoned": {
+            "ops_logs_journal": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
+            "ops_stats_journal": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
+            "redirect_fqdn": null
           }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_redirect() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE,
-            iss: "fqdn2".to_string(), // Request from dataplane 2
-            sel: proto_gazette::LabelSelector::default(),
-            sub: "acmeCo/materialize-pear".to_string(), // Task is in dataplane 1
-        })
-        .await;
+    #[test]
+    fn test_redirect() {
+        let outcome = run(
+            "acmeCo/materialize-pear", // Task is in dataplane 1
+            "fqdn2",                   // Request from dataplane 2
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Err": {
-            "status": 500,
-            "error": "redirect to: fqdn1"
+          "Ok": {
+            "ops_logs_journal": "",
+            "ops_stats_journal": "",
+            "redirect_fqdn": "fqdn1"
           }
         }
         "###);
     }
 
-    async fn run(
-        mut claims: proto_gazette::Claims,
-    ) -> Result<
-        (
-            models::authorizations::ControlClaims,
-            String,
-            String,
-            Option<models::RawValue>,
-        ),
-        crate::server::error::ApiError,
-    > {
-        let taken = chrono::Utc::now();
-        let snapshot = Snapshot::build_fixture(Some(taken));
-        let snapshot = std::sync::RwLock::new(snapshot);
+    #[derive(serde::Serialize)]
+    struct SuccessOutput {
+        ops_logs_journal: String,
+        ops_stats_journal: String,
+        redirect_fqdn: Option<String>,
+    }
 
-        // Set iat to 1 second before snapshot.taken so the server definitively has
-        // newer knowledge and returns a terminal error.
-        claims.iat = taken.timestamp() as u64 - 1;
-        claims.exp = taken.timestamp() as u64 + 100;
+    #[derive(serde::Serialize)]
+    enum Outcome {
+        Ok(SuccessOutput),
+        #[serde(rename = "Ok_Cordoned")]
+        OkCordoned(SuccessOutput),
+        Err {
+            status: u16,
+            error: String,
+        },
+    }
 
-        let request_token = jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
+    fn run(task_name: &str, shard_data_plane_fqdn: &str) -> Outcome {
+        let taken = tokens::now();
+        let snapshot = crate::Snapshot::build_fixture(Some(taken));
+
+        // Build and sign a proper JWT token for the request.
+        let claims = proto_gazette::Claims {
+            iat: taken.timestamp() as u64 - 10, // Before snapshot
+            exp: taken.timestamp() as u64 + 100,
+            cap: proto_flow::capability::AUTHORIZE,
+            iss: shard_data_plane_fqdn.to_string(),
+            sel: proto_gazette::LabelSelector::default(),
+            sub: task_name.to_string(),
+        };
+
+        // Use key3 for fqdn2
+        let key = if shard_data_plane_fqdn == "fqdn2" {
+            "key3"
+        } else {
+            "key1"
+        };
+        let token = tokens::jwt::sign(
             &claims,
-            &jsonwebtoken::EncodingKey::from_secret("key3".as_bytes()),
+            &jsonwebtoken::EncodingKey::from_secret(key.as_bytes()),
         )
         .unwrap();
 
-        let Response {
-            token: response_token,
-            ops_logs_journal,
-            ops_stats_journal,
-            task_spec,
-            retry_millis,
-            redirect_dataplane_fqdn,
-        } = do_authorize_dekaf(
-            &snapshot,
-            request_token,
-            &jsonwebtoken::EncodingKey::from_secret("control-key".as_bytes()),
-            |_task| {
-                async {
-                    Ok((
-                        models::CatalogType::Materialization,
-                        models::RawValue::from_value(&serde_json::json!({"spec": "fixture"})),
-                    ))
+        match evaluate_authorization(&snapshot, task_name, shard_data_plane_fqdn, &token) {
+            Ok((cordon_at, (ops_logs_journal, ops_stats_journal, redirect_fqdn))) => {
+                let output = SuccessOutput {
+                    ops_logs_journal,
+                    ops_stats_journal,
+                    redirect_fqdn,
+                };
+
+                if cordon_at.is_some() {
+                    Outcome::OkCordoned(output)
+                } else {
+                    Outcome::Ok(output)
                 }
-                .boxed()
+            }
+            Err(status) => Outcome::Err {
+                status: tokens::rest::grpc_status_code_to_http(status.code()),
+                error: status.message().to_string(),
             },
-        )
-        .await?
-        .0;
-
-        if retry_millis != 0 {
-            return Err(anyhow::anyhow!("retry").into());
         }
-
-        if let Some(redirect) = redirect_dataplane_fqdn {
-            return Err(anyhow::anyhow!(format!("redirect to: {}", redirect)).into());
-        }
-
-        // Decode and verify the response token.
-        let mut decoded = jsonwebtoken::decode::<models::authorizations::ControlClaims>(
-            &response_token,
-            &jsonwebtoken::DecodingKey::from_secret("control-key".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims;
-
-        (decoded.iat, decoded.exp) = (0, 0);
-
-        Ok((decoded, ops_logs_journal, ops_stats_journal, task_spec))
     }
 }

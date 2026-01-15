@@ -1,8 +1,22 @@
-use super::App;
 use anyhow::Context;
-use chrono::SubsecRound;
 use std::collections::HashMap;
-use std::sync::Arc;
+
+// SnapshotData encapsulates all data required to construct a Snapshot.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotData {
+    // Platform collections.
+    pub collections: Vec<SnapshotCollection>,
+    // Platform data-planes.
+    pub data_planes: Vec<tables::DataPlane>,
+    // Data-plane migrations that are underway.
+    pub migrations: Vec<SnapshotMigration>,
+    // Platform role grants.
+    pub role_grants: Vec<tables::RoleGrant>,
+    // Platform user grants.
+    pub user_grants: Vec<tables::UserGrant>,
+    // Platform tasks.
+    pub tasks: Vec<SnapshotTask>,
+}
 
 // Snapshot is a point-in-time view of control-plane state
 // that influences authorization decisions.
@@ -29,12 +43,13 @@ pub struct Snapshot {
     pub tasks: Vec<SnapshotTask>,
     // Indices of `tasks`, indexed on `task_name`.
     pub tasks_idx_name: Vec<usize>,
-    // `refresh` is take()-en when the current snapshot should be refreshed.
-    pub refresh_tx: Option<futures::channel::oneshot::Sender<()>>,
+    // Cancelling `revoke` triggers a Snapshot refresh ahead of its expiry.
+    pub revoke: tokens::CancellationToken,
 }
 
 // SnapshotCollection is the state of a live collection which influences authorization.
 // It's indexed on `journal_template_name`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotCollection {
     // Template journal name which prefixes all journals of the collection.
     pub journal_template_name: String,
@@ -46,7 +61,7 @@ pub struct SnapshotCollection {
 
 // SnapshotTask is the state of a live task which influences authorization.
 // It's indexed on `shard_template_id`.
-#[derive(Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotTask {
     // Template shard ID which prefixes all shard IDs of the task.
     pub shard_template_id: String,
@@ -59,7 +74,7 @@ pub struct SnapshotTask {
 }
 
 // SnapshotMigration is the state of an underway data-plane migration.
-#[derive(Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotMigration {
     // Catalog prefix to be migrated. This is *not* always slash terminated,
     // so that we can bulk migrate (for example) all tenants that start with 'e'.
@@ -88,20 +103,21 @@ impl Snapshot {
             user_grants: tables::UserGrants::default(),
             tasks: Vec::new(),
             tasks_idx_name: Vec::new(),
-            refresh_tx: None,
+            revoke: tokens::CancellationToken::new(),
         }
     }
 
-    /// Construct a Snapshot from the provided tables.
-    pub fn new(
-        taken: chrono::DateTime<chrono::Utc>,
-        mut collections: Vec<SnapshotCollection>,
-        data_planes: Vec<tables::DataPlane>,
-        mut migrations: Vec<SnapshotMigration>,
-        role_grants: Vec<tables::RoleGrant>,
-        user_grants: Vec<tables::UserGrant>,
-        mut tasks: Vec<SnapshotTask>,
-    ) -> Self {
+    /// Construct a Snapshot from the provided SnapshotData.
+    pub fn new(taken: tokens::DateTime, data: SnapshotData) -> Self {
+        let SnapshotData {
+            mut collections,
+            data_planes,
+            mut migrations,
+            role_grants,
+            user_grants,
+            mut tasks,
+        } = data;
+
         let data_planes = tables::DataPlanes::from_iter(data_planes);
         let role_grants = tables::RoleGrants::from_iter(role_grants);
         let user_grants = tables::UserGrants::from_iter(user_grants);
@@ -155,102 +171,14 @@ impl Snapshot {
             user_grants,
             tasks,
             tasks_idx_name,
-            refresh_tx: None,
+            revoke: tokens::CancellationToken::new(),
         }
     }
 
-    /// Evaluate an authorization requested at time `iat`, which is evaluated
-    /// according to `policy`, and returning one of:
-    ///
-    /// Ok((expire_at, ok)):
-    ///     The authorization is valid through the given `expire_at`.
-    ///
-    /// Err(Ok(retry_after)):
-    ///     The status of the authorization is not yet know, and should be retried
-    ///     after the returned time interval.
-    ///
-    /// Err(Err(err)):
-    ///     The authorization is invalid.
-    ///
-    /// The Policy function must return one of:
-    ///
-    /// Ok((None, ok)):
-    ///     The authorization is valid.
-    ///
-    /// Ok((Some(cordon_at), ok)):
-    ///     The authorization is valid, but must expire no later than `cordon_at`.
-    ///
-    /// Err(err):
-    ///     The authorization is invalid.
-    ///
-    pub fn evaluate<P, Ok>(
-        mu: &std::sync::RwLock<Self>,
-        started: chrono::DateTime<chrono::Utc>,
-        policy: P,
-    ) -> Result<
-        (chrono::DateTime<chrono::Utc>, Ok),
-        Result<std::time::Duration, crate::server::error::ApiError>,
-    >
-    where
-        P: FnOnce(
-            &Self,
-        ) -> Result<
-            (Option<chrono::DateTime<chrono::Utc>>, Ok),
-            crate::server::error::ApiError,
-        >,
-    {
-        let snapshot = mu.read().unwrap();
-
-        // Select an expiration for the evaluated authorization (presuming it succeeds)
-        // which is at-most MAX_AUTHORIZATION in the future relative to when the
-        // Snapshot was taken. Jitter to smooth the load of re-authorizations.
-        use rand::Rng;
-        let exp = snapshot.taken
-            + chrono::TimeDelta::seconds(rand::rng().random_range(
-                (Snapshot::MAX_AUTHORIZATION.num_seconds() / 2)
-                    ..Snapshot::MAX_AUTHORIZATION.num_seconds(),
-            ));
-
-        match policy(&snapshot) {
-            // Authorization is valid and not cordoned.
-            Ok((None, ok)) => return Ok((exp, ok)),
-            // Authorization is valid but cordoned after a future `cordon_at`.
-            Ok((Some(cordon_at), ok)) if cordon_at > started => {
-                return Ok((std::cmp::min(exp, cordon_at), ok));
-            }
-            // Authorization is invalid and the Snapshot was taken after the
-            // start of the authorization request. Terminal failure.
-            //
-            // Because JWT `iat` is second-precision, we should only terminally fail
-            // if the snapshot was taken in a later second, otherwise we can't say
-            // definitively that the request is invalid.
-            Err(err) if snapshot.taken.trunc_subsecs(0) > started => return Err(Err(err)),
-
-            // Authorization is valid but is currently cordoned, and we must
-            // hold it in limbo until the cordoned condition is resolved
-            // by a future Snapshot.
-            Ok((Some(_cordon_at), _ok)) => (),
-            // Authorization is invalid but the Snapshot is older than the start
-            // of the authorization request. It's possible that the requestor has
-            // more-recent knowledge that the authorization is valid.
-            Err(_err) => (),
-        };
-
-        // We must await a future Snapshot to determine the definitive outcome.
-
-        let backoff =
-            // Determine the remaining "cool off" time before the next Snapshot starts.
-            std::cmp::max(
-                (snapshot.taken + Snapshot::MIN_REFRESH_INTERVAL) - chrono::Utc::now(),
-                chrono::TimeDelta::zero(),
-            )
-            // We don't know how long a Snapshot fetch will take. Currently it's ~1-5 seconds,
-            // but our real objective here is to smooth the herd of retries awaiting a refresh.
-            + chrono::TimeDelta::milliseconds(rand::rng().random_range(500..10_000));
-
-        Self::signal_refresh(snapshot, mu);
-
-        Err(Ok(backoff.to_std().unwrap()))
+    /// Returns true if the Snapshot was taken after (and is authoritative for)
+    /// an operation that started at `started`, allowing for clock skew.
+    pub fn taken_after(&self, started: tokens::DateTime) -> bool {
+        self.taken > (started + Self::TEMPORAL_SKEW)
     }
 
     // Retrieve all tasks whose names start with the given `prefix`.
@@ -352,11 +280,14 @@ impl Snapshot {
             })
     }
 
+    /// Verify a data-plane token and return its DataPlane if valid.
+    /// Returns `Ok(None)` if the data-plane FQDN is unknown or the token doesn't verify.
+    /// We discard error information to avoid leaking the existence of data-planes.
     pub fn verify_data_plane_token<'s>(
         &'s self,
         iss_fqdn: &str,
         token: &str,
-    ) -> Result<Option<&'s tables::DataPlane>, jsonwebtoken::errors::Error> {
+    ) -> tonic::Result<Option<&'s tables::DataPlane>> {
         let data_plane = self
             .data_planes_idx_fqdn
             .binary_search_by(|i| self.data_planes[*i].data_plane_fqdn.as_str().cmp(iss_fqdn))
@@ -371,31 +302,14 @@ impl Snapshot {
             return Ok(None);
         };
 
-        let validation = jsonwebtoken::Validation::default();
+        let (_encode_key, decode_keys) =
+            tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.iter())?;
 
-        for hmac_key in data_plane.hmac_keys.clone() {
-            let key = jsonwebtoken::DecodingKey::from_base64_secret(&hmac_key)?;
-
-            if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
-                return Ok(Some(data_plane));
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn signal_refresh<'m>(
-        guard: std::sync::RwLockReadGuard<'_, Self>,
-        mu: &'m std::sync::RwLock<Self>,
-    ) {
-        if guard.refresh_tx.is_none() {
-            return; // Refresh is already underway.
-        }
-        // We must release our read-lock before we can acquire a write lock.
-        std::mem::drop(guard);
-
-        // Take `refresh_tx` and drop to awake receiver.
-        std::mem::drop(mu.write().unwrap().refresh_tx.take());
+        Ok(
+            tokens::jwt::verify::<proto_gazette::Claims>(token.as_bytes(), 0, &decode_keys)
+                .ok()
+                .map(|_verified| data_plane),
+        )
     }
 
     // If there is a migration which covers `catalog_name`, running in `data_plane`,
@@ -429,47 +343,82 @@ impl Snapshot {
 
     // Minimal interval between Snapshot refreshes.
     // We will postpone a requested refresh prior to this interval.
-    const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
+    pub const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
     // Maximum interval between Snapshot refreshes.
     // We will refresh an older Snapshot in the background.
-    const MAX_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+    pub const MAX_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
     // Maximum lifetime of an authorization produced from a Snapshot,
     // relative to the timestamp at which the Snapshot was taken.
     // This upper-bounds the lifetime of an authorization derived from a Snapshot.
-    const MAX_AUTHORIZATION: chrono::TimeDelta = chrono::TimeDelta::minutes(80);
+    pub const MAX_AUTHORIZATION: chrono::TimeDelta = chrono::TimeDelta::minutes(80);
+    /// Maximum amount of skew to allow for between distributed clocks,
+    /// when evaluating "happened before" ordering of a Snapshot's taken
+    /// timestamp and an externally-provided operation start timestamp.
+    /// We assume linux servers running NTP, which are typically within 1ms of each other.
+    pub const TEMPORAL_SKEW: chrono::TimeDelta = chrono::TimeDelta::milliseconds(250);
 }
 
-pub async fn fetch_loop(app: Arc<App>) {
-    let mut decrypted_hmac_keys = HashMap::new();
-    loop {
-        let (next_tx, next_rx) = futures::channel::oneshot::channel();
+/// PgSnapshotSource is a tokens::Source which fetches Snapshots from Postgres.
+pub struct PgSnapshotSource {
+    /// Postgres Database connection pool.
+    pg_pool: sqlx::PgPool,
+    /// DateTime of the last Snapshot yielded by this Source.
+    last_taken: tokens::DateTime,
+    /// Cache of decrypted HMAC keys, keyed on data-plane name,
+    /// having the original encrypted keys and their decryption.
+    decrypted_hmac_keys: HashMap<String, (models::RawValue, Vec<String>)>,
+}
 
-        // We'll minimally wait for MIN_REFRESH_INTERVAL each iteration.
-        let cool_off = tokio::time::sleep(Snapshot::MIN_REFRESH_INTERVAL.to_std().unwrap());
-        // We'll wait for the first of `next_rx` or MAX_REFRESH_INTERVAL each iteration.
-        let next_rx =
-            tokio::time::timeout(Snapshot::MAX_REFRESH_INTERVAL.to_std().unwrap(), next_rx);
+impl PgSnapshotSource {
+    pub fn new(pg_pool: sqlx::PgPool) -> Self {
+        Self {
+            pg_pool,
+            last_taken: tokens::DateTime::UNIX_EPOCH,
+            decrypted_hmac_keys: HashMap::new(),
+        }
+    }
+}
 
-        match try_fetch(&app.pg_pool, &mut decrypted_hmac_keys).await {
-            Ok(mut snapshot) => {
-                snapshot.refresh_tx = Some(next_tx);
-                *app.snapshot.write().unwrap() = snapshot;
+impl tokens::Source for PgSnapshotSource {
+    type Token = Snapshot;
+    type Revoke = tokens::WaitForCancellationFutureOwned;
+
+    async fn refresh(
+        &mut self,
+        _started: tokens::DateTime,
+    ) -> tonic::Result<Result<(Self::Token, chrono::TimeDelta, Self::Revoke), chrono::TimeDelta>>
+    {
+        let mut taken = tokens::now();
+
+        // Snapshot should be no more frequent then MIN_REFRESH_INTERVAL.
+        let cool_off = (self.last_taken + Snapshot::MIN_REFRESH_INTERVAL) - taken;
+        if let Some(cool_off) = cool_off.to_std().ok() {
+            // `cool_off` is positive: we must wait.
+            tokio::time::sleep(cool_off).await;
+            taken += cool_off;
+        }
+
+        let result = try_fetch(&self.pg_pool, &mut self.decrypted_hmac_keys).await;
+        match result {
+            Ok(data) => {
+                self.last_taken = taken;
+                let snapshot = Snapshot::new(taken, data);
+                let revoked = snapshot.revoke.clone().cancelled_owned();
+                Ok(Ok((snapshot, Snapshot::MAX_REFRESH_INTERVAL, revoked)))
             }
             Err(err) => {
                 tracing::error!(?err, "failed to fetch snapshot (will retry)");
-                _ = next_tx.send(()); // Wake ourselves to retry.
+                Ok(Err(Snapshot::MIN_REFRESH_INTERVAL))
             }
         }
-        let ((), _) = futures::join!(cool_off, next_rx);
     }
 }
 
 pub async fn try_fetch(
     pg_pool: &sqlx::PgPool,
-    decrypted_hmac_keys: &mut HashMap<String, Vec<String>>,
-) -> anyhow::Result<Snapshot> {
+    decrypted_hmac_keys: &mut HashMap<String, (models::RawValue, Vec<String>)>,
+) -> anyhow::Result<SnapshotData> {
     tracing::info!("started to fetch authorization snapshot");
-    let taken = chrono::Utc::now();
 
     let collections = sqlx::query_as!(
         SnapshotCollection,
@@ -576,237 +525,54 @@ pub async fn try_fetch(
         "fetched authorization snapshot",
     );
 
-    data_planes
-        .iter_mut()
-        .filter(|dp| decrypted_hmac_keys.contains_key(&dp.data_plane_name))
-        .for_each(|dp| {
-            dp.hmac_keys = decrypted_hmac_keys
-                .get(&dp.data_plane_name)
-                .unwrap()
-                .clone()
+    // For each data-plane, if we have a decrypted HMAC key that matches the unchanged encryption, then use it.
+    let mut decrypt_jobs = Vec::new();
+    for dp in data_planes.iter_mut() {
+        if !dp.hmac_keys.is_empty() {
+            continue;
+        }
+        if let Some((enc, dec)) = decrypted_hmac_keys.get(&dp.data_plane_name)
+            && enc.get() == dp.encrypted_hmac_keys.get()
+        {
+            dp.hmac_keys = dec.clone();
+            continue;
+        }
+
+        // Start a decryption of this data-plane's encrypted keys.
+        decrypt_jobs.push(async {
+            let decrypted = crate::decrypt_hmac_keys(&dp.encrypted_hmac_keys).await?;
+            Result::Ok::<(&mut tables::DataPlane, Vec<String>), anyhow::Error>((dp, decrypted))
         });
+    }
+    let decrypt_jobs: Vec<(&mut tables::DataPlane, Vec<String>)> =
+        futures::future::try_join_all(decrypt_jobs).await?;
 
-    futures::future::try_join_all(
-        data_planes
-            .iter_mut()
-            .filter(|dp| !decrypted_hmac_keys.contains_key(&dp.data_plane_name))
-            .filter(|dp| {
-                !dp.encrypted_hmac_keys
-                    .to_value()
-                    .as_object()
-                    .unwrap()
-                    .is_empty()
-            })
-            .map(|dp| crate::decrypt_hmac_keys(dp)),
-    )
-    .await?;
+    for (dp, hmac_keys) in decrypt_jobs {
+        decrypted_hmac_keys.insert(
+            dp.data_plane_name.clone(),
+            (dp.encrypted_hmac_keys.clone(), hmac_keys.clone()),
+        );
+        dp.hmac_keys = hmac_keys;
+    }
 
-    *decrypted_hmac_keys = data_planes
-        .iter()
-        .filter(|dp| {
-            !dp.encrypted_hmac_keys
-                .to_value()
-                .as_object()
-                .unwrap()
-                .is_empty()
-        })
-        .map(|dp| (dp.data_plane_name.clone(), dp.hmac_keys.clone()))
-        .collect();
-
-    Ok(Snapshot::new(
-        taken,
+    Ok(SnapshotData {
         collections,
         data_planes,
         migrations,
         role_grants,
         user_grants,
         tasks,
-    ))
+    })
 }
 
 #[cfg(test)]
 impl Snapshot {
-    /// Build a basic Snapshot fixture for testing purposes.
-    pub fn build_fixture(taken: Option<chrono::DateTime<chrono::Utc>>) -> Self {
-        let taken = taken.unwrap_or(chrono::DateTime::from_timestamp(100_000, 0).unwrap());
+    pub fn build_fixture(taken: Option<tokens::DateTime>) -> Self {
+        let data = include_str!("snapshot_fixture.json");
+        let data: SnapshotData = serde_json::from_str(data).unwrap();
 
-        let collections = [
-            ("acmeCo/pineapples", 1),
-            ("acmeCo/bananas", 1),
-            ("ops/tasks/public/plane-one/logs", 1),
-            ("ops/tasks/public/plane-one/stats", 1),
-            ("bobCo/widgets/mangoes", 2),
-            ("bobCo/widgets/squashes", 2),
-            ("bobCo/anvils/peaches", 2),
-            ("bobCo/tires/collection", 2),
-            ("aliceCo/wonderland/data", 2),
-            ("ops/tasks/public/plane-two/logs", 2),
-            ("ops/tasks/public/plane-two/stats", 2),
-        ]
-        .into_iter()
-        .map(|(name, data_plane_id)| SnapshotCollection {
-            journal_template_name: format!("{name}/1122334455667788"),
-            collection_name: models::Collection::new(name),
-            data_plane_id: models::Id::new([data_plane_id as u8; 8]),
-        })
-        .collect::<Vec<_>>();
-
-        use base64::Engine;
-        let data_planes = vec![
-            tables::DataPlane {
-                control_id: models::Id::new([1; 8]),
-                data_plane_name: "ops/dp/public/plane-one".to_string(),
-                data_plane_fqdn: "fqdn1".to_string(),
-                hmac_keys: vec![
-                    base64::engine::general_purpose::STANDARD.encode("key1"),
-                    base64::engine::general_purpose::STANDARD.encode("key2"),
-                ],
-                encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
-                broker_address: "broker.1".to_string(),
-                reactor_address: "reactor.1".to_string(),
-                ops_logs_name: models::Collection::new("ops/tasks/public/plane-one/logs"),
-                ops_stats_name: models::Collection::new("ops/tasks/public/plane-one/stats"),
-            },
-            tables::DataPlane {
-                control_id: models::Id::new([2; 8]),
-                data_plane_name: "ops/dp/public/plane-two".to_string(),
-                data_plane_fqdn: "fqdn2".to_string(),
-                hmac_keys: vec![base64::engine::general_purpose::STANDARD.encode("key3")],
-                encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
-                broker_address: "broker.2".to_string(),
-                reactor_address: "reactor.2".to_string(),
-                ops_logs_name: models::Collection::new("ops/tasks/public/plane-two/logs"),
-                ops_stats_name: models::Collection::new("ops/tasks/public/plane-two/stats"),
-            },
-        ];
-
-        let migrations = vec![
-            SnapshotMigration {
-                catalog_name_or_prefix: "acmeCo/bananas".to_string(),
-                cordon_at: chrono::DateTime::from_timestamp(200_000, 0).unwrap(),
-                src_plane_id: models::Id::new([1; 8]),
-                tgt_plane_id: models::Id::new([2; 8]),
-            },
-            SnapshotMigration {
-                catalog_name_or_prefix: "acmeCo/source-banana".to_string(),
-                cordon_at: chrono::DateTime::from_timestamp(200_000, 0).unwrap(),
-                src_plane_id: models::Id::new([1; 8]),
-                tgt_plane_id: models::Id::new([2; 8]),
-            },
-            SnapshotMigration {
-                catalog_name_or_prefix: "bobCo/widgets".to_string(),
-                cordon_at: chrono::DateTime::from_timestamp(300_000, 0).unwrap(),
-                src_plane_id: models::Id::new([2; 8]),
-                tgt_plane_id: models::Id::new([1; 8]),
-            },
-        ];
-
-        let role_grants = vec![
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("acmeCo/"),
-                object_role: models::Prefix::new("acmeCo/"),
-                capability: models::Capability::Write,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("bobCo/"),
-                object_role: models::Prefix::new("bobCo/"),
-                capability: models::Capability::Write,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("bobCo/tires/"),
-                object_role: models::Prefix::new("acmeCo/shared/"),
-                capability: models::Capability::Read,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("bobCo/"),
-                object_role: models::Prefix::new("ops/dp/public/"),
-                capability: models::Capability::Read,
-            },
-            tables::RoleGrant {
-                subject_role: models::Prefix::new("aliceCo/"),
-                object_role: models::Prefix::new("ops/dp/public/"),
-                capability: models::Capability::Read,
-            },
-        ];
-
-        let user_grants = vec![
-            // bob@bob has write to bobCo/ and admin to bobCo/tires/,
-            // but does not have estuary_support/.
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([32; 16]),
-                object_role: models::Prefix::new("bobCo/"),
-                capability: models::Capability::Write,
-            },
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([32; 16]),
-                object_role: models::Prefix::new("bobCo/tires/"),
-                capability: models::Capability::Admin,
-            },
-            // alice@alice has admin to aliceCo/ and estuary_support/
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([64; 16]),
-                object_role: models::Prefix::new("aliceCo/"),
-                capability: models::Capability::Admin,
-            },
-            tables::UserGrant {
-                user_id: uuid::Uuid::from_bytes([64; 16]),
-                object_role: models::Prefix::new("estuary_support/"),
-                capability: models::Capability::Admin,
-            },
-        ];
-
-        let tasks = [
-            ("acmeCo/source-pineapple", models::CatalogType::Capture, 1),
-            ("acmeCo/source-banana", models::CatalogType::Capture, 1),
-            (
-                "acmeCo/materialize-pear",
-                models::CatalogType::Materialization,
-                1,
-            ),
-            (
-                "bobCo/widgets/source-squash",
-                models::CatalogType::Capture,
-                2,
-            ),
-            (
-                "bobCo/widgets/materialize-mango",
-                models::CatalogType::Materialization,
-                2,
-            ),
-            (
-                "bobCo/anvils/materialize-orange",
-                models::CatalogType::Materialization,
-                2,
-            ),
-            (
-                "aliceCo/wonderland/materialize-tea",
-                models::CatalogType::Materialization,
-                2,
-            ),
-            (
-                "bobCo/tires/materialize-wheels",
-                models::CatalogType::Materialization,
-                2,
-            ),
-        ]
-        .into_iter()
-        .map(|(name, spec_type, data_plane_id)| SnapshotTask {
-            shard_template_id: format!("{spec_type}/{name}/0011223344556677"),
-            task_name: models::Name::new(name),
-            spec_type,
-            data_plane_id: models::Id::new([data_plane_id as u8; 8]),
-        })
-        .collect::<Vec<_>>();
-
-        Snapshot::new(
-            taken,
-            collections,
-            data_planes,
-            migrations,
-            role_grants,
-            user_grants,
-            tasks,
-        )
+        let taken = taken.unwrap_or_default();
+        Snapshot::new(taken, data)
     }
 }
 
@@ -972,26 +738,26 @@ mod tests {
     #[test]
     fn test_verify_data_plane_token() {
         let snapshot = Snapshot::build_fixture(None);
-        let now = jsonwebtoken::get_current_timestamp();
+        let now = tokens::now().timestamp() as u64;
 
         // Create a valid token signed with "key1".
         let claims = proto_gazette::Claims {
             iat: now,
             exp: now + 100,
-            cap: proto_gazette::capability::APPEND as u32,
+            cap: proto_gazette::capability::APPEND,
             iss: "fqdn1".to_string(),
             sel: proto_gazette::LabelSelector::default(),
             sub: "subject".to_string(),
         };
-        let key = jsonwebtoken::EncodingKey::from_secret("key1".as_bytes());
-        let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &key).unwrap();
+        let key = tokens::jwt::EncodingKey::from_secret("key1".as_bytes());
+        let token = tokens::jwt::sign(&claims, &key).unwrap();
 
         // Verify the token against the correct data plane.
         let result = snapshot.verify_data_plane_token("fqdn1", &token).unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().data_plane_fqdn, "fqdn1");
 
-        // Verify the token against an incorrect data plane.
+        // Verify the token against an incorrect data plane (wrong FQDN).
         let result = snapshot.verify_data_plane_token("fqdn2", &token).unwrap();
         assert!(result.is_none());
 

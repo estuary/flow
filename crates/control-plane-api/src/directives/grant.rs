@@ -3,7 +3,7 @@ use sqlx::types::Uuid;
 pub async fn upsert_user_grant(
     user: Uuid,
     prefix: &str,
-    capability: crate::Capability,
+    capability: models::Capability,
     detail: Option<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
@@ -18,7 +18,7 @@ pub async fn upsert_user_grant(
         "#,
         user,
         prefix as &str,
-        capability as crate::Capability,
+        capability as models::Capability,
         detail as Option<String>,
     )
     .execute(&mut **txn)

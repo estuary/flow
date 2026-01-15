@@ -1,14 +1,10 @@
+use crate::server::public::graphql::live_spec_refs::{
+    LiveSpecRef, PaginatedLiveSpecsRefs, paginate_live_specs_refs,
+};
 use async_graphql::{ComplexObject, Context, SimpleObject, dataloader};
 use chrono::{DateTime, Utc};
 use models::{CatalogType, Id};
-use std::{collections::HashMap, sync::Arc};
-
-use crate::server::{
-    App, ControlClaims,
-    public::graphql::live_spec_refs::{
-        LiveSpecRef, PaginatedLiveSpecsRefs, paginate_live_specs_refs,
-    },
-};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -95,15 +91,15 @@ impl LiveSpec {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<LiveSpecRef>> {
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
+        let env = ctx.data::<crate::Envelope>()?;
 
         let Some(source_capture_name) = &self.source_capture else {
             return Ok(None);
         };
-        let attached = app.attach_user_capabilities(
-            claims,
-            vec![source_capture_name.clone()],
+        let attached = crate::server::attach_user_capabilities(
+            env.snapshot(),
+            env.claims()?,
+            [source_capture_name.clone()],
             |name, user_capability| {
                 Some(LiveSpecRef {
                     catalog_name: models::Name::new(name),

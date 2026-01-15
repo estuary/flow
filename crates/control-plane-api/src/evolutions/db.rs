@@ -1,5 +1,6 @@
-use crate::{CatalogType, Id, TextJson as Json};
+use crate::TextJson as Json;
 use chrono::{DateTime, Utc};
+use models::{CatalogType, Id};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
