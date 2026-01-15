@@ -1,0 +1,10 @@
+---
+source: crates/dekaf/tests/e2e/migration.rs
+assertion_line: 259
+expression: extract_ids(&records_after)
+---
+[
+    "D",
+    "E",
+    "F",
+]

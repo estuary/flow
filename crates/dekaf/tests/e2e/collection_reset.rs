@@ -344,7 +344,7 @@ pub async fn perform_collection_reset(
 
     // Wait for capture to be ready
     let capture = env.capture_name().context("no capture in fixture")?;
-    env.wait_for_primary(capture).await?;
+    env.wait_for_primary(capture, epoch_timeout).await?;
 
     // Inject a document to trigger lazy journal creation for the new epoch
     tracing::info!("Injecting document to create new journal");
