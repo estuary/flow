@@ -65,7 +65,7 @@ impl DekafTestEnv {
 
         tracing::info!(%namespace, "Setting up test environment");
 
-        let catalog = rewrite_catalog_names(&namespace, fixture_yaml)?;
+        let catalog = rewrite_fixture(&namespace, fixture_yaml)?;
 
         let temp_file = tempfile::Builder::new().suffix(".json").tempfile()?;
         std::fs::write(temp_file.path(), serde_json::to_string_pretty(&catalog)?)?;
@@ -93,7 +93,8 @@ impl DekafTestEnv {
 
         // Wait for capture shard to be ready (Dekaf materializations don't have shards)
         if let Some(capture) = env.capture_name() {
-            env.wait_for_primary(capture).await?;
+            env.wait_for_primary(capture, Duration::from_secs(60))
+                .await?;
         }
 
         Ok(env)
@@ -120,9 +121,13 @@ impl DekafTestEnv {
 
     /// Wait for a task's shard to become primary.
     /// Only needed for captures/derivations, not materializations.
-    pub async fn wait_for_primary(&self, task_name: &str) -> anyhow::Result<()> {
+    pub async fn wait_for_primary(
+        &self,
+        task_name: &str,
+        duration: Duration,
+    ) -> anyhow::Result<()> {
         tracing::info!(%task_name, "Waiting for shard to become primary");
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + duration;
 
         loop {
             let output = async_process::output(flowctl_command()?.args([
@@ -275,7 +280,7 @@ impl DekafTestEnv {
             .context("dekaf config missing token field")
     }
 
-    /// Create a high-level consumer connected to Dekaf.
+    /// Create a Rust Kafka consumer connected to Dekaf on the default dataplane.
     ///
     /// Uses the token from the fixture's materialization config.
     pub async fn kafka_consumer(&self) -> anyhow::Result<super::kafka::KafkaConsumer> {
@@ -684,7 +689,7 @@ pub async fn wait_for_dekaf_redirect(
 }
 
 /// Rewrite fixture names to include test namespace.
-fn rewrite_catalog_names(namespace: &str, yaml: &str) -> anyhow::Result<models::Catalog> {
+fn rewrite_fixture(namespace: &str, yaml: &str) -> anyhow::Result<models::Catalog> {
     let yaml_value: serde_yaml::Value = serde_yaml::from_str(yaml)?;
     let original: models::Catalog = serde_json::from_value(serde_json::to_value(&yaml_value)?)?;
 

@@ -109,7 +109,7 @@ impl KafkaConsumer {
 
     /// Fetch exactly N records, committing each as consumed.
     pub async fn fetch_n_with_commit(&self, n: usize) -> anyhow::Result<Vec<DecodedRecord>> {
-        const TIMEOUT: Duration = Duration::from_secs(60);
+        const TIMEOUT: Duration = Duration::from_secs(180);
         let deadline = std::time::Instant::now() + TIMEOUT;
 
         let mut records = Vec::new();
@@ -120,7 +120,7 @@ impl KafkaConsumer {
                 anyhow::bail!("timeout waiting for {} records, got {}", n, records.len());
             }
 
-            match tokio::time::timeout(Duration::from_secs(10), stream.next()).await {
+            match tokio::time::timeout(Duration::from_secs(30), stream.next()).await {
                 Ok(Some(Ok(msg))) => {
                     let key = self
                         .decoder

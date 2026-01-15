@@ -11,6 +11,6 @@ mod migration;
 mod not_ready;
 
 pub use harness::{
-    connection_info_for_dataplane, db_pool, init_tracing, trigger_migration,
-    wait_for_dekaf_redirect, wait_for_migration_complete, ConnectionInfo, DekafTestEnv,
+    ConnectionInfo, DekafTestEnv, connection_info_for_dataplane, db_pool, init_tracing,
+    trigger_migration, wait_for_dekaf_redirect, wait_for_migration_complete,
 };

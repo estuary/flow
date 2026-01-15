@@ -6,11 +6,13 @@ set -euo pipefail
 #USAGE flag "--filter <filter>" help="Test filter pattern for nextest"
 #USAGE flag "--update-snapshots" help="Update insta snapshots"
 #USAGE flag "--concurrency <concurrency>" help="How many tests to run at once"
+#USAGE flag "--debug" help="Enable debug logging and show all test output"
 
 
 FILTER="${usage_filter:-}"
 UPDATE_SNAPSHOTS="${usage_update_snapshots:-false}"
 CONCURRENCY="${usage_concurrency:-"num-cpus"}"
+DEBUG="${usage_debug:-false}"
 
 FLOW_LOCAL="${HOME}/flow-local"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
@@ -18,6 +20,7 @@ CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
 DEKAF1_KAFKA_PORT=8050  # 8000 + 50
 DEKAF2_KAFKA_PORT=8250  # 8200 + 50
 
+SYSTEM_USER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
 
 # Wait for agent to be ready by checking if it's listening
 echo "Waiting for agent..."
@@ -69,10 +72,13 @@ echo "Running Dekaf E2E tests..."
 export DEKAF_BROKER="localhost:${DEKAF1_KAFKA_PORT}"
 export DEKAF_REGISTRY="http://localhost:$((DEKAF1_KAFKA_PORT + 1))"
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
+export FLOW_ACCESS_TOKEN="${SYSTEM_USER_TOKEN}"
 
-# A token for the local-stack system user signed against the local-stack
-# supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
-export FLOW_ACCESS_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
+if [ "${DEBUG}" = "true" ]; then
+    export RUST_LOG="debug"
+else
+    export RUST_LOG="info"
+fi
 
 TEST_EXIT_CODE=0
 INSTA_ENV=""
@@ -80,14 +86,22 @@ if [ "${UPDATE_SNAPSHOTS}" = "true" ]; then
     INSTA_ENV="INSTA_UPDATE=always"
 fi
 
+if [ "${DEBUG}" = "true" ]; then
+    OUTPUT_FLAGS="--no-capture"
+else
+    OUTPUT_FLAGS="--failure-output=immediate --success-output=final"
+fi
+
 if [ -n "${FILTER}" ]; then
+    # Use --ignore-default-filter since user is explicitly choosing what to run
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
     env ${INSTA_ENV} \
-    cargo nextest run --profile dekaf-e2e -p dekaf --no-capture --failure-output=immediate --success-output=immediate -E "test(${FILTER})" || TEST_EXIT_CODE=$?
+    cargo nextest run --profile dekaf-e2e -p dekaf ${OUTPUT_FLAGS} \
+        --ignore-default-filter -E "binary_id(/dekaf::e2e/) and test(${FILTER})" || TEST_EXIT_CODE=$?
 else
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
     env ${INSTA_ENV} \
-    cargo nextest run --profile dekaf-e2e -p dekaf -j "${CONCURRENCY}" --no-fail-fast --retries=1 || TEST_EXIT_CODE=$?
+    cargo nextest run --profile dekaf-e2e -p dekaf ${OUTPUT_FLAGS} -j "${CONCURRENCY}" --no-fail-fast --retries=1 || TEST_EXIT_CODE=$?
 fi
 
 # On failure, output service logs for debugging
