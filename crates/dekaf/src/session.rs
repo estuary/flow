@@ -287,9 +287,24 @@ impl Session {
             .await?;
         tracing::debug!(collections=?ops::DebugJson(&collection_names), "fetched all collections");
 
-        let collection_statuses = self
-            .fetch_collections_for_metadata(collection_names)
-            .await?;
+        let names_for_redirect = collection_names.clone();
+        let collection_statuses = match self.fetch_collections_for_metadata(collection_names).await
+        {
+            Ok(statuses) => statuses,
+            Err(e) if Self::is_redirect_error(&e) => {
+                return names_for_redirect
+                    .into_iter()
+                    .map(|name| {
+                        let encoded_name = self.encode_topic_name(name)?;
+                        Ok(MetadataResponseTopic::default()
+                            .with_name(Some(encoded_name))
+                            .with_is_internal(false)
+                            .with_partitions(vec![Self::build_partition(0, 0)]))
+                    })
+                    .collect();
+            }
+            Err(e) => return Err(e),
+        };
 
         collection_statuses
             .into_iter()
