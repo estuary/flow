@@ -42,7 +42,7 @@ pub fn new_signed_source(
     shard_id_or_template: String,
     capability: u32,
     data_plane_fqdn: String,
-    data_plane_signing_key: jsonwebtoken::EncodingKey,
+    data_plane_signing_key: tokens::jwt::EncodingKey,
 ) -> tokens::jwt::SignedSource<proto_gazette::Claims> {
     let sel = broker::LabelSelector {
         include: Some(broker::LabelSet {

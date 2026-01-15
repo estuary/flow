@@ -37,9 +37,9 @@ where
             inner: gazette::Error::Grpc(status),
         }) => std::future::ready(Some(Err(status))),
 
-        // Wrap other errors as internal gRPC errors.
+        // Wrap other errors as unknown gRPC errors.
         Err(gazette::RetryError { attempt: _, inner }) => std::future::ready(Some(Err(
-            tonic::Status::internal(format!("{:?}", anyhow::anyhow!(inner))),
+            tonic::Status::unknown(format!("{:?}", anyhow::anyhow!(inner))),
         ))),
     })
 }

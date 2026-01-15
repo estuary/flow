@@ -123,7 +123,7 @@ where
         if !status.success() {
             tracing::error!(%status, "connector failed");
 
-            let mut status = Status::internal(&last_log.message);
+            let mut status = Status::unknown(&last_log.message);
             status.metadata_mut().insert_bin(
                 "last-log-bin",
                 tonic::metadata::MetadataValue::from_bytes(&last_log.encode_to_vec()),
@@ -403,11 +403,11 @@ mod test {
             .await;
 
             insta::allow_duplicates! {
-            insta::assert_debug_snapshot!(responses, @r###"
+            insta::assert_debug_snapshot!(responses, @r#"
             [
                 Err(
                     Status {
-                        code: Internal,
+                        code: Unknown,
                         message: "cat: /this/path/does/not/exist: No such file or directory",
                         metadata: MetadataMap {
                             headers: {
@@ -418,7 +418,7 @@ mod test {
                     },
                 ),
             ]
-            "###);
+            "#);
             }
         }
     }
@@ -453,7 +453,7 @@ mod test {
         .collect()
         .await;
 
-        insta::assert_debug_snapshot!(responses, @r###"
+        insta::assert_debug_snapshot!(responses, @r#"
         [
             Err(
                 Status {
@@ -464,7 +464,7 @@ mod test {
             ),
             Err(
                 Status {
-                    code: Internal,
+                    code: Unknown,
                     message: "cat: /this/path/does/not/exist: No such file or directory",
                     metadata: MetadataMap {
                         headers: {
@@ -475,7 +475,7 @@ mod test {
                 },
             ),
         ]
-        "###);
+        "#);
     }
 
     #[tokio::test]

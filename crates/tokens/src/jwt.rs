@@ -75,6 +75,8 @@ where
 {
     // Note that the default Validation checks `exp` claim.
     let mut validation = jsonwebtoken::Validation::default();
+    // Don't validate audience - we handle audience checking at the application level.
+    validation.validate_aud = false;
     let mut last_error = None;
 
     // Try each verification key.
