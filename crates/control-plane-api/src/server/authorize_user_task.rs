@@ -1,145 +1,104 @@
-use super::{App, Snapshot};
-use crate::server::error::ApiErrorExt;
-use anyhow::Context;
-use axum::http::StatusCode;
-use std::sync::Arc;
-
 type Request = models::authorizations::UserTaskAuthorizationRequest;
 type Response = models::authorizations::UserTaskAuthorization;
 
-#[axum::debug_handler]
-#[tracing::instrument(
-    skip(app),
-    err(level = tracing::Level::WARN),
-)]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
+#[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_user_task(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(super::ControlClaims {
-        sub: user_id,
-        email,
-        ..
-    }): axum::Extension<super::ControlClaims>,
+    mut env: crate::Envelope,
     super::Request(Request {
         task,
         capability,
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    do_authorize_user_task(
-        &app.snapshot,
-        user_id,
-        email,
-        task,
-        capability,
-        started_unix,
-    )
-    .await
-}
+    // Legacy: if `started_unix` is set, then use as the logical request start
+    // rounded up to the next second (as it was round down when encoded).
+    if started_unix != 0 {
+        env.started =
+            tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
+    }
 
-pub async fn do_authorize_user_task(
-    snapshot: &std::sync::RwLock<Snapshot>,
-    user_id: uuid::Uuid,
-    email: Option<String>,
-    task: models::Name,
-    capability: models::Capability,
-    started_unix: u64,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let (has_started, started) = if started_unix == 0 {
-        (false, chrono::Utc::now())
-    } else {
+    let policy_result = evaluate_authorization(env.snapshot(), env.claims()?, &task, capability);
+
+    // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
+    let (
+        expiry,
         (
-            true,
-            chrono::DateTime::from_timestamp(started_unix as i64, 0).unwrap_or_default(),
-        )
+            encoding_key,
+            mut broker_claims,
+            broker_address,
+            ops_logs_journal,
+            ops_stats_journal,
+            mut reactor_claims,
+            reactor_address,
+            shard_id_prefix,
+        ),
+    ) = match env.authorization_outcome(policy_result).await {
+        Ok(ok) => ok,
+        Err(crate::ApiError::AuthZRetry(retry)) if started_unix != 0 => {
+            return Ok(axum::Json(Response {
+                retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                ..Default::default()
+            }));
+        }
+        Err(err) => return Err(err),
     };
 
-    loop {
-        match Snapshot::evaluate(snapshot, started, |snapshot: &Snapshot| {
-            evaluate_authorization(snapshot, user_id, email.as_ref(), &task, capability)
-        }) {
-            Ok((
-                exp,
-                (
-                    encoding_key,
-                    mut broker_claims,
-                    broker_address,
-                    ops_logs_journal,
-                    ops_stats_journal,
-                    mut reactor_claims,
-                    reactor_address,
-                    shard_id_prefix,
-                ),
-            )) => {
-                broker_claims.inner.exp = exp.timestamp() as u64;
-                broker_claims.inner.iat = started.timestamp() as u64;
-                reactor_claims.inner.exp = exp.timestamp() as u64;
-                reactor_claims.inner.iat = started.timestamp() as u64;
+    broker_claims.exp = expiry.timestamp() as u64;
+    broker_claims.iat = env.started.timestamp() as u64;
+    reactor_claims.exp = expiry.timestamp() as u64;
+    reactor_claims.iat = env.started.timestamp() as u64;
 
-                let header = jsonwebtoken::Header::default();
-                let broker_token = jsonwebtoken::encode(&header, &broker_claims, &encoding_key)
-                    .context("failed to encode authorized JWT")?;
-                let reactor_token = jsonwebtoken::encode(&header, &reactor_claims, &encoding_key)
-                    .context("failed to encode authorized JWT")?;
+    let broker_token = tokens::jwt::sign(&broker_claims, &encoding_key)?;
+    let reactor_token = tokens::jwt::sign(&reactor_claims, &encoding_key)?;
 
-                return Ok(axum::Json(Response {
-                    broker_token,
-                    broker_address,
-                    reactor_token,
-                    ops_logs_journal,
-                    ops_stats_journal,
-                    reactor_address,
-                    shard_id_prefix,
-                    retry_millis: 0,
-                }));
-            }
-            Err(Ok(backoff)) if has_started => {
-                return Ok(axum::Json(Response {
-                    retry_millis: backoff.as_millis() as u64,
-                    ..Default::default()
-                }));
-            }
-            Err(Ok(backoff)) => {
-                () = tokio::time::sleep(backoff).await;
-            }
-            Err(Err(err)) => return Err(err),
-        }
-    }
+    Ok(axum::Json(Response {
+        broker_token,
+        broker_address,
+        reactor_token,
+        ops_logs_journal,
+        ops_stats_journal,
+        reactor_address,
+        shard_id_prefix,
+        retry_millis: 0,
+    }))
 }
 
 fn evaluate_authorization(
-    snapshot: &Snapshot,
-    user_id: uuid::Uuid,
-    user_email: Option<&String>,
+    snapshot: &crate::Snapshot,
+    claims: &crate::ControlClaims,
     task_name: &models::Name,
     capability: models::Capability,
-) -> Result<
+) -> tonic::Result<(
+    Option<chrono::DateTime<chrono::Utc>>,
     (
-        Option<chrono::DateTime<chrono::Utc>>,
-        (
-            jsonwebtoken::EncodingKey,
-            super::DataClaims, // Broker claims.
-            String,            // Broker address.
-            String,            // ops logs journal
-            String,            // opts stats journal
-            super::DataClaims, // Reactor claims.
-            String,            // Reactor address.
-            String,            // Shard ID prefix.
-        ),
+        tokens::jwt::EncodingKey,
+        proto_gazette::Claims, // Broker claims.
+        String,                // Broker address.
+        String,                // ops logs journal
+        String,                // opts stats journal
+        proto_gazette::Claims, // Reactor claims.
+        String,                // Reactor address.
+        String,                // Shard ID prefix.
     ),
-    crate::server::error::ApiError,
-> {
+)> {
+    let models::authorizations::ControlClaims {
+        sub: user_id,
+        email: user_email,
+        ..
+    } = claims;
+    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        user_id,
+        *user_id,
         task_name,
         capability,
     ) {
-        return Err(anyhow::anyhow!(
-            "{} is not authorized to {task_name} for {capability:?}",
-            user_email.map(String::as_str).unwrap_or("user")
-        )
-        .with_status(StatusCode::FORBIDDEN));
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {task_name} for {capability:?}",
+        )));
     }
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
@@ -147,92 +106,80 @@ fn evaluate_authorization(
         let has_support_access = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            user_id,
+            *user_id,
             "estuary_support/",
             models::Capability::Admin,
         );
 
         if !has_support_access {
-            return Err(anyhow::anyhow!(
-                "{} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
-                user_email.map(String::as_str).unwrap_or("user")
-            )
-            .with_status(StatusCode::FORBIDDEN));
+            return Err(tonic::Status::permission_denied(format!(
+                "{user_email} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
+            )));
         }
     }
 
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
-        return Err(
-            anyhow::anyhow!("task {task_name} is not known").with_status(StatusCode::NOT_FOUND)
-        );
+        return Err(tonic::Status::not_found(format!(
+            "task {task_name} is not known"
+        )));
     };
     let Some(data_plane) = snapshot.data_planes.get_by_key(&task.data_plane_id) else {
-        return Err(
-            anyhow::anyhow!("task data-plane {} not found", task.data_plane_id)
-                .with_status(StatusCode::INTERNAL_SERVER_ERROR),
-        );
+        return Err(tonic::Status::internal(format!(
+            "task data-plane {} not found",
+            task.data_plane_id
+        )));
     };
     let Some(encoding_key) = data_plane.hmac_keys.first() else {
-        return Err(anyhow::anyhow!(
+        return Err(tonic::Status::internal(format!(
             "task data-plane {} has no configured HMAC keys",
             data_plane.data_plane_name
-        )
-        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+        )));
     };
-    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
-        .context("invalid data-plane hmac key")?;
+    let encoding_key =
+        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
 
     let (Some(ops_logs), Some(ops_stats)) = (
         snapshot.collection_by_catalog_name(&data_plane.ops_logs_name),
         snapshot.collection_by_catalog_name(&data_plane.ops_stats_name),
     ) else {
-        return Err(anyhow::anyhow!(
+        return Err(tonic::Status::internal(format!(
             "couldn't resolve data-plane {} ops collections",
             task.data_plane_id
-        )
-        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+        )));
     };
 
     let ops_suffix = super::ops_suffix(task);
     let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
     let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
 
-    let broker_claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([
-                    ("name", ops_logs_journal.as_str()),
-                    ("name", ops_stats_journal.as_str()),
-                ])),
-                exclude: None,
-            },
+    let broker_claims = proto_gazette::Claims {
+        cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([
+                ("name", ops_logs_journal.as_str()),
+                ("name", ops_stats_journal.as_str()),
+            ])),
+            exclude: None,
         },
-        // TODO(johnny): Temporary support for data-plane-gateway.
-        prefixes: vec![ops_logs_journal.clone(), ops_stats_journal.clone()],
     };
 
-    let reactor_claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: super::map_capability_to_gazette(capability)
-                | proto_flow::capability::NETWORK_PROXY,
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([(
-                    "id:prefix",
-                    task.shard_template_id.as_str(),
-                )])),
-                exclude: None,
-            },
+    let reactor_claims = proto_gazette::Claims {
+        cap: super::map_capability_to_gazette(capability) | proto_flow::capability::NETWORK_PROXY,
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([(
+                "id:prefix",
+                task.shard_template_id.as_str(),
+            )])),
+            exclude: None,
         },
-        prefixes: vec![task.task_name.to_string(), task.shard_template_id.clone()],
     };
 
     Ok((
@@ -240,11 +187,11 @@ fn evaluate_authorization(
         (
             encoding_key,
             broker_claims,
-            super::maybe_rewrite_address(true, &data_plane.broker_address),
+            data_plane.broker_address.clone(),
             ops_logs_journal,
             ops_stats_journal,
             reactor_claims,
-            super::maybe_rewrite_address(true, &data_plane.reactor_address),
+            data_plane.reactor_address.clone(),
             task.shard_template_id.clone(),
         ),
     ))
@@ -254,15 +201,14 @@ fn evaluate_authorization(
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_success() {
+    #[test]
+    fn test_success() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -316,15 +262,14 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_authorized() {
+    #[test]
+    fn test_not_authorized() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("acmeCo/other/thing"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -336,15 +281,14 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_capability_too_high() {
+    #[test]
+    fn test_capability_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
             models::Capability::Admin,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -356,15 +300,14 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_found() {
+    #[test]
+    fn test_not_found() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/not/found"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -376,28 +319,69 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_cordon() {
+    #[test]
+    fn test_cordon() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/materialize-mango"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Err": {
-            "status": 500,
-            "error": "retry"
-          }
+          "Ok_Cordoned": [
+            "broker.2",
+            {
+              "cap": 10,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00"
+                    },
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00"
+                    }
+                  ]
+                }
+              },
+              "sub": "20202020-2020-2020-2020-202020202020"
+            },
+            "reactor.2",
+            {
+              "cap": 262154,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "id",
+                      "value": "materialization/bobCo/widgets/materialize-mango/0011223344556677/",
+                      "prefix": true
+                    }
+                  ]
+                }
+              },
+              "sub": "20202020-2020-2020-2020-202020202020"
+            },
+            "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
+            "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
+            "materialization/bobCo/widgets/materialize-mango/0011223344556677/"
+          ]
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_bob_cannot_get_admin_even_with_admin_grant() {
+    #[test]
+    fn test_bob_cannot_get_admin_even_with_admin_grant() {
         // bob@bob has admin capability on bobCo/tires/ but lacks estuary_support/
         // We need to add a task under bobCo/tires/ to the fixture for this test
         let outcome = run(
@@ -405,8 +389,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/tires/materialize-wheels"),
             models::Capability::Admin,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -418,16 +401,15 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_admin_with_estuary_support_grant() {
+    #[test]
+    fn test_admin_with_estuary_support_grant() {
         // alice@alice has estuary_support/ grant in the fixture, so admin should succeed
         let outcome = run(
             uuid::Uuid::from_bytes([64; 16]),
             Some("alice@alice".to_string()),
             models::Name::new("aliceCo/wonderland/materialize-tea"),
             models::Capability::Admin,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -481,80 +463,83 @@ mod tests {
         "###);
     }
 
-    async fn run(
+    type SuccessOutput = (
+        String,                // broker_address
+        proto_gazette::Claims, // broker_claims
+        String,                // reactor_address
+        proto_gazette::Claims, // reactor_claims
+        String,                // ops_logs_journal
+        String,                // ops_stats_journal
+        String,                // shard_id_prefix
+    );
+
+    #[derive(serde::Serialize)]
+    enum Outcome {
+        Ok(SuccessOutput),
+        #[serde(rename = "Ok_Cordoned")]
+        OkCordoned(SuccessOutput),
+        Err {
+            status: u16,
+            error: String,
+        },
+    }
+
+    fn run(
         user_id: uuid::Uuid,
         email: Option<String>,
         task: models::Name,
         capability: models::Capability,
-    ) -> Result<
-        (
-            String,
-            proto_gazette::Claims,
-            String,
-            proto_gazette::Claims,
-            String,
-            String,
-            String,
-        ),
-        crate::server::error::ApiError,
-    > {
-        let taken = chrono::Utc::now();
-        let snapshot = Snapshot::build_fixture(Some(taken));
-        let snapshot = std::sync::RwLock::new(snapshot);
-
-        let Response {
-            broker_address,
-            broker_token,
-            reactor_address,
-            reactor_token,
-            ops_logs_journal,
-            ops_stats_journal,
-            shard_id_prefix,
-            retry_millis,
-        } = do_authorize_user_task(
-            &snapshot,
-            user_id,
+    ) -> Outcome {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let claims = models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: user_id,
+            role: "authenticated".to_string(),
             email,
-            task,
-            capability,
-            taken.timestamp() as u64 - 1,
-        )
-        .await?
-        .0;
+        };
 
-        if retry_millis != 0 {
-            return Err(anyhow::anyhow!("retry").into());
+        match evaluate_authorization(&snapshot, &claims, &task, capability) {
+            Ok((
+                cordon_at,
+                (
+                    _key,
+                    mut broker_claims,
+                    broker_address,
+                    ops_logs_journal,
+                    ops_stats_journal,
+                    mut reactor_claims,
+                    reactor_address,
+                    shard_id_prefix,
+                ),
+            )) => {
+                // Zero out timestamps for stable snapshots.
+                broker_claims.iat = 0;
+                broker_claims.exp = 0;
+                reactor_claims.iat = 0;
+                reactor_claims.exp = 0;
+
+                let output = (
+                    broker_address,
+                    broker_claims,
+                    reactor_address,
+                    reactor_claims,
+                    ops_logs_journal,
+                    ops_stats_journal,
+                    shard_id_prefix,
+                );
+
+                if cordon_at.is_some() {
+                    Outcome::OkCordoned(output)
+                } else {
+                    Outcome::Ok(output)
+                }
+            }
+            Err(status) => Outcome::Err {
+                status: tokens::rest::grpc_status_code_to_http(status.code()),
+                error: status.message().to_string(),
+            },
         }
-
-        let mut broker_claims = jsonwebtoken::decode::<super::super::DataClaims>(
-            &broker_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
-
-        let mut reactor_claims = jsonwebtoken::decode::<super::super::DataClaims>(
-            &reactor_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
-
-        (broker_claims.iat, broker_claims.exp) = (0, 0);
-        (reactor_claims.iat, reactor_claims.exp) = (0, 0);
-
-        Ok((
-            broker_address,
-            broker_claims,
-            reactor_address,
-            reactor_claims,
-            ops_logs_journal,
-            ops_stats_journal,
-            shard_id_prefix,
-        ))
     }
 }

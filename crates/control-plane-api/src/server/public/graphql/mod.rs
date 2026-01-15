@@ -1,6 +1,9 @@
 //! GraphQL API
 //!
 //! The `QueryRoot`
+use async_graphql::{EmptySubscription, Schema};
+use axum::response::IntoResponse;
+
 mod alerts;
 pub mod id;
 mod live_spec_refs;
@@ -9,12 +12,6 @@ mod prefixes;
 mod publication_history;
 pub mod status;
 mod storage_mappings;
-
-use async_graphql::{EmptySubscription, Schema};
-use axum::Extension;
-use std::sync::Arc;
-
-use crate::server::{App, ControlClaims};
 
 // This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
@@ -53,21 +50,35 @@ pub fn schema_sdl() -> String {
     schema.sdl()
 }
 
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn graphql_handler(
-    schema: Extension<GraphQLSchema>,
-    claims: Extension<ControlClaims>,
-    app_state: axum::extract::State<Arc<App>>,
-    req: axum::extract::Json<async_graphql::Request>,
-) -> axum::Json<async_graphql::Response> {
-    let request = req.0.data(app_state.0.clone()).data(claims.0).data(
-        async_graphql::dataloader::DataLoader::new(
-            PgDataLoader(app_state.pg_pool.clone()),
+    axum::Extension(schema): axum::Extension<GraphQLSchema>,
+    env: crate::Envelope,
+    axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
+) -> axum::response::Response {
+    let pg_pool = env.pg_pool.clone();
+
+    let request = req
+        .data(env)
+        .data(async_graphql::dataloader::DataLoader::new(
+            PgDataLoader(pg_pool),
             tokio::spawn,
-        ),
-    );
+        ));
 
     let response = schema.execute(request).await;
-    axum::Json(response)
+
+    // Check for AuthZRetry errors - return 307 redirect for the first one found.
+    for error in &response.errors {
+        if let Some(source) = &error.source {
+            if let Some(crate::ApiError::AuthZRetry(retry)) =
+                source.downcast_ref::<crate::ApiError>()
+            {
+                return retry.to_response();
+            }
+        }
+    }
+
+    axum::Json(response).into_response()
 }
 
 /// Returns an HTML page for the GraphiQL interface, which allows users to

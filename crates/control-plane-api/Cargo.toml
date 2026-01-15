@@ -75,7 +75,9 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 assemble = { path = "../assemble" }
+flow-client-next = { path = "../flow-client-next" }
+
 insta = { workspace = true }
 md5 = { workspace = true }
-tokio = { workspace = true }
-uuid = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }

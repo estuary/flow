@@ -1,40 +1,36 @@
-use crate::server::{App, ControlClaims, error::ApiError, error::ApiErrorExt};
-use axum::http::StatusCode;
 use chrono::{Datelike, TimeZone};
 use futures::StreamExt;
 use ops::stats::DocsAndBytes;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use std::sync::Arc;
 
-#[axum::debug_handler]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub async fn handle_get_metrics(
-    state: axum::extract::State<Arc<App>>,
-    axum::Extension(claims): axum::Extension<ControlClaims>,
+    env: crate::Envelope,
     axum::extract::Path(prefix): axum::extract::Path<String>,
-) -> Result<axum::response::Response, ApiError> {
+) -> Result<axum::response::Response, crate::ApiError> {
     if !prefix.ends_with('/') {
-        return Err(
-            anyhow::anyhow!("prefix {prefix:?} must end with a trailing '/' slash")
-                .with_status(StatusCode::BAD_REQUEST),
-        );
+        return Err(tonic::Status::invalid_argument(format!(
+            "prefix {prefix:?} must end with a trailing '/' slash"
+        ))
+        .into());
     }
-    // Passing `None` for `req_started_at` here, so we'll block until the next
-    // snapshot refresh if the user is unauthorized to the prefix.
-    let prefixes = state
-        .0
-        .verify_user_authorization(&claims, None, vec![prefix], models::Capability::Read)
-        .await?;
 
-    let pg_pool = state.pg_pool.clone();
-    let now = chrono::Utc::now();
+    let policy_result = crate::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        models::Capability::Read,
+        [&prefix],
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
-    // Map `now` to midnight at the open of the current month.
-    let now_month = chrono::Utc
-        .with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
+    // Map `started` to midnight at the open of the current month.
+    let started = env.started;
+    let started_month = chrono::Utc
+        .with_ymd_and_hms(started.year(), started.month(), 1, 0, 0, 0)
         .unwrap();
 
-    let scrape_at = now.timestamp_micros() as f64 / 1_000_000f64;
+    let scrape_at = started.timestamp_micros() as f64 / 1_000_000f64;
 
     // Stream all `catalog_stats` rows from the DB, encoding into metrics.
     // Some OpenMetrics clients (Python, grr) expect that metric metadata
@@ -55,15 +51,15 @@ pub async fn handle_get_metrics(
         AND    grain = 'monthly'
         AND    ts = $2
         "#,
-        &prefixes[0],
-        now_month,
+        &prefix,
+        started_month,
     )
-    .fetch(&pg_pool);
+    .fetch(&env.pg_pool);
 
     loop {
         match stats.next().await {
             Some(Ok(stat)) => encode_metrics(&mut buf, scrape_at, stat.stats.0),
-            Some(Err(err)) => return Err(err.with_status(StatusCode::INTERNAL_SERVER_ERROR)),
+            Some(Err(err)) => return Err(err.into()),
             None => break,
         }
     }

@@ -1,3 +1,7 @@
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use sqlx::types::Uuid;
+
 pub mod alerts;
 pub mod connector_tags;
 pub mod controllers;
@@ -5,31 +9,52 @@ pub mod data_plane;
 pub mod directives;
 pub mod discovers;
 pub mod draft;
+mod envelope;
 pub mod evolutions;
+mod interval;
 pub mod jobs;
 pub mod live_specs;
 pub mod logs;
 pub mod proxy_connectors;
 pub mod publications;
 pub mod server;
-
-// Re-export from the old agent-sql crate
 mod text_json;
+
+/// TextJson encodes JSON for Postgres while preserving property ordering.
 pub use text_json::TextJson;
 
-pub use models::{Capability, CatalogType, Id};
-pub use tables::RoleGrant;
+/// TODO(johnny): Could we use sqlx's native PgInterval type?
+pub use interval::Interval;
 
-// Re-export the router builder function for the agent to use
-pub use server::build_router;
+/// ControlClaims are claims encoded within control-plane access tokens.
+type ControlClaims = models::authorizations::ControlClaims;
+
+/// DataClaims are claims encoded within data-plane access tokens.
+pub type DataClaims = proto_gazette::Claims;
+
+/// AuthZResult is the result of an authorization policy evaluation,
+/// designed to be used with Envelope::authorization_outcome.
+///
+/// Its Ok variant contains an optional `cordon_at` DateTime which denotes when
+/// the authorization will become invalid due to cordoning, which (when present)
+/// upper-bounds the expiry of a derived authorization.
+pub type AuthZResult<Ok> = tonic::Result<(Option<tokens::DateTime>, Ok)>;
+
+/// Envelope is common fields and parameters of every API request.
+pub use envelope::{Envelope, MaybeControlClaims};
+
+// TODO(johnny): These types are all fundamental to this crate, and should be
+// hoisted from the `server` module. For now, just re-export to minimize churn.
+pub(crate) use server::evaluate_names_authorization;
+pub use server::{
+    ApiError, App, AuthZRetry, build_router,
+    snapshot::{self, Snapshot},
+};
 
 // Re-export the GraphQL schema SDL function for flow-client build script
 pub use server::public::graphql::schema_sdl as graphql_schema_sdl;
 
-use anyhow::Context;
-use serde::{Deserialize, Serialize};
-use sqlx::types::Uuid;
-
+// TODO(johnny): Move to publications module?
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "flow_type")]
 #[sqlx(rename_all = "snake_case")]
@@ -41,8 +66,9 @@ pub enum FlowType {
     SourceCapture,
 }
 
-impl From<CatalogType> for FlowType {
-    fn from(c: CatalogType) -> Self {
+impl From<models::CatalogType> for FlowType {
+    fn from(c: models::CatalogType) -> Self {
+        use models::CatalogType;
         match c {
             CatalogType::Capture => FlowType::Capture,
             CatalogType::Collection => FlowType::Collection,
@@ -66,59 +92,6 @@ pub async fn get_user_id_for_email(email: &str, db: &sqlx::PgPool) -> sqlx::Resu
     .await
 }
 
-/// Wraps a `chrono::Duration` to allow it to be used as a Postgres `interval`
-/// type. This is necessary because `chrono::Duration` does not implement
-/// `Decode`. Note that converting a `chrono::Duration` to an `interval` may
-/// fail if the duration cannot be faithfully represented as an interval. This
-/// would be the case if it uses nanosecond precision, for example. Thus if we
-/// ever need to support inserting an `Interval`, we should add explicit
-/// conversion functions from `chrono::Duration`.
-pub struct Interval(chrono::Duration);
-
-impl sqlx::Type<sqlx::postgres::Postgres> for Interval {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <chrono::Duration as sqlx::Type<sqlx::postgres::Postgres>>::type_info()
-    }
-    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
-        <chrono::Duration as sqlx::Type<sqlx::postgres::Postgres>>::compatible(ty)
-    }
-}
-
-impl<'q> sqlx::Encode<'q, sqlx::postgres::Postgres> for Interval {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        self.0.encode_by_ref(buf)
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::postgres::Postgres> for Interval {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let pg_int = <sqlx::postgres::types::PgInterval as sqlx::Decode<
-            'r,
-            sqlx::postgres::Postgres,
-        >>::decode(value)?;
-
-        let d = chrono::Duration::microseconds(pg_int.microseconds);
-        Ok(Interval(d))
-    }
-}
-
-impl std::ops::Deref for Interval {
-    type Target = chrono::Duration;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Into<chrono::Duration> for Interval {
-    fn into(self) -> chrono::Duration {
-        self.0
-    }
-}
-
 // timeout is a convenience for tokio::time::timeout which merges
 // its error with the Future's nested anyhow::Result Output.
 pub async fn timeout<Ok, Fut, C, WC>(
@@ -139,12 +112,10 @@ where
     }
 }
 
-pub async fn decrypt_hmac_keys(dp: &mut tables::DataPlane) -> anyhow::Result<()> {
+pub async fn decrypt_hmac_keys(
+    encrypted_hmac_keys: &models::RawValue,
+) -> anyhow::Result<Vec<String>> {
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
-
-    if !dp.hmac_keys.is_empty() {
-        return Ok(());
-    }
 
     #[derive(serde::Deserialize)]
     struct HMACKeys {
@@ -166,7 +137,7 @@ pub async fn decrypt_hmac_keys(dp: &mut tables::DataPlane) -> anyhow::Result<()>
             "json",
             "/dev/stdin",
         ]),
-        dp.encrypted_hmac_keys.get().as_bytes(),
+        encrypted_hmac_keys.get().as_bytes(),
     )
     .await
     .context("failed to run sops")?;
@@ -180,9 +151,20 @@ pub async fn decrypt_hmac_keys(dp: &mut tables::DataPlane) -> anyhow::Result<()>
         );
     }
 
-    dp.hmac_keys = serde_json::from_slice::<HMACKeys>(&stdout)
+    Ok(serde_json::from_slice::<HMACKeys>(&stdout)
         .context("parsing decrypted sops document")?
-        .hmac_keys;
+        .hmac_keys)
+}
 
-    Ok(())
+fn status_into_response(mut status: tonic::Status) -> axum::response::Response {
+    let http_code = tokens::rest::grpc_status_code_to_http(status.code());
+    let http_code = axum::http::StatusCode::from_u16(http_code).unwrap();
+    let mut builder = axum::response::Response::builder().status(http_code);
+
+    // Map Status Metadata into HTTP headers.
+    let mut headers = std::mem::take(status.metadata_mut()).into_headers();
+    std::mem::swap(builder.headers_mut().unwrap(), &mut headers);
+
+    let body = axum::body::Body::from(status.message().to_string());
+    builder.body(body).unwrap()
 }

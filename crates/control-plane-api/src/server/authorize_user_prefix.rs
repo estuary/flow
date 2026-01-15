@@ -1,24 +1,10 @@
-use super::{App, Snapshot};
-use crate::server::error::ApiErrorExt;
-use anyhow::Context;
-use axum::http::StatusCode;
-use std::sync::Arc;
-
 type Request = models::authorizations::UserPrefixAuthorizationRequest;
 type Response = models::authorizations::UserPrefixAuthorization;
 
-#[axum::debug_handler]
-#[tracing::instrument(
-    skip(app),
-    err(level = tracing::Level::WARN),
-)]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
+#[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_user_prefix(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(super::ControlClaims {
-        sub: user_id,
-        email,
-        ..
-    }): axum::Extension<super::ControlClaims>,
+    mut env: crate::Envelope,
     super::Request(Request {
         prefix,
         data_plane,
@@ -26,102 +12,86 @@ pub async fn authorize_user_prefix(
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    do_authorize_user_prefix(
-        &app.snapshot,
-        user_id,
-        email,
-        prefix,
-        data_plane,
-        capability,
-        started_unix,
-    )
-    .await
-}
-
-pub async fn do_authorize_user_prefix(
-    snapshot: &std::sync::RwLock<Snapshot>,
-    user_id: uuid::Uuid,
-    email: Option<String>,
-    prefix: models::Prefix,
-    data_plane: models::Name,
-    capability: models::Capability,
-    started_unix: u64,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let started = chrono::DateTime::from_timestamp(started_unix as i64, 0).unwrap_or_default();
-
-    match Snapshot::evaluate(snapshot, started, |snapshot: &Snapshot| {
-        evaluate_authorization(
-            snapshot,
-            user_id,
-            email.as_ref(),
-            &prefix,
-            &data_plane,
-            capability,
-        )
-    }) {
-        Ok((
-            exp,
-            (encoding_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),
-        )) => {
-            broker_claims.inner.exp = exp.timestamp() as u64;
-            broker_claims.inner.iat = started.timestamp() as u64;
-            reactor_claims.inner.exp = exp.timestamp() as u64;
-            reactor_claims.inner.iat = started.timestamp() as u64;
-
-            let header = jsonwebtoken::Header::default();
-            let broker_token = jsonwebtoken::encode(&header, &broker_claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
-            let reactor_token = jsonwebtoken::encode(&header, &reactor_claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
-
-            Ok(axum::Json(Response {
-                broker_token,
-                broker_address,
-                reactor_token,
-                reactor_address,
-                retry_millis: 0,
-            }))
-        }
-        Err(Ok(backoff)) => Ok(axum::Json(Response {
-            retry_millis: backoff.as_millis() as u64,
-            ..Default::default()
-        })),
-        Err(Err(err)) => Err(err),
+    // Legacy: if `started_unix` is set, then use as the logical request start
+    // rounded up to the next second (as it was round down when encoded).
+    if started_unix != 0 {
+        env.started =
+            tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
     }
+
+    let policy_result = evaluate_authorization(
+        env.snapshot(),
+        env.claims()?,
+        &prefix,
+        &data_plane,
+        capability,
+    );
+
+    // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
+    let (
+        expiry,
+        (encoding_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),
+    ) = match env.authorization_outcome(policy_result).await {
+        Ok(ok) => ok,
+        Err(crate::ApiError::AuthZRetry(retry)) if started_unix != 0 => {
+            return Ok(axum::Json(Response {
+                retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                ..Default::default()
+            }));
+        }
+        Err(err) => return Err(err),
+    };
+
+    broker_claims.exp = expiry.timestamp() as u64;
+    broker_claims.iat = env.started.timestamp() as u64;
+    reactor_claims.exp = expiry.timestamp() as u64;
+    reactor_claims.iat = env.started.timestamp() as u64;
+
+    let broker_token = tokens::jwt::sign(&broker_claims, &encoding_key)?;
+    let reactor_token = tokens::jwt::sign(&reactor_claims, &encoding_key)?;
+
+    Ok(axum::Json(Response {
+        broker_token,
+        broker_address,
+        reactor_token,
+        reactor_address,
+        retry_millis: 0,
+    }))
 }
 
 fn evaluate_authorization(
-    snapshot: &Snapshot,
-    user_id: uuid::Uuid,
-    user_email: Option<&String>,
+    snapshot: &crate::Snapshot,
+    claims: &crate::ControlClaims,
     prefix: &models::Prefix,
     data_plane_name: &models::Name,
     capability: models::Capability,
-) -> Result<
+) -> tonic::Result<(
+    Option<chrono::DateTime<chrono::Utc>>,
     (
-        Option<chrono::DateTime<chrono::Utc>>,
-        (
-            jsonwebtoken::EncodingKey,
-            super::DataClaims, // Broker claims.
-            String,            // Broker address.
-            super::DataClaims, // Reactor claims.
-            String,            // Reactor address.
-        ),
+        tokens::jwt::EncodingKey,
+        proto_gazette::Claims, // Broker claims.
+        String,                // Broker address.
+        proto_gazette::Claims, // Reactor claims.
+        String,                // Reactor address.
     ),
-    crate::server::error::ApiError,
-> {
+)> {
+    let models::authorizations::ControlClaims {
+        sub: user_id,
+        email: user_email,
+        ..
+    } = claims;
+    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        user_id,
+        *user_id,
         prefix,
         capability,
     ) {
-        return Err(anyhow::anyhow!(
-            "{} is not authorized to {prefix} for {capability:?}",
-            user_email.map(String::as_str).unwrap_or("user")
-        )
-        .with_status(StatusCode::FORBIDDEN));
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {prefix} for {capability:?}",
+        )));
     }
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
@@ -129,85 +99,74 @@ fn evaluate_authorization(
         let has_support_access = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            user_id,
+            *user_id,
             "estuary_support/",
             models::Capability::Admin,
         );
 
         if !has_support_access {
-            return Err(anyhow::anyhow!(
-                "{} is not authorized to {prefix} for Admin capability (requires estuary_support/ grant)",
-                user_email.map(String::as_str).unwrap_or("user")
-            )
-            .with_status(StatusCode::FORBIDDEN));
+            return Err(tonic::Status::permission_denied(format!(
+                "{user_email} is not authorized to {prefix} for Admin capability (requires estuary_support/ grant)",
+            )));
         }
     }
 
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        user_id,
-        &data_plane_name,
+        *user_id,
+        data_plane_name,
         models::Capability::Read,
     ) {
-        return Err(anyhow::anyhow!(
-            "{} is not authorized to {data_plane_name}",
-            user_email.map(String::as_str).unwrap_or("user")
-        )
-        .with_status(StatusCode::FORBIDDEN));
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {data_plane_name}",
+        )));
     }
 
-    let Some(data_plane) = snapshot.data_plane_by_catalog_name(&data_plane_name) else {
-        return Err(anyhow::anyhow!("data-plane {data_plane_name} not found")
-            .with_status(StatusCode::NOT_FOUND));
+    let Some(data_plane) = snapshot.data_plane_by_catalog_name(data_plane_name) else {
+        return Err(tonic::Status::not_found(format!(
+            "data-plane {data_plane_name} not found"
+        )));
     };
     let Some(encoding_key) = data_plane.hmac_keys.first() else {
-        return Err(
-            anyhow::anyhow!("data-plane {data_plane_name} has no configured HMAC keys")
-                .with_status(StatusCode::INTERNAL_SERVER_ERROR),
-        );
+        return Err(tonic::Status::internal(format!(
+            "data-plane {data_plane_name} has no configured HMAC keys"
+        )));
     };
-    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
-        .context("invalid data-plane hmac key")?;
+    let encoding_key =
+        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
 
-    let broker_claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: super::map_capability_to_gazette(capability),
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([
-                    ("name:prefix", prefix.as_str()),
-                    ("name:prefix", &format!("recovery/capture/{prefix}")),
-                    ("name:prefix", &format!("recovery/derivation/{prefix}")),
-                    ("name:prefix", &format!("recovery/materialize/{prefix}")),
-                ])),
-                exclude: None,
-            },
+    let broker_claims = proto_gazette::Claims {
+        cap: super::map_capability_to_gazette(capability),
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([
+                ("name:prefix", prefix.as_str()),
+                ("name:prefix", &format!("recovery/capture/{prefix}")),
+                ("name:prefix", &format!("recovery/derivation/{prefix}")),
+                ("name:prefix", &format!("recovery/materialize/{prefix}")),
+            ])),
+            exclude: None,
         },
-        prefixes: Vec::new(), // TODO(johnny): remove.
     };
 
-    let reactor_claims = super::DataClaims {
-        inner: proto_gazette::Claims {
-            cap: super::map_capability_to_gazette(capability)
-                | proto_flow::capability::NETWORK_PROXY,
-            exp: 0, // Filled later.
-            iat: 0, // Filled later.
-            iss: data_plane.data_plane_fqdn.clone(),
-            sub: user_id.to_string(),
-            sel: proto_gazette::broker::LabelSelector {
-                include: Some(labels::build_set([
-                    ("id:prefix", format!("capture/{prefix}").as_str()),
-                    ("id:prefix", &format!("derivation/{prefix}")),
-                    ("id:prefix", &format!("materialize/{prefix}")),
-                ])),
-                exclude: None,
-            },
+    let reactor_claims = proto_gazette::Claims {
+        cap: super::map_capability_to_gazette(capability) | proto_flow::capability::NETWORK_PROXY,
+        exp: 0, // Filled later.
+        iat: 0, // Filled later.
+        iss: data_plane.data_plane_fqdn.clone(),
+        sub: user_id.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([
+                ("id:prefix", format!("capture/{prefix}").as_str()),
+                ("id:prefix", &format!("derivation/{prefix}")),
+                ("id:prefix", &format!("materialize/{prefix}")),
+            ])),
+            exclude: None,
         },
-        prefixes: Vec::new(), // TODO(johnny): remove.
     };
 
     Ok((
@@ -215,9 +174,9 @@ fn evaluate_authorization(
         (
             encoding_key,
             broker_claims,
-            super::maybe_rewrite_address(true, &data_plane.broker_address),
+            data_plane.broker_address.clone(),
             reactor_claims,
-            super::maybe_rewrite_address(true, &data_plane.reactor_address),
+            data_plane.reactor_address.clone(),
         ),
     ))
 }
@@ -226,16 +185,15 @@ fn evaluate_authorization(
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_success_one() {
+    #[test]
+    fn test_success_one() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -308,16 +266,15 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_success_two() {
+    #[test]
+    fn test_success_two() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -390,16 +347,15 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_authorized_to_prefix() {
+    #[test]
+    fn test_not_authorized_to_prefix() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/whoosh/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Write,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -411,16 +367,15 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_authorized_to_data_plane() {
+    #[test]
+    fn test_not_authorized_to_data_plane() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/private/something"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -432,16 +387,15 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_data_plane_not_found() {
+    #[test]
+    fn test_data_plane_not_found() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-missing"),
             models::Capability::Read,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -453,16 +407,15 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_capability_to_high() {
+    #[test]
+    fn test_capability_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Write,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -474,8 +427,8 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_bob_cannot_get_admin_even_with_admin_grant() {
+    #[test]
+    fn test_bob_cannot_get_admin_even_with_admin_grant() {
         // bob@bob has admin capability on bobCo/tires/ but lacks estuary_support/
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
@@ -483,8 +436,7 @@ mod tests {
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Admin,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -496,8 +448,8 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_admin_with_estuary_support_grant() {
+    #[test]
+    fn test_admin_with_estuary_support_grant() {
         // alice@alice has estuary_support/ grant and can get admin capability
         let outcome = run(
             uuid::Uuid::from_bytes([64; 16]),
@@ -505,8 +457,7 @@ mod tests {
             models::Prefix::new("aliceCo/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Admin,
-        )
-        .await;
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -579,68 +530,51 @@ mod tests {
         "###);
     }
 
-    async fn run(
+    #[derive(serde::Serialize)]
+    enum Outcome {
+        Ok((String, proto_gazette::Claims, String, proto_gazette::Claims)),
+        Err { status: u16, error: String },
+    }
+
+    fn run(
         user_id: uuid::Uuid,
         email: Option<String>,
         prefix: models::Prefix,
         data_plane: models::Name,
         capability: models::Capability,
-    ) -> Result<
-        (String, proto_gazette::Claims, String, proto_gazette::Claims),
-        crate::server::error::ApiError,
-    > {
-        let taken = chrono::Utc::now();
-        let snapshot = Snapshot::build_fixture(Some(taken));
-        let snapshot = std::sync::RwLock::new(snapshot);
-
-        let Response {
-            broker_address,
-            broker_token,
-            reactor_address,
-            reactor_token,
-            retry_millis,
-        } = do_authorize_user_prefix(
-            &snapshot,
-            user_id,
+    ) -> Outcome {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let claims = models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: user_id,
+            role: "authenticated".to_string(),
             email,
-            prefix,
-            data_plane,
-            capability,
-            taken.timestamp() as u64 - 1,
-        )
-        .await?
-        .0;
+        };
 
-        if retry_millis != 0 {
-            return Err(anyhow::anyhow!("retry").into());
+        match evaluate_authorization(&snapshot, &claims, &prefix, &data_plane, capability) {
+            Ok((
+                _cordon_at,
+                (_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),
+            )) => {
+                // Zero out timestamps for stable snapshots.
+                broker_claims.iat = 0;
+                broker_claims.exp = 0;
+                reactor_claims.iat = 0;
+                reactor_claims.exp = 0;
+
+                Outcome::Ok((
+                    broker_address,
+                    broker_claims,
+                    reactor_address,
+                    reactor_claims,
+                ))
+            }
+            Err(status) => Outcome::Err {
+                status: tokens::rest::grpc_status_code_to_http(status.code()),
+                error: status.message().to_string(),
+            },
         }
-
-        let mut broker_claims = jsonwebtoken::decode::<super::super::DataClaims>(
-            &broker_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
-
-        let mut reactor_claims = jsonwebtoken::decode::<super::super::DataClaims>(
-            &reactor_token,
-            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims
-        .inner;
-
-        (broker_claims.iat, broker_claims.exp) = (0, 0);
-        (reactor_claims.iat, reactor_claims.exp) = (0, 0);
-
-        Ok((
-            broker_address,
-            broker_claims,
-            reactor_address,
-            reactor_claims,
-        ))
     }
 }

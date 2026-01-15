@@ -109,7 +109,7 @@ impl PublicationResult {
             user_id,
             detail,
             started_at: start_time,
-            completed_at: Utc::now(),
+            completed_at: tokens::now(),
             draft: built.draft,
             live: built.live,
             built: built.built,
@@ -183,7 +183,7 @@ impl UncommittedBuild {
         } else {
             StatusType::TestFailed.into()
         };
-        self.into_result(Utc::now(), status)
+        self.into_result(tokens::now(), status)
     }
 
     pub fn into_result(self, completed_at: DateTime<Utc>, status: JobStatus) -> PublicationResult {
@@ -334,9 +334,9 @@ impl Publisher {
         if built.errors().next().is_some() {
             return Ok(built.build_failed());
         } else if is_empty_draft(&built) {
-            return Ok(built.into_result(Utc::now(), StatusType::EmptyDraft.into()));
+            return Ok(built.into_result(tokens::now(), StatusType::EmptyDraft.into()));
         } else if *dry_run {
-            return Ok(built.into_result(Utc::now(), StatusType::Success.into()));
+            return Ok(built.into_result(tokens::now(), StatusType::Success.into()));
         }
 
         let commit_result = self.commit(built, with_commit).await?;
@@ -362,7 +362,7 @@ impl Publisher {
         verify_user_authz: bool,
         retry_count: u32,
     ) -> anyhow::Result<UncommittedBuild> {
-        let start_time = Utc::now();
+        let start_time = tokens::now();
         let build_id = self.id_gen.lock().unwrap().next();
 
         // Ensure that all the connector images are allowed. It's critical that we do this before
@@ -529,7 +529,7 @@ impl Publisher {
         // outside of this function.
         const MAX_ATTEMPTS: usize = 10;
         for attempt in 0..MAX_ATTEMPTS {
-            let completed_at = Utc::now();
+            let completed_at = tokens::now();
             let attempt_start_time = std::time::Instant::now();
             let commit_result = self.try_commit(&uncommitted, &with_commit).await;
 
@@ -748,7 +748,7 @@ mod test {
             build_id: models::Id::zero(),
             user_id: Uuid::new_v4(),
             detail: None,
-            started_at: Utc::now(),
+            started_at: tokens::now(),
             output: Default::default(),
             test_errors: std::iter::once(tables::Error {
                 scope: tables::synthetic_scope("test", "test/of/a/test"),

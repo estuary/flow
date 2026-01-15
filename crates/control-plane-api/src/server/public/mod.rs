@@ -1,11 +1,9 @@
+use axum::response::IntoResponse;
+use std::sync::Arc;
+
 pub mod graphql;
 mod open_metrics;
 pub mod status;
-
-use axum::{http::StatusCode, response::IntoResponse};
-use std::sync::Arc;
-
-use crate::server::{App, authorize, error::ApiError, error::ApiErrorExt};
 
 /// Creates a router for the public API that can be merged into an existing router.
 /// All endpoints registered here are documented in an OpenAPI spec. For adding new
@@ -13,8 +11,7 @@ use crate::server::{App, authorize, error::ApiError, error::ApiErrorExt};
 ///
 /// ```ignore
 /// fn handle_{get|post|etc}_{resource_name}(
-///     state: State<Arc<App>>, // has the database connection pool, etc
-///     claims: Extension<ControlClaims>, // claims from a verified JWT (unauthenticated requests would be rejected automatically)
+///     env: State<crate::Envelope>, // has the database connection pool, verified claims, etc
 ///     other_stuff: T, // other extracted data from the request
 /// ) -> Result<Json<Resp>, ApiError>
 /// ```
@@ -37,7 +34,7 @@ use crate::server::{App, authorize, error::ApiError, error::ApiErrorExt};
 /// returns JSON, which is all of them. Just ensure that `T` implements
 /// `serde::Serialize` and `schemars::JsonSchema`. See the `crate::server::error` module
 /// docs for more information on error handling.
-pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
+pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App>> {
     // When errors occur during the process of generating an openapi spec, aide
     // will call this function with the error so we can log it. They have a note
     // in their docs warning about false positives where it logs errors even
@@ -50,9 +47,6 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
         }
     });
 
-    // Routes are defined in groups, with the first group all being
-    // authenticated routes that require a valid authentication token, and the
-    // second group being unauthenticated routes that can be accessed by anyone.
     let graphql_schema = graphql::create_schema();
     let router = aide::axum::ApiRouter::new()
         .api_route(
@@ -68,8 +62,6 @@ pub(crate) fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
             "/api/graphql",
             axum::routing::post(graphql::graphql_handler),
         )
-        // All routes below this are publicly accessible to anyone, without an authentication token
-        .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
@@ -103,14 +95,16 @@ async fn ensure_accepts_json(
 ) -> axum::response::Response {
     if let Some(val) = headers.get("accept") {
         let Ok(accept) = val.to_str() else {
-            return anyhow::anyhow!("invalid accept header was not ascii")
-                .with_status(StatusCode::BAD_REQUEST)
-                .into_response();
+            return crate::ApiError::Status(tonic::Status::invalid_argument(
+                "invalid accept header was not ascii",
+            ))
+            .into_response();
         };
         if !accept.contains("application/json") && !accept.contains("*/*") {
-            return anyhow::anyhow!("only application/json responses are supported at this time")
-                .with_status(StatusCode::NOT_ACCEPTABLE)
-                .into_response();
+            return crate::ApiError::Status(tonic::Status::invalid_argument(
+                "only application/json responses are supported at this time",
+            ))
+            .into_response();
         }
     }
     next.run(req).await
@@ -139,7 +133,4 @@ fn api_docs(api: aide::transform::TransformOpenApi) -> aide::transform::Transfor
             },
         )
         .security_requirement("ApiKey")
-        .default_response_with::<axum::Json<ApiError>, _>(|res| {
-            res.example(ApiError::unauthorized("acmeCo/anvils/"))
-        })
 }

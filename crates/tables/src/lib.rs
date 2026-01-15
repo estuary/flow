@@ -71,7 +71,7 @@ tables!(
         val md5: String,
     }
 
-    table DataPlanes (row #[derive(Clone)] DataPlane, sql "data_planes") {
+    table DataPlanes (row #[derive(Clone, serde::Serialize, serde::Deserialize)] DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
         key control_id: models::Id,
         // Name of this data-plane under the catalog namespace.
@@ -95,7 +95,7 @@ tables!(
         val reactor_address: String,
     }
 
-    table RoleGrants (row #[derive(serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
+    table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
         // Subject of the grant, to which a capability is bestowed.
         key subject_role: models::Prefix,
         // Object of the grant, to which a capability is bestowed upon the subject.
@@ -104,7 +104,7 @@ tables!(
         val capability: models::Capability,
     }
 
-    table UserGrants (row #[derive(serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
+    table UserGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
         // User ID to which a capability is bestowed.
         key user_id: uuid::Uuid,
         // Object of the grant, to which a capability is bestowed upon the subject.

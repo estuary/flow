@@ -1,8 +1,5 @@
 use async_graphql::{Context, types::connection};
 
-use crate::server::{App, ControlClaims, snapshot::Snapshot};
-use std::sync::Arc;
-
 /// A prefix to which the user is authorized.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct PrefixRef {
@@ -40,26 +37,21 @@ impl PrefixesQuery {
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedPrefixes> {
-        let claims = ctx.data::<ControlClaims>().unwrap();
-        let app = ctx.data::<Arc<App>>()?;
+        let env = ctx.data::<crate::Envelope>()?;
+
         connection::query(after, None, first, None, |after, _, first, _| async move {
-            let (_, mut all_roles) =
-                Snapshot::evaluate(app.snapshot(), chrono::Utc::now(), |snapshot: &Snapshot| {
-                    let roles = tables::UserGrant::transitive_roles(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        claims.sub,
-                    )
-                    .filter(|grant| grant.capability >= by.min_capability)
-                    .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
-                    .map(|grant| PrefixRef {
-                        prefix: models::Prefix::new(grant.object_role),
-                        user_capability: grant.capability,
-                    })
-                    .collect::<Vec<_>>();
-                    Ok((None, roles))
-                })
-                .expect("evaluation cannot fail");
+            let mut all_roles: Vec<PrefixRef> = tables::UserGrant::transitive_roles(
+                &env.snapshot().role_grants,
+                &env.snapshot().user_grants,
+                env.claims()?.sub,
+            )
+            .filter(|grant| grant.capability >= by.min_capability)
+            .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
+            .map(|grant| PrefixRef {
+                prefix: models::Prefix::new(grant.object_role),
+                user_capability: grant.capability,
+            })
+            .collect();
 
             all_roles.sort_by(|l, r| {
                 l.prefix

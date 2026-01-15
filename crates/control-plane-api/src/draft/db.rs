@@ -1,7 +1,7 @@
-use sqlx::PgPool;
-
-use crate::{CatalogType, Id, TextJson};
+use crate::TextJson;
+use models::{CatalogType, Id};
 use serde_json::value::RawValue;
+use sqlx::PgPool;
 
 pub struct DraftSpec {
     #[allow(unused)]

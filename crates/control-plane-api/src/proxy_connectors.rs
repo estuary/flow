@@ -217,15 +217,12 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             impl Future<Output = anyhow::Result<()>> + 'a,
         ),
     )> {
-        let mut dp = data_plane.clone();
-        crate::decrypt_hmac_keys(&mut dp).await?;
-
         let tables::DataPlane {
             reactor_address,
             hmac_keys,
             data_plane_fqdn,
             ..
-        } = dp;
+        } = data_plane;
 
         // Parse first data-plane HMAC key (used for signing tokens).
         let (encode_key, _decode) = tokens::jwt::parse_base64_hmac_keys(hmac_keys.iter().take(1))
@@ -236,7 +233,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             cap: proto_flow::capability::PROXY_CONNECTOR,
             exp: (iat + (*CONNECTOR_TIMEOUT * 2)).timestamp() as u64,
             iat: iat.timestamp() as u64,
-            iss: data_plane_fqdn,
+            iss: data_plane_fqdn.clone(),
             sel: Default::default(),
             sub: task.to_string(),
         };

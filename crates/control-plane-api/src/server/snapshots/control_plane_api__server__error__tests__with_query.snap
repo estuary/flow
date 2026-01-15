@@ -1,0 +1,7 @@
+---
+source: crates/control-plane-api/src/server/error.rs
+expression: "format!(\"status: {:?}\\nheaders: {:?}\\nbody: {}\", parts.status, headers,\nbody_str)"
+---
+status: 307
+headers: [("date", "Mon, 15 Jan 2024 10:00:05 +0000"), ("location", "/api/test?foo=bar&started=2024-01-15T10:00:00.000Z&retryAfter=2024-01-15T10:00:10.000Z"), ("retry-after", "Mon, 15 Jan 2024 10:00:10 +0000")]
+body: provisional Unauthenticated error: bad token

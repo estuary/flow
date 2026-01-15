@@ -2057,6 +2057,7 @@ dependencies = [
  "coroutines",
  "derivative",
  "doc",
+ "flow-client-next",
  "futures",
  "gazette",
  "humantime",

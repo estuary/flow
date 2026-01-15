@@ -1,33 +1,32 @@
-use super::{Id, TextJson as Json};
-
+use super::TextJson as Json;
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::{FromRow, types::Uuid};
+use sqlx::FromRow;
 
 /// Row is the dequeued task shape of a tag connector operation. Note that `connector_tags` jobs
 /// are expected to all be `background` jobs, so we don't bother to include that field in this struct.
 #[derive(Debug)]
 pub struct Row {
-    pub connector_id: Id,
+    pub connector_id: models::Id,
     pub created_at: DateTime<Utc>,
     pub external_url: String,
     pub image_name: String,
     pub image_tag: String,
-    pub logs_token: Uuid,
-    pub tag_id: Id,
+    pub logs_token: sqlx::types::Uuid,
+    pub tag_id: models::Id,
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn fetch_connector_tag(id: Id, pool: &sqlx::PgPool) -> sqlx::Result<Row> {
+pub async fn fetch_connector_tag(id: models::Id, pool: &sqlx::PgPool) -> sqlx::Result<Row> {
     sqlx::query_as!(
         Row,
         r#"select
-            c.id as "connector_id: Id",
+            c.id as "connector_id: models::Id",
             c.external_url,
             c.image_name,
             t.created_at,
-            t.id as "tag_id: Id",
+            t.id as "tag_id: models::Id",
             t.image_tag,
             t.logs_token,
             t.updated_at
@@ -35,13 +34,13 @@ pub async fn fetch_connector_tag(id: Id, pool: &sqlx::PgPool) -> sqlx::Result<Ro
         join connectors as c on c.id = t.connector_id
         where t.id = $1::flowid;
         "#,
-        id as Id
+        id as models::Id
     )
     .fetch_one(pool)
     .await
 }
 
-pub async fn resolve<S>(id: Id, status: S, txn: &mut sqlx::PgConnection) -> sqlx::Result<()>
+pub async fn resolve<S>(id: models::Id, status: S, txn: &mut sqlx::PgConnection) -> sqlx::Result<()>
 where
     S: Serialize + Send + Sync,
 {
@@ -52,7 +51,7 @@ where
         where id = $1
         returning 1 as "must_exist";
         "#,
-        id as Id,
+        id as models::Id,
         Json(status) as Json<S>,
     )
     .fetch_one(txn)
@@ -82,7 +81,7 @@ pub async fn does_connector_exist(
 }
 
 pub async fn update_oauth2_spec(
-    connector_id: Id,
+    connector_id: models::Id,
     oauth2_spec: Box<RawValue>,
     db: impl sqlx::PgExecutor<'_>,
 ) -> sqlx::Result<()> {
@@ -93,7 +92,7 @@ pub async fn update_oauth2_spec(
         where id = $1
         returning 1 as "must_exist";
         "#,
-        connector_id as Id,
+        connector_id as models::Id,
         Json(oauth2_spec) as Json<Box<RawValue>>,
     )
     .fetch_one(db)
@@ -107,7 +106,7 @@ pub async fn update_oauth2_spec(
 /// whether the update has taken place. A return value of `false` indicates that
 /// the row already contained a different value for `resource_path_pointers`.
 pub async fn update_tag_fields(
-    tag_id: Id,
+    tag_id: models::Id,
     documentation_url: String,
     endpoint_spec_schema: Box<RawValue>,
     protocol: String,
@@ -130,7 +129,7 @@ pub async fn update_tag_fields(
           )
         returning true as "updated";
         "#,
-        tag_id as Id,
+        tag_id as models::Id,
         documentation_url,
         Json(endpoint_spec_schema) as Json<Box<RawValue>>,
         protocol,

@@ -1,10 +1,7 @@
-use super::App;
 use crate::publications::{
     DoNotRetry, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
 };
-use crate::server::error::ApiErrorExt;
 use anyhow::Context;
-use axum::http::StatusCode;
 use std::sync::Arc;
 use validator::Validate;
 
@@ -25,29 +22,29 @@ pub struct Response {
 #[axum::debug_handler]
 #[tracing::instrument(
     skip(app),
-    err(level = tracing::Level::WARN),
+    err(Debug, level = tracing::Level::WARN),
 )]
 pub async fn update_l2_reporting(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(super::ControlClaims { sub: user_id, .. }): axum::Extension<
-        super::ControlClaims,
-    >,
+    axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
+    env: crate::Envelope,
     super::Request(Request {
         default_data_plane,
         dry_run,
     }): super::Request<Request>,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
+) -> Result<axum::Json<Response>, crate::ApiError> {
+    let crate::ControlClaims { sub: user_id, .. } = env.claims()?;
+
     if let None = sqlx::query!(
         "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
         user_id,
     )
-    .fetch_optional(&app.pg_pool)
+    .fetch_optional(&env.pg_pool)
     .await?
     {
-        return Err(
-            anyhow::anyhow!("authenticated user is not an admin of the 'ops/' tenant")
-                .with_status(StatusCode::FORBIDDEN),
-        );
+        return Err(tonic::Status::permission_denied(
+            "authenticated user is not an admin of the 'ops/' tenant",
+        )
+        .into());
     }
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");
@@ -76,20 +73,21 @@ pub async fn update_l2_reporting(
                 l2_events = Some(row);
             }
             _ => {
-                return Err(
-                    anyhow::anyhow!("unrecognized template collection {}", row.collection)
-                        .with_status(StatusCode::INTERNAL_SERVER_ERROR),
-                );
+                return Err(tonic::Status::internal(format!(
+                    "unrecognized template collection {}",
+                    row.collection
+                ))
+                .into());
             }
         }
     }
     let (Some(mut l2_stats), Some(mut l2_inferred), Some(mut l2_events)) =
         (l2_stats, l2_inferred, l2_events)
     else {
-        return Err(anyhow::anyhow!(
-            "expected template to include L2 status, inferred schemas, and catalog stats"
+        return Err(tonic::Status::internal(
+            "expected template to include L2 status, inferred schemas, and catalog stats",
         )
-        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+        .into());
     };
 
     let models::Derivation {
@@ -113,8 +111,7 @@ pub async fn update_l2_reporting(
     }) = l2_stats_using
     else {
         return Err(
-            anyhow::anyhow!("L2 stats derivation must be a TypeScript module")
-                .with_status(StatusCode::INTERNAL_SERVER_ERROR),
+            tonic::Status::internal("L2 stats derivation must be a TypeScript module").into(),
         );
     };
 
@@ -144,7 +141,7 @@ export class Derivation extends Types.IDerivation {"#
         order by data_plane_name asc;
         "#,
     )
-    .fetch_all(&app.pg_pool)
+    .fetch_all(&env.pg_pool)
     .await?;
 
     for data_plane in &data_planes {
@@ -219,7 +216,7 @@ export class Derivation extends Types.IDerivation {"#
 
     let logs_token = uuid::Uuid::new_v4();
     let publication = DraftPublication {
-        user_id,
+        user_id: *user_id,
         logs_token,
         draft,
         dry_run,

@@ -1,10 +1,3 @@
-use super::{App, Snapshot};
-use crate::server::error::ApiErrorExt;
-use anyhow::Context;
-use axum::http::StatusCode;
-use rand::Rng;
-use std::sync::Arc;
-
 type Request = models::authorizations::TaskAuthorizationRequest;
 type Response = models::authorizations::TaskAuthorization;
 
@@ -20,33 +13,25 @@ type Response = models::authorizations::TaskAuthorization;
 ///     * The request's subject is granted those capabilities on that collection by
 ///       the control-plane
 ///     * The requested collection may be in a different data plane than the issuer.
-#[axum::debug_handler]
-#[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
+#[axum::debug_handler(state=std::sync::Arc<crate::App>)]
+#[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_task(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Json(Request { token }): axum::Json<Request>,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    do_authorize_task(&app.snapshot, token).await
-}
+    mut env: crate::Envelope,
+    super::Request(Request { token }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::ApiError> {
+    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
 
-async fn do_authorize_task(
-    snapshot: &std::sync::RwLock<Snapshot>,
-    token: String,
-) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let (_header, mut claims) = super::parse_untrusted_data_plane_claims(&token)?;
-    let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")
-        .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
+    // Use the `iat` claim to establish the logical start of the request,
+    // rounded up to the next second (as it was round down when encoded).
+    env.started = tokens::DateTime::from_timestamp_secs(1 + unverified.claims().iat as i64)
+        .unwrap_or_default();
+
+    let journal_name_or_prefix = labels::expect_one(unverified.claims().sel.include(), "name")
+        .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?
         .to_owned();
 
-    // Require the request was signed with the AUTHORIZE capability,
-    // and then strip this capability before issuing a response token.
-    if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
-        return Err(
-            anyhow::anyhow!("missing required AUTHORIZE capability: {}", claims.cap)
-                .with_status(StatusCode::FORBIDDEN),
-        );
-    }
-    claims.cap &= !proto_flow::capability::AUTHORIZE;
+    // Strip the request's AUTHORIZE capability from response claims.
+    let cap = unverified.claims().cap & !proto_flow::capability::AUTHORIZE;
 
     // Validate and match the requested capabilities to a corresponding role.
     // NOTE: Because we pass through the claims after validating them here,
@@ -54,7 +39,7 @@ async fn do_authorize_task(
     // checking that the requested capability contains a particular grant isn't enough.
     // For example, we wouldn't want to allow a request for `REPLICATE` just
     // because it also requests `READ`.
-    let required_role = match claims.cap {
+    let required_role = match cap {
         cap if (cap == proto_gazette::capability::LIST)
             || (cap == proto_gazette::capability::READ)
             || (cap == (proto_gazette::capability::LIST | proto_gazette::capability::READ)) =>
@@ -71,73 +56,68 @@ async fn do_authorize_task(
             models::Capability::Write
         }
         cap => {
-            return Err(
-                anyhow::anyhow!("capability {cap} cannot be authorized by this service")
-                    .with_status(StatusCode::FORBIDDEN),
-            );
+            return Err(tonic::Status::invalid_argument(format!(
+                "capability {cap} cannot be authorized by this service"
+            ))
+            .into());
         }
     };
 
-    let (encoding_key, data_plane_fqdn, broker_address) = match Snapshot::evaluate(
-        snapshot,
-        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
-        |snapshot: &Snapshot| {
-            evaluate_authorization(
-                snapshot,
-                &claims.sub,
-                &claims.iss,
-                &token,
-                &journal_name_or_prefix,
-                required_role,
-            )
-        },
-    ) {
-        Ok((exp, ok)) => {
-            claims.exp = exp.timestamp() as u64;
-            ok
-        }
-        Err(Err(err)) if err.error.downcast_ref::<BlackHole>().is_some() => {
-            let BlackHole { ok } = err.error.downcast::<BlackHole>().unwrap();
+    let policy_result = evaluate_authorization(
+        env.snapshot(),
+        env.started,
+        &unverified.claims().sub,
+        &unverified.claims().iss,
+        &token,
+        &journal_name_or_prefix,
+        required_role,
+    );
 
-            // Return a "black hole" response by extending the request claims
-            // with a label selector that never matches anything. This:
-            // - Causes List RPCs to succeed, but return nothing:
-            //   This avoids failing a sourcing task, on the presumption
-            //   that it's just awaiting an update from the control plane
-            //   and should be allowed to gracefully finish its other work.
-            // - Causes Append RPCs to error with status JOURNAL_NOT_FOUND.
-            //   This allows for correct handling of recovered ACK intents
-            //   destined for a journal which has since been deleted.
-            // - Causes an Apply RPC, used to create partitions, to fail.
-            //
-            // Note that we're directing the task back to it's own data-plane,
-            // since we have no idea what data-plane the collection might have
-            // once lived in, as we couldn't find it.
-            claims.sel.include = Some(labels::add_value(
-                claims.sel.include.unwrap_or_default(),
-                "estuary.dev/match-nothing",
-                "1",
-            ));
-            // The request predates our latest snapshot, so the client cannot
-            // have prior knowledge of a generation ID we don't yet know about.
-            // Implication: the referenced collection was reset or deleted.
-            claims.exp = claims.iat + rand::rng().random_range(1800..3600);
+    // Legacy: return a custom 200 response for client-side retries.
+    let (expiry, (encoding_key, data_plane_fqdn, broker_address, found)) =
+        match env.authorization_outcome(policy_result).await {
+            Ok(ok) => ok,
+            Err(crate::ApiError::AuthZRetry(retry)) => {
+                return Ok(axum::Json(Response {
+                    retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                    ..Default::default()
+                }));
+            }
+            Err(err @ crate::ApiError::Status(_)) => return Err(err),
+        };
 
-            ok
-        }
-        Err(Ok(backoff)) => {
-            return Ok(axum::Json(Response {
-                retry_millis: backoff.as_millis() as u64,
-                ..Default::default()
-            }));
-        }
-        Err(Err(err)) => return Err(err),
+    // Build and sign response claims.
+    let mut response_claims = proto_gazette::Claims {
+        cap,
+        exp: expiry.timestamp() as u64,
+        iat: env.started.timestamp() as u64,
+        iss: data_plane_fqdn,
+        sel: unverified.claims().sel.clone(),
+        sub: unverified.claims().sub.clone(),
     };
 
-    claims.iss = data_plane_fqdn;
-
-    let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
-        .context("failed to encode authorized JWT")?;
+    if !found {
+        // Return a "black hole" response by extending the request claims
+        // with a label selector that never matches anything. This:
+        // - Causes List RPCs to succeed, but return nothing:
+        //   This avoids failing a sourcing task, on the presumption
+        //   that it's just awaiting an update from the control plane
+        //   and should be allowed to gracefully finish its other work.
+        // - Causes Append RPCs to error with status JOURNAL_NOT_FOUND.
+        //   This allows for correct handling of recovered ACK intents
+        //   destined for a journal which has since been deleted.
+        // - Causes an Apply RPC, used to create partitions, to fail.
+        //
+        // Note that we're directing the task back to it's own data-plane,
+        // since we have no idea what data-plane the collection might have
+        // once lived in, as we couldn't find it.
+        response_claims.sel.include = Some(labels::add_value(
+            response_claims.sel.include.unwrap_or_default(),
+            "estuary.dev/match-nothing",
+            "1",
+        ));
+    }
+    let token = tokens::jwt::sign(&response_claims, &encoding_key)?;
 
     Ok(axum::Json(Response {
         broker_address,
@@ -146,50 +126,21 @@ async fn do_authorize_task(
     }))
 }
 
-// A BlackHole error is raised when a task request is authorized,
-// but its `journal_name_or_prefix` doesn't map to a collection
-// (either because the collection is deleted, or exists under a
-// different generation ID).
-//
-// We return an error (which triggers a snapshot, and is retried)
-// to preserve causality: the client may have prior knowledge of a
-// generation ID we don't yet and we cannot black-hole the request
-// without that knowledge.
-#[derive(thiserror::Error)]
-#[error("black hole")]
-struct BlackHole {
-    ok: (jsonwebtoken::EncodingKey, String, String),
-}
-
-impl std::fmt::Debug for BlackHole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self, f)
-    }
-}
-
 fn evaluate_authorization(
-    snapshot: &Snapshot,
+    snapshot: &crate::Snapshot,
+    started: tokens::DateTime,
     shard_id: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> Result<
-    (
-        Option<chrono::DateTime<chrono::Utc>>,
-        (jsonwebtoken::EncodingKey, String, String),
-    ),
-    crate::server::error::ApiError,
-> {
+) -> crate::AuthZResult<(tokens::jwt::EncodingKey, String, String, bool)> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
-    let Some(task_data_plane) = snapshot
-        .verify_data_plane_token(shard_data_plane_fqdn, token)
-        .context("invalid data-plane hmac key")?
+    let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
     else {
-        return Err(
-            anyhow::anyhow!("no data-plane keys validated against the token signature")
-                .with_status(StatusCode::FORBIDDEN),
-        );
+        return Err(tonic::Status::unauthenticated(
+            "no data-plane keys validated against the token signature",
+        ));
     };
 
     // Map `claims.sub`, a Shard ID, into a task running in `task_data_plane`.
@@ -197,10 +148,9 @@ fn evaluate_authorization(
         .task_by_shard_id(shard_id)
         .filter(|task| task.data_plane_id == task_data_plane.control_id)
     else {
-        return Err(anyhow::anyhow!(
+        return Err(tonic::Status::failed_precondition(format!(
             "task shard {shard_id} within data-plane {shard_data_plane_fqdn} is not known"
-        )
-        .with_status(StatusCode::PRECONDITION_FAILED));
+        )));
     };
 
     // Map a required `name` journal label selector into its collection.
@@ -210,11 +160,10 @@ fn evaluate_authorization(
         let Some(collection_data_plane) =
             snapshot.data_planes.get_by_key(&collection.data_plane_id)
         else {
-            return Err(anyhow::anyhow!(
-                "collection data-plane {} not found",
-                collection.data_plane_id
-            )
-            .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+            return Err(tonic::Status::internal(format!(
+                "collection {} data-plane {} not found",
+                collection.collection_name, collection.data_plane_id,
+            )));
         };
 
         // As a special case outside of the RBAC system, allow a task to write
@@ -248,20 +197,19 @@ fn evaluate_authorization(
             ops_suffix=%super::ops_suffix(task),
             "task authorization rejection context"
         );
-        return Err(anyhow::anyhow!(
+        return Err(tonic::Status::permission_denied(format!(
             "task shard {shard_id} is not authorized to {journal_name_or_prefix} for {required_role:?}"
-        ).with_status(StatusCode::FORBIDDEN));
+        )));
     }
 
     let Some(encoding_key) = collection_data_plane.hmac_keys.first() else {
-        return Err(anyhow::anyhow!(
+        return Err(tonic::Status::internal(format!(
             "collection data-plane {} has no configured HMAC keys",
             collection_data_plane.data_plane_name
-        )
-        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+        )));
     };
-    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
-        .context("invalid data-plane hmac key")?;
+    let encoding_key =
+        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
 
     let cordon_at = match (
         snapshot.cordon_at(&task.task_name, task_data_plane),
@@ -274,131 +222,88 @@ fn evaluate_authorization(
         (None, None) => None,
     };
 
-    let ok = (
-        encoding_key,
-        collection_data_plane.data_plane_fqdn.clone(),
-        super::maybe_rewrite_address(
-            task.data_plane_id != collection_data_plane.control_id,
-            &collection_data_plane.broker_address,
-        ),
-    );
-
-    if found {
-        Ok((cordon_at, ok))
-    } else {
-        Err(anyhow::anyhow!(BlackHole { ok }).with_status(StatusCode::INTERNAL_SERVER_ERROR))
+    // If !found, then the task request is authorized but its
+    // `journal_name_or_prefix` doesn't map to a known collection because:
+    //  1) The collection has been reset or deleted and the client is out of date.
+    //  3) The collection has been reset and *we* are out of date.
+    //
+    // For case (1), we return a "black hole" response which is technically valid
+    // but matches no journals. This response avoids breaking the task while it
+    // restarts due to a presumed forthcoming build update. However, we can only
+    // return this response once we've ruled out case (2). Ergo, return an error
+    // to trigger a snapshot refresh and retry, and we'll re-evaluate then.
+    if !found && !snapshot.taken_after(started) {
+        return Err(tonic::Status::unavailable(format!(
+            "{journal_name_or_prefix} does not map to a known collection"
+        )));
     }
+
+    Ok((
+        cordon_at,
+        (
+            encoding_key,
+            collection_data_plane.data_plane_fqdn.clone(),
+            collection_data_plane.broker_address.clone(),
+            found,
+        ),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_collection_success() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            iss: "fqdn1".to_string(),
-            sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name",
-                    "acmeCo/pineapples/1122334455667788/pivot=00",
-                )])),
-                exclude: None,
-            },
-            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_collection_success() {
+        let outcome = run(
+            "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "acmeCo/pineapples/1122334455667788/pivot=00",
+            models::Capability::Write,
+            0, // iat offset - before snapshot
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Ok": [
-            "broker.1",
-            {
-              "cap": 16,
-              "exp": 0,
-              "iat": 0,
-              "iss": "fqdn1",
-              "sel": {
-                "include": {
-                  "labels": [
-                    {
-                      "name": "name",
-                      "value": "acmeCo/pineapples/1122334455667788/pivot=00"
-                    }
-                  ]
-                }
-              },
-              "sub": "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000"
-            }
-          ]
+          "Ok": {
+            "broker_address": "broker.1",
+            "data_plane_fqdn": "fqdn1",
+            "found": true
+          }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_ops_success() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            iss: "fqdn1".to_string(),
-            sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name",
-                    "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00",
-                )])),
-                exclude: None,
-            },
-            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_ops_success() {
+        let outcome = run(
+            "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00",
+            models::Capability::Write,
+            0, // iat offset - before snapshot
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Ok": [
-            "broker.1",
-            {
-              "cap": 16,
-              "exp": 0,
-              "iat": 0,
-              "iss": "fqdn1",
-              "sel": {
-                "include": {
-                  "labels": [
-                    {
-                      "name": "name",
-                      "value": "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00"
-                    }
-                  ]
-                }
-              },
-              "sub": "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000"
-            }
-          ]
+          "Ok": {
+            "broker_address": "broker.1",
+            "data_plane_fqdn": "fqdn1",
+            "found": true
+          }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_not_authorized() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            iss: "fqdn1".to_string(),
-            sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name",
-                    "bobCo/bananas/1122334455667788/pivot=00",
-                )])),
-                exclude: None,
-            },
-            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_not_authorized() {
+        let outcome = run(
+            "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "bobCo/bananas/1122334455667788/pivot=00",
+            models::Capability::Write,
+            0,
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -410,158 +315,169 @@ mod tests {
         "###);
     }
 
-    #[tokio::test]
-    async fn test_cordon_collection() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            iss: "fqdn1".to_string(),
-            sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name",
-                    "acmeCo/bananas/1122334455667788/pivot=00",
-                )])),
-                exclude: None,
-            },
-            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_cordon_collection() {
+        let outcome = run(
+            "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "acmeCo/bananas/1122334455667788/pivot=00",
+            models::Capability::Write,
+            0,
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Err": {
-            "status": 500,
-            "error": "retry"
+          "Ok_Cordoned": {
+            "broker_address": "broker.1",
+            "data_plane_fqdn": "fqdn1",
+            "found": true
           }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_cordon_task() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
-            exp: 0,
-            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            iss: "fqdn1".to_string(),
-            sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name",
-                    "acmeCo/pineapples/1122334455667788/pivot=00",
-                )])),
-                exclude: None,
-            },
-            sub: "capture/acmeCo/source-banana/0011223344556677/00000000-00000000".to_string(),
-        })
-        .await;
+    #[test]
+    fn test_cordon_task() {
+        let outcome = run(
+            "capture/acmeCo/source-banana/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "acmeCo/pineapples/1122334455667788/pivot=00",
+            models::Capability::Write,
+            0,
+        );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
-          "Err": {
-            "status": 500,
-            "error": "retry"
+          "Ok_Cordoned": {
+            "broker_address": "broker.1",
+            "data_plane_fqdn": "fqdn1",
+            "found": true
           }
         }
         "###);
     }
 
-    #[tokio::test]
-    async fn test_black_hole() {
-        let mut claims = proto_gazette::Claims {
-            iat: 1, // After current snapshot taken.
-            exp: 0,
+    #[test]
+    fn test_black_hole_after_snapshot() {
+        // Request iat is after current snapshot - trigger retry for possible stale snapshot.
+        let outcome = run(
+            "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "acmeCo/pineapples/88667755330099/pivot=00", // Not found - wrong generation ID.
+            models::Capability::Write,
+            2, // iat offset = 2 seconds after taken, which is > snapshot.taken (taken + 1)
+        );
+
+        insta::assert_json_snapshot!(outcome, @r#"
+        {
+          "Err": {
+            "status": 503,
+            "error": "acmeCo/pineapples/88667755330099/pivot=00 does not map to a known collection"
+          }
+        }
+        "#);
+    }
+
+    #[test]
+    fn test_black_hole_before_snapshot() {
+        // Request iat is before current snapshot - we can confirm collection doesn't exist.
+        let outcome = run(
+            "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
+            "fqdn1",
+            "acmeCo/pineapples/88667755330099/pivot=00", // Not found - wrong generation ID.
+            models::Capability::Write,
+            0, // iat offset = before snapshot
+        );
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": {
+            "broker_address": "broker.1",
+            "data_plane_fqdn": "fqdn1",
+            "found": false
+          }
+        }
+        "###);
+    }
+
+    #[derive(serde::Serialize)]
+    struct SuccessOutput {
+        broker_address: String,
+        data_plane_fqdn: String,
+        found: bool,
+    }
+
+    #[derive(serde::Serialize)]
+    enum Outcome {
+        Ok(SuccessOutput),
+        #[serde(rename = "Ok_Cordoned")]
+        OkCordoned(SuccessOutput),
+        Err {
+            status: u16,
+            error: String,
+        },
+    }
+
+    fn run(
+        shard_id: &str,
+        shard_data_plane_fqdn: &str,
+        journal_name_or_prefix: &str,
+        required_role: models::Capability,
+        iat_offset_seconds: i64,
+    ) -> Outcome {
+        let taken = tokens::now();
+        // Build snapshot with taken time 1 second in the future so that
+        // iat_offset=0 is "before snapshot" and iat_offset=1+ is "same or after snapshot"
+        let snapshot = crate::Snapshot::build_fixture(Some(taken + chrono::Duration::seconds(1)));
+
+        // Build and sign a proper JWT token for the request.
+        let claims = proto_gazette::Claims {
+            iat: (taken.timestamp() + iat_offset_seconds) as u64,
+            exp: (taken.timestamp() + 100) as u64,
             cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            iss: "fqdn1".to_string(),
+            iss: shard_data_plane_fqdn.to_string(),
             sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name",
-                    "acmeCo/pineapples/88667755330099/pivot=00", // Not found.
-                )])),
+                include: Some(labels::build_set([("name", journal_name_or_prefix)])),
                 exclude: None,
             },
-            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
+            sub: shard_id.to_string(),
         };
 
-        insta::assert_json_snapshot!(run(claims.clone()).await, @r###"
-        {
-          "Err": {
-            "status": 500,
-            "error": "retry"
-          }
-        }
-        "###);
-
-        claims.iat = 0; // Now it's taken prior to current snapshot.
-        insta::assert_json_snapshot!(run(claims).await, @r###"
-        {
-          "Ok": [
-            "broker.1",
-            {
-              "cap": 16,
-              "exp": 0,
-              "iat": 0,
-              "iss": "fqdn1",
-              "sel": {
-                "include": {
-                  "labels": [
-                    {
-                      "name": "estuary.dev/match-nothing",
-                      "value": "1"
-                    },
-                    {
-                      "name": "name",
-                      "value": "acmeCo/pineapples/88667755330099/pivot=00"
-                    }
-                  ]
-                }
-              },
-              "sub": "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000"
-            }
-          ]
-        }
-        "###);
-    }
-
-    async fn run(
-        mut claims: proto_gazette::Claims,
-    ) -> Result<(String, proto_gazette::Claims), crate::server::error::ApiError> {
-        let taken = chrono::Utc::now();
-        // Snapshot is 1 second ahead of `taken` so that iat=0 (using `taken`) is
-        // "before snapshot" and iat=1 is "same second as snapshot"
-        let snapshot = Snapshot::build_fixture(Some(taken + chrono::Duration::seconds(1)));
-        let snapshot = std::sync::RwLock::new(snapshot);
-
-        claims.iat = claims.iat + taken.timestamp() as u64;
-        claims.exp = taken.timestamp() as u64 + 100;
-
-        let request_token = jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
+        let token = tokens::jwt::sign(
             &claims,
             &jsonwebtoken::EncodingKey::from_secret("key1".as_bytes()),
         )
         .unwrap();
 
-        let Response {
-            token: response_token,
-            broker_address,
-            retry_millis,
-        } = do_authorize_task(&snapshot, request_token).await?.0;
+        let started =
+            chrono::DateTime::from_timestamp(taken.timestamp() + iat_offset_seconds, 0).unwrap();
 
-        if retry_millis != 0 {
-            return Err(anyhow::anyhow!("retry").into());
+        match evaluate_authorization(
+            &snapshot,
+            started,
+            shard_id,
+            shard_data_plane_fqdn,
+            &token,
+            journal_name_or_prefix,
+            required_role,
+        ) {
+            Ok((cordon_at, (_key, data_plane_fqdn, broker_address, found))) => {
+                let output = SuccessOutput {
+                    broker_address,
+                    data_plane_fqdn,
+                    found,
+                };
+
+                if cordon_at.is_some() {
+                    Outcome::OkCordoned(output)
+                } else {
+                    Outcome::Ok(output)
+                }
+            }
+            Err(status) => Outcome::Err {
+                status: tokens::rest::grpc_status_code_to_http(status.code()),
+                error: status.message().to_string(),
+            },
         }
-
-        // Decode and verify the response token.
-        let mut decoded = jsonwebtoken::decode::<proto_gazette::Claims>(
-            &response_token,
-            &jsonwebtoken::DecodingKey::from_secret("key1".as_bytes()),
-            &jsonwebtoken::Validation::default(),
-        )
-        .expect("failed to decode response token")
-        .claims;
-        (decoded.iat, decoded.exp) = (0, 0);
-
-        Ok((broker_address, decoded))
     }
 }

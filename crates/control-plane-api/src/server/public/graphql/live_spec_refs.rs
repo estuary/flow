@@ -1,16 +1,10 @@
+use crate::{
+    alerts::Alert,
+    server::public::graphql::{PgDataLoader, alerts, live_specs, publication_history, status},
+};
 use async_graphql::{
     ComplexObject, Context, SimpleObject, dataloader,
     types::connection::{self, Connection},
-};
-
-use std::sync::Arc;
-
-use crate::{
-    alerts::Alert,
-    server::{
-        App, ControlClaims,
-        public::graphql::{PgDataLoader, alerts, live_specs, publication_history, status},
-    },
 };
 
 const DEFAULT_PAGE_SIZE: usize = 50;
@@ -184,23 +178,25 @@ pub async fn paginate_live_specs_refs(
     first: Option<i32>,
     last: Option<i32>,
 ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+    let env = ctx.data::<crate::Envelope>()?;
+
     if all_names.is_empty() {
         return Ok(connection::Connection::new(false, false));
     }
-
-    let app = ctx.data::<Arc<App>>()?;
-    let claims = ctx.data::<ControlClaims>()?;
-
-    let all_refs = app.attach_user_capabilities(claims, all_names, |name, maybe_capability| {
-        if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
-            return None;
-        }
-
-        Some(LiveSpecRef {
-            catalog_name: models::Name::new(name),
-            user_capability: maybe_capability,
-        })
-    });
+    let all_refs = crate::server::attach_user_capabilities(
+        env.snapshot(),
+        env.claims()?,
+        all_names,
+        |name, maybe_capability| {
+            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
+                return None;
+            }
+            Some(LiveSpecRef {
+                catalog_name: models::Name::new(name),
+                user_capability: maybe_capability,
+            })
+        },
+    );
     apply_pagination(all_refs, after, before, first, last).await
 }
 
@@ -276,41 +272,37 @@ impl LiveSpecsQuery {
         &self,
         ctx: &Context<'_>,
         by: LiveSpecsBy,
-        started_at: Option<chrono::DateTime<chrono::Utc>>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+        let env = ctx.data::<crate::Envelope>()?;
+
         let LiveSpecsBy {
             names,
             prefix,
             catalog_type,
             data_plane_name: data_plane,
         } = by;
-        let app = ctx.data::<Arc<App>>()?;
-        let claims = ctx.data::<ControlClaims>()?;
-
         let names = names.unwrap_or_default();
 
-        let mut verify_names = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
-        verify_names.extend(prefix.iter().map(|p| p.to_string()));
-        if verify_names.is_empty() {
-            return Err(async_graphql::Error::new(
-                "must provide at least one of `names` or `prefix`",
-            ));
-        }
         // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
-        let _ = app
-            .verify_user_authorization_graphql(
-                claims,
-                started_at,
-                verify_names,
-                models::Capability::Read,
-            )
-            .await?;
+        let policy_result = crate::server::evaluate_names_authorization(
+            env.snapshot(),
+            env.claims()?,
+            models::Capability::Read,
+            names
+                .iter()
+                .map(models::Name::as_str)
+                .chain(prefix.as_ref().map(models::Prefix::as_str).into_iter()),
+        );
+        let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
-        let pg_pool = app.pg_pool.clone();
+        if names.is_empty() && prefix.is_none() {
+            return Err("must provide at least one of `names` or `prefix`".into());
+        }
+
         let (names, has_prev, has_next) =
             connection::query_with::<String, _, _, _, async_graphql::Error>(
                 after,
@@ -318,7 +310,6 @@ impl LiveSpecsQuery {
                 first,
                 last,
                 |after, before, first, last| async move {
-                    let db = pg_pool;
                     let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
                     if limit == 0 {
                         return Ok((Vec::new(), false, false));
@@ -326,7 +317,7 @@ impl LiveSpecsQuery {
 
                     let result = if before.is_some() || last.is_some() {
                         let names = fetch_live_specs_names_before(
-                            &db,
+                            &env.pg_pool,
                             names,
                             prefix,
                             catalog_type,
@@ -343,7 +334,7 @@ impl LiveSpecsQuery {
                     } else {
                         // Default to forward pagination unless before or last is specified
                         let names = fetch_live_specs_names_after(
-                            &db,
+                            &env.pg_pool,
                             names,
                             prefix,
                             catalog_type,
@@ -367,15 +358,20 @@ impl LiveSpecsQuery {
         // We already know that the user at least has read capability to the prefix,
         // but it's possible that they may have a greater capability to specific
         // sub-prefixes, so resolve those here.
-        let edges = app.attach_user_capabilities(claims, names, |name, user_capability| {
-            Some(connection::Edge::new(
-                name.clone(),
-                LiveSpecRef {
-                    catalog_name: models::Name::new(name),
-                    user_capability,
-                },
-            ))
-        });
+        let edges = crate::server::attach_user_capabilities(
+            env.snapshot(),
+            env.claims()?,
+            names,
+            |name, user_capability| {
+                Some(connection::Edge::new(
+                    name.clone(),
+                    LiveSpecRef {
+                        catalog_name: models::Name::new(name),
+                        user_capability,
+                    },
+                ))
+            },
+        );
 
         let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
         conn.edges = edges;
