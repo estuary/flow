@@ -4,7 +4,6 @@
 query LiveSpecsByNameBob {
     liveSpecs(
         by: { names: ["bobCo/private/materialization"] }
-        startedAt: "2025-10-01T01:01:01Z"
     ) {
         edges {
             node {

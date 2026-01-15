@@ -4,7 +4,6 @@
 query LiveSpecsByNameAlice {
     liveSpecs(
         by: { names: ["aliceCo/private/capture"] }
-        startedAt: "2035-10-31T01:01:01Z"
     ) {
         edges {
             node {

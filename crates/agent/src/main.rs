@@ -5,13 +5,12 @@ use anyhow::Context;
 use axum::http;
 use clap::Parser;
 use control_plane_api::{
-    discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
+    App, discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
 };
 use derivative::Derivative;
 use futures::FutureExt;
 use sqlx::{ConnectOptions, Connection};
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
 #[derive(Derivative, Parser)]
@@ -292,12 +291,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher = publisher.with_skip_connector_table_check();
     }
 
-    let decrypted_hmac_keys = Arc::new(RwLock::new(HashMap::new()));
+    // Share-able future which completes when the agent should exit.
+    let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
 
-    tokio::spawn(refresh_decrypted_hmac_keys(
-        pg_pool.clone(),
-        decrypted_hmac_keys.clone(),
-    ));
+    // Create the snapshot source and start the refresh loop.
+    let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool.clone());
+    let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
 
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
@@ -307,23 +306,20 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher.clone(),
         discover_handler.clone(),
         logs_tx.clone(),
-        decrypted_hmac_keys.clone(),
+        snapshot_watch.clone(),
         args.auto_discover_probability,
         controller_publication_cooldown,
     );
 
-    // Share-able future which completes when the agent should exit.
-    let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
-
-    // Wire up the agent's API server.
-    let api_router = control_plane_api::build_router(
+    // Wire up the agent's API Application and server.
+    let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
-        jwt_secret.into_bytes(),
+        jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-        &args.allow_origin,
-        decrypted_hmac_keys,
-    )?;
+        snapshot_watch,
+    ));
+    let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
@@ -412,49 +408,4 @@ fn new_http_client() -> anyhow::Result<reqwest::Client> {
 
     let c = reqwest::Client::builder().default_headers(map).build()?;
     Ok(c)
-}
-
-async fn refresh_decrypted_hmac_keys(
-    pg_pool: sqlx::PgPool,
-    decrypted_hmac_keys: Arc<RwLock<HashMap<String, Vec<String>>>>,
-) -> anyhow::Result<()> {
-    const REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(60);
-
-    loop {
-        let mut data_planes: Vec<_> =
-            control_plane_api::data_plane::fetch_all_data_planes(&pg_pool)
-                .await?
-                .into_iter()
-                .filter(|dp| {
-                    !decrypted_hmac_keys
-                        .read()
-                        .unwrap()
-                        .contains_key(&dp.data_plane_name)
-                })
-                .filter(|dp| {
-                    !dp.encrypted_hmac_keys
-                        .to_value()
-                        .as_object()
-                        .unwrap()
-                        .is_empty()
-                })
-                .collect();
-
-        futures::future::try_join_all(
-            data_planes
-                .iter_mut()
-                .map(|dp| agent::decrypt_hmac_keys(dp)),
-        )
-        .await?;
-
-        {
-            let mut writable = decrypted_hmac_keys.write().unwrap();
-
-            data_planes.iter().for_each(|dp| {
-                writable.insert(dp.data_plane_name.clone(), dp.hmac_keys.clone());
-            });
-        }
-
-        tokio::time::sleep(REFRESH_INTERVAL.to_std().unwrap()).await;
-    }
 }

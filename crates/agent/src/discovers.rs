@@ -1,10 +1,11 @@
 use anyhow::Context;
 use control_plane_api::{
-    Id, connector_tags,
+    connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,
 };
+use models::Id;
 use serde::{Deserialize, Serialize};
 
 /// JobStatus is the possible outcomes of a handled discover operation.
