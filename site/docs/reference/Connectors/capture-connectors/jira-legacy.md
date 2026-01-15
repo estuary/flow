@@ -1,9 +1,9 @@
 
 # Jira (legacy)
 
-This connector captures data from [Jira's REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/) into Flow collections.
+This connector captures data from [Jira's REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/) into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-jira-legacy:dev`](https://ghcr.io/estuary/source-jira-legacy:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-jira-legacy:dev`](https://ghcr.io/estuary/source-jira-legacy:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 :::warning
 This connector is deprecated. It is recommended that you use the new native [Jira connector](./jira-native.md) instead.
@@ -69,7 +69,7 @@ The following data resources are supported through the Jira APIs:
 * [Workflow statuses](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-workflow-statuses/#api-rest-api-3-status-get)
 * [Workflow status categories](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-workflow-status-categories/#api-rest-api-3-statuscategory-get)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ### Experimental streams
 
@@ -85,7 +85,7 @@ These resources are not documented by Jira and must specifically be enabled in t
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Jira source connector.
 
 ### Properties

@@ -4,7 +4,7 @@ slug: /guides/flatten-array/
 
 # How to Flatten an Array Using TypeScript
 
-This guide will show you how to flatten an array field in a collection by creating a TypeScript derivation in Estuary Flow.
+This guide will show you how to flatten an array field in a collection by creating a TypeScript derivation in Estuary.
 
 :::note
 We'll be using TypeScript for our derivation in this guide. Check out our other guides if you're interested in using [SQL](/guides/derivation_tutorial_sql) or [Python](/guides/transform_data_using_python) for transformations.
@@ -43,7 +43,7 @@ The resulting data will have the following structure:
 ## Step 1: Set up your development environment
 
 1. Ensure you have `flowctl` [installed and authenticated](/guides/get-started-with-flowctl).
-2. In the Estuary Flow dashboard, note the name of the collection you'd like to transform.
+2. In the Estuary dashboard, note the name of the collection you'd like to transform.
 3. In your local development environment, create a working directory with a new `flow.yaml` file.
 
 ## Step 2: Set up your schema
@@ -185,10 +185,10 @@ This file is where you'll write your TypeScript code to flatten the array.
    }
    ```
 
-3. Once you've confirmed your results, you can proceed to publish your derivation to Estuary Flow:
+3. Once you've confirmed your results, you can proceed to publish your derivation to Estuary:
 
    ```bash
    flowctl catalog publish --source flow.yaml
    ```
 
-Congratulations! You've successfully flattened an array in TypeScript using Estuary Flow. You can now use this technique to flatten other arrays in your data as well.
+Congratulations! You've successfully flattened an array in TypeScript using Estuary. You can now use this technique to flatten other arrays in your data as well.

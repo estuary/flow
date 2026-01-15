@@ -1,11 +1,11 @@
 # examples/
 
-This folder holds a variety of examples and proof-of-concepts using Flow.
+This folder holds a variety of examples and proof-of-concepts using Estuary.
 
 ## Using these examples
 
-These examples are written as Flow YAML specifications, and demonstrate how to
-manage Flow data pipelines using files checked into a git repository. You would
+These examples are written as Data Flow YAML specifications, and demonstrate how to
+manage Estuary's data pipelines using files checked into a git repository. You would
 typically use `flowctl catalog test` and `flowctl catalog publish` in order to
 test and publish YAML specifications. But you would need to change the names
 to use a prefix that you have `admin` access to in order to actually run these
@@ -20,8 +20,8 @@ Estuary control-plane).
 
 ## Running All Tests
 
-Flow makes it easy to write tests that verify the end-to-end behaviors of
-catalog collections. We recommend that _every_ Flow catalog include tests,
+Estuary makes it easy to write tests that verify the end-to-end behaviors of
+catalog collections. We recommend that _every_ Estuary catalog include tests,
 and these examples are no exception:
 
 ```console
@@ -44,4 +44,4 @@ $ flowctl-go test --source https://raw.githubusercontent.com/estuary/flow/master
 ## Reference
 
 - [derive-patterns/](derive-patterns/) demonstrates common patterns and approaches in building derivations.
-- [reduction-types/](reduction-types/) discusses reduction annotations available in Flow.
+- [reduction-types/](reduction-types/) discusses reduction annotations available in Estuary.

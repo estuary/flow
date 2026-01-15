@@ -2,29 +2,29 @@
 # Datadog HTTP Ingest (Webhook)
 
 The Datadog HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests from Datadog.
-A common use case is to capture webhook deliveries, turning them into a Flow collection.
+A common use case is to capture webhook deliveries, turning them into an Estuary collection.
 
-The connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+The connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Usage
 
 This connector is distinct from all other capture connectors in that it's not designed to pull data from a specific
 system or endpoint. It requires no endpoint-specific configuration, and can accept any and all valid JSON objects from any source.
 
-This is useful primarily if you want to test out Flow or see how your webhook data will come over.
+This is useful primarily if you want to test out Estuary or see how your webhook data will come over.
 
 To begin, use the web app to create a capture. Once published, the confirmation dialog displays
 a unique URL for your public endpoint.
 
-You're now ready to send data to Flow.
+You're now ready to send data to Estuary.
 
-### Send sample data to Flow
+### Send sample data to Estuary
 
 1. After publishing the capture, click the endpoint link from the confirmation dialog to open the Swagger UI page for your capture.
 
 2. Expand **POST** or **PUT** and click **Try it out** to send some example JSON documents using the UI. You can also copy the provided `curl` commands to send data via the command line.
 
-3. After sending data, go to the Collections page of the Flow web app and find the collection associated with your capture.
+3. After sending data, go to the Collections page of the Estuary web app and find the collection associated with your capture.
 Click **Details** to view the data preview.
 
 ### Configure a Datadog webhook
@@ -47,7 +47,7 @@ Click **Details** to view the data preview.
 
 ### Webhook URLs
 
-To determine the full URL, start with the base URL from the Flow web app (for example `https://abc123-8080.us-central1.v1.estuary-data.dev`), and then append the path.
+To determine the full URL, start with the base URL from the Estuary web app (for example `https://abc123-8080.us-central1.v1.estuary-data.dev`), and then append the path.
 
 The path will be whatever is in the `paths` endpoint configuration field (`/webhook-data` by default). For example, your full webhook URL would be `https://<your-unique-hostname>/webhook-data`. You can add additional paths to `paths`, and the connector will accept webhook requests on each of them. Each path will correspond to a separate binding. If you're editing the capture via the UI, click the "re-fresh" button after editing the URL paths in the endpoint config to see the resulting collections in the bindings editor. For example, if you set the path to `/my-webhook.json`, then the full URL for that binding would be `https://<your-unique-hostname>/my-webhook.json`.
 

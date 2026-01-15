@@ -5,15 +5,15 @@ slug: /guides/system-specific-dataflows/firestore-to-dwh/
 # Google Cloud Firestore to Snowflake
 
 This guide walks you through the process of creating an
-end-to-end real-time Data Flow from Google Cloud Firestore to Snowflake using Estuary Flow.
+end-to-end real-time Data Flow from Google Cloud Firestore to Snowflake using Estuary.
 
 ## Prerequisites
 
 You'll need:
 
-* (Recommended) understanding of the [basic Flow concepts](/concepts/#essential-concepts).
+* (Recommended) understanding of Estuary's [basic concepts](/concepts/#essential-concepts).
 
-* Access to the [**Flow web application**](http://dashboard.estuary.dev) through an Estuary account.
+* Access to the [**Estuary web application**](http://dashboard.estuary.dev) through an Estuary account.
 If you don't have one, visit the web app to register for free.
 
 * A **Firestore database** that contains the data you'd like to move to Snowflake. You [create this as part of a Google Firebase project](https://cloud.google.com/firestore/docs/create-database-web-mobile-client-library).
@@ -28,29 +28,29 @@ If you don't have one, visit the web app to register for free.
 * A Snowflake account with:
 
   * A target **database**, **schema**, and virtual **warehouse**; and a **user** with a **role** assigned that grants the appropriate access levels to these resources.
-  [You can use a script to quickly create all of these items.](/reference/Connectors/materialization-connectors/Snowflake/#setup) Have these details on hand for setup with Flow.
+  [You can use a script to quickly create all of these items.](/reference/Connectors/materialization-connectors/Snowflake/#setup) Have these details on hand for setup with Estuary.
 
   * The account identifier and host URL noted. [The URL is formatted using the account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used). For example, you might have the account identifier `orgname-accountname.snowflakecomputing.com`.
 
 ## Introduction
 
-In Estuary Flow, you create **Data Flows** to transfer data from **source** systems to **destination** systems in real time.
+In Estuary, you create **Data Flows** to transfer data from **source** systems to **destination** systems in real time.
 In this use case, your source is a Google Cloud Firestore NoSQL database and your destination is a Snowflake data warehouse.
 
 After following this guide, you'll have a Data Flow that comprises:
 
 * A **capture**, which ingests data from Firestore
-* Several **collections**, cloud-backed copies of [Firestore collections](https://cloud.google.com/firestore/docs/data-model) in the Flow system
+* Several **collections**, cloud-backed copies of [Firestore collections](https://cloud.google.com/firestore/docs/data-model) in the Estuary system
 * A **materialization**, which pushes the collections to Snowflake
 
 The capture and materialization rely on plug-in components called **connectors**.
-We'll walk through how to configure the [Firestore](/reference/Connectors/capture-connectors/google-firestore) and [Snowflake](/reference/Connectors/materialization-connectors/Snowflake) connectors to integrate these systems with Flow.
+We'll walk through how to configure the [Firestore](/reference/Connectors/capture-connectors/google-firestore) and [Snowflake](/reference/Connectors/materialization-connectors/Snowflake) connectors to integrate these systems with Estuary.
 
 ## Capture from Firestore
 
-You'll first create a capture to connect to your Firestore database, which will yield one Flow collection for each [Firestore collection](https://cloud.google.com/firestore/docs/data-model) in your database.
+You'll first create a capture to connect to your Firestore database, which will yield one Estuary collection for each [Firestore collection](https://cloud.google.com/firestore/docs/data-model) in your database.
 
-1. Go to the Flow web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
+1. Go to Estuary's web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
 credentials provided by your Estuary account manager.
 
 2. Click the **Sources** tab and choose **New Capture**.
@@ -68,15 +68,15 @@ credentials provided by your Estuary account manager.
 
 5. Fill out the required properties for Firestore.
 
-   * **Database**: Flow can autodetect the database name, but you may optionally specify it here. This is helpful if the service account used has access to multiple Firebase projects. Your database name usually follows the format `projects/$PROJECTID/databases/(default)`.
+   * **Database**: Estuary can autodetect the database name, but you may optionally specify it here. This is helpful if the service account used has access to multiple Firebase projects. Your database name usually follows the format `projects/$PROJECTID/databases/(default)`.
 
    * **Credentials**: The JSON service account key created per the [prerequisites](#prerequisites).
 
 6. Click **Next**.
 
-   Flow uses the provided configuration to initiate a connection with Firestore.
+   Estuary uses the provided configuration to initiate a connection with Firestore.
 
-   It maps each available Firestore collection to a possible Flow collection. It also generates minimal schemas for each collection.
+   It maps each available Firestore collection to a possible Estuary collection. It also generates minimal schemas for each collection.
 
    You can use the **Source Collections** browser to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
@@ -115,7 +115,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 4. Click **Next**.
 
-   Flow uses the provided configuration to initiate a connection to Snowflake.
+   Estuary uses the provided configuration to initiate a connection to Snowflake.
 
    You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
@@ -133,13 +133,13 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
    Firestore has a flat data structure.
    To materialize data effectively from Firestore to Snowflake, you should apply a schema that can translate to a table structure.
-   Flow's **Schema Inference** tool can help.
+   Estuary's **Schema Inference** tool can help.
 
    1. In the Source Collections browser, choose a collection and click its **Collection** tab.
 
    2. Click **Schema Inference**
 
-      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
+      The Schema Inference window appears. Estuary scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
 
    3. Review the new schema and click **Apply Inferred Schema**.
 

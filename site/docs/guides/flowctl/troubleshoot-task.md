@@ -37,7 +37,7 @@ Use the tables on the Captures or Materializations pages of the web app to do so
 
 If your logs aren't providing enough detail, you can change the log level.
 
-Flow offers several log levels. From least to most detailed, these are:
+Estuary offers several log levels. From least to most detailed, these are:
 
 * `error`
 * `warn`

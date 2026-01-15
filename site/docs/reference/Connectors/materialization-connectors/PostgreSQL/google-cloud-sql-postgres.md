@@ -1,12 +1,12 @@
 ---
-description: This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.
+description: This connector materializes Estuary collections into tables in a Google Cloud SQL for PostgreSQL database.
 ---
 
 # Google Cloud SQL for PostgreSQL
 
-This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.
+This connector materializes Estuary collections into tables in a Google Cloud SQL for PostgreSQL database.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -14,16 +14,16 @@ To use this connector, you'll need:
 
 - A Postgres database to which to materialize, and user credentials.
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
-- At least one Flow collection
+- At least one Estuary collection
 
 ## Setup
 
 You must configure your database to allow connections from Estuary.
-There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
 ### Connecting Directly to Google Cloud SQL
 
-1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
+1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
 
 ### Connect With SSH Tunneling
 
@@ -68,8 +68,8 @@ You can find the host and port in the following location:
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Postgres materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Postgres materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -121,9 +121,9 @@ The default is to use standard updates.
 ## Reserved words
 
 PostgreSQL has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
+Estuary considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
 
-These reserve words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserve words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 | Reserved words                  |                                  |                      |                 |                 |
 | ------------------------------- | -------------------------------- | -------------------- | --------------- | --------------- |
@@ -235,7 +235,7 @@ This version includes breaking changes to materialized table columns.
 These provide more consistent column names and types, but tables created from previous versions of the connector may
 not be compatible with this version.
 
-- Capitalization is now preserved when fields in Flow are converted to Postgres column names.
+- Capitalization is now preserved when fields in Estuary are converted to Postgres column names.
   Previously, fields containing uppercase letters were converted to lowercase.
 
 - Field names and values of types `date`, `duration`, `ipv4`, `ipv6`, `macaddr`, `macaddr8`, and `time` are now converted into

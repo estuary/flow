@@ -7,7 +7,7 @@ slug: /reference/backfilling-data/
 
 When new captures are created, you often have the option of backfilling data. This captures data in its current state and then switches to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as it ensures that a complete view of your data is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your data is captured into Estuary.
 
 You also have options to backfill data in either the source, destination, or entire dataflow after initial connector setup. This can be useful to refresh data or recover in the event of data corruption.
 
@@ -31,7 +31,7 @@ When you perform an incremental backfill:
 
 To perform an incremental backfill:
 
-1. Navigate to the Sources tab in the Flow web UI
+1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Incremental backfill (advanced)** option
 4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
@@ -70,7 +70,7 @@ When you perform a materialization backfill:
 
 To perform a materialization backfill:
 
-1. Navigate to the Destinations tab in the Flow web UI
+1. Navigate to the Destinations tab in Estuary's web UI
 2. Find your materialization and start editing it
 3. Under the **Source Collections** section, expand **Advanced options**
 4. Select the **Backfill** button
@@ -78,7 +78,7 @@ To perform a materialization backfill:
 
 Or you can select individual collections to backfill:
 
-1. Navigate to the Destinations tab in the Flow web UI
+1. Navigate to the Destinations tab in Estuary's web UI
 2. Find your materialization and start editing it
 3. Select a collection you would like to backfill
 4. In the collection's **Resource configuration**, expand the **Advanced options** section
@@ -110,7 +110,7 @@ When you perform a dataflow reset:
 
 To perform a dataflow reset:
 
-1. Navigate to the Sources tab in the Flow web UI
+1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Dataflow reset** option
 4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
@@ -141,7 +141,7 @@ backfills (not dropping the destination tables) when you have materializations t
 delta updates may result in duplicate rows.
 
 By understanding these backfill types, you can choose the appropriate method to maintain data
-consistency across your Estuary Flow pipelines while minimizing disruption to your data consumers.
+consistency across your Estuary pipelines while minimizing disruption to your data consumers.
 
 | **If I want to...** | **Then I should...** |
 | --- | --- |
@@ -164,9 +164,9 @@ In this case, many connectors allow you to turn off backfilling on a per-stream 
 
 ### Preventing backfills during database upgrades
 
-During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Flow relies on these methods to keep its place, upgrades will disrupt the Flow pipeline in these cases.
+During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Estuary relies on these methods to keep its place, upgrades will disrupt the Estuary pipeline in these cases.
 
-- If a database upgrade **will not** affect these resources, the Flow connector should simply resume when the upgrade completes and no action is required.
+- If a database upgrade **will not** affect these resources, the Estuary connector should simply resume when the upgrade completes and no action is required.
 - If a database upgrade **will** affect these or similar resources, you may need to trigger a backfill after the upgrade completes.
 
 The easiest and most bulletproof solution when this happens is to backfill all bindings of the impacted capture(s) after performing the upgrade. This will permit the captures to recreate entities as necessary, establish a new CDC position, and then backfill all table contents to ensure that any changes which might have occurred in the meantime are correctly captured.
@@ -234,7 +234,7 @@ The following modes are available:
 
    This mode lacks the exact correctness properties of the Normal backfill mode.
 
-If you do not choose a specific backfill mode, Flow will default to an automatic mode.
+If you do not choose a specific backfill mode, Estuary will default to an automatic mode.
 
 ## Advanced backfill configuration in specific systems
 

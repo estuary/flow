@@ -1,9 +1,9 @@
 
 # SingleStore
 
-This connector materializes Flow collections into tables in a SingleStore database.
+This connector materializes Estuary collections into tables in a SingleStore database.
 
-It is available for use in the Flow web application. For local development or
+It is available for use in the Estuary web application. For local development or
 open-source workflows,
 [`ghcr.io/estuary/materialize-singlestore:dev`](https://ghcr.io/estuary/materialize-singlestore:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -13,7 +13,7 @@ To use this connector, you'll need:
 
 - A SingleStore account with a database and database user
    - You will need to use [SSL](https://docs.singlestore.com/cloud/connect-to-singlestore/connect-with-mysql/connect-with-mysql-client/connect-to-singlestore-helios-using-tls-ssl/) to connect with a SingleStoreDB Cloud account
-- At least one Flow collection
+- At least one Estuary collection
 
 ## Setup
 
@@ -41,8 +41,8 @@ To connect to your SingleStore database from Estuary, you must collect informati
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a SingleStore materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a SingleStore materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 

@@ -1,9 +1,9 @@
 
 # Facebook Marketing (Deprecated)
 
-This connector captures data from the Facebook Marketing API into Flow collections.
+This connector captures data from the Facebook Marketing API into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-facebook-marketing:dev`](https://ghcr.io/estuary/source-facebook-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-facebook-marketing:dev`](https://ghcr.io/estuary/source-facebook-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 :::warning
 This connector is deprecated. For the best experience, we recommend using our native [Facebook Ads connector](./facebook-marketing-native.md) instead.
@@ -24,19 +24,19 @@ The following data resources are supported:
 * [Images](https://developers.facebook.com/docs/marketing-api/reference/ad-image)
 * [Videos](https://developers.facebook.com/docs/graph-api/reference/video/)
 
-By default, each resource associated with your Facebook Business account is mapped to a Flow collection through a separate binding.
+By default, each resource associated with your Facebook Business account is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-There are two ways to authenticate with Facebook when capturing data into Flow: signing in with OAuth2, and manually supplying an access token.
+There are two ways to authenticate with Facebook when capturing data into Estuary: signing in with OAuth2, and manually supplying an access token.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Estuary web app;
 the manual method is the only supported method using the command line.
 
 ### Signing in with OAuth2
 
-To use OAuth2 in the Flow web app, you'll need a Facebook Business account and its [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
+To use OAuth2 in the Estuary web app, you'll need a Facebook Business account and its [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
 
 ### Configuring manually with an access token
 
@@ -72,7 +72,7 @@ Follow the steps below to meet these requirements.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Facebook Marketing source connector.
 
 ### Properties

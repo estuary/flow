@@ -2,18 +2,18 @@
 # HTTP Ingest (Webhook)
 
 The HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests.
-A common use case is to capture webhook deliveries, turning them into a Flow collection.
+A common use case is to capture webhook deliveries, turning them into an Estuary collection.
 
 If you need to capture a dataset hosted at an HTTP endpoint, see the [HTTP File](./http-file.md) connector.
 
-The connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+The connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Usage
 
 This connector is different from most other capture connectors in that it's not designed to pull data from a specific
 system or endpoint. It requires no endpoint-specific configuration, and can accept any and all valid JSON objects from any source.
 
-This is especially useful if you want to test out Flow or see how your webhook data will be received.
+This is especially useful if you want to test out Estuary or see how your webhook data will be received.
 
 To begin, use the web app to create and publish a capture. Estuary will create a unique URL for your public endpoint. By default, this will accept webhook requests at `https://<your-public-endpoint>/webhook-data`, but you can customize the path, or even capture from multiple URL paths if you like.
 
@@ -54,7 +54,7 @@ Any URL query parameters that are sent on the request will be captured and seria
 }
 ```
 
-### Send sample data to Flow
+### Send sample data to Estuary
 
 1. After publishing the capture, click the endpoint link from the confirmation dialog to open the Swagger UI page for your capture.
 
@@ -62,7 +62,7 @@ Any URL query parameters that are sent on the request will be captured and seria
 
 2. Expand **POST** or **PUT** and click **Try it out** to send some example JSON documents using the UI. You can also copy the provided `curl` commands to send data via the command line.
 
-3. After sending data, go to the Collections page of the Flow web app and find the collection associated with your capture.
+3. After sending data, go to the Collections page of the Estuary web app and find the collection associated with your capture.
 Click **Details** to view the data preview.
 
 ### Path parameters

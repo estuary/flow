@@ -2,7 +2,7 @@
 
 This connector captures streaming data from Apache Kafka topics.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported message formats
 
@@ -39,12 +39,12 @@ for help setting up a schema registry API key.
 
 If no schema registry is configured, all available topics will be discovered and
 use a collection key composed of the captured message's `partition` and
-`offset`. If schema registry is configured, Flow collections for Kafka topics
+`offset`. If schema registry is configured, Estuary collections for Kafka topics
 will be discovered using the _latest_ version of the registered key schema for
 the topic.
 
 For a collection key to be discovered from a registered topic key schema, the
-topic key schema must be compatible with a [Flow collection
+topic key schema must be compatible with an [Estuary collection
 key](../../../concepts/collections.md#keys), with the following additional considerations:
 - Key fields must not contain `null` as a type
 - Key fields can be a single type only
@@ -56,11 +56,11 @@ the default collection key of `parition` and `offset` will be used instead.
 ### Authentication and connection security
 
 Neither authentication nor connection security are enabled by default in your Kafka cluster, but both are important considerations.
-Similarly, Flow's Kafka connectors do not strictly require authentication or connection security mechanisms.
+Similarly, Estuary's Kafka connectors do not strictly require authentication or connection security mechanisms.
 You may choose to omit them for local development and testing; however, both are strongly encouraged for production environments.
 
 A wide [variety of authentication methods](https://kafka.apache.org/documentation/#security_overview) is available in Kafka clusters.
-Flow supports SASL/SCRAM-SHA-256, SASL/SCRAM-SHA-512, and SASL/PLAIN. Behavior using other authentication methods is not guaranteed.
+Estuary supports SASL/SCRAM-SHA-256, SASL/SCRAM-SHA-512, and SASL/PLAIN. Behavior using other authentication methods is not guaranteed.
 When authentication details are not provided, the client connection will attempt to use PLAINTEXT (insecure) protocol.
 
 If you don't already have authentication enabled on your cluster, Estuary recommends either of listed [SASL/SCRAM](https://kafka.apache.org/documentation/#security_sasl_scram) methods.
@@ -86,11 +86,11 @@ Other connection security methods may be enabled in the future.
 
 If using AWS Managed Streaming for Apache Kafka (MSK), you can use IAM authentication with our connector. Read more about IAM authentication with MSK in AWS docs: [IAM access control](https://docs.aws.amazon.com/msk/latest/developerguide/iam-access-control.html).
 
-Additionally, you want to make sure that your VPC configuration allows inbound and outbound requests to [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+Additionally, you want to make sure that your VPC configuration allows inbound and outbound requests to [Estuary IP addresses](/reference/allow-ip-addresses).
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Apache Kafka source connector.
 
 ### Properties

@@ -1,6 +1,6 @@
 # Citi Bike System Data
 
-This example uses Flow to capture and process Citi Bike [system data][].
+This example uses Estuary to capture and process Citi Bike [system data][].
 The dataset is available in the S3 [tripdata][] bucket as compressed CSV files
 of each ride taken within the system, by month.
 
@@ -66,10 +66,10 @@ It defines the _shape_ that documents can take.
 _Validations_ constrain the types and values that documents can take.
 A "longitude" must be a number and fall within the expected range, and "gender"
 must be a value within the expected enumeration. Some properties are `required`,
-while others are optional. Flow enforces that all documents of a collection
+while others are optional. Estuary enforces that all documents of a collection
 must validate against its schema before they can be added.
 
-Flow is also able to _translate_ many schema constraints (e.g. "/begin/station/id
+Estuary is also able to _translate_ many schema constraints (e.g. "/begin/station/id
 must exist and be an integer") into other kinds of schema -- like TypeScript types
 and SQL constraints -- which promotes end-to-end type safety and a better
 development experience.
@@ -98,7 +98,7 @@ $ unzip -p 202009-citibike-tripdata.csv.zip | head -5
 _Projections_ let us account for this, by defining a mapping between
 document locations (as [JSON Pointers][]) and corresponding fields
 in a flattened, table-based representation such as a CSV file or SQL table.
-They're used whenever Flow is capturing from or materializing into
+They're used whenever Estuary is capturing from or materializing into
 table-like systems.
 
 [json pointers]: https://docs.opis.io/json-schema/1.x/pointers.html
@@ -152,15 +152,15 @@ about each station, like the number of bikes which have arrived, departed, and b
 in or out. We also need to know which bikes are currently at each station.
 
 To accomplish this, we'll build a collection keyed on station IDs into which we'll derive
-documents that update our station status. However, we need to tell Flow how to _reduce_
+documents that update our station status. However, we need to tell Estuary how to _reduce_
 these updates into a full view of a station's status, by adding `reduce` annotations
 into our schema. [station.schema.yaml](station.schema.yaml) is the complete schema for
 our station status collection.
 
-Flow uses reduce annotations to build general "combiners" (in the map/reduce sense) over
-documents of a given schema. Those combiners are employed automatically by Flow.
+Estuary uses reduce annotations to build general "combiners" (in the map/reduce sense) over
+documents of a given schema. Those combiners are employed automatically by Estuary.
 
-Now we define our derivation. Since Flow is handling reductions for us, our remaining
+Now we define our derivation. Since Estuary is handling reductions for us, our remaining
 responsibility is to implement the "mapper" function which will transform source
 events into status status updates. See [stations.flow.yaml](stations.flow.yaml).
 
@@ -185,7 +185,7 @@ happened. At this point, an engineer will often reach for a task scheduler like 
 and set up a job that takes periodic snapshots of bike locations, and compares them to
 find ones which haven't changed.
 
-Flow offers a simpler approach, which is to join the rides collection with itself,
+Estuary offers a simpler approach, which is to join the rides collection with itself,
 using a _read delay_. [idle-bikes.flow.yaml](idle-bikes.flow.yaml) demonstrates this
 workflow.
 

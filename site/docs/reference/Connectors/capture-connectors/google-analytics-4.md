@@ -1,7 +1,7 @@
 
 # Google Analytics 4
 
-This connector captures data from Google Analytics 4 properties into Flow collections via the
+This connector captures data from Google Analytics 4 properties into Estuary collections via the
 [Google Analytics Data API](https://developers.google.com/analytics/devguides/reporting/data/v1).
 
 :::info
@@ -10,9 +10,9 @@ This connector supports Google Analytics 4, not Universal Analytics.
 Universal Analytics is supported by a [separate connector](./google-analytics.md).
 :::
 
-It’s available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-data-api:dev`](https://ghcr.io/estuary/source-google-analytics-data-api:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-data-api:dev`](https://ghcr.io/estuary/source-google-analytics-data-api:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 
 ## Supported data resources
@@ -28,7 +28,7 @@ The following data resources are supported:
 * Website overview
 * Weekly active users
 
-Each is [fetched as a report](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/properties/runReport) and mapped to a Flow collection through a separate binding.
+Each is [fetched as a report](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/properties/runReport) and mapped to an Estuary collection through a separate binding.
 
 You can also capture [custom reports](#custom-reports).
 
@@ -43,7 +43,7 @@ To use this connector, you'll need:
 
 There are two ways to authenticate this connector with Google:
 
-* **Directly with Google using OAuth** through the Flow web app. You'll only need your username and password.
+* **Directly with Google using OAuth** through the Estuary web app. You'll only need your username and password.
 
 * **Manually**, by generating a service account key. Using this method, there are more prerequisites.
 
@@ -67,14 +67,14 @@ You'll copy the contents of the downloaded key file into the Service Account Cre
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing a specification file.
+You configure connectors either in the Estuary web app, or by directly editing a specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Google Analytics 4 source connector.
 
 ### Properties
 
 #### Endpoint
 
-The following properties reflect the manual authentication method. If you authenticate directly with Google in the Flow web app, some of these properties aren't required.
+The following properties reflect the manual authentication method. If you authenticate directly with Google in the Estuary web app, some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|

@@ -1,11 +1,11 @@
 
 # Bing Ads
 
-This connector captures data from Bing Ads into Flow collections via the [Bing Ads API](https://learn.microsoft.com/en-us/advertising/guides/?view=bingads-13).
+This connector captures data from Bing Ads into Estuary collections via the [Bing Ads API](https://learn.microsoft.com/en-us/advertising/guides/?view=bingads-13).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-bing-ads:dev`](https://ghcr.io/estuary/source-bing-ads:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-bing-ads:dev`](https://ghcr.io/estuary/source-bing-ads:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -22,13 +22,13 @@ The following data resources are supported:
 * [Campaign performance reports](https://learn.microsoft.com/en-us/advertising/reporting-service/campaignperformancereportrequest?view=bingads-13): hourly, daily, weekly, and monthly (**four resources**).
 * [Keyword performance reports](https://learn.microsoft.com/en-us/advertising/reporting-service/keywordperformancereportrequest?view=bingads-13): hourly, daily, weekly, and monthly (**four resources**).
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-This connector uses OAuth2 to authenticate with Microsoft. You can do this in the Flow web app, or configure manually if you're using the flowctl CLI.
+This connector uses OAuth2 to authenticate with Microsoft. You can do this in the Estuary web app, or configure manually if you're using the flowctl CLI.
 
-### Using OAuth2 to authenticate with Microsoft in the Flow web app
+### Using OAuth2 to authenticate with Microsoft in the Estuary web app
 
 You'll need:
 
@@ -60,7 +60,7 @@ To set get these items, complete the following steps:
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Bing Ads source connector.
 
 ### Properties
@@ -68,7 +68,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-microsoft-in-the-flow-web-app),
+If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-microsoft-in-the-estuary-web-app),
 so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |

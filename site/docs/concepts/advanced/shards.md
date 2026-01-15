@@ -4,7 +4,7 @@ Catalog [tasks](../README.md#tasks) — captures, derivations, and materializati
 are executed by one or more task **shards**.
 
 Shards are a fault-tolerant and stateful unit of execution for a catalog task,
-which the Flow runtime assigns and runs on a scalable pool of compute resources.
+which Estuary's runtime assigns and runs on a scalable pool of compute resources.
 A single task can have many shards,
 which allow the task to scale across many machines to
 achieve more throughput and parallelism.
@@ -36,7 +36,7 @@ A new transaction is started whenever the next message is available.
 
 In general, shorter transaction durations decrease latency, while longer transaction durations
 increase efficiency.
-Flow automatically balances these two extremes to optimize each task,
+Estuary automatically balances these two extremes to optimize each task,
 but it may be useful in some cases to control transaction duration.
 For example, materializations to large analytical warehouses may benefit from longer transactions,
 which can reduce cost by performing more data reduction before landing data in the warehouse.

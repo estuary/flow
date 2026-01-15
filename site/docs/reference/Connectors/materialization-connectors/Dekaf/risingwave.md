@@ -1,12 +1,12 @@
 # RisingWave
 
-This connector materializes Flow collections as Kafka-compatible messages that a RisingWave Kafka consumer can read. [RisingWave](https://www.risingwave.com/) is a cloud-native SQL streaming database that enables real-time data processing and analytics.
+This connector materializes Estuary collections as Kafka-compatible messages that a RisingWave Kafka consumer can read. [RisingWave](https://www.risingwave.com/) is a cloud-native SQL streaming database that enables real-time data processing and analytics.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
-- At least one Flow collection
+- At least one Estuary collection
 - A RisingWave instance
 
 ## Variants
@@ -19,9 +19,9 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-## Connecting Estuary Flow to RisingWave
+## Connecting Estuary to RisingWave
 
-1. In your RisingWave instance, use the SQL shell to create a source that connects to your Estuary Flow materialization. Use the following SQL command:
+1. In your RisingWave instance, use the SQL shell to create a source that connects to your Estuary materialization. Use the following SQL command:
 
    ```sql
    CREATE SOURCE IF NOT EXISTS estuary
@@ -52,8 +52,8 @@ Once the connector is created, note the full materialization name, such as `YOUR
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Dekaf materialization, which will direct one or more of your Flow collections to your desired topics.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Dekaf materialization, which will direct one or more of your Estuary collections to your desired topics.
 
 ### Properties
 

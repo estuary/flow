@@ -1,7 +1,7 @@
 
 # Support
 
-There are multiple ways to receive support if you run into issues or have questions while working with Estuary Flow.
+There are multiple ways to receive support if you run into issues or have questions while working with Estuary.
 
 :::tip
 Be aware of downtime affecting Estuary components by subscribing to [status updates](https://status.estuary.dev/).

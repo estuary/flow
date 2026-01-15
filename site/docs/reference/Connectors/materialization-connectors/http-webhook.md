@@ -1,6 +1,6 @@
 # HTTP Webhook
 
-This connector lets you materialize data from Estuary Flow directly to specified HTTP endpoints via webhooks.
+This connector lets you materialize data from Estuary directly to specified HTTP endpoints via webhooks.
 
 [`ghcr.io/estuary/materialize-webhook:v1`](https://ghcr.io/estuary/materialize-webhook:v1) provides the latest connector image. For earlier versions, please follow the link in your browser.
 
@@ -8,10 +8,10 @@ This connector lets you materialize data from Estuary Flow directly to specified
 To use this materialization connector, you’ll need the following:
 
 - A server or service that can accept HTTP requests at the target endpoint.
-- At least one Flow collection.
+- At least one Estuary collection.
 
 ## Configuration
-The Webhooks connector is available for use in the Flow web application. To learn more about connectors and setting them up, visit our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
+The Webhooks connector is available for use in the Estuary web application. To learn more about connectors and setting them up, visit our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
 
 ## Properties
 

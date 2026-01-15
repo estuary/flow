@@ -1,6 +1,6 @@
 # Google Cloud IAM Authentication
 
-Flow supports IAM authentication with Google Cloud Platform services such as Cloud SQL and Storage, and here you can find instructions for setting up your GCP account to prepare for using IAM authentication. Note however that not all connectors currently support using IAM authentication.
+Estuary supports IAM authentication with Google Cloud Platform services such as Cloud SQL and Storage, and here you can find instructions for setting up your GCP account to prepare for using IAM authentication. Note however that not all connectors currently support using IAM authentication.
 
 ## Service Account with Resource Access
 

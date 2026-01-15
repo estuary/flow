@@ -1,9 +1,13 @@
 
 # Airtable (deprecated)
 
-This connector captures data from Airtable into Flow collections.
+This connector captures data from Airtable into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-airtable:dev`](https://ghcr.io/estuary/source-airtable:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-airtable:dev`](https://ghcr.io/estuary/source-airtable:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+:::warning
+This connector is deprecated. For the best experience, we recommend using our native [Airtable connector](./airtable-native.md) instead.
+:::
 
 ## Prerequisites
 
@@ -25,7 +29,7 @@ It is available for use in the Flow web application. For local development or op
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Airtable source connector.
 
 ### Properties

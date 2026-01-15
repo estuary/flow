@@ -1,15 +1,15 @@
 
 # HTTP File
 
-This connector captures data from an HTTP endpoint into a Flow collection.
+This connector captures data from an HTTP endpoint into an Estuary collection.
 
 To capture data from an _incoming_ HTTP request, see the [HTTP Ingest](./http-ingest.md) connector.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data types
 
-This connector automatically captures the data hosted at the specified URL into a single Flow collection.
+This connector automatically captures the data hosted at the specified URL into a single Estuary collection.
 
 The following file types are supported:
 
@@ -25,7 +25,7 @@ The following compression methods are supported:
 * GZIP
 * ZSTD
 
-By default, Flow automatically detects the file type and compression method.
+By default, Estuary automatically detects the file type and compression method.
 If necessary, you can specify the correct file type, compression, and other properties (CSV only) using the optional [parser configuration](#advanced-parsing-http-hosted-data).
 
 ## Prerequisites
@@ -44,7 +44,7 @@ If this is the case, have your username and password ready.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the HTTP file source connector.
 
 ### Properties
@@ -103,7 +103,7 @@ captures:
 ### Advanced: Parsing HTTP-hosted data
 
 HTTP endpoints can support a variety of file types.
-For each file type, Flow must parse
+For each file type, Estuary must parse
 and translate data into collections with defined fields and JSON schemas.
 
 By default, the parser will automatically detect the type and shape of the data at the HTTP endpoint,
@@ -137,7 +137,7 @@ Options are:
 #### CSV configuration
 
 CSV files include several additional properties that are important to the parser.
-In most cases, Flow is able to automatically determine the correct values,
+In most cases, Estuary is able to automatically determine the correct values,
 but you may need to specify for unusual datasets. These properties are:
 
 * **Delimiter**. Options are:

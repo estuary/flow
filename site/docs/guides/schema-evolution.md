@@ -2,12 +2,12 @@
 
 When collection specifications and schemas change, you must make corresponding changes in other parts of your Data Flow to avoid errors. In this guide, you'll learn how to respond to different types of collection changes.
 
-Manual methods (using flowctl) as well as features available in the Flow web app are covered here.
+Manual methods (using flowctl) as well as features available in the Estuary web app are covered here.
 For an in-depth overview of the automatic schema evolution feature in the web app and how it works, see [this article](../concepts/advanced/evolutions.md).
 
 ## Introduction
 
-Flow [collections](../concepts/collections.md) serve not only as your real-time data storage, but also as a contract between tasks that produce and consume their data. **Captures** are producers, **materializations** are consumers, and **derivations** can act as either.
+Estuary [collections](../concepts/collections.md) serve not only as your real-time data storage, but also as a contract between tasks that produce and consume their data. **Captures** are producers, **materializations** are consumers, and **derivations** can act as either.
 
 This contract helps prevent data loss and error in your Data Flows, and is defined in terms of the collection specification, or spec, which includes:
 
@@ -36,13 +36,13 @@ There are a variety of reasons why these properties may change, and also differe
 
 *Scenario: the `key` pointer or logical partitioning configurations have changed.*
 
-The `key` of a Flow collection cannot be changed after the collection is created. The same is true of the logical partitioning, which also cannot be changed after the collection is created.
+The `key` of an Estuary collection cannot be changed after the collection is created. The same is true of the logical partitioning, which also cannot be changed after the collection is created.
 
 If you need to change either of those parts of a collection spec, you'll need to create a new collection and update the bindings of any captures or materializations that reference the old collection.
 
 **Web app workflow**
 
-If you're working in the Flow web app, you'll see an error message and an option to re-create the collection as shown in the example below.
+If you're working in the Estuary web app, you'll see an error message and an option to re-create the collection as shown in the example below.
 
 ![](./guide-images/evolution-re-create-ui.png)
 
@@ -152,7 +152,7 @@ If your materialization binding is set to `recommended: false`, or if the new fi
 
 To manually add a field:
 
-* **In the Flow web app,** [edit the materialization](/guides/edit-data-flows/#edit-a-materialization), find the affected binding, and click **Show Fields**.
+* **In the web app,** [edit the materialization](/guides/edit-data-flows/#edit-a-materialization), find the affected binding, and click **Show Fields**.
 * **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](/concepts/materialization/#projected-fields).
 
 :::info
@@ -177,7 +177,7 @@ The best way to find out whether a change is acceptable to a given connector is 
 
 **Web app workflow**
 
-If you're working in the Flow web app, and attempt to publish a change that's unacceptable to the connector, you'll see an error message and an offer to increment the necessary `backfill` counters, or, in rare cases, to re-create the collection.
+If you're working in Estuary's web app, and attempt to publish a change that's unacceptable to the connector, you'll see an error message and an offer to increment the necessary `backfill` counters, or, in rare cases, to re-create the collection.
 
 Click **Apply** to to accept this solution and continue to publish.
 

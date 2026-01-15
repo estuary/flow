@@ -10,11 +10,11 @@ are useful for debugging and monitoring catalog tasks.
 
 ## Accessing logs and statistics
 
-You can access logs and statistics in the Flow web app, by materializing them to an external endpoint, or from the command line.
+You can access logs and statistics in Estuary's web app, by materializing them to an external endpoint, or from the command line.
 
-### Logs and statistics in the Flow web app
+### Logs and statistics in the web app
 
-You can view a subset of logs and statistics for individual tasks in the Flow web app.
+You can view a subset of logs and statistics for individual tasks in Estuary's web app.
 
 #### Logs
 
@@ -34,7 +34,7 @@ This corresponds to the `bytesTotal` [property of the stats collection](#transac
 * **Docs Written or Read**.
 This corresponds to the `docsTotal` [property of the stats collection](#transaction-information).
 
-These fields have slightly different meanings for each Flow entity type:
+These fields have slightly different meanings for each Estuary entity type:
 
 * For captures, **Bytes Written** and **Docs Written** represent the total data written across all of the
 capture's associated collections.
@@ -52,7 +52,7 @@ The flowctl stats subcommand has been temporarily moved under `flowctl raw` whil
 The `flowctl logs` and `flowctl stats` subcommands allow you to print logs and stats, respectively, from the command line.
 This method allows more flexibility and is ideal for debugging.
 
-You can retrieve logs and stats for any published Flow task. For example:
+You can retrieve logs and stats for any published task in Estuary. For example:
 
 ```console
 flowctl logs --task acmeCo/anvils/capture-one
@@ -81,7 +81,7 @@ Additional options for `flowctl logs` and `flowctl stats` can be accessed throug
 
 Available statistics include information about the amount of data in inputs and outputs of each transaction. They also include temporal information about the transaction. Statistics vary by task type (capture, materialization, or derivation).
 
-A thorough knowledge of Flow's [advanced concepts](/concepts/#advanced-concepts) is necessary to effectively leverage these statistics.
+A thorough knowledge of Estuary's [advanced concepts](/concepts/#advanced-concepts) is necessary to effectively leverage these statistics.
 
 `stats` collection documents include the following properties.
 
@@ -94,7 +94,7 @@ evenly distributed amongst those shards.
 
 | Property | Description | Data Type | Applicable Task Type |
 |---|---|---|---|
-| `/shard` | Flow shard information| object | All |
+| `/shard` | Estuary shard information| object | All |
 | `/shard/kind` | The type of catalog task. One of `"capture"`, `"derivation"`, or `"materialization"` | string | All |
 | `/shard/name` | The name of the catalog task (without the task type prefix) | string | All |
 | `/shard/keyBegin` | With `rClockBegin`, this comprises the shard ID. The inclusive beginning of the shard's assigned key range.  | string | All |
@@ -104,7 +104,7 @@ evenly distributed amongst those shards.
 
 `stats` documents include information about a transaction: its inputs and outputs,
 the amount of data processed, and the time taken.
-You can use this information to ensure that your Flow tasks are running efficiently,
+You can use this information to ensure that your Estuary tasks are running efficiently,
 and that the amount of data processed matches your expectations.
 
 | Property | Description | Data Type | Applicable Task Type |

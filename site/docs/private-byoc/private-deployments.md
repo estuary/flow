@@ -1,7 +1,7 @@
 
 # Private Deployments
 
-Private deployments are a way to run Estuary Flow's data infrastructure within a private environment while maintaining the simplicity of SaaS. This can be especially helpful for enhanced security and compliance. With a private deployment, you have:
+Private deployments are a way to run Estuary's data infrastructure within a private environment while maintaining the simplicity of SaaS. This can be especially helpful for enhanced security and compliance. With a private deployment, you have:
 
 * Control over data pathways
 * An immutable infrastructure pattern
@@ -13,7 +13,7 @@ Private deployments are a way to run Estuary Flow's data infrastructure within a
 You'll need a license for a private deployment. [Reach out to an Estuary representative](mailto:support@estuary.dev) to start the process.
 :::
 
-Estuary Flow stores data in [your private account](../getting-started/installation.mdx) with any deployment option. For a private deployment, your data additionally stays within your private network as it moves through your data pipeline.
+Estuary stores data in [your private account](../getting-started/installation.mdx) with any deployment option. For a private deployment, your data additionally stays within your private network as it moves through your data pipeline.
 
 Estuary supports private deployments in any region in **AWS**, **GCP**, and **Azure**.
 

@@ -1,9 +1,9 @@
 
 # Outreach
 
-This connector captures data from Outreach into Flow collections.
+This connector captures data from Outreach into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-outreach:dev`](https://ghcr.io/estuary/source-outreach:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-outreach:dev`](https://ghcr.io/estuary/source-outreach:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -26,7 +26,7 @@ The following data resources are supported through the Outreach API:
 * [templates](https://developers.outreach.io/api/reference/tag/Template/#tag/Template/paths/~1templates/get)
 * [users](https://developers.outreach.io/api/reference/tag/User/#tag/User/paths/~1users/get)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
@@ -34,14 +34,14 @@ Authentication to Outreach is done via OAuth2.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Outreach source connector.
 
 ### Properties
 
 #### Endpoint
 
-The properties in the table below reflect manual authentication using the CLI. In the Flow web app,
+The properties in the table below reflect manual authentication using the CLI. In the Estuary web app,
 you'll sign in directly and won't need the access token.
 
 | Property | Title | Description | Type | Required/Default |

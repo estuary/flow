@@ -3,9 +3,9 @@ sidebar_position: 1
 ---
 import Mermaid from '@theme/Mermaid';
 
-# Edit a Flow Specification Locally
+# Edit a Data Flow Specification Locally
 
-The [Flow web application](../../concepts/web-app.md) is designed to make the most common Flow tasks quick and easy.
+Estuary's [web application](../../concepts/web-app.md) is designed to make the most common tasks when building Data Flows quick and easy.
 With the app, you're able to create, monitor, and manage captures, materializations, and more.
 For [creating basic Data Flows](../create-dataflow.md), the web app is by far the most efficient option,
 and [basic editing capabilities](/guides/edit-data-flows) are provided.
@@ -21,7 +21,7 @@ or change the [reduction strategy](/reference/reduction-strategies).
 A simplified development experience for derivations is available. You can use the web app to create a cloud-based development environment pre-populated with the components you need. Learn how [here](./create-derivation.md).
 :::
 
-This guide covers the basic procedure of pulling one or more live Flow entities to your local development environment,
+This guide covers the basic procedure of pulling one or more live Estuary entities to your local development environment,
 editing their specifications, and re-publishing them.
 
 <Mermaid chart={`
@@ -41,12 +41,12 @@ To complete this workflow, you need:
 
 * [flowctl installed locally](../get-started-with-flowctl.md)
 
-* One or more published Flow entities. (To edit unpublished drafts, [use this guide](./edit-draft-from-webapp.md).)
+* One or more published Estuary entities. (To edit unpublished drafts, [use this guide](./edit-draft-from-webapp.md).)
 
 ## Pull specifications locally
 
 Every *entity* (including active *tasks*, like captures and materializations, and static *collections*)
-has a globally unique name in the Flow catalog.
+has a globally unique name in the Estuary catalog.
 
 For example, a given Data Flow may comprise:
 
@@ -95,7 +95,7 @@ Next, you'll complete your edits, test that they were performed correctly, and r
 
 1. Open the YAML files that contain the specification you want to edit.
 
-2. Make changes. For guidance on how to construct Flow specifications, see the documentation for the task type:
+2. Make changes. For guidance on how to construct Data Flow specifications, see the documentation for the task type:
 
    * [Captures](../../concepts/captures.md#specification)
    * [Collections](../../concepts/collections.md#specification)
@@ -106,7 +106,7 @@ Next, you'll complete your edits, test that they were performed correctly, and r
 3. When you're done, you can test your changes:
 `flowctl catalog test --source flow.yaml`
 
-   You'll almost always use the top-level `flow.yaml` file as the source here because it imports all other Flow specifications
+   You'll almost always use the top-level `flow.yaml` file as the source here because it imports all other Data Flow specifications
    in your working directory.
 
    Once the test has passed, you can publish your specifications.

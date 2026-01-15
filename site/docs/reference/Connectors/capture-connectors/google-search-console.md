@@ -1,11 +1,11 @@
 
 # Google Search Console
 
-This connector captures data from Google Search Console into Flow collections via the [Google Search Console API](https://developers.google.com/webmaster-tools/v1/api_reference_index).
+This connector captures data from Google Search Console into Estuary collections via the [Google Search Console API](https://developers.google.com/webmaster-tools/v1/api_reference_index).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-search-console:dev`](https://ghcr.io/estuary/source-google-search-console:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-search-console:dev`](https://ghcr.io/estuary/source-google-search-console:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -21,13 +21,13 @@ The following data resources are supported:
 * [Sitemaps](https://developers.google.com/webmaster-tools/v1/sitemaps)
 * [Sites](https://developers.google.com/webmaster-tools/v1/sites)
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ### Custom reports
 
 In addition to the resources listed above, you can add custom reports created with the [Google Analytics Search Console integration](https://support.google.com/analytics/topic/1308589?hl=en&ref_topic=3125765).
 You add these to the [endpoint configuration](#endpoint) in the format `{"name": "<report-name>", "dimensions": ["<dimension-name>", ...]}`.
-Each report is mapped to an additional Flow collection.
+Each report is mapped to an additional Estuary collection.
 
 :::caution
 Custom reports involve an integration with Google Universal Analytics, which Google deprecated in July 2023.
@@ -38,16 +38,16 @@ Custom reports involve an integration with Google Universal Analytics, which Goo
 There are two ways to authenticate with Google when capturing data from Google Search Console: using OAuth2, and manually, by generating a service account key.
 Their prerequisites differ.
 
-OAuth2 is recommended for simplicity in the Flow web app;
+OAuth2 is recommended for simplicity in the Estuary web app;
 the service account key method is the only supported method using the command line.
 
-### Using OAuth2 to authenticate with Google in the Flow web app
+### Using OAuth2 to authenticate with Google in the Estuary web app
 
 You'll need:
 
 * Google credentials with [Owner access](https://support.google.com/webmasters/answer/7687615?hl=en) on the Google Search Console property. This can be a user account or a [service account](https://cloud.google.com/iam/docs/service-accounts).
 
-You'll use these credentials to log in to Google in the Flow web app.
+You'll use these credentials to log in to Google in the Estuary web app.
 
 ### Authenticating manually with a service account key
 
@@ -67,7 +67,7 @@ You'll copy the contents of the downloaded key file into the Service Account Cre
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Google Search Console source connector.
 
 ### Properties
@@ -75,7 +75,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method.
-If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-flow-web-app),
+If you're working in the Estuary web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-estuary-web-app),
 so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |

@@ -1,6 +1,6 @@
 # TimescaleDB
 
-This connector materializes Flow collections into tables in a TimescaleDB database.
+This connector materializes Estuary collections into tables in a TimescaleDB database.
 TimescaleDB provides managed PostgreSQL instances for real-time data.
 The connector is derived from the main [PostgreSQL](/reference/Connectors/materialization-connectors/PostgreSQL/) materialization connector
 and has the same configuration.
@@ -8,7 +8,7 @@ and has the same configuration.
 By default, the connector only materializes regular PostgreSQL tables in TimescaleDB.
 You can materialize an accompanying [Hypertable](https://docs.timescale.com/timescaledb/latest/how-to-guides/hypertables/) by [adding a SQL statement to a binding's configuration](#creating-timescaledb-hypertables).
 
-The connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-timescaledb:dev`](https://ghcr.io/estuary/materialize-timescaledb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+The connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-timescaledb:dev`](https://ghcr.io/estuary/materialize-timescaledb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -17,12 +17,12 @@ To use this connector, you'll need:
 * A TimescaleDB database to which to materialize. Know your user credentials, and the host and port.
   If using Timescale Cloud, this information is available on your console, on the **Connection info** pane.
 
-* At least one Flow collection.
+* At least one Estuary collection.
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a TimescaleDB materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a TimescaleDB materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
 
@@ -82,7 +82,7 @@ SELECT create_hypertable('table', 'timestamp_column');
 Where 'table' matches the value for the field `/table` in that binding, and
 'timestamp_column' is the name of the table column containing its time values.
 
-For example, materializing the Flow collection `acmeCo/my_time_series` would produce a table called 'my_time_series'.
+For example, materializing the Estuary collection `acmeCo/my_time_series` would produce a table called 'my_time_series'.
 Assuming its timestamp value is in the field 'time', the binding configuration would look like:
 
 ```yaml
@@ -101,9 +101,9 @@ The default is to use standard updates.
 ## Reserved words
 
 PostgreSQL (and thus TimescaleDB) has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
+Estuary considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
 
-These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 |Reserved words| | | | |
 |---|---|---|---|---|
@@ -215,7 +215,7 @@ This version includes breaking changes to materialized table columns.
 These  provide more consistent column names and types, but tables created from previous versions of the connector may
 not be compatible with this version.
 
-* Capitalization is now preserved when fields in Flow are converted to Postgres (TimescaleDB) column names.
+* Capitalization is now preserved when fields in Estuary are converted to Postgres (TimescaleDB) column names.
   Previously, fields containing uppercase letters were converted to lowercase.
 
 * Field names and values of types `date`, `duration`, `ipv4`, `ipv6`, `macaddr`, `macaddr8`, and `time` are now converted into

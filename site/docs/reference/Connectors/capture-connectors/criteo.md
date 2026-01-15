@@ -3,7 +3,7 @@
 
 This connector captures data from [Criteo's API](https://developers.criteo.com/marketing-solutions/reference).
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-criteo:dev`](https://ghcr.io/estuary/source-criteo:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-criteo:dev`](https://ghcr.io/estuary/source-criteo:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -19,11 +19,11 @@ The following data resources are supported through the Criteo APIs:
 
 You may also configure multiple [Report](https://developers.criteo.com/marketing-solutions/docs/campaign-statistics) resources based on desired dimensions and metrics.
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
-To set up a Criteo source connector in Flow, you will need:
+To set up a Criteo source connector in Estuary, you will need:
 
 * A Criteo Client ID
 * A Criteo Client Secret
@@ -33,7 +33,7 @@ See Criteo's documentation for information on [authentication](https://developer
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Criteo source connector.
 
 ### Properties

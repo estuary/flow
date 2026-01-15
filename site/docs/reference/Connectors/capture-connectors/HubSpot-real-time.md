@@ -1,8 +1,8 @@
 # HubSpot ( Real-Time )
 
-This connector captures data from HubSpot into Flow collections.
+This connector captures data from HubSpot into Estuary collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot-native:dev`](https://ghcr.io/estuary/source-hubspot-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot-native:dev`](https://ghcr.io/estuary/source-hubspot-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported HubSpot Resources
 
@@ -37,11 +37,11 @@ OAuth2 is used to authenticate the connector with HubSpot. A HubSpot account is 
 
 During the OAuth flow, HubSpot may present scopes that include permission to create, update, or delete data. This is due to how HubSpot groups permissions and exposes certain read APIs behind combined read/write scopes.
 
-The HubSpot ( Real-Time ) connector uses these credentials only to read data from HubSpot and does not create, update, or delete CRM objects or other resources in your HubSpot account. All operations performed by this connector are read-only capture operations into Flow collections.
+The HubSpot ( Real-Time ) connector uses these credentials only to read data from HubSpot and does not create, update, or delete CRM objects or other resources in your HubSpot account. All operations performed by this connector are read-only capture operations into Estuary collections.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the HubSpot Real-Time connector.
 
 #### Endpoint

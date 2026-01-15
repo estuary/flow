@@ -1,10 +1,10 @@
 # TikTok Marketing
 
-This connector captures data from TikTok marketing campaigns and ads into Flow collections via the [TikTok API for Business](https://ads.tiktok.com/marketing_api/docs). It supports production as well as [sandbox](https://ads.tiktok.com/marketing_api/docs?id=1738855331457026) accounts.
+This connector captures data from TikTok marketing campaigns and ads into Estuary collections via the [TikTok API for Business](https://ads.tiktok.com/marketing_api/docs). It supports production as well as [sandbox](https://ads.tiktok.com/marketing_api/docs?id=1738855331457026) accounts.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-tiktok-marketing:dev`](https://ghcr.io/estuary/source-tiktok-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-tiktok-marketing:dev`](https://ghcr.io/estuary/source-tiktok-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
 
@@ -38,16 +38,16 @@ The following data resources are supported:
 | Campaigns Audience Reports By Country Hourly | X | X |
 | Campaigns Audience Reports By Country Daily | X | X |
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+By default, each resource is mapped to an Estuary collection through a separate binding.
 
 ## Prerequisites
 
 Prerequisites differ depending on whether you have a production or [sandbox](https://ads.tiktok.com/marketing_api/docs?id=1738855331457026)
-TikTok for Business account, and on whether you'll use the Flow web app or the flowctl CLI.
+TikTok for Business account, and on whether you'll use the Estuary web app or the flowctl CLI.
 
 ### OAuth authentication in the web app (production accounts)
 
-If you have a TikTok marketing account in production and will use the Flow web app, you'll be able to quickly log in using OAuth.
+If you have a TikTok marketing account in production and will use the Estuary web app, you'll be able to quickly log in using OAuth.
 
 You'll need:
 
@@ -70,7 +70,7 @@ You'll need:
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the TikTok Marketing source connector.
 
 ### Properties
@@ -78,7 +78,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 #### Endpoint
 
 The properties in the table below reflect the manual authentication method for Sandbox accounts.
-If you're using a production account, you'll use [OAuth2](#oauth-authentication-in-the-web-app-production-accounts) to authenticate in the Flow web app,
+If you're using a production account, you'll use [OAuth2](#oauth-authentication-in-the-web-app-production-accounts) to authenticate in the Estuary web app,
 so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |

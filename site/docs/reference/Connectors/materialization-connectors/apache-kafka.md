@@ -1,6 +1,6 @@
 # Apache Kafka
 
-This connector materializes Flow collections into Apache Kafka topics.
+This connector materializes Estuary collections into Apache Kafka topics.
 
 [`ghcr.io/estuary/materialize-kafka:dev`](https://ghcr.io/estuary/materialize-kafka:dev)
 provides the latest connector image. You can also follow the link in your browser to see past image
@@ -44,7 +44,7 @@ for help setting up a schema registry API key.
 
 A wide [variety of authentication
 methods](https://kafka.apache.org/documentation/#security_overview) are
-available for Kafka clusters. Flow supports SASL/SCRAM-SHA-256,
+available for Kafka clusters. Estuary supports SASL/SCRAM-SHA-256,
 SASL/SCRAM-SHA-512, and SASL/PLAIN. When authentication details are not
 provided, the client connection will attempt to use PLAINTEXT (insecure)
 protocol.
@@ -75,7 +75,7 @@ this connector. Other connection security methods may be enabled in the future.
 ## Configuration
 
 Use the below properties to configure the Apache Kafka materialization, which
-will direct one or more of your Flow collections to your desired topics.
+will direct one or more of your Estuary collections to your desired topics.
 
 Note that, by default, all top-level fields are recommended for materialization. You can also de-select unnecessary top-level fields or include additional nested fields in the "Field Selection" section of the resource configuration.
 

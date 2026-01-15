@@ -3,13 +3,13 @@ sidebar_position: 0
 pagination_next: guides/create-dataflow
 ---
 
-# Using Estuary Flow
+# Using Estuary
 
-In this section, you'll find step-by-step guides that walk you through common Flow tasks.
+In this section, you'll find step-by-step guides that walk you through common Estuary tasks.
 
-These guides are designed to help you work with Data Flows in production — we assume you have your own data and are familiar with your source and destination systems. You might be here to [get your data moving with Flow](/guides/create-dataflow) as quickly as possible, [reshape your collection with a derivation](/guides/flowctl/create-derivation), or [create a secure connection to your database](/guides/connect-network).
+These guides are designed to help you work with Data Flows in production — we assume you have your own data and are familiar with your source and destination systems. You might be here to [get your data moving with Estuary](/guides/create-dataflow) as quickly as possible, [reshape your collection with a derivation](/guides/flowctl/create-derivation), or [create a secure connection to your database](/guides/connect-network).
 
-If you'd prefer a tailored learning experience with sample data, check out the [Flow tutorials](/getting-started/tutorials/).
+If you'd prefer a tailored learning experience with sample data, check out the [Estuary tutorials](/getting-started/tutorials/).
 
 ## Guides by topic
 
@@ -30,7 +30,7 @@ If you'd prefer a tailored learning experience with sample data, check out the [
 ### Using `flowctl`
 
 * [Getting started with `flowctl`](/guides/get-started-with-flowctl)
-* [Edit a Flow specification locally](/guides/flowctl/edit-specification-locally)
+* [Edit a Data Flow specification locally](/guides/flowctl/edit-specification-locally)
 * [Edit a draft created in the web app](/guides/flowctl/edit-draft-from-webapp)
 * [Using `flowctl` for automation](/guides/flowctl/ci-cd)
 * [Troubleshoot a task with `flowctl`](/guides/flowctl/troubleshoot-task)

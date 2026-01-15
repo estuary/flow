@@ -1,6 +1,6 @@
 # Zoho CRM
 
-This connector captures data from Zoho CRM modules into Flow collections.
+This connector captures data from Zoho CRM modules into Estuary collections.
 It uses Zoho's [Bulk API 2.0](https://www.zoho.com/crm/developer/docs/api/v7/bulk-read/overview.html) and [COQL API](https://www.zoho.com/crm/developer/docs/api/v7/COQL-Overview.html).
 
 This connector offers several unique advantages:
@@ -11,7 +11,7 @@ This connector offers several unique advantages:
 
 - **Formula Field Handling**: The connector can automatically refresh formula fields on a configurable schedule. This ensures your formula field data stays current without manual intervention, even though Zoho doesn't track formula field changes in record modification timestamps.
 
-This connector is available for use in the Flow web application.
+This connector is available for use in the Estuary web application.
 For local development or open-source workflows, [`ghcr.io/estuary/source-zoho:dev`](https://ghcr.io/estuary/source-zoho:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
@@ -50,7 +50,7 @@ The connector requires the following OAuth scopes:
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
+You configure connectors either in the Estuary web app, or by directly editing the Data Flow specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Zoho CRM source connector.
 
 ### Properties

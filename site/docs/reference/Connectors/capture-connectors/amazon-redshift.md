@@ -1,6 +1,6 @@
 # Amazon Redshift (Deprecated)
 
-This connector captures data from your Amazon Redshift cluster into Flow collections.
+This connector captures data from your Amazon Redshift cluster into Estuary collections.
 
 :::warning
 This connector is deprecated. For the best experience, we recommend using our native [Redshift batch connector](./redshift-batch.md) instead.
@@ -15,7 +15,7 @@ To use this connector, you'll need:
 
 ## Configuration
 
-You can configure the Redshift source connector either through the Flow web app or by directly editing the Flow specification file. For more information on using this connector, see our guide on [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors). The values and specification sample below provide configuration details that are specific to the Amazon Redshift source connector.
+You can configure the Redshift source connector either through the Estuary web app or by directly editing the Data Flow specification file. For more information on using this connector, see our guide on [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors). The values and specification sample below provide configuration details that are specific to the Amazon Redshift source connector.
 
 ### Properties
 

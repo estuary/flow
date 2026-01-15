@@ -2,7 +2,7 @@
 slug: /reference/deletions/
 ---
 
-# Handling Deletions in Estuary Flow
+# Handling Deletions in Estuary
 
 Estuary supports two categories of deletions: **soft deletes** and **hard deletes**. These deletion types determine how documents are marked and treated within the system. Below is an explanation of each category.
 
@@ -80,8 +80,8 @@ AND $created_at > '2025-01-01'
 **Hard deletions as reduction annotations**
 
 Deletes may sometimes appear without an associated create event for the ID, such as when using multiple filter conditions in your derivation.
-If a delete event is the first time Flow has seen a specific ID, the ID will not be properly passed along for hard deletion in the materialization.
-This is because Flow uses [**reductions**](/concepts/#reductions) to handle hard deletes.
+If a delete event is the first time Estuary has seen a specific ID, the ID will not be properly passed along for hard deletion in the materialization.
+This is because Estuary uses [**reductions**](/concepts/#reductions) to handle hard deletes.
 Essentially, if there isn't already a document for that ID, there is nothing for the new document to _reduce into_.
 
 To handle this edge case, you should ensure there is more than one document for the ID so the deletion reduction can take place.

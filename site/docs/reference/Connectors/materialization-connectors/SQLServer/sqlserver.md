@@ -1,12 +1,12 @@
 ---
-description: This connector materializes Flow collections into tables in a Microsoft SQLServer database.
+description: This connector materializes Estuary collections into tables in a Microsoft SQLServer database.
 ---
 
 # Microsoft SQLServer
 
-This connector materializes Flow collections into tables in a Microsoft SQLServer database.
+This connector materializes Estuary collections into tables in a Microsoft SQLServer database.
 
-It is available for use in the Flow web application. For local development or
+It is available for use in the Estuary web application. For local development or
 open-source workflows,
 [`ghcr.io/estuary/materialize-sqlserver:dev`](https://ghcr.io/estuary/materialize-sqlserver:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -18,7 +18,7 @@ To use this connector, you'll need:
   - SQLServer 2017 and later are supported
   - The connector will create new tables in the database per your specification,
     so user credentials must have access to create new tables.
-- At least one Flow collection
+- At least one Estuary collection
 
 ## Setup
 
@@ -42,7 +42,7 @@ CREATE USER flow_materialize FOR LOGIN flow_materialize;
 GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 ```
 
-2. Allow secure connection to Estuary Flow from your hosting environment. Either:
+2. Allow secure connection to Estuary from your hosting environment. Either:
 
    - Set up an [SSH server for tunneling](/guides/connect-network/).
 
@@ -55,11 +55,11 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
 ### Azure SQL Database
 
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
 
-      - Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+      - Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
@@ -82,8 +82,8 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a SQLServer materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a SQLServer materialization, which will direct one or more of your Estuary collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -130,9 +130,9 @@ The default is to use standard updates.
 ## Reserved words
 
 SQLServer has a list of reserved words that must be quoted in order to be used as an identifier.
-Flow considers all the reserved words in the official [SQLServer documentation](https://learn.microsoft.com/en-us/sql/t-sql/language-elements/reserved-keywords-transact-sql?view=sql-server-2017).
+Estuary considers all the reserved words in the official [SQLServer documentation](https://learn.microsoft.com/en-us/sql/t-sql/language-elements/reserved-keywords-transact-sql?view=sql-server-2017).
 
-These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Estuary automatically quotes fields that are in this list.
 
 | Reserved words |               |               |               |               |
 | -------------- | ------------- | ------------- | ------------- | ------------- |

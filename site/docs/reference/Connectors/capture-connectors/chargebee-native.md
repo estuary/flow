@@ -1,8 +1,8 @@
 # Chargebee Native
 
-This connector captures data from Chargebee into Flow collections in real-time. It is a native implementation that provides enhanced performance and reliability compared to the third-party connector.
+This connector captures data from Chargebee into Estuary collections in real-time. It is a native implementation that provides enhanced performance and reliability compared to the third-party connector.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-chargebee-native:dev`](https://ghcr.io/estuary/source-chargebee-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-chargebee-native:dev`](https://ghcr.io/estuary/source-chargebee-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -47,7 +47,7 @@ To set up the Chargebee Native source connector, you'll need:
 
 ## Configuration
 
-You can configure the connector either in the Flow web app or by directly editing the catalog specification file.
+You can configure the connector either in the Estuary web app or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Chargebee Native source connector.
 
 ### Properties

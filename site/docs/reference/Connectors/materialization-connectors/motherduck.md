@@ -3,7 +3,7 @@ import ReactPlayer from "react-player";
 
 # MotherDuck
 
-This connector materializes Flow collections into tables in a MotherDuck database.
+This connector materializes Estuary collections into tables in a MotherDuck database.
 
 The connector uses your AWS account to materialize to MotherDuck tables by way of files in an S3
 bucket. The files in the bucket are used as a temporary staging area for data storage and retrieval.
@@ -61,7 +61,7 @@ To use a GCS bucket for staging temporary files:
 ## Configuration
 
 Use the below properties to configure MotherDuck materialization, which will direct one or
-more of your Flow collections to your desired tables in the database.
+more of your Estuary collections to your desired tables in the database.
 
 ### Properties
 
@@ -129,7 +129,7 @@ This connector supports both standard (merge) and [delta
 updates](/concepts/materialization/#delta-updates). The default is to
 use standard updates.
 
-Enabling delta updates will prevent Flow from querying for documents in your
+Enabling delta updates will prevent Estuary from querying for documents in your
 MotherDuck table, which can reduce latency and costs for large datasets. If you're
 certain that all events will have unique keys, enabling delta updates is a
 simple way to improve performance with no effect on the output. However,

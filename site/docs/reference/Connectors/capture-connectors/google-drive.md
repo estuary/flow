@@ -1,6 +1,6 @@
 # Google Drive
 
-This connector lets you capture data from your Google Drive account into Flow collections.
+This connector lets you capture data from your Google Drive account into Estuary collections.
 
 [`ghcr.io/estuary/source-google-drive:dev`](https://ghcr.io/estuary/source-google-drive:dev) provides the latest connector image. For access to previous image versions, follow the link in your browser.
 
@@ -15,7 +15,7 @@ To use this connector, make sure you have the following:
 
 ## Configuration
 
-You can set up the Google Drive source connector either through the Flow web app or by editing the Flow specification file directly. For more information on setting up this connector, refer to our guide on using [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
+You can set up the Google Drive source connector either through the Estuary web app or by editing the Data Flow specification file directly. For more information on setting up this connector, refer to our guide on using [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
 
 The values and specification sample below provide configuration details specific to the Google Drive connector.
 

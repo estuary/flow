@@ -3,7 +3,7 @@ import ReactPlayer from "react-player";
 
 # Snowflake
 
-This connector materializes Flow collections into tables in a Snowflake database.
+This connector materializes Estuary collections into tables in a Snowflake database.
 It allows both standard and [delta updates](#delta-updates). [Snowpipe Streaming](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview) is additionally available for delta update bindings.
 
 The connector first uploads data changes to a [Snowflake table stage](https://docs.snowflake.com/en/user-guide/data-load-local-file-system-create-stage.html#table-stages).
@@ -27,7 +27,7 @@ To use this connector, you'll need:
     See the [script below](#setup) for details.
 * Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
 for example, `orgname-accountname.snowflakecomputing.com`.
-* At least one Flow collection
+* At least one Estuary collection
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
@@ -126,8 +126,8 @@ Key-pair authentication is required for delta updates bindings to use Snowpipe S
 
 ## Configuration
 
-To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Snowflake materialization, which will direct one or more of your Flow collections to new Snowflake tables.
+To use this connector, begin with data in one or more Estuary collections.
+Use the below properties to configure a Snowflake materialization, which will direct one or more of your Estuary collections to new Snowflake tables.
 
 ### Properties
 
@@ -245,7 +245,7 @@ To accomplish this, we recommend a two-pronged approach:
 This connector supports both standard (merge) and [delta updates](/concepts/materialization/#delta-updates).
 The default is to use standard updates.
 
-Enabling delta updates will prevent Flow from querying for documents in your Snowflake table, which can reduce latency and costs for large datasets.
+Enabling delta updates will prevent Estuary from querying for documents in your Snowflake table, which can reduce latency and costs for large datasets.
 If you're certain that all events will have unique keys, enabling delta updates is a simple way to improve
 performance with no effect on the output.
 However, enabling delta updates is not suitable for all workflows, as the resulting table in Snowflake won't be fully reduced.
@@ -317,7 +317,7 @@ However, if you do, the value in Snowflake **must** match the value in Estuary.
 
 ## Reserved words
 
-Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) and in the table below.
+Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Estuary automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) and in the table below.
 
 :::caution
 In Snowflake, objects created with quoted identifiers must always be referenced exactly as created, including the quotes. Otherwise, SQL statements and queries can result in errors. See the [Snowflake docs](https://docs.snowflake.com/en/sql-reference/identifiers-syntax.html#double-quoted-identifiers).

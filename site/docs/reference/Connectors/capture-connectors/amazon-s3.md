@@ -7,7 +7,7 @@ import TabItem from '@theme/TabItem';
 
 This connector captures data from an Amazon S3 bucket.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -85,7 +85,7 @@ See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the S3 source connector.
 
 ### Properties
@@ -134,7 +134,7 @@ Your capture definition may be more complex, with additional bindings for differ
 #### Parser
 
 Cloud storage platforms like S3 can support a wider variety of file types
-than other data source systems. For each of these file types, Flow must parse
+than other data source systems. For each of these file types, Estuary must parse
 and translate data into collections with defined fields and JSON schemas.
 
 By default, the parser will automatically detect the type and shape of the data in your bucket,
@@ -166,7 +166,7 @@ Options are:
    * **W3C Extended Log**
 
    :::info
-   At this time, Flow only supports S3 captures with data of a single file type.
+   At this time, Estuary only supports S3 captures with data of a single file type.
    Support for multiple file types, which can be configured on a per-binding basis,
    will be added in the future.
 
@@ -176,7 +176,7 @@ Options are:
 #### CSV configuration
 
 CSV files include several additional properties that are important to the parser.
-In most cases, Flow is able to automatically determine the correct values,
+In most cases, Estuary is able to automatically determine the correct values,
 but you may need to specify for unusual datasets. These properties are:
 
 * **Delimiter**. Options are:
