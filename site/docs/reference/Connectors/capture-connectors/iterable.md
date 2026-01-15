@@ -1,5 +1,5 @@
 
-# Iterable
+# Iterable (deprecated)
 
 This connector captures data from Iterable into Estuary collections.
 

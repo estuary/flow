@@ -153,6 +153,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - [Configuration](./intercom-native.md)
   - Package - ghcr.io/estuary/source-intercom-native:dev
 - Iterable
+  - [Configuration](./iterable-native.md)
+  - Package - ghcr.io/estuary/source-iterable-native:dev
+- Iterable (deprecated)
   - [Configuration](./iterable.md)
   - Package - ghcr.io/estuary/source-iterable:dev
 - Iterate
