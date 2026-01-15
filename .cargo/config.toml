@@ -1,7 +1,13 @@
+[env]
+
 # This just provides a default value for FLOW_VERSION during development, so that you can compile
 # without this being set. If FLOW_VERSION is defined, then this has no effect.
-[env]
 FLOW_VERSION = "dev"
+
 # Provide a default DATABASE_URL which is used if none others are set.
 # This is the database presented by a local `supabase start`.
 DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+# Sops secret key used in test fixtures.
+# Corresponds to test-only age key age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs
+SOPS_AGE_KEY = "AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU"

@@ -37,7 +37,7 @@ RUST_LOG=info
 
 # This matches SOPS_AGE_KEY in the reactor development task.
 KMS_TYPE=age
-KMS_KEY=age19f7t2mt8k9ug5pelhevkrs0k4wfre8vdn9fku4kwd6mng5e8nckszmzfgp
+KMS_KEY=age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs
 
 EOF
 

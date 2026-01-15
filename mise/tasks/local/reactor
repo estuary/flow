@@ -57,7 +57,7 @@ SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt # Required for agent API calls.
 
 # Test (non-production) key for local development.
 # This matches KMS_KEY in the control-plane development task.
-SOPS_AGE_KEY=AGE-SECRET-KEY-1AHW9QTMUTGWDZAC6JDXWC796K0NNDZDKLN8CXPYZM67F2DQVVTHQT3PCD4
+SOPS_AGE_KEY=AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU
 EOF
 
     # Create drop-in configuration that binds this instance <=> data plane.

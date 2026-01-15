@@ -2,4 +2,4 @@
 set -euo pipefail
 
 PATH=${PATH}:${HOME}/cargo-target/$(uname -m)-unknown-linux-musl/debug/ \
-cargo nextest run --frozen
+cargo nextest run --frozen --no-fail-fast

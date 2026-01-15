@@ -37,6 +37,10 @@ cat > ${SETTINGS} << EOF
         "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
         "SNAPPY_STATIC": "${SNAPPY_STATIC}",
     },
+    "lldb.launch.env": {
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+        "SOPS_AGE_KEY": "AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU"
+    },
 
     // TODO(johnny): Remove this Go dependency altogether!
     "go.buildTags": "libsqlite3",
