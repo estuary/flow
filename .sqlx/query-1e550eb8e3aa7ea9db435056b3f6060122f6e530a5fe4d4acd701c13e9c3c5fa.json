@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT spec AS \"spec: crate::TextJson<models::StorageDef>\"\n            FROM storage_mappings\n            WHERE catalog_prefix = $1\n            FOR UPDATE OF storage_mappings\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "spec: crate::TextJson<models::StorageDef>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1e550eb8e3aa7ea9db435056b3f6060122f6e530a5fe4d4acd701c13e9c3c5fa"
+}
