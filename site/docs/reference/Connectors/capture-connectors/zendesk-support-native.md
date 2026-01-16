@@ -12,6 +12,8 @@ The following data resources are supported through the Zendesk API:
 * [Audit logs](https://developer.zendesk.com/api-reference/ticketing/account-configuration/audit_logs/#list-audit-logs)
 * [Automations](https://developer.zendesk.com/api-reference/ticketing/business-rules/automations/#list-automations)
 * [Brands](https://developer.zendesk.com/api-reference/ticketing/account-configuration/brands/)
+* [Calls](https://developer.zendesk.com/api-reference/voice/talk-api/incremental_exports/#incremental-calls-export)
+* [Call legs](https://developer.zendesk.com/api-reference/voice/talk-api/incremental_exports/#incremental-call-legs-export)
 * [Custom roles](https://developer.zendesk.com/api-reference/ticketing/account-configuration/custom_roles/)
 * [Group memberships](https://developer.zendesk.com/api-reference/ticketing/groups/group_memberships/)
 * [Groups](https://developer.zendesk.com/api-reference/ticketing/groups/groups/)
