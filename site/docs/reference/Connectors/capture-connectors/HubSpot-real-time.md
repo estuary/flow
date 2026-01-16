@@ -8,6 +8,7 @@ It is available for use in the Flow web application. For local development or op
 
 The connector automatically discovers bindings for the following HubSpot resources:
 
+* [Campaigns](https://developers.hubspot.com/docs/api-reference/marketing-campaigns-public-api-v3/guide)
 * [Companies](https://developers.hubspot.com/docs/api/crm/companies)
 * [Contact List Memberships](https://developers.hubspot.com/docs/api-reference/crm-lists-v3/guide#manage-list-membership)
 * [Contact Lists](https://developers.hubspot.com/docs/api-reference/crm-lists-v3/guide)
