@@ -225,11 +225,19 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                         token = exchanged_token.as_ref().unwrap();
                     }
 
-                    let verified = tokens::jwt::verify(
+                    let verified = tokens::jwt::verify::<crate::ControlClaims>(
                         token.as_bytes(),
                         0,
                         &state.control_plane_jwt_decode_keys,
                     )?;
+
+                    if verified.claims().aud != "authenticated" {
+                        return Err(tonic::Status::unauthenticated(
+                            "authorization bearer claims missing required `aud` of 'authenticated'",
+                        )
+                        .into());
+                    }
+
                     MaybeControlClaims::with_verified(verified)
                 }
                 None => MaybeControlClaims::with_unauthenticated(),
