@@ -5,8 +5,10 @@ import ReactPlayer from "react-player";
 
 This connector materializes Estuary collections into tables in a MotherDuck database.
 
-The connector uses your AWS account to materialize to MotherDuck tables by way of files in an S3
-bucket. The files in the bucket are used as a temporary staging area for data storage and retrieval.
+The connector uses a supported object storage service to materialize to
+MotherDuck tables. You can choose from S3 or S3-compatible, GCS, Azure Blob
+Storage. The files in storage are used as a temporary staging area for data
+storage and retrieval.
 
 [`ghcr.io/estuary/materialize-motherduck:dev`](https://ghcr.io/estuary/materialize-motherduck:dev)
 provides the latest connector image. You can also follow the link in your browser to see past image
@@ -58,6 +60,11 @@ To use a GCS bucket for staging temporary files:
   for the service account. You'll need the **Access ID** and **Secret** for
   the key you create.
 
+To use Azure Blob Storage for staging temporary files:
+* Create or select a storage account.
+* Create a blob container.
+* Use the access keys listed listed under "Security + networking" for authentication.
+
 ## Configuration
 
 Use the below properties to configure MotherDuck materialization, which will direct one or
@@ -73,18 +80,36 @@ more of your Estuary collections to your desired tables in the database.
 | **`/database`**                       | Database                 | The database to materialize to.                                                                                                                                  | string  | Required         |
 | **`/schema`**                         | Database Schema          | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables. | string  | Required         |
 | `/hardDelete`                         | Hard Delete              | If enabled, items deleted in the source will also be deleted from the destination.                                                                               | boolean | `false`          |
-| **`stagingBucket/stagingBucketType`** | Staging Bucket Type      | The type of staging bucket to use. Either S3 or GCS.                                                                                                             | string  | Required         |
-| `stagingBucket/bucketS3`              | S3 Staging Bucket        | Name of the S3 bucket to use for staging data loads. Must not contain dots (.)                                                                                   | string  |                  |
-| `stagingBucket/awsAccessKeyId`        | Access Key ID            | AWS Access Key ID for reading and writing data to the S3 staging bucket.                                                                                         | string  |                  |
-| `stagingBucket/awsSecretAccessKey`    | Secret Access Key        | AWS Secret Access Key for reading and writing data to the S3 staging bucket.                                                                                     | string  |                  |
-| `stagingBucket/region`                | S3 Bucket Region         | Region of the S3 staging bucket.                                                                                                                                 | string  |                  |
-| `stagingBucket/bucketPathS3`          | Bucket Path              | A prefix that will be used to store objects in S3.                                                                                                               | string  |                  |
-| `stagingBucket/endpoint`              | Custom Endpoint          | Custom endpoint for S3-compatible storage.                                                                                                                       | string  |                  |
-| `stagingBucket/bucketGCS`             | GCS Staging Bucket       | Name of the GCS bucket to use for staging data loads.                                                                                                            | string  |                  |
-| `stagingBucket/credentialsJSON`       | Service Account JSON     | The JSON credentials of the service account to use for authorizing to the staging bucket.                                                                        | string  |                  |
-| `stagingBucket/gcsHMACAccessID`       | HMAC Access ID           | HMAC access ID for the service account.                                                                                                                          | string  |                  |
-| `stagingBucket/gcsHMACSecret`         | HMAC Secret              | HMAC secret for the service account.                                                                                                                             | string  |                  |
-| `stagingBucket/bucketPathGCS`         | S3 Bucket Region         | An optional prefix that will be used to store objects in the GCS staging bucket.                                                                                 | string  |                  |
+| **`/stagingBucket`**                  | Staging Bucket           | The type of staging bucket to use.                                                                                                    | [Staging Bucket](#staging-bucket)  | Required         |
+
+#### Staging Bucket
+
+| Property                    | Title                | Description                                                                               | Type   | Required/Default  |
+| --------------------------- | -------------------- | ----------------------------------------------------------------------------------------- | ------ | ----------------- |
+| **`/stagingBucketType`**    | Staging Bucket Type  | Use `S3` to stage files in S3 or compatible storage.                                      | string | Required: `S3`    |
+| **`/bucketS3`**             | S3 Staging Bucket    | Name of the S3 bucket to use for staging data loads. Must not contain dots (.)            | string | Required          |
+| **`/awsAccessKeyId`**       | Access Key ID        | AWS Access Key ID for reading and writing data to the S3 staging bucket.                  | string | Required          |
+| **`/awsSecretAccessKey`**   | Secret Access Key    | AWS Secret Access Key for reading and writing data to the S3 staging bucket.              | string | Required          |
+| **`/region`**               | S3 Bucket Region     | Region of the S3 staging bucket.                                                          | string | Required          |
+| `/bucketPathS3`             | Bucket Path          | A prefix that will be used to store objects in S3.                                        | string |                   |
+| `/endpoint`                 | Custom Endpoint      | Custom endpoint for S3-compatible storage.                                                | string |                   |
+
+| Property                    | Title                | Description                                                                               | Type   | Required/Default  |
+| --------------------------- | -------------------- | ----------------------------------------------------------------------------------------- | ------ | ----------------- |
+| **`/stagingBucketType`**    | Staging Bucket Type  | Use `GCS` to stage files in GCS                                                           | string | Required: `GCS`   |
+| **`/bucketGCS`**            | GCS Staging Bucket   | Name of the GCS bucket to use for staging data loads.                                     | string | Required          |
+| **`/credentialsJSON`**      | Service Account JSON | The JSON credentials of the service account to use for authorizing to the staging bucket. | string | Required          |
+| **`/gcsHMACAccessID`**      | HMAC Access ID       | HMAC access ID for the service account.                                                   | string | Required          |
+| **`/gcsHMACSecret`**        | HMAC Secret          | HMAC secret for the service account.                                                      | string | Required          |
+| `/bucketPathGCS`            | S3 Bucket Region     | An optional prefix that will be used to store objects in the GCS staging bucket.          | string |                   |
+
+| Property                    | Title                | Description                                                                               | Type   | Required/Default  |
+| --------------------------- | -------------------- | ----------------------------------------------------------------------------------------- | ------ | ----------------- |
+| **`/stagingBucketType`**    | Staging Bucket Type  | Use `Azure` to stage files in Azure.                                                      | string | Required: `Azure` |
+| **`/storageAccountName`**   | Storage Account Name | Name of the Azure storage account.                                                        | string | Required          |
+| **`/storageAccountKey`**    | Storage Account Key  | Storage account key for authentication.                                                   | string | Required          |
+| **`/containerName`**        | Container Name       | Name of the Azure Blob container to use for staging data loads.                           | string | Required          |
+| `/bucketPathAzure`          | Bucket Path          | An optional prefix that will be used to store objects in the staging container.           | string | Required          |
 
 #### Bindings
 
