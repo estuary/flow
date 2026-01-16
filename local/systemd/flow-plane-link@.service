@@ -2,7 +2,6 @@
 Description=Flow Data Plane Link (%i)
 Documentation=https://github.com/estuary/flow
 After=flow-control-agent.service
-Requires=flow-control-agent.service
 
 [Service]
 Type=oneshot
