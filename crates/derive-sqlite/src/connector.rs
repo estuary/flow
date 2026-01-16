@@ -85,8 +85,7 @@ where
                 ..
             }) => {
                 let validated = parse_validate(validate)
-                    .and_then(|(migrations, transforms)| do_validate(&migrations, &transforms))
-                    .map_err(anyhow_to_status)?;
+                    .and_then(|(migrations, transforms)| do_validate(&migrations, &transforms))?;
 
                 let _ = response_tx
                     .send(Ok(Response {
@@ -101,15 +100,14 @@ where
                 ..
             }) => {
                 let sqlite_uri: String;
-                (sqlite_uri, migrations, transforms) =
-                    parse_open(open, internal).map_err(anyhow_to_status)?;
+                (sqlite_uri, migrations, transforms) = parse_open(open, internal)?;
 
                 // Drop to close an open Database.
                 // This is required if we're re-opening the same database.
                 std::mem::drop(maybe_handle);
 
                 let (handle, runtime_checkpoint) =
-                    Handle::new(&sqlite_uri, &migrations, &transforms).map_err(anyhow_to_status)?;
+                    Handle::new(&sqlite_uri, &migrations, &transforms)?;
 
                 // Send Opened extended with our recovered runtime checkpoint.
                 let _ = response_tx
@@ -129,9 +127,7 @@ where
             Some(Request {
                 read: Some(read), ..
             }) => {
-                let handle = maybe_handle
-                    .as_mut()
-                    .ok_or_else(|| tonic::Status::invalid_argument("Read without Open"))?;
+                let handle = maybe_handle.as_mut().context("Read without Open")?;
 
                 do_read(
                     &mut handle.transforms,
@@ -140,8 +136,7 @@ where
                     read,
                     response_tx,
                     &tokio_handle,
-                )
-                .map_err(anyhow_to_status)?;
+                )?;
             }
             Some(Request {
                 flush: Some(request::Flush {}),
@@ -159,12 +154,9 @@ where
                 start_commit: Some(request::StartCommit { runtime_checkpoint }),
                 ..
             }) => {
-                let handle = maybe_handle
-                    .as_ref()
-                    .ok_or_else(|| tonic::Status::invalid_argument("StartCommit without Open"))?;
+                let handle = maybe_handle.as_ref().context("StartCommit without Open")?;
 
-                let started_commit =
-                    do_commit(handle.conn, runtime_checkpoint).map_err(anyhow_to_status)?;
+                let started_commit = do_commit(handle.conn, runtime_checkpoint)?;
 
                 // Send StartedCommit to runtime.
                 let _ = response_tx
@@ -179,8 +171,7 @@ where
                 ..
             }) => {
                 // Replace with a new :memory: database with the same configuration.
-                let (db, _runtime_checkpoint) =
-                    Handle::new(":memory:", &migrations, &transforms).map_err(anyhow_to_status)?;
+                let (db, _runtime_checkpoint) = Handle::new(":memory:", &migrations, &transforms)?;
                 maybe_handle = Some(db);
             }
             Some(malformed) => Err(tonic::Status::invalid_argument(format!(
@@ -355,8 +346,4 @@ impl Drop for Handle {
         let db: *mut _ = db as *mut rusqlite::Connection;
         _ = unsafe { Box::from_raw(db) };
     }
-}
-
-fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
-    tonic::Status::unknown(format!("{err:#}"))
 }
