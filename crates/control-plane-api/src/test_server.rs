@@ -1,4 +1,4 @@
-use control_plane_api::Snapshot;
+use crate::Snapshot;
 use std::sync::Arc;
 
 pub fn init() -> tracing::subscriber::DefaultGuard {
@@ -45,7 +45,7 @@ impl tokens::Source for GatedSnapshot {
 pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watch<Snapshot>> {
     use tokens::Source;
 
-    let mut actual = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool);
+    let mut actual = crate::snapshot::PgSnapshotSource::new(pg_pool);
     let (mut snapshot, _valid_for, _revoke) = actual
         .refresh(tokens::DateTime::UNIX_EPOCH)
         .await
@@ -75,7 +75,7 @@ impl TestServer {
         let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
 
         // Build an invalid Publisher that will blow up if used.
-        let publisher = control_plane_api::publications::Publisher::new(
+        let publisher = crate::publications::Publisher::new(
             std::path::PathBuf::from("/invalid"),
             &url::Url::parse("file:///invalid").unwrap(),
             &"invalid",
@@ -85,7 +85,7 @@ impl TestServer {
             Box::new(NoopBuilder),
         );
 
-        let app = Arc::new(control_plane_api::App::new(
+        let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),
@@ -99,7 +99,7 @@ impl TestServer {
             .expect("failed to bind test server");
         let addr = listener.local_addr().expect("failed to get local addr");
 
-        let router = control_plane_api::server::build_router(app, &[addr.to_string()]).unwrap();
+        let router = crate::server::build_router(app, &[addr.to_string()]).unwrap();
 
         tokio::spawn(async move {
             axum::serve(listener, router)
@@ -193,7 +193,7 @@ impl TestServer {
 struct NoopBuilder;
 
 #[async_trait::async_trait]
-impl control_plane_api::publications::builds::Builder for NoopBuilder {
+impl crate::publications::builds::Builder for NoopBuilder {
     async fn build(
         &self,
         _builds_root: &url::Url,
@@ -202,7 +202,7 @@ impl control_plane_api::publications::builds::Builder for NoopBuilder {
         _pub_id: models::Id,
         _build_id: models::Id,
         _tmpdir: &std::path::Path,
-        _logs_tx: control_plane_api::logs::Tx,
+        _logs_tx: crate::logs::Tx,
         _logs_token: sqlx::types::Uuid,
         _explicit_plane_name: Option<&str>,
     ) -> anyhow::Result<build::Output> {
