@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Generate Rust sqlx prepared PostgreSQL queries"
+
+cargo install sqlx-cli
+cargo sqlx prepare --workspace

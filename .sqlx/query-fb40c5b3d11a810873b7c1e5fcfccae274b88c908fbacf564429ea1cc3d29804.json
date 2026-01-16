@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO storage_mappings (catalog_prefix, spec, detail)\n                VALUES ('recovery/' || $1, $2, $3)\n                ON CONFLICT (catalog_prefix) DO UPDATE SET\n                    spec = $2,\n                    detail = $3,\n                    updated_at = now()\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Json",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fb40c5b3d11a810873b7c1e5fcfccae274b88c908fbacf564429ea1cc3d29804"
+}

@@ -27,8 +27,8 @@
                 "missing_payment_method",
                 "data_movement_stalled",
                 "data_not_processed_in_interval",
-                "auto_discover_failed",
-                "shard_failed"
+                "shard_failed",
+                "auto_discover_failed"
               ]
             }
           }
@@ -62,8 +62,8 @@
                       "missing_payment_method",
                       "data_movement_stalled",
                       "data_not_processed_in_interval",
-                      "auto_discover_failed",
-                      "shard_failed"
+                      "shard_failed",
+                      "auto_discover_failed"
                     ]
                   }
                 }
