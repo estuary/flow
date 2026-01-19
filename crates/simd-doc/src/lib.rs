@@ -5,6 +5,20 @@ pub use transcoded::Transcoded;
 #[cfg(test)]
 mod tests;
 
+/// A low-level wrapper around the simdjson parser.
+///
+/// This type is intended for advanced users who want to manage
+/// their own input buffering and call parsing functions directly.
+pub struct SimdParser(cxx::UniquePtr<ffi::Parser>);
+
+impl SimdParser {
+    /// Create a new SimdParser with the given capacity (max document size).
+    /// Documents larger than this capacity will trigger fallback parsing.
+    pub fn new(capacity: usize) -> Self {
+        Self(ffi::new_parser(capacity))
+    }
+}
+
 /// Parser is a very fast parser for JSON documents that transcodes directly
 /// into instances of doc::ArchivedNode.
 ///
@@ -18,7 +32,7 @@ mod tests;
 /// For large documents (greater than one megabyte) it falls back to serde_json
 /// for parsing.
 pub struct Parser {
-    ffi: cxx::UniquePtr<ffi::Parser>,
+    simd: SimdParser,
     // Complete, newline-separate documents which are ready to parse.
     // This buffer always ends with a newline or is empty.
     whole: Vec<u8>,
@@ -41,7 +55,7 @@ impl Parser {
             // impacts parser performance. According to the simdjson docs, 1MB is
             // something of a sweet spot. Inputs larger than this capacity will
             // trigger the fallback handler.
-            ffi: ffi::new_parser(1_000_000),
+            simd: SimdParser::new(1_000_000),
             whole: Vec::new(),
             partial: Vec::new(),
             offset: 0,
@@ -61,40 +75,16 @@ impl Parser {
         input: &[u8],
         alloc: &'a doc::Allocator,
     ) -> Result<doc::HeapNode<'a>, std::io::Error> {
-        // Safety: we'll transmute back to lifetime 'a prior to return.
-        let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
-
         assert!(
             self.whole.is_empty(),
             "internal buffer is non-empty (incorrect mixed use of parse_one() with chunk())"
         );
-        let mut buf = std::mem::take(&mut self.whole);
-        buf.extend_from_slice(input);
-        buf.push(b'\n');
 
-        if let Err(err) = parse_simd(&mut buf, 0, alloc, &mut self.parsed, &mut self.ffi) {
-            self.parsed.clear(); // Clear a partial simd parsing.
-            tracing::debug!(%err, "simdjson JSON parse-one failed; using fallback");
+        self.whole.extend_from_slice(input);
+        let result = parse_one(&mut self.simd, &mut self.whole, alloc, &mut self.parsed);
+        self.whole.clear();
 
-            let mut de = serde_json::Deserializer::from_slice(&buf);
-            let node = doc::HeapNode::from_serde(&mut de, &alloc)?;
-            () = de.end()?;
-            self.parsed.push((node, 0));
-        }
-        let mut parsed = self.parsed.drain(..);
-
-        if parsed.len() != 1 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("expected one document, but parsed {}", parsed.len()),
-            ));
-        }
-
-        // Re-use allocated capacity.
-        buf.clear();
-        self.whole = buf;
-
-        Ok(parsed.next().unwrap().0)
+        result
     }
 
     /// Supply Parser with the next chunk of newline-delimited JSON document content.
@@ -165,40 +155,7 @@ impl Parser {
         &mut self,
         buffer: rkyv::util::AlignedVec,
     ) -> Result<Transcoded, (std::io::Error, std::ops::Range<i64>)> {
-        let mut output = Transcoded {
-            v: buffer,
-            offset: self.offset,
-        };
-        output.v.clear();
-
-        if self.whole.is_empty() {
-            return Ok(output);
-        }
-        // Reserve 2x because transcodings use more bytes then raw JSON.
-        output.v.reserve(2 * self.whole.len());
-
-        let (consumed, maybe_err) =
-            match transcode_simd(&mut self.whole, &mut output, &mut self.ffi) {
-                Err(exception) => {
-                    output.v.clear(); // Clear a partial simd transcoding.
-                    tracing::debug!(%exception, "simdjson JSON transcoding failed; using fallback");
-
-                    let (consumed, v, maybe_err) =
-                        transcode_fallback(&self.whole, self.offset, std::mem::take(&mut output.v));
-                    output.v = v;
-
-                    (consumed, maybe_err)
-                }
-                Ok(()) => (self.whole.len(), None),
-            };
-
-        self.offset += consumed as i64;
-        self.whole.drain(..consumed);
-
-        if let Some(err) = maybe_err {
-            return Err(err);
-        }
-        Ok(output)
+        transcode_many(&mut self.simd, &mut self.whole, &mut self.offset, buffer)
     }
 
     /// Parse newline-delimited JSON documents into equivalent doc::HeapNode
@@ -221,38 +178,166 @@ impl Parser {
         (i64, std::vec::Drain<'s, (doc::HeapNode<'a>, i64)>),
         (std::io::Error, std::ops::Range<i64>),
     > {
-        // Safety: we'll transmute back to lifetime 'a prior to return.
-        let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
-
-        if self.whole.is_empty() {
-            return Ok((self.offset, self.parsed.drain(..))); // Nothing to parse yet. drain(..) is empty.
-        };
-
-        let (consumed, maybe_err) = match parse_simd(
+        parse_many(
+            &mut self.simd,
             &mut self.whole,
-            self.offset,
+            &mut self.offset,
             alloc,
             &mut self.parsed,
-            &mut self.ffi,
-        ) {
-            Err(exception) => {
-                self.parsed.clear(); // Clear a partial simd parsing.
-                tracing::debug!(%exception, "simdjson JSON parsing failed; using fallback");
-
-                parse_fallback(&self.whole, self.offset, alloc, &mut self.parsed)
-            }
-            Ok(()) => (self.whole.len(), None),
-        };
-
-        let begin = self.offset;
-        self.offset += consumed as i64;
-        self.whole.drain(..consumed);
-
-        if let Some(err) = maybe_err {
-            return Err(err);
-        }
-        Ok((begin, self.parsed.drain(..)))
+        )
     }
+}
+
+/// Parse a single JSON document into a HeapNode.
+///
+/// The input buffer is extended with a closing newline and capacity for padding.
+/// Attempts simdjson first, falls back to serde_json on failure.
+///
+/// The `output` buffer must be empty but may have reserved capacity to avoid
+/// allocation. It will continue to be empty upon return.
+pub fn parse_one<'a>(
+    parser: &mut SimdParser,
+    input: &mut Vec<u8>,
+    alloc: &'a doc::Allocator,
+    output: &mut Vec<(doc::HeapNode<'static>, i64)>,
+) -> Result<doc::HeapNode<'a>, std::io::Error> {
+    // Safety: we transmute alloc to 'static for internal use, and transmute
+    // the returned HeapNode back to 'a. This is sound because the node is
+    // allocated from `alloc` which lives for 'a.
+    let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
+
+    assert!(output.is_empty());
+    input.push(b'\n');
+
+    if let Err(err) = parse_simd(input, 0, alloc, output, parser) {
+        output.clear(); // Clear a partial simd parsing.
+        tracing::debug!(%err, "simdjson JSON parse-one failed; using fallback");
+
+        let mut de = serde_json::Deserializer::from_slice(input);
+        let node = doc::HeapNode::from_serde(&mut de, &alloc)?;
+        () = de.end()?;
+        output.push((node, 0));
+    }
+
+    if output.len() != 1 {
+        let output_len = output.len();
+        output.clear(); // Safety: cannot return `alloc` data as 'static.
+
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("expected one document, but parsed {output_len}"),
+        ));
+    }
+
+    let node: doc::HeapNode<'static> = output.pop().unwrap().0;
+    Ok(unsafe { std::mem::transmute(node) })
+}
+
+/// Parse newline-delimited JSON documents into HeapNodes.
+///
+/// # Arguments
+/// - `parser`: The simdjson parser wrapper
+/// - `input`: Buffer containing complete, newline-terminated documents (consumed bytes are drained)
+/// - `offset`: Byte offset of the first byte in `input` within the external stream (updated on return)
+/// - `alloc`: Allocator for HeapNode storage
+/// - `output`: Vector to append parsed (HeapNode, next_offset) tuples
+///
+/// # Returns
+/// - `Ok(())`: All documents parsed successfully
+/// - `Err((error, range))`: Error with the byte range of the problematic document
+///
+/// On both success and error, consumed bytes are drained from `input` and `offset` is updated.
+/// `input` must end with a newline (`\n`), or be empty.
+pub fn parse_many<'a, 'o>(
+    parser: &mut SimdParser,
+    input: &mut Vec<u8>,
+    offset: &mut i64,
+    alloc: &'a doc::Allocator,
+    output: &'o mut Vec<(doc::HeapNode<'static>, i64)>,
+) -> Result<
+    (i64, std::vec::Drain<'o, (doc::HeapNode<'a>, i64)>),
+    (std::io::Error, std::ops::Range<i64>),
+> {
+    if input.is_empty() {
+        return Ok((*offset, output.drain(..))); // Empty.
+    }
+
+    // Safety: we'll transmute back to lifetime 'a prior to return.
+    let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
+
+    let (consumed, maybe_err) = match parse_simd(input, *offset, alloc, output, parser) {
+        Err(exception) => {
+            output.clear(); // Clear a partial simd parsing.
+            tracing::debug!(%exception, "simdjson JSON parsing failed; using fallback");
+
+            parse_fallback(input, *offset, alloc, output)
+        }
+        Ok(()) => (input.len(), None),
+    };
+
+    let begin = *offset;
+    *offset += consumed as i64;
+    input.drain(..consumed);
+
+    if let Some(err) = maybe_err {
+        return Err(err);
+    }
+    Ok((begin, output.drain(..)))
+}
+
+/// Parse and transcode newline-delimited JSON documents into ArchivedNode format.
+///
+/// # Arguments
+/// - `parser`: The simdjson parser wrapper
+/// - `input`: Buffer containing complete, newline-terminated documents (consumed bytes are drained)
+/// - `offset`: Byte offset of the first byte in `input` within the external stream (updated on return)
+/// - `buffer`: Pre-allocated buffer for output (will be cleared)
+///
+/// # Returns
+/// - `Ok(transcoded)`: The transcoded output
+/// - `Err((error, range))`: Error with the byte range of the problematic document
+///
+/// On both success and error, consumed bytes are drained from `input` and `offset` is updated.
+/// `input` must end with a newline (`\n`), or be empty.
+pub fn transcode_many(
+    parser: &mut SimdParser,
+    input: &mut Vec<u8>,
+    offset: &mut i64,
+    buffer: rkyv::util::AlignedVec,
+) -> Result<Transcoded, (std::io::Error, std::ops::Range<i64>)> {
+    let mut output = Transcoded {
+        v: buffer,
+        offset: *offset,
+    };
+    output.v.clear();
+
+    if input.is_empty() {
+        return Ok(output);
+    }
+    // Reserve 2x because transcodings use more bytes then raw JSON.
+    output.v.reserve(2 * input.len());
+
+    let (consumed, maybe_err) = match transcode_simd(input, &mut output, parser) {
+        Err(exception) => {
+            output.v.clear(); // Clear a partial simd transcoding.
+            tracing::debug!(%exception, "simdjson JSON transcoding failed; using fallback");
+
+            let (consumed, v, maybe_err) =
+                transcode_fallback(input, *offset, std::mem::take(&mut output.v));
+            output.v = v;
+
+            (consumed, maybe_err)
+        }
+        Ok(()) => (input.len(), None),
+    };
+
+    *offset += consumed as i64;
+    input.drain(..consumed);
+
+    if let Some(err) = maybe_err {
+        return Err(err);
+    }
+    Ok(output)
 }
 
 // Safety: field Parser.parsed is naively unsafe to Send.
@@ -270,7 +355,7 @@ fn parse_simd<'a>(
     offset: i64,
     alloc: &'a doc::Allocator,
     output: &mut Vec<(doc::HeapNode<'a>, i64)>,
-    parser: &mut cxx::UniquePtr<ffi::Parser>,
+    parser: &mut SimdParser,
 ) -> Result<(), cxx::Exception> {
     pad(input);
 
@@ -281,16 +366,16 @@ fn parse_simd<'a>(
     let node: &mut ffi::HeapNode<'a> = unsafe { std::mem::transmute(&mut node) };
     let output: &mut ffi::Parsed<'a> = unsafe { std::mem::transmute(output) };
 
-    parser.pin_mut().parse(input, offset, alloc, node, output)
+    parser.0.pin_mut().parse(input, offset, alloc, node, output)
 }
 
 fn transcode_simd(
     input: &mut Vec<u8>,
     output: &mut Transcoded,
-    parser: &mut cxx::UniquePtr<ffi::Parser>,
+    parser: &mut SimdParser,
 ) -> Result<(), cxx::Exception> {
     pad(input);
-    parser.pin_mut().transcode(input, output)
+    parser.0.pin_mut().transcode(input, output)
 }
 
 fn parse_fallback<'a>(
@@ -384,9 +469,13 @@ fn transcode_fallback(
     (consumed, v, None)
 }
 
+/// Add 64 bytes of padding required by simdjson, then immediately truncate.
+///
+/// This allows simdjson to safely read past the end of the actual content
+/// without causing memory issues. The visible content of the buffer is unchanged.
 #[inline]
 fn pad(input: &mut Vec<u8>) {
-    static PAD: [u8; 64] = [0; 64]; // Required extra bytes for safe usage of simdjson.
+    static PAD: [u8; 64] = [0; 64];
     input.extend_from_slice(&PAD);
     input.truncate(input.len() - PAD.len());
 }
