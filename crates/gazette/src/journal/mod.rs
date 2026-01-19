@@ -4,10 +4,10 @@ use tonic::transport::Channel;
 
 mod append;
 pub mod list;
-mod read;
+pub mod read;
 
-mod read_json_lines;
-pub use read_json_lines::{ReadJsonLine, ReadJsonLines};
+// TODO(johnny): Update usages to gazette::journal::read::ReadJsonLines;
+pub use read::{ReadJsonLine, ReadJsonLines};
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::broker::journal_client::JournalClient<
