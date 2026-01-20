@@ -193,7 +193,11 @@ struct RelaxedSchemaObj {
     items: Option<Box<RelaxedSchema>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     additional_items: Option<Box<RelaxedSchema>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_additional_properties",
+        skip_serializing_if = "Option::is_none"
+    )]
     additional_properties: Option<Box<RelaxedSchema>>,
 
     // Keywords which are removed from a relaxed schema.
@@ -211,6 +215,25 @@ struct RelaxedSchemaObj {
     // Other keywords are passed-through.
     #[serde(flatten)]
     pass_through: BTreeMap<String, serde_json::Value>,
+}
+
+fn deserialize_additional_properties<'de, D>(
+    deserializer: D,
+) -> Result<Option<Box<RelaxedSchema>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Option::<RelaxedSchema>::deserialize(deserializer)?;
+
+    Ok(match v {
+        // Drop closed-object constraint in relaxed schemas
+        Some(RelaxedSchema::Bool(false)) => None,
+
+        // Preserve true or schema-valued additionalProperties
+        Some(other) => Some(Box::new(other)),
+
+        None => None,
+    })
 }
 
 // These patterns let us cheaply detect if a collection schema references the
@@ -359,5 +382,78 @@ mod test {
     fn test_relaxation() {
         let fixture = Schema::new(RawValue::from_str(include_str!("fixture.schema.json")).unwrap());
         insta::assert_json_snapshot!(fixture.to_relaxed_schema().unwrap().to_value())
+    }
+
+    #[test]
+    fn test_relaxation_drops_additional_properties_false() {
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "known": { "type": "string" }
+            },
+            "additionalProperties": false
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        // `type` is removed, and `additionalProperties: false` must be dropped
+        // so the relaxed schema permits unknown fields.
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "known": {}
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_relaxation_preserves_additional_properties_true() {
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "known": { "type": "string" }
+            },
+            "additionalProperties": true
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        // We only drop the closed-object constraint (false). True should remain.
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "known": {}
+                },
+                "additionalProperties": true
+            })
+        );
+    }
+
+    #[test]
+    fn test_relaxation_preserves_schema_valued_additional_properties() {
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "known": { "type": "string" }
+            },
+            "additionalProperties": { "type": "integer" }
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        // Schema-valued `additionalProperties` should be preserved, but its own
+        // `type` should be relaxed away.
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "known": {}
+                },
+                "additionalProperties": {}
+            })
+        );
     }
 }
