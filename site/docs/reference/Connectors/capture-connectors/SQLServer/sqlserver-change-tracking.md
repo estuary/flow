@@ -14,21 +14,32 @@ follow the link in your browser to see past image versions.
 
 ## When to use this connector
 
-Estuary offers two SQL Server connectors: this one (Change Tracking) and the
-[CDC connector](http://go.estuary.dev/source-sqlserver). Both provide real-time
-change capture with similar performance characteristics, but have different
-strengths.
+Estuary offers three SQL Server capture connectors. All work across self-hosted
+and cloud-managed deployments.
+
+| Connector | Mechanism | Latency | Key Strengths |
+|-----------|-----------|---------|---------------|
+| **Change Tracking** (this connector) | Change tracking | Real-time | Computed columns, lower storage overhead |
+| [CDC](http://go.estuary.dev/source-sqlserver) | Log-based change capture | Real-time | Full audit history, tables without primary keys |
+| [Batch](http://go.estuary.dev/source-sqlserver-batch) | Periodic polling | Minutes to hours | Views, custom queries, minimal setup |
 
 **Choose Change Tracking when:**
 
 - You need to capture computed columns or computed primary keys (CDC cannot capture these)
-- You want lower storage overhead (CT stores only primary keys, not full row contents)
+- You want lower storage overhead on the source database (CT stores only primary keys, not full row contents)
+- Your tables all have primary keys
 
 **Choose CDC when:**
 
-- You need to capture from tables without a primary key
+- You need to capture tables without a primary key
 - You need complete audit logging with full row history (CT may combine intermediate
   changes when they occur in rapid succession)
+
+**Choose Batch when:**
+
+- Your SQL Server instance doesn't support CDC or Change Tracking
+- You need to capture from database views
+- You want to execute custom or ad-hoc queries
 
 ## Supported versions and platforms
 
