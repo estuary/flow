@@ -1,5 +1,6 @@
 pub use proto_gazette::{broker, consumer, uuid};
 
+pub mod delta;
 pub mod journal;
 pub mod shard;
 
