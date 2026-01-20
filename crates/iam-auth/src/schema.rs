@@ -1,23 +1,38 @@
 use crate::config::{ConnectorConfigWithCredentials, IAMAuthConfig};
 
+/// IAM Annotations in the connection spec.
+#[derive(Debug)]
+struct IAMAnnotations {
+    iam_auth: bool,
+    azure_scope: Option<String>,
+}
+
 /// Extract IAM authentication configuration from connector config JSON if x-iam-auth is set under credentials
 pub fn extract_iam_auth_from_connector_config(
     config_json: &[u8],
     config_schema_json: &[u8],
 ) -> anyhow::Result<Option<IAMAuthConfig>> {
-    if !has_credentials_iam_auth_annotation(config_schema_json)? {
+    let annotations = extract_iam_auth_annotations(config_schema_json)?;
+    if !annotations.iam_auth {
         return Ok(None);
     }
 
-    Ok(
-        serde_json::from_slice::<ConnectorConfigWithCredentials>(config_json)
-            .ok()
-            .map(|c| c.credentials),
-    )
+    let Ok(config) = serde_json::from_slice::<ConnectorConfigWithCredentials>(config_json) else {
+        return Ok(None);
+    };
+
+    let config = match config.credentials {
+        IAMAuthConfig::Azure(mut azure_config) => {
+            azure_config.azure_scope = annotations.azure_scope;
+            IAMAuthConfig::Azure(azure_config)
+        }
+        creds => creds,
+    };
+    Ok(Some(config))
 }
 
-/// Check if schema has x-iam-auth: true under the credentials object
-pub fn has_credentials_iam_auth_annotation(schema: &[u8]) -> anyhow::Result<bool> {
+/// Extract the `x-iam-*` annotations under the credentials object.
+fn extract_iam_auth_annotations(schema: &[u8]) -> anyhow::Result<IAMAnnotations> {
     let schema = doc::validation::build_bundle(schema)?;
     let validator = doc::Validator::new(schema)?;
     let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
@@ -25,17 +40,26 @@ pub fn has_credentials_iam_auth_annotation(schema: &[u8]) -> anyhow::Result<bool
     let credentials_ptr = json::Pointer::from("/credentials");
     let (credentials_shape, exists) = shape.locate(&credentials_ptr);
 
+    let mut annotations = IAMAnnotations {
+        iam_auth: false,
+        azure_scope: None,
+    };
     if exists.cannot() {
-        return Ok(false);
+        return Ok(annotations);
     }
 
     if let Some(iam_auth_value) = credentials_shape.annotations.get("x-iam-auth") {
         if let Some(iam_auth_bool) = iam_auth_value.as_bool() {
-            return Ok(iam_auth_bool);
+            annotations.iam_auth = iam_auth_bool;
+        }
+    }
+    if let Some(iam_azure_scope_value) = credentials_shape.annotations.get("x-iam-azure-scope") {
+        if let Some(iam_azure_scope_str) = iam_azure_scope_value.as_str() {
+            annotations.azure_scope = Some(iam_azure_scope_str.to_string());
         }
     }
 
-    Ok(false)
+    Ok(annotations)
 }
 
 #[cfg(test)]
@@ -427,8 +451,8 @@ mod tests {
             }
         }"#;
 
-        let result = has_credentials_iam_auth_annotation(schema_with_annotation).unwrap();
-        assert!(result);
+        let result = extract_iam_auth_annotations(schema_with_annotation).unwrap();
+        assert!(result.iam_auth);
 
         let schema_without_annotation = br#"{
             "type": "object",
@@ -439,8 +463,8 @@ mod tests {
             }
         }"#;
 
-        let result = has_credentials_iam_auth_annotation(schema_without_annotation).unwrap();
-        assert!(!result);
+        let result = extract_iam_auth_annotations(schema_without_annotation).unwrap();
+        assert!(!result.iam_auth);
     }
 
     #[test]
@@ -499,12 +523,15 @@ mod tests {
     #[test]
     fn test_oneof_annotation_detection() {
         // Test that annotation detection works in oneOf items
-        let result = has_credentials_iam_auth_annotation(SCHEMA_WITH_ONEOF_CREDENTIALS).unwrap();
-        assert!(result, "Should detect x-iam-auth: true in oneOf items");
-
-        let result = has_credentials_iam_auth_annotation(SIMPLE_SCHEMA_WITH_IAM_AUTH).unwrap();
+        let result = extract_iam_auth_annotations(SCHEMA_WITH_ONEOF_CREDENTIALS).unwrap();
         assert!(
-            result,
+            result.iam_auth,
+            "Should detect x-iam-auth: true in oneOf items"
+        );
+
+        let result = extract_iam_auth_annotations(SIMPLE_SCHEMA_WITH_IAM_AUTH).unwrap();
+        assert!(
+            result.iam_auth,
             "Should detect x-iam-auth: true directly under credentials"
         );
     }
@@ -512,14 +539,16 @@ mod tests {
     #[test]
     fn test_allof_annotation_detection() {
         // Test that annotation detection works when credentials is defined in allOf
-        let result = has_credentials_iam_auth_annotation(SCHEMA_WITH_ALLOF_CREDENTIALS).unwrap();
-        assert!(result, "Should detect x-iam-auth: true in allOf pattern");
+        let result = extract_iam_auth_annotations(SCHEMA_WITH_ALLOF_CREDENTIALS).unwrap();
+        assert!(
+            result.iam_auth,
+            "Should detect x-iam-auth: true in allOf pattern"
+        );
 
         // Test nested allOf structure
-        let result =
-            has_credentials_iam_auth_annotation(SCHEMA_WITH_NESTED_ALLOF_CREDENTIALS).unwrap();
+        let result = extract_iam_auth_annotations(SCHEMA_WITH_NESTED_ALLOF_CREDENTIALS).unwrap();
         assert!(
-            result,
+            result.iam_auth,
             "Should detect x-iam-auth: true in nested allOf pattern"
         );
     }
@@ -585,6 +614,96 @@ mod tests {
                 );
             }
             _ => panic!("Expected GCP config"),
+        }
+    }
+
+    #[test]
+    fn test_iam_auth_azure_scope() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "x-iam-auth": true,
+                    "x-iam-azure-scope": "https://database.windows.net/.default",
+                    "type": "object",
+                    "properties": {
+                        "azure_client_id": {
+                            "type": "string"
+                        },
+                        "azure_tenant_id": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = json!({
+            "credentials": {
+                "azure_client_id": "abc",
+                "azure_tenant_id": "def"
+            }
+        });
+
+        let result = extract_iam_auth_from_connector_config(
+            config.to_string().as_bytes(),
+            schema.to_string().as_bytes(),
+        )
+        .unwrap();
+
+        match result {
+            Some(IAMAuthConfig::Azure(azure_config)) => {
+                assert_eq!(azure_config.azure_client_id, "abc");
+                assert_eq!(azure_config.azure_tenant_id, "def");
+                assert_eq!(
+                    azure_config.azure_scope,
+                    Some("https://database.windows.net/.default".to_string())
+                );
+            }
+            _ => panic!("Expected Azure config"),
+        }
+    }
+
+    #[test]
+    fn test_iam_auth_azure_no_scope() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "x-iam-auth": true,
+                    "type": "object",
+                    "properties": {
+                        "azure_client_id": {
+                            "type": "string"
+                        },
+                        "azure_tenant_id": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        });
+
+        let config = json!({
+            "credentials": {
+                "azure_client_id": "abc",
+                "azure_tenant_id": "def"
+            }
+        });
+
+        let result = extract_iam_auth_from_connector_config(
+            config.to_string().as_bytes(),
+            schema.to_string().as_bytes(),
+        )
+        .unwrap();
+
+        match result {
+            Some(IAMAuthConfig::Azure(azure_config)) => {
+                assert_eq!(azure_config.azure_client_id, "abc");
+                assert_eq!(azure_config.azure_tenant_id, "def");
+                assert!(azure_config.azure_scope.is_none());
+            }
+            _ => panic!("Expected Azure config"),
         }
     }
 }

@@ -28,6 +28,10 @@ pub struct GCPConfig {
 pub struct AzureConfig {
     pub azure_client_id: String,
     pub azure_tenant_id: String,
+
+    /// Scope is set in the connector spec.
+    #[serde(skip)]
+    pub azure_scope: Option<String>,
 }
 
 impl IAMAuthConfig {

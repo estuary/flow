@@ -18,6 +18,7 @@ pub async fn generate_tokens(config: &AzureConfig, task_name: &str) -> anyhow::R
         &signed_jwt,
         &config.azure_tenant_id,
         &config.azure_client_id,
+        config.azure_scope.as_deref(),
     )
     .await?;
 
@@ -31,6 +32,7 @@ async fn exchange_azure_jwt_for_app_registration_token(
     jwt_token: &str,
     tenant_id: &str,
     target_client_id: &str,
+    scope: Option<&str>,
 ) -> anyhow::Result<String> {
     use reqwest::header::CONTENT_TYPE;
     use std::collections::HashMap;
@@ -45,7 +47,10 @@ async fn exchange_azure_jwt_for_app_registration_token(
     );
     params.insert("client_assertion", jwt_token);
     params.insert("client_id", target_client_id);
-    params.insert("scope", "https://graph.microsoft.com/.default");
+    params.insert(
+        "scope",
+        scope.unwrap_or("https://graph.microsoft.com/.default"),
+    );
 
     let response = client
         .post(&format!(
