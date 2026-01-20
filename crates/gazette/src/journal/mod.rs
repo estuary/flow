@@ -3,7 +3,7 @@ use proto_gazette::broker;
 use tonic::transport::Channel;
 
 mod append;
-mod list;
+pub mod list;
 mod read;
 
 mod read_json_lines;
