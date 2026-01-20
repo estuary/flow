@@ -6,7 +6,36 @@ sidebar_position: 3
 
 This connector uses change data capture (CDC) to continuously capture updates in a Microsoft SQL Server database into one or more Estuary collections.
 
-It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sqlserver:dev`](https://ghcr.io/estuary/source-sqlserver:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It's available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sqlserver:dev`](https://ghcr.io/estuary/source-sqlserver:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+## When to use this connector
+
+Estuary offers three SQL Server capture connectors. All work across self-hosted
+and cloud-managed deployments.
+
+| Connector | Mechanism | Latency | Key Strengths |
+|-----------|-----------|---------|---------------|
+| **CDC** (this connector) | Log-based change capture | Real-time | Full audit history, tables without primary keys |
+| [Change Tracking](http://go.estuary.dev/source-sqlserver-ct) | Change tracking | Real-time | Computed columns, lower storage overhead |
+| [Batch](http://go.estuary.dev/source-sqlserver-batch) | Periodic polling | Minutes to hours | Views, custom queries, minimal setup |
+
+**Choose CDC when:**
+
+- You need to capture tables without a primary key
+- You need complete audit logging with full row history (CT may combine intermediate
+  changes when they occur in rapid succession)
+
+**Choose Change Tracking when:**
+
+- You need to capture computed columns or computed primary keys (CDC cannot capture these)
+- You want lower storage overhead on the source database (CT stores only primary keys, not full row contents)
+- Your tables all have primary keys
+
+**Choose Batch when:**
+
+- Your SQL Server instance doesn't support CDC or Change Tracking
+- You need to capture from database views
+- You want to execute custom or ad-hoc queries
 
 ## Supported versions and platforms
 
