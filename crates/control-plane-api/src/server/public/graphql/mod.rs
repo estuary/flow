@@ -4,6 +4,7 @@
 use async_graphql::{EmptySubscription, Schema};
 use axum::response::IntoResponse;
 
+mod alert_subscriptions;
 mod alerts;
 pub mod id;
 mod live_spec_refs;
@@ -28,11 +29,15 @@ pub struct QueryRoot(
     live_spec_refs::LiveSpecsQuery,
     alerts::AlertsQuery,
     prefixes::PrefixesQuery,
+    alert_subscriptions::AlertSubscriptionsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
-pub struct MutationRoot(storage_mappings::StorageMappingsMutation);
+pub struct MutationRoot(
+    storage_mappings::StorageMappingsMutation,
+    alert_subscriptions::AlertSubscriptionsMutation,
+);
 
 pub fn create_schema() -> GraphQLSchema {
     Schema::build(

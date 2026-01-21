@@ -95,6 +95,36 @@ type AlertEdge {
 	cursor: String!
 }
 
+type AlertSubscription {
+	catalogPrefix: Prefix!
+	alertTypes: [AlertType!]!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	detail: String
+	"""
+	The email recipient for notifications. This may be null for
+	subscriptions that use a different destination type.
+	"""
+	email: String
+	"""
+	Destination represents the notification destination (i.e. the receiver)
+	as a URI, which can represent any type of transport. For now, only email
+	is supported and every destination URL will have the `mailto:` URI
+	scheme. Future notification mechanisms may use different URI schemes.
+	"""
+	destination: Url!
+}
+
+input AlertSubscriptionsBy {
+	"""
+	Show alert subscriptions for the given catalog namespace prefix. This
+	will return all subscriptions having a catalog prefix that starts with
+	the given prefix. For example, `prefix: "acmeCo/"` would return
+	subscriptions for both `acmeCo/` and `acmeCo/nested/`.
+	"""
+	prefix: Prefix!
+}
+
 enum AlertType {
 	auto_discover_failed
 	data_movement_stalled
@@ -517,6 +547,20 @@ type MutationRoot {
 	All health checks must pass before the storage mapping is created.
 	"""
 	upsertStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean!): UpsertStorageMappingResult!
+	"""
+	Creates a new alert subscription. Returns an error if there is already
+	an existing subscription for the same prefix and email address.
+	"""
+	createAlertSubscription(prefix: Prefix!, email: String!, alertTypes: [AlertType!], detail: String): AlertSubscription!
+	"""
+	Updates the alert subscription for the given prefix and email, returning
+	the updated subscription.
+	"""
+	updateAlertSubscription(prefix: Prefix!, email: String!, alertTypes: [AlertType!], detail: String): AlertSubscription!
+	"""
+	Delete an alert subscription that exactly matches the given prefix and email.
+	"""
+	deleteAlertSubscription(prefix: Prefix!, email: String!): AlertSubscription!
 }
 
 scalar Name
@@ -692,6 +736,10 @@ type QueryRoot {
 	"""
 	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
 	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
+	"""
+	Returns a complete list of alert subscriptions.
+	"""
+	alertSubscriptions(by: AlertSubscriptionsBy!): [AlertSubscription!]!
 }
 
 """
@@ -979,6 +1027,11 @@ type UpsertStorageMappingResult {
 	"""
 	catalogPrefix: Prefix!
 }
+
+"""
+URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
+"""
+scalar Url
 
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.

@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from alert_subscriptions\n        where catalog_prefix = $1::catalog_prefix\n        and email = $2\n        returning\n            catalog_prefix as \"catalog_prefix: models::Prefix\",\n            email as \"email!: String\",\n            include_alert_types as \"alert_types: Vec<AlertType>\",\n            created_at,\n            updated_at,\n            detail\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "email!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "alert_types: Vec<AlertType>",
+        "type_info": {
+          "Custom": {
+            "name": "alert_type[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "alert_type",
+                  "kind": {
+                    "Enum": [
+                      "free_trial",
+                      "free_trial_ending",
+                      "free_trial_stalled",
+                      "missing_payment_method",
+                      "data_movement_stalled",
+                      "data_not_processed_in_interval",
+                      "shard_failed",
+                      "auto_discover_failed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "detail",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_prefix",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "779f0a332da437b98ed5a13a3dd87787efd919aa7951ce82ece433ca06a8d066"
+}
