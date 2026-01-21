@@ -134,7 +134,7 @@ The HTTP Ingest connector validates all request data against the collection's wr
 
 The connector may occasionally return responses with HTTP 5XX status codes. This most commonly happens when the connector restarts, typically in response to a publication of the capture. These restarts are infrequent and quick (usually less than 5 seconds).
 
-To reliably capture webhook data, the sender must retry any requests that fail with a 5XX status. Many third-party webhook senders handle retries automatically, but there are some exceptions, such as GitHub. When retrying failed webhook requests, we strongly recommend using exponential backoff with random jitter.
+To reliably capture webhook data, the sender must retry any requests that fail with a 5XX status. Many third-party webhook senders handle retries automatically, but there are some exceptions, such as [GitHub](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries). When retrying failed webhook requests, we strongly recommend using exponential backoff with random jitter.
 
 **Recommended retry strategy:**
 
