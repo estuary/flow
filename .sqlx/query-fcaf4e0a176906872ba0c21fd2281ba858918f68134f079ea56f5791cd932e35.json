@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into alert_subscriptions\n          (catalog_prefix, email, include_alert_types, detail, created_at, updated_at)\n        values ($1::catalog_prefix, $2, $3::alert_type[], $4, now(), now())\n        returning\n          catalog_prefix as \"catalog_prefix: models::Prefix\",\n          email as \"email!: String\",\n          include_alert_types as \"alert_types: Vec<AlertType>\",\n          created_at,\n          updated_at,\n          detail\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "email!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "alert_types: Vec<AlertType>",
+        "type_info": {
+          "Custom": {
+            "name": "alert_type[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "alert_type",
+                  "kind": {
+                    "Enum": [
+                      "free_trial",
+                      "free_trial_ending",
+                      "free_trial_stalled",
+                      "missing_payment_method",
+                      "data_movement_stalled",
+                      "data_not_processed_in_interval",
+                      "shard_failed",
+                      "auto_discover_failed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "detail",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_prefix",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Text",
+        {
+          "Custom": {
+            "name": "alert_type[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "alert_type",
+                  "kind": {
+                    "Enum": [
+                      "free_trial",
+                      "free_trial_ending",
+                      "free_trial_stalled",
+                      "missing_payment_method",
+                      "data_movement_stalled",
+                      "data_not_processed_in_interval",
+                      "shard_failed",
+                      "auto_discover_failed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "fcaf4e0a176906872ba0c21fd2281ba858918f68134f079ea56f5791cd932e35"
+}

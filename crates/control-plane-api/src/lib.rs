@@ -2,6 +2,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 
+pub mod alert_subscriptions;
 pub mod alerts;
 pub mod connector_tags;
 pub mod controllers;
