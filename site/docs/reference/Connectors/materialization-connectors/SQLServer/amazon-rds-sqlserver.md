@@ -19,34 +19,9 @@ To use this connector, you'll need:
   - The connector will create new tables in the database per your specification,
     so user credentials must have access to create new tables.
 - At least one Estuary collection
+- When using IAM authentication, an RDS Proxy with the database as a target.
 
 ## Setup Amazon RDS for SQL Server
-
-1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-
-      - [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-      - Edit the VPC security group associated with your database, or create a new VPC security group and associate it as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary IP addresses](/reference/allow-ip-addresses).
-
-   2. To allow secure connections via SSH tunneling:
-      - Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-      - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'secret';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-
-3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
-## Connecting to SQLServer
 
 1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
 
@@ -56,10 +31,12 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
       - Edit the VPC security group associated with your database, or create a new VPC security group and associate it as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
-      - Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+      - Follow the guide to [configure an SSH server for tunneling][guide-connect-network].
       - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
+
+3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
 ```sql
 USE <database>;
@@ -70,7 +47,30 @@ CREATE USER flow_materialize FOR LOGIN flow_materialize;
 GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 ```
 
-3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+### IAM Authentication
+
+Instead of username/password authentication, you can optionally use an
+AWS IAM role with this connector.
+
+To do this, you will need to use [Amazon RDS Proxy][rds-proxy].  This
+proxy accepts IAM connections from the connector and connects to the
+database using a password stored in AWS Secrets Manager.
+
+RDS proxy cannot typically be accessed from the internet, so it is
+recommended to configure [SSH tunneling][guide-connect-network].  Ensure
+the security group for the proxy allows MSSQL connections from the
+security group of the EC2 instance.
+
+The proxy must be configured with IAM authentication set to `Allowed` or
+`Required`.  Add a Secrets Manager secret to the RDS Proxy corresponding
+to the SQL Server user.  You can do this in the AWS Console by selecting
+the RDS Proxy, and clicking on `Actions -> Modify` followed by "create a
+new secret".  Add the username and password for the user you created
+earlier and select the correct database instance.  Make sure that the
+proxies Authentication role allows the proxy access to read this secret.
+
+Instead of connecting directly to the database endpoint, you will
+connect to one of the proxy endpoints listed on the proxy.
 
 ## Configuration
 
@@ -81,12 +81,28 @@ Use the below properties to configure a SQLServer materialization, which will di
 
 #### Endpoint
 
-| Property        | Title    | Description                                                                                | Type   | Required/Default |
-| --------------- | -------- | ------------------------------------------------------------------------------------------ | ------ | ---------------- |
-| **`/database`** | Database | Name of the logical database to materialize to.                                            | string | Required         |
-| **`/address`**  | Address  | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
-| **`/password`** | Password | Password for the specified database user.                                                  | string | Required         |
-| **`/user`**     | User     | Database user to connect as.                                                               | string | Required         |
+| Property           | Title       | Description                                                                                | Type    | Required/Default |
+| ------------------ | ----------- | ------------------------------------------------------------------------------------------ | ------- | ---------------- |
+| **`/address`**     | Address     | Host and port of the database. If only the host is specified, port will default to `3306`. | string  | Required         |
+| **`/user`**        | User        | Database user to connect as.                                                               | string  | Required         |
+| **`/database`**    | Database    | Name of the logical database to materialize to.                                            | string  | Required         |
+| **`/schema`**      | Schema      | Default database schema for bound collection tables.                                       | string  | Optional         |
+| **`/credentials`** | Credentials | Credentials for authentication.                                                            | [Credentials](#credentials) | Required |
+
+#### Credentials
+
+Credentials for authentication.  Use one of the following sets of options:
+
+| Property                                 | Title                   | Description                                              | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `UserPassword` |
+| **`/credentials/password`**              | Password                | Password for the user.                                   | string  | Required                 |
+
+| Property                                 | Title                   | Description                                              | Type    | Required/Default   |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------- | ------- | ------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `AWSIAM` |
+| **`/credentials/aws_role_arn`**          | AWS Role ARN            | IAM Role to assume.                                      | string  | Required           |
+| **`/credentials/aws_region`**            | AWS Region              | AWS Region to authenticate in.                           | string  | Required           |
 
 #### Bindings
 
@@ -104,10 +120,12 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-sqlserver:dev
         config:
-          database: flow
           address: localhost:5432
-          password: flow
-          user: flow
+          user: flow_materialize
+          database: flow
+          credentials:
+            auth_type: UserPassword
+            password: flow
     bindings:
       - resource:
           table: ${TABLE_NAME}
@@ -236,3 +254,6 @@ editing always upgrades your materialization to the latest connector version.**
 #### V1: 2023-09-01
 
 - First version
+
+[rds-proxy]: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html
+[guide-connect-network]: /guides/connect-network
