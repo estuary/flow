@@ -18,7 +18,7 @@ pub async fn user_has_admin_capability(
 }
 
 pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
-    detail: &str,
+    detail: Option<&str>,
     catalog_prefix: &str,
     spec: T,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -31,7 +31,7 @@ pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
             detail = $1,
             spec = $3,
             updated_at = now()"#,
-        detail as &str,
+        detail,
         catalog_prefix as &str,
         TextJson(spec) as TextJson<T>,
     )
@@ -41,7 +41,7 @@ pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
 }
 
 pub async fn insert_storage_mapping<'e, T, E>(
-    detail: &str,
+    detail: Option<&str>,
     catalog_prefix: &str,
     spec: T,
     executor: E,
@@ -55,7 +55,7 @@ where
         insert into storage_mappings (detail, catalog_prefix, spec)
         values ($1, $2, $3)
         on conflict (catalog_prefix) do nothing"#,
-        detail as &str,
+        detail,
         catalog_prefix as &str,
         TextJson(spec) as TextJson<T>,
     )

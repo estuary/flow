@@ -235,9 +235,8 @@ impl StorageMappingsMutation {
         let (collection_storage, recovery_storage) = split_collection_and_recovery_storage(storage);
 
         // Insert collection storage mapping (fails if already exists).
-        let detail = detail.as_deref().unwrap_or("");
         let inserted = insert_storage_mapping(
-            detail,
+            detail.as_deref(),
             catalog_prefix.as_str(),
             &collection_storage,
             &mut *txn,
@@ -253,7 +252,7 @@ impl StorageMappingsMutation {
         // using upsert here to simplify recovery mapping update/insert
         // which we'll eventually remove when we stop storing recovery mappings separately
         upsert_storage_mapping(
-            detail,
+            detail.as_deref(),
             &format!("recovery/{catalog_prefix}"),
             &recovery_storage,
             &mut txn,
@@ -378,7 +377,7 @@ impl StorageMappingsMutation {
         // using upsert here to simplify recovery mapping update/insert
         // which we'll eventually remove when we stop storing recovery mappings separately
         upsert_storage_mapping(
-            detail.as_deref().unwrap_or(""),
+            detail.as_deref(),
             &format!("recovery/{catalog_prefix}"),
             &recovery_storage,
             &mut txn,
