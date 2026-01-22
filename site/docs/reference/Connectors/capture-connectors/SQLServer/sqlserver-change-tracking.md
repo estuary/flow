@@ -5,17 +5,16 @@ sidebar_position: 3
 # Microsoft SQL Server (Change Tracking)
 
 This connector uses SQL Server Change Tracking to continuously capture updates
-in a Microsoft SQL Server database into one or more Flow collections.
+in a Microsoft SQL Server database into one or more Estuary collections.
 
-It's available for use in the Flow web application. For local development or
+It's available for use in the Estuary web application. For local development or
 open-source workflows, [`ghcr.io/estuary/source-sqlserver-ct:dev`](https://ghcr.io/estuary/source-sqlserver-ct:dev)
 provides the latest version of the connector as a Docker image. You can also
 follow the link in your browser to see past image versions.
 
 ## When to use this connector
 
-Estuary offers three SQL Server capture connectors. All work across self-hosted
-and cloud-managed deployments.
+Estuary offers three main SQL Server capture connectors and their variants (platform-specific versions for managed providers). All three work across self-hosted and cloud-managed deployments.
 
 | Connector | Mechanism | Latency | Key Strengths |
 |-----------|-----------|---------|---------------|
@@ -109,21 +108,21 @@ GRANT VIEW CHANGE TRACKING ON SCHEMA :: dbo TO flow_capture;
 
 Follow the [Self-hosted SQL Server](#self-hosted-sql-server) setup instructions above, with the following Azure-specific notes:
 
-- **Firewall rules**: Configure [server-level IP firewall rules](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) to allow the [Estuary Flow IP addresses](/reference/allow-ip-addresses), or set up an SSH tunnel as described in the self-hosted instructions.
+- **Firewall rules**: Configure [server-level IP firewall rules](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) to allow the [Estuary IP addresses](/reference/allow-ip-addresses), or set up an SSH tunnel as described in the self-hosted instructions.
 - **Connection address**: Find the server hostname under **Server Name** in the Azure portal. The port is always `1433`.
 
 ### Amazon RDS for SQL Server
 
 Follow the [Self-hosted SQL Server](#self-hosted-sql-server) setup instructions above, with the following RDS-specific notes:
 
-- **Firewall rules**: Modify the [security group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html) associated with your RDS instance to allow inbound traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses) on port 1433, or set up an SSH tunnel as described in the self-hosted instructions.
+- **Firewall rules**: Modify the [security group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html) associated with your RDS instance to allow inbound traffic from the [Estuary IP addresses](/reference/allow-ip-addresses) on port 1433, or set up an SSH tunnel as described in the self-hosted instructions.
 - **Connection address**: Find the endpoint hostname under **Connectivity & security** in the RDS console. The port is typically `1433` unless you configured a custom port.
 
 ### Google Cloud SQL for SQL Server
 
 Follow the [Self-hosted SQL Server](#self-hosted-sql-server) setup instructions above, with the following Cloud SQL-specific notes:
 
-- **Firewall rules**: Add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as [authorized networks](https://cloud.google.com/sql/docs/sqlserver/authorize-networks) for your instance, or set up an SSH tunnel as described in the self-hosted instructions.
+- **Firewall rules**: Add the [Estuary IP addresses](/reference/allow-ip-addresses) as [authorized networks](https://cloud.google.com/sql/docs/sqlserver/authorize-networks) for your instance, or set up an SSH tunnel as described in the self-hosted instructions.
 - **Connection address**: Find the **Public IP address** on the instance's **Overview** page in the Cloud Console. The port is `1433`.
 
 ## Change Tracking Retention
@@ -134,15 +133,17 @@ longer than this retention period, or if it falls too far behind, it will
 automatically perform a full backfill of impacted tables to re-establish
 consistency.
 
+We recommend configuring a retention period of at least 3 days for production deployments.
+
 To adjust the retention period:
 
 ```sql
-ALTER DATABASE <database> SET CHANGE_TRACKING (CHANGE_RETENTION = 5 DAYS);
+ALTER DATABASE <database> SET CHANGE_TRACKING (CHANGE_RETENTION = 3 DAYS);
 ```
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SQL Server Change Tracking source connector.
 
 ### Properties
