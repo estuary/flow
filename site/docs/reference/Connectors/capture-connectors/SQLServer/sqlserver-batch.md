@@ -5,8 +5,7 @@ periodically executing queries and translating the results into JSON documents.
 
 ## When to use this connector
 
-Estuary offers three SQL Server capture connectors. All work across self-hosted
-and cloud-managed deployments.
+Estuary offers three main SQL Server capture connectors and their variants (platform-specific versions for managed providers). All three work across self-hosted and cloud-managed deployments.
 
 | Connector | Mechanism | Latency | Key Strengths |
 |-----------|-----------|---------|---------------|
