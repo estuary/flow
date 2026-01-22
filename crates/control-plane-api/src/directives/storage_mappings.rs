@@ -64,6 +64,32 @@ where
     Ok(result.rows_affected() > 0)
 }
 
+pub async fn update_storage_mapping<'e, T, E>(
+    detail: Option<&str>,
+    catalog_prefix: &str,
+    spec: T,
+    executor: E,
+) -> sqlx::Result<bool>
+where
+    T: serde::Serialize + Send + Sync,
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let result = sqlx::query!(
+        r#"
+        update storage_mappings set
+            detail = $1,
+            spec = $2,
+            updated_at = now()
+        where catalog_prefix = $3"#,
+        detail,
+        TextJson(spec) as TextJson<T>,
+        catalog_prefix as &str,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 #[derive(Debug)]
 pub struct StorageMapping {
     pub catalog_prefix: String,
@@ -88,4 +114,154 @@ pub async fn fetch_storage_mappings(
     )
     .fetch_all(&mut **txn)
     .await
+}
+
+const COLLECTION_DATA_SUFFIX: &str = "collection-data/";
+
+/// Split a user-provided `StorageDef` into separate collection and recovery storage definitions.
+///
+/// The collection storage gets `collection-data/` appended to each store's prefix (if not already
+/// present) and retains the data plane assignments. The recovery storage uses the base prefixes
+/// (with `collection-data/` stripped if present) and has no data plane assignments.
+pub fn split_collection_and_recovery_storage(
+    storage: models::StorageDef,
+) -> (models::StorageDef, models::StorageDef) {
+    let models::StorageDef {
+        data_planes,
+        stores,
+    } = storage;
+
+    let collection_storage = models::StorageDef {
+        data_planes,
+        stores: stores
+            .iter()
+            .cloned()
+            .map(|mut store| {
+                let prefix = store.prefix_mut();
+                if !prefix.as_str().ends_with(COLLECTION_DATA_SUFFIX) {
+                    *prefix = models::Prefix::new(format!("{prefix}{COLLECTION_DATA_SUFFIX}"));
+                }
+                store
+            })
+            .collect(),
+    };
+
+    let recovery_storage = models::StorageDef {
+        data_planes: Vec::new(),
+        stores: stores
+            .into_iter()
+            .map(|mut store| {
+                let prefix = store.prefix_mut();
+                if let Some(base) = prefix.as_str().strip_suffix(COLLECTION_DATA_SUFFIX) {
+                    *prefix = models::Prefix::new(base);
+                }
+                store
+            })
+            .collect(),
+    };
+
+    (collection_storage, recovery_storage)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gcs_store(bucket: &str, prefix: &str) -> models::Store {
+        models::Store::Gcs(models::GcsBucketAndPrefix {
+            bucket: bucket.to_string(),
+            prefix: Some(models::Prefix::new(prefix)),
+        })
+    }
+
+    fn get_prefix(store: &models::Store) -> &str {
+        match store {
+            models::Store::Gcs(cfg) => cfg.prefix.as_ref().map(|p| p.as_str()).unwrap_or(""),
+            _ => panic!("unexpected store type"),
+        }
+    }
+
+    #[test]
+    fn test_split_appends_collection_data_suffix() {
+        let storage = models::StorageDef {
+            data_planes: vec!["ops/dp/public/gcp-us-central1".to_string()],
+            stores: vec![gcs_store("my-bucket", "tenant/")],
+        };
+
+        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+
+        assert_eq!(get_prefix(&collection.stores[0]), "tenant/collection-data/");
+        assert_eq!(get_prefix(&recovery.stores[0]), "tenant/");
+    }
+
+    #[test]
+    fn test_split_does_not_double_append_suffix() {
+        let storage = models::StorageDef {
+            data_planes: vec!["ops/dp/public/gcp-us-central1".to_string()],
+            stores: vec![gcs_store("my-bucket", "tenant/collection-data/")],
+        };
+
+        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+
+        assert_eq!(get_prefix(&collection.stores[0]), "tenant/collection-data/");
+        assert_eq!(get_prefix(&recovery.stores[0]), "tenant/");
+    }
+
+    #[test]
+    fn test_split_preserves_data_planes_only_for_collection() {
+        let storage = models::StorageDef {
+            data_planes: vec![
+                "ops/dp/public/gcp-us-central1".to_string(),
+                "ops/dp/public/aws-us-east1".to_string(),
+            ],
+            stores: vec![gcs_store("my-bucket", "tenant/")],
+        };
+
+        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+
+        assert_eq!(collection.data_planes.len(), 2);
+        assert_eq!(collection.data_planes[0], "ops/dp/public/gcp-us-central1");
+        assert_eq!(collection.data_planes[1], "ops/dp/public/aws-us-east1");
+        assert!(recovery.data_planes.is_empty());
+    }
+
+    #[test]
+    fn test_split_handles_multiple_stores() {
+        let storage = models::StorageDef {
+            data_planes: vec!["ops/dp/public/gcp-us-central1".to_string()],
+            stores: vec![
+                gcs_store("bucket-a", "prefix-a/"),
+                gcs_store("bucket-b", "prefix-b/collection-data/"),
+            ],
+        };
+
+        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+
+        assert_eq!(collection.stores.len(), 2);
+        assert_eq!(
+            get_prefix(&collection.stores[0]),
+            "prefix-a/collection-data/"
+        );
+        assert_eq!(
+            get_prefix(&collection.stores[1]),
+            "prefix-b/collection-data/"
+        );
+
+        assert_eq!(recovery.stores.len(), 2);
+        assert_eq!(get_prefix(&recovery.stores[0]), "prefix-a/");
+        assert_eq!(get_prefix(&recovery.stores[1]), "prefix-b/");
+    }
+
+    #[test]
+    fn test_split_handles_empty_prefix() {
+        let storage = models::StorageDef {
+            data_planes: vec![],
+            stores: vec![gcs_store("my-bucket", "")],
+        };
+
+        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+
+        assert_eq!(get_prefix(&collection.stores[0]), "collection-data/");
+        assert_eq!(get_prefix(&recovery.stores[0]), "");
+    }
 }
