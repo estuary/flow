@@ -36,8 +36,6 @@ To use this connector, you'll need:
 
 2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
 
-3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
 ```sql
 USE <database>;
 -- Create user and password for use with the connector.
@@ -46,6 +44,8 @@ CREATE USER flow_materialize FOR LOGIN flow_materialize;
 -- Grant control on the database to flow_materialize
 GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 ```
+
+3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
 ### IAM Authentication
 
