@@ -1,7 +1,10 @@
+use crate::directives::storage_mappings::{
+    insert_storage_mapping, split_collection_and_recovery_storage, update_storage_mapping,
+    upsert_storage_mapping,
+};
 use async_graphql::{Context, ErrorExtensions};
 use proto_gazette::broker;
 use validator::Validate;
-
 /// Result of testing storage health for a single data plane and store.
 #[derive(Debug, Clone)]
 struct StorageHealthResult {
@@ -229,61 +232,32 @@ impl StorageMappingsMutation {
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
-        //
-        // Build separate collection vs recovery StorageDefs from `storage`.
-        let models::StorageDef {
-            data_planes,
-            stores,
-        } = storage;
-
-        let collection_storage = models::StorageDef {
-            data_planes,
-            stores: stores
-                .iter()
-                .cloned()
-                .map(|mut store| {
-                    let prefix = store.prefix_mut();
-                    *prefix = models::Prefix::new(format!("{prefix}collection-data/"));
-                    store
-                })
-                .collect(),
-        };
-        let recovery_storage = models::StorageDef {
-            data_planes: Vec::new(),
-            stores,
-        };
+        let (collection_storage, recovery_storage) = split_collection_and_recovery_storage(storage);
 
         // Insert collection storage mapping (fails if already exists).
-        let insert_result = sqlx::query!(
-            r#"
-            INSERT INTO storage_mappings (catalog_prefix, spec, detail)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (catalog_prefix) DO NOTHING
-            "#,
-            &catalog_prefix as &str,
-            crate::TextJson(&collection_storage) as crate::TextJson<&models::StorageDef>,
+        let detail = detail.as_deref().unwrap_or("");
+        let inserted = insert_storage_mapping(
             detail,
+            catalog_prefix.as_str(),
+            &collection_storage,
+            &mut *txn,
         )
-        .execute(&mut *txn)
         .await?;
 
-        if insert_result.rows_affected() == 0 {
+        if !inserted {
             return Err(async_graphql::Error::new(format!(
                 "A storage mapping already exists for catalog prefix '{catalog_prefix}'"
             )));
         }
 
-        sqlx::query!(
-            r#"
-            INSERT INTO storage_mappings (catalog_prefix, spec, detail)
-            VALUES ('recovery/' || $1, $2, $3)
-            ON CONFLICT (catalog_prefix) DO NOTHING
-            "#,
-            &catalog_prefix as &str,
-            crate::TextJson(&recovery_storage) as crate::TextJson<&models::StorageDef>,
+        // using upsert here to simplify recovery mapping update/insert
+        // which we'll eventually remove when we stop storing recovery mappings separately
+        upsert_storage_mapping(
             detail,
+            &format!("recovery/{catalog_prefix}"),
+            &recovery_storage,
+            &mut txn,
         )
-        .execute(&mut *txn)
         .await?;
 
         txn.commit().await?;
@@ -377,29 +351,7 @@ impl StorageMappingsMutation {
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
-        //
-        // Build separate collection vs recovery StorageDefs from `storage`.
-        let models::StorageDef {
-            data_planes,
-            stores,
-        } = storage;
-
-        let collection_storage = models::StorageDef {
-            data_planes,
-            stores: stores
-                .iter()
-                .cloned()
-                .map(|mut store| {
-                    let prefix = store.prefix_mut();
-                    *prefix = models::Prefix::new(format!("{prefix}collection-data/"));
-                    store
-                })
-                .collect(),
-        };
-        let recovery_storage = models::StorageDef {
-            data_planes: Vec::new(),
-            stores,
-        };
+        let (collection_storage, recovery_storage) = split_collection_and_recovery_storage(storage);
 
         if dry_run {
             return Ok(UpdateStorageMappingResult {
@@ -409,30 +361,28 @@ impl StorageMappingsMutation {
             });
         }
 
-        sqlx::query!(
-            r#"
-            UPDATE storage_mappings
-            SET spec = $2, detail = $3, updated_at = now()
-            WHERE catalog_prefix = $1
-            "#,
-            &catalog_prefix as &str,
-            crate::TextJson(&collection_storage) as crate::TextJson<&models::StorageDef>,
-            detail,
+        let updated = update_storage_mapping(
+            detail.as_deref(),
+            catalog_prefix.as_str(),
+            &collection_storage,
+            &mut *txn,
         )
-        .execute(&mut *txn)
         .await?;
 
-        sqlx::query!(
-            r#"
-            UPDATE storage_mappings
-            SET spec = $2, detail = $3, updated_at = now()
-            WHERE catalog_prefix = 'recovery/' || $1
-            "#,
-            &catalog_prefix as &str,
-            crate::TextJson(&recovery_storage) as crate::TextJson<&models::StorageDef>,
-            detail,
+        if !updated {
+            return Err(async_graphql::Error::new(format!(
+                "No storage mapping exists for catalog prefix '{catalog_prefix}'"
+            )));
+        }
+
+        // using upsert here to simplify recovery mapping update/insert
+        // which we'll eventually remove when we stop storing recovery mappings separately
+        upsert_storage_mapping(
+            detail.as_deref().unwrap_or(""),
+            &format!("recovery/{catalog_prefix}"),
+            &recovery_storage,
+            &mut txn,
         )
-        .execute(&mut *txn)
         .await?;
 
         txn.commit().await?;
