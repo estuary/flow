@@ -214,6 +214,30 @@ async fn send_request<Req: protocol::Request + Debug>(
     Ok(resp)
 }
 
+async fn send_sasl_message(
+    conn: &mut BoxedKafkaConnection,
+    data: Vec<u8>,
+) -> anyhow::Result<messages::SaslAuthenticateResponse> {
+    let resp = send_request(
+        conn,
+        messages::SaslAuthenticateRequest::default().with_auth_bytes(Bytes::from(data)),
+        None,
+    )
+    .await?;
+
+    if resp.error_code > 0 {
+        let err = kafka_protocol::ResponseError::try_from_code(resp.error_code)
+            .map(|code| format!("{code:?}"))
+            .unwrap_or(format!("Unknown error {}", resp.error_code));
+        bail!(
+            "Error performing SASL authentication: {err} {:?}",
+            resp.error_message
+        );
+    }
+
+    Ok(resp)
+}
+
 #[tracing::instrument(skip_all)]
 async fn sasl_auth(
     conn: &mut BoxedKafkaConnection,
@@ -254,50 +278,28 @@ async fn sasl_auth(
         );
     }
 
-    let mut state_buf = BufWriter::new(Vec::new());
-    let mut state = session.step(None, &mut state_buf)?;
-    // Flush the BufWriter to ensure all data is written to the underlying Vec
-    let mut state_data = state_buf.into_inner()?;
+    let mut server_response: Option<Vec<u8>> = None;
 
-    tracing::debug!(
-        is_running = state.is_running(),
-        buf_len = state_data.len(),
-        state = ?state,
-        "SASL state after first step"
-    );
+    loop {
+        let mut buf = BufWriter::new(Vec::new());
+        let state = session.step(server_response.as_deref(), &mut buf)?;
+        let client_message = buf.into_inner()?;
 
-    // SASL mechanisms may return Finished(Yes) after writing data, meaning data
-    // was written and must be sent, but no further steps are needed.
-    // We need to send data if either:
-    // 1. state.is_running() - more steps are expected
-    // 2. state_data is not empty - data was written that must be sent
-    while state.is_running() || !state_data.is_empty() {
-        let authenticate_request =
-            messages::SaslAuthenticateRequest::default().with_auth_bytes(Bytes::from(state_data));
-
-        let auth_resp = send_request(conn, authenticate_request, None).await?;
-
-        if auth_resp.error_code > 0 {
-            let err = kafka_protocol::ResponseError::try_from_code(auth_resp.error_code)
-                .map(|code| format!("{code:?}"))
-                .unwrap_or(format!("Unknown error {}", auth_resp.error_code));
-            bail!(
-                "Error performing SASL authentication: {err} {:?}",
-                auth_resp.error_message
-            )
+        match (state.is_running(), client_message.is_empty()) {
+            // Still running, send and continue
+            (true, _) => {
+                let resp = send_sasl_message(conn, client_message).await?;
+                server_response = Some(resp.auth_bytes.to_vec());
+            }
+            // Finished, but have final message to send first
+            (false, false) => {
+                send_sasl_message(conn, client_message).await?;
+                break;
+            }
+            // Finished, nothing more to send
+            (false, true) => break,
         }
-
-        if !state.is_running() {
-            break;
-        }
-
-        let data = Some(auth_resp.auth_bytes.to_vec());
-        state_buf = BufWriter::new(Vec::new());
-        state = session.step(data.as_deref(), &mut state_buf)?;
-        state_data = state_buf.into_inner()?;
     }
-
-    tracing::debug!("Successfully completed SASL flow");
 
     Ok(())
 }
