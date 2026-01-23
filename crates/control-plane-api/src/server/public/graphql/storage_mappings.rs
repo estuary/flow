@@ -183,19 +183,18 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &storage)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        let policy_result =
-            evaluate_authorization(&snapshot, claims, &catalog_prefix, &storage.data_planes);
+        evaluate_authorization(env, claims, &catalog_prefix, &storage.data_planes).await?;
 
-        let (_expiry, data_planes) = env.authorization_outcome(policy_result).await?;
+        let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
 
-        let fragment_stores: Vec<url::Url> = storage
+        let store_urls: Vec<url::Url> = storage
             .stores
             .iter()
             .map(|store| store.to_url(&catalog_prefix))
             .collect();
 
         // Run health checks.
-        run_all_health_checks(&data_planes, &fragment_stores).await?;
+        run_all_health_checks(&data_planes, &store_urls).await?;
 
         // Begin a transaction to check for conflicts and insert the storage mapping.
         let mut txn = env.pg_pool.begin().await?;
@@ -298,19 +297,18 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &storage)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        let policy_result =
-            evaluate_authorization(&snapshot, claims, &catalog_prefix, &storage.data_planes);
+        evaluate_authorization(env, claims, &catalog_prefix, &storage.data_planes).await?;
 
-        let (_expiry, data_planes) = env.authorization_outcome(policy_result).await?;
+        let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
 
-        let fragment_stores: Vec<url::Url> = storage
+        let store_urls: Vec<url::Url> = storage
             .stores
             .iter()
             .map(|store| store.to_url(&catalog_prefix))
             .collect();
 
         // Run health checks.
-        run_all_health_checks(&data_planes, &fragment_stores).await?;
+        run_all_health_checks(&data_planes, &store_urls).await?;
 
         // Begin a transaction to fetch existing mapping and update.
         let mut txn = env.pg_pool.begin().await?;
@@ -338,14 +336,14 @@ impl StorageMappingsMutation {
         };
 
         // Determine if republish is needed: stores added or removed.
-        let existing_stores: Vec<url::Url> = current
+        let current_store_urls: Vec<url::Url> = current
             .0
             .stores
             .iter()
             .map(|s| s.to_url(&catalog_prefix))
             .collect();
 
-        let republish = fragment_stores != existing_stores;
+        let republish = store_urls != current_store_urls;
 
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
@@ -402,12 +400,24 @@ impl StorageMappingsMutation {
     }
 }
 
-fn evaluate_authorization<'s>(
-    snapshot: &'s crate::Snapshot,
+async fn evaluate_authorization(
+    env: &crate::Envelope,
     claims: &crate::ControlClaims,
     catalog_prefix: &models::Prefix,
-    storage_data_planes: &[String],
-) -> crate::AuthZResult<Vec<&'s tables::DataPlane>> {
+    data_plane_names: &[String],
+) -> Result<(), crate::ApiError> {
+    let policy_result =
+        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    env.authorization_outcome(policy_result).await?;
+    Ok(())
+}
+
+fn check_authorization(
+    snapshot: &crate::Snapshot,
+    claims: &crate::ControlClaims,
+    catalog_prefix: &models::Prefix,
+    data_plane_names: &[String],
+) -> crate::AuthZResult<()> {
     let models::authorizations::ControlClaims {
         sub: user_id,
         email: user_email,
@@ -428,9 +438,7 @@ fn evaluate_authorization<'s>(
         )));
     }
 
-    let mut data_planes = Vec::with_capacity(storage_data_planes.len());
-
-    for data_plane_name in storage_data_planes {
+    for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
         if !tables::RoleGrant::is_authorized(
             &snapshot.role_grants,
@@ -439,17 +447,24 @@ fn evaluate_authorization<'s>(
             models::Capability::Read,
         ) {
             return Err(tonic::Status::permission_denied(format!(
-                "'{catalog_prefix}' is not an authorized to a data plane '{data_plane_name}' for Read",
+                "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
             )));
         }
-
-        let Some(dp) = snapshot.data_plane_by_catalog_name(data_plane_name) else {
-            return Err(tonic::Status::not_found(format!(
-                "data plane {data_plane_name} was not found"
-            )));
-        };
-        data_planes.push(dp);
     }
 
-    Ok((None, data_planes))
+    Ok((None, ()))
+}
+
+fn resolve_data_planes<'s>(
+    snapshot: &'s crate::Snapshot,
+    data_plane_names: &[String],
+) -> Result<Vec<&'s tables::DataPlane>, async_graphql::Error> {
+    data_plane_names
+        .iter()
+        .map(|name| {
+            snapshot.data_plane_by_catalog_name(name).ok_or_else(|| {
+                async_graphql::Error::new(format!("data plane {name} was not found"))
+            })
+        })
+        .collect()
 }
