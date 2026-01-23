@@ -1,0 +1,14 @@
+fragment SelectAlertSubscription on AlertSubscription {
+    alertTypes
+    catalogPrefix
+    createdAt
+    detail
+    email
+    updatedAt
+}
+
+query ListAlertSubscriptions($prefix: Prefix!) {
+    alertSubscriptions(by: { prefix: $prefix }) {
+        ...SelectAlertSubscription
+    }
+}

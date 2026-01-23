@@ -1,0 +1,8 @@
+mutation DeleteSubscription($prefix: Prefix!, $email: String!) {
+    deleteAlertSubscription(prefix: $prefix, email: $email) {
+        createdAt
+        updatedAt
+        alertTypes
+        detail
+    }
+}
