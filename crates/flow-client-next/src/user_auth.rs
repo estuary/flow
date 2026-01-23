@@ -50,11 +50,7 @@ impl tokens::Source for UserTokenSource {
 
             // If `valid_for` is at least a minute in the future, then return it.
             // Common case when resuming from a recent, saved configuration.
-            (Some((access_token, valid_for)), Some(refresh_token))
-                if valid_for > TimeDelta::minutes(1) =>
-            {
-                valid_for
-            }
+            (Some((_, valid_for)), Some(_)) if valid_for > TimeDelta::minutes(1) => valid_for,
 
             // We have an access token but no refresh token. Create one.
             (Some((access_token, _valid_for)), None) => {
