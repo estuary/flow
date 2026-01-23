@@ -190,7 +190,19 @@ impl Shuffle {
         }
         */
 
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        match tokio::time::timeout(std::time::Duration::from_secs(60), response_stream.next()).await
+        {
+            Err(_elapsed) => (),
+            Ok(None) => {
+                anyhow::bail!("Session response stream closed unexpectedly while request_tx held")
+            }
+            Ok(Some(Ok(unexpected))) => {
+                anyhow::bail!("unexpected Session response received: {unexpected:?}")
+            }
+            Ok(Some(Err(status))) => {
+                return Err(runtime::status_to_anyhow(status));
+            }
+        }
 
         // Close the request stream.
         drop(request_tx);
@@ -241,12 +253,19 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
             if spec.derivation.is_some() {
                 tracing::info!(name = spec.name, "fetched derivation");
                 Task {
-                    task: Some(task::Task::Derivation(spec.derivation.unwrap())),
+                    task: Some(task::Task::Derivation(spec)),
                 }
             } else {
                 tracing::info!(name = spec.name, "fetched collection");
+                let partition_selector = Some(assemble::journal_selector(&spec, None));
+
                 Task {
-                    task: Some(task::Task::Collection(spec)),
+                    task: Some(task::Task::CollectionPartitions(
+                        proto_flow::shuffle::CollectionPartitions {
+                            collection: Some(spec),
+                            partition_selector,
+                        },
+                    )),
                 }
             }
         }

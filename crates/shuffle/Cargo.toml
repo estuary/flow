@@ -13,7 +13,9 @@ doc = { path = "../doc" }
 flow-client-next = { path = "../flow-client-next" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
+labels = { path = "../labels" }
 models = { path = "../models" }
+ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = [

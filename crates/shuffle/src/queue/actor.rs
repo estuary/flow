@@ -58,13 +58,16 @@ impl QueueActor {
         member_index: usize,
         queue_request: tonic::Result<shuffle::QueueRequest>,
     ) -> anyhow::Result<()> {
-        match queue_request.map_err(crate::status_to_anyhow)? {
-            request => {
-                anyhow::bail!(
-                    "unexpected QueueRequest from {member_index}@{}: {request:?}",
-                    self.members[member_index].endpoint
-                );
-            }
+        let verify = crate::verify(
+            "QueueRequest",
+            "TODO",
+            &self.members[member_index].endpoint,
+            member_index,
+        );
+        let queue_request = verify.ok(queue_request)?;
+
+        match queue_request {
+            request => verify.fail(request),
         }
     }
 }

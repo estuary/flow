@@ -9,25 +9,35 @@ pub struct Member {
     #[prost(string, tag = "2")]
     pub endpoint: ::prost::alloc::string::String,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CollectionPartitions {
+    /// Collection specification.
+    #[prost(message, optional, tag = "1")]
+    pub collection: ::core::option::Option<super::flow::CollectionSpec>,
+    /// Partition selector for filtering source collection journals.
+    #[prost(message, optional, tag = "2")]
+    pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
+}
 /// Task which we're performing shuffles for.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Task {
-    #[prost(oneof = "task::Task", tags = "2, 3, 4")]
+    #[prost(oneof = "task::Task", tags = "1, 2, 3")]
     pub task: ::core::option::Option<task::Task>,
 }
 /// Nested message and enum types in `Task`.
 pub mod task {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Task {
+        /// Partitions of a single collection (ad-hoc read).
+        #[prost(message, tag = "1")]
+        CollectionPartitions(super::CollectionPartitions),
         /// Derivation for which we're performing shuffles.
+        /// The collection's `derivation` field must be set.
         #[prost(message, tag = "2")]
-        Derivation(super::super::flow::collection_spec::Derivation),
+        Derivation(super::super::flow::CollectionSpec),
         /// Materialization for which we're performing shuffles.
         #[prost(message, tag = "3")]
         Materialization(super::super::flow::MaterializationSpec),
-        /// Single collection for which we're performing shuffles (ad-hoc read).
-        #[prost(message, tag = "4")]
-        Collection(super::super::flow::CollectionSpec),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -186,8 +196,10 @@ pub struct SliceResponse {
     #[prost(message, optional, tag = "1")]
     pub opened: ::core::option::Option<slice_response::Opened>,
     #[prost(message, optional, tag = "2")]
-    pub listing_update: ::core::option::Option<slice_response::ListingUpdate>,
+    pub listing_added: ::core::option::Option<slice_response::ListingAdded>,
     #[prost(message, optional, tag = "3")]
+    pub listing_removed: ::core::option::Option<slice_response::ListingRemoved>,
+    #[prost(message, optional, tag = "4")]
     pub progress_delta: ::core::option::Option<slice_response::ProgressDelta>,
 }
 /// Nested message and enum types in `SliceResponse`.
@@ -197,13 +209,32 @@ pub mod slice_response {
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ListingUpdate {
+    pub struct ListingAdded {
         /// Binding index of the listing.
         #[prost(uint32, tag = "1")]
         pub binding: u32,
-        /// Journal which was added or removed from the listing.
+        /// Journal which was added to the listing.
         #[prost(message, optional, tag = "2")]
-        pub journal: ::core::option::Option<::proto_gazette::broker::list_response::Journal>,
+        pub spec: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
+        /// Etcd revision at which the journal was created.
+        #[prost(int64, tag = "3")]
+        pub create_revision: i64,
+        /// Etcd revision at which the journal was last modified.
+        #[prost(int64, tag = "4")]
+        pub mod_revision: i64,
+        /// Current route of the journal, as an initial advisory hint.
+        /// The Route may change at any time, without triggering further updates.
+        #[prost(message, optional, tag = "5")]
+        pub route: ::core::option::Option<::proto_gazette::broker::Route>,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ListingRemoved {
+        /// Binding index of the listing.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+        /// Journal which was previously added to the listing, and is now removed.
+        #[prost(string, tag = "2")]
+        pub journal: ::prost::alloc::string::String,
     }
     /// ProgressDelta reports read progress across all journals since the last flush.
     /// Sent after completion of each Flush (all Queue RPCs responded Flushed),

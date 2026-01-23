@@ -122,6 +122,10 @@ mod serde_ops {
     use crate::ops::*;
     include!("ops.serde.rs");
 }
+mod serde_shuffle {
+    use crate::shuffle::*;
+    include!("shuffle.serde.rs");
+}
 // We don't generate serde support for the `runtime` protobuf package,
 // as it's not intended for JSON serialization.
 

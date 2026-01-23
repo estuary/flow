@@ -3,11 +3,15 @@ use proto_flow::shuffle;
 use tokio::sync::mpsc;
 
 pub struct SessionActor {
-    pub last_commit: Vec<shuffle::JournalProducer>,
-    pub members: Vec<shuffle::Member>,
-    pub read_through: Vec<shuffle::JournalProducer>,
     pub service: crate::Service,
     pub session_id: u64,
+    pub members: Vec<shuffle::Member>,
+
+    pub task_name: models::Name,
+    pub bindings: Vec<crate::Binding>,
+    pub last_commit: Vec<shuffle::JournalProducer>,
+    pub read_through: Vec<shuffle::JournalProducer>,
+
     pub session_response_tx: mpsc::Sender<tonic::Result<shuffle::SessionResponse>>,
     pub slice_request_tx: Vec<mpsc::Sender<shuffle::SliceRequest>>,
 }
@@ -32,6 +36,8 @@ impl SessionActor {
         _ = &self.service.gazette_factory;
         _ = &self.session_id;
         _ = &self.members;
+        _ = &self.task_name;
+        _ = &self.bindings;
         _ = &self.last_commit;
         _ = &self.read_through;
         _ = &self.session_response_tx;
@@ -52,8 +58,7 @@ impl SessionActor {
                         None => break Ok(()), // Clean EOF: shutdown.
                     }
                 }
-                slice_response = slice_response_rx.next() => {
-                    let (member_index, slice_response, rx) = slice_response.expect("slice_response_rx not empty");
+                Some((member_index, slice_response, rx)) = slice_response_rx.next() => {
                     self.on_slice_response(member_index, slice_response).await?;
                     slice_response_rx.push(next_slice_rx((member_index, rx)));
                 }
@@ -65,10 +70,10 @@ impl SessionActor {
         &mut self,
         session_request: tonic::Result<shuffle::SessionRequest>,
     ) -> anyhow::Result<()> {
-        match session_request.map_err(crate::status_to_anyhow)? {
-            request => {
-                anyhow::bail!("unexpected SessionRequest: {request:?}");
-            }
+        let verify = crate::verify("SessionRequest", "TODO", "coordinator", 0);
+
+        match verify.ok(session_request)? {
+            request => verify.fail(request),
         }
     }
 
@@ -77,20 +82,56 @@ impl SessionActor {
         member_index: usize,
         slice_response: Option<tonic::Result<shuffle::SliceResponse>>,
     ) -> anyhow::Result<()> {
-        let Some(slice_response) = slice_response else {
-            anyhow::bail!(
-                "unexpected SliceResponse EOF from {member_index}@{}",
-                self.members[member_index].endpoint
-            );
-        };
-        match slice_response.map_err(crate::status_to_anyhow)? {
-            response => {
-                anyhow::bail!(
-                    "unexpected SliceResponse from {member_index}@{}: {response:?}",
-                    self.members[member_index].endpoint
-                );
-            }
+        let verify = crate::verify(
+            "SliceResponse",
+            "ListingAdded, ListingRemoved",
+            &self.members[member_index].endpoint,
+            member_index,
+        );
+        let slice_response = verify.not_eof(slice_response)?;
+
+        match slice_response {
+            shuffle::SliceResponse {
+                listing_added: Some(added),
+                ..
+            } => self.on_listing_added(added).await?,
+
+            shuffle::SliceResponse {
+                listing_removed: Some(removed),
+                ..
+            } => self.on_listing_removed(removed).await?,
+
+            response => verify.fail(response),
         }
+    }
+
+    async fn on_listing_added(
+        &mut self,
+        listing_added: shuffle::slice_response::ListingAdded,
+    ) -> anyhow::Result<()> {
+        let shuffle::slice_response::ListingAdded {
+            binding,
+            spec,
+            create_revision,
+            mod_revision,
+            route,
+        } = listing_added;
+
+        // TODO: pick actual member to send to based on overlap.
+        let member_index = 0;
+
+        self.slice_request_tx[member_index]
+            .send(shuffle::SliceRequest {
+                start_read: Some(shuffle::slice_request::StartRead {
+                    binding,
+                    checkpoint: Vec::new(), // TODO,
+                    journal,
+                }),
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to send Listing to Slice RPC: {e}"))?;
+
+        todo!()
     }
 }
 

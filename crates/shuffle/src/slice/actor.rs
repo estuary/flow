@@ -3,13 +3,18 @@ use proto_flow::shuffle;
 use tokio::sync::mpsc;
 
 pub struct SliceActor {
-    pub members: Vec<shuffle::Member>,
-    pub queue_request_tx: Vec<mpsc::Sender<shuffle::QueueRequest>>,
+    pub cancel: tokens::CancellationToken,
     pub service: crate::Service,
     pub session_id: u64,
+    pub members: Vec<shuffle::Member>,
     pub slice_member_index: u32,
+
+    pub task_name: models::Name,
+    pub bindings: Vec<crate::Binding>,
+    pub clients: Vec<Option<gazette::journal::Client>>,
+
+    pub queue_request_tx: Vec<mpsc::Sender<shuffle::QueueRequest>>,
     pub slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
-    pub task: shuffle::Task,
 }
 
 impl SliceActor {
@@ -30,20 +35,46 @@ impl SliceActor {
     where
         R: futures::Stream<Item = tonic::Result<shuffle::SliceRequest>> + Send + Unpin + 'static,
     {
-        _ = &self.service.gazette_factory;
-        _ = &self.session_id;
-        _ = &self.slice_member_index;
-        _ = &self.members;
-        _ = &self.task;
-        _ = &self.slice_response_tx;
-        _ = &self.queue_request_tx;
+        let _ = &self.queue_request_tx; // TODO
 
-        // Use FuturesUnordered as a Stream over receive Futures for every Queue RPC.
+        let _drop_guard = self.cancel.clone().drop_guard();
+
+        // Await Start from the Session RPC.
+        let verify = crate::verify("SliceRequest", "Start", &self.members[0].endpoint, 0);
+        match verify.not_eof(slice_request_rx.next().await)? {
+            shuffle::SliceRequest {
+                start: Some(shuffle::slice_request::Start {}),
+                ..
+            } => (),
+            request => return verify.fail(request),
+        };
+
+        // Start tasks that watch journal listings of assigned bindings.
+        let mut listing_tasks: futures::stream::FuturesUnordered<_> = self
+            .bindings
+            .iter()
+            .filter(|binding| {
+                binding.index % self.members.len() == self.slice_member_index as usize
+            })
+            .map(|binding| {
+                super::listing::spawn_listing(
+                    binding,
+                    journal_client(&self.service, &mut self.clients, binding, &self.task_name),
+                    self.slice_response_tx.clone(),
+                    self.cancel.clone(),
+                )
+            })
+            .collect();
+
+        // Build a Stream over receive Futures for every Queue RPC.
         let mut queue_response_rx: futures::stream::FuturesUnordered<_> = queue_response_rx
             .into_iter()
             .enumerate()
             .map(next_queue_rx)
             .collect();
+
+        // REMEMBER: we cannot send SliceResponse from this loop without risking deadlock.
+        // We also cannot send QueueRequest from this loop.
 
         loop {
             tokio::select! {
@@ -53,10 +84,12 @@ impl SliceActor {
                         None => break Ok(()), // Clean EOF: shutdown.
                     }
                 }
-                queue_response = queue_response_rx.next() => {
-                    let (member_index, queue_response, rx) = queue_response.expect("queue_response_rx not empty");
+                Some((member_index, queue_response, rx)) = queue_response_rx.next() => {
                     self.on_queue_response(member_index, queue_response).await?;
                     queue_response_rx.push(next_queue_rx((member_index, rx)));
+                }
+                Some(listing_task) = listing_tasks.next() => {
+                    self.on_listing_task(listing_task)?;
                 }
             }
         }
@@ -66,14 +99,10 @@ impl SliceActor {
         &mut self,
         slice_request: tonic::Result<shuffle::SliceRequest>,
     ) -> anyhow::Result<()> {
-        match slice_request.map_err(crate::status_to_anyhow)? {
-            shuffle::SliceRequest {
-                start: Some(start), ..
-            } => self.on_start(start).await,
+        let verify = crate::verify("SliceRequest", "TODO", &self.members[0].endpoint, 0);
 
-            request => {
-                anyhow::bail!("unexpected SliceRequest: {request:?}");
-            }
+        match verify.ok(slice_request)? {
+            request => verify.fail(request),
         }
     }
 
@@ -82,25 +111,47 @@ impl SliceActor {
         member_index: usize,
         queue_response: Option<tonic::Result<shuffle::QueueResponse>>,
     ) -> anyhow::Result<()> {
-        let Some(queue_response) = queue_response else {
-            anyhow::bail!(
-                "unexpected QueueResponse EOF from {member_index}@{}",
-                self.members[member_index].endpoint
-            );
-        };
-        match queue_response.map_err(crate::status_to_anyhow)? {
-            response => {
-                anyhow::bail!("unexpected QueueResponse: {response:?}");
-            }
+        let verify = crate::verify(
+            "QueueResponse",
+            "TODO",
+            &self.members[member_index].endpoint,
+            member_index,
+        );
+        let queue_response = verify.not_eof(queue_response)?;
+
+        match queue_response {
+            response => verify.fail(response),
         }
     }
 
-    async fn on_start(
+    fn on_listing_task(
         &mut self,
-        shuffle::slice_request::Start {}: shuffle::slice_request::Start,
+        listing_task: Result<Option<anyhow::Error>, tokio::task::JoinError>,
     ) -> anyhow::Result<()> {
-        tracing::info!("on_start");
-        Ok(())
+        match listing_task {
+            Err(err) => Err(anyhow::Error::new(err).context("listing task panicked")),
+            Ok(None) => anyhow::bail!("listing task canceled before SliceActor::rx_loop exited"),
+            Ok(Some(err)) => Err(err),
+        }
+    }
+}
+
+fn journal_client(
+    service: &crate::Service,
+    clients: &mut Vec<Option<gazette::journal::Client>>,
+    binding: &crate::Binding,
+    task_name: &models::Name,
+) -> gazette::journal::Client {
+    let cell = &mut clients[binding.index];
+
+    match cell {
+        Some(client) => client.clone(),
+        None => {
+            let client = (service.gazette_factory)(binding.collection.clone(), task_name.clone());
+
+            *cell = Some(client.clone());
+            client
+        }
     }
 }
 

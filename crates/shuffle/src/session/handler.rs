@@ -33,6 +33,7 @@ where
         );
     }
     let task = task.context("Open must include task")?;
+    let (task_name, bindings) = crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,
@@ -53,20 +54,8 @@ where
     let mut request_tx = Vec::with_capacity(members.len());
     let mut response_rx = Vec::with_capacity(members.len());
 
-    for (member_index, result) in open_results.into_iter().enumerate() {
-        let result = result.map_err(crate::status_to_anyhow);
-
-        let (tx, rx) = if member_index == 0 {
-            result
-        } else {
-            result.with_context(|| {
-                format!(
-                    "failed to open Slice RPC with peer {member_index}@{}",
-                    members[member_index].endpoint
-                )
-            })
-        }?;
-
+    for result in open_results {
+        let (tx, rx) = result?;
         request_tx.push(tx);
         response_rx.push(rx);
     }
@@ -99,6 +88,8 @@ where
         service,
         session_id,
         members,
+        task_name,
+        bindings,
         last_commit,
         read_through,
         session_response_tx: response_tx.clone(),
@@ -114,26 +105,35 @@ pub async fn open_slice_rpc(
     session_id: u64,
     task: &shuffle::Task,
     members: &[shuffle::Member],
-    member_index: u32,
-) -> tonic::Result<(
+    slice_member_index: u32,
+) -> anyhow::Result<(
     mpsc::Sender<shuffle::SliceRequest>,
     futures::stream::BoxStream<'static, tonic::Result<shuffle::SliceResponse>>,
 )> {
+    let verify = crate::verify(
+        "SliceResponse",
+        "Opened",
+        &members[slice_member_index as usize].endpoint,
+        slice_member_index as usize,
+    );
     let (request_tx, request_rx) = crate::new_channel::<shuffle::SliceRequest>();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
 
-    let mut response_rx = if member_index == 0 {
+    let mut response_rx = if slice_member_index == 0 {
         tracing::debug!("spawning in-process Slice RPC");
         tokio_stream::wrappers::ReceiverStream::new(service.spawn_slice(request_rx.map(Ok))).boxed()
     } else {
-        let endpoint = &members[member_index as usize].endpoint;
-        tracing::debug!(member_index, endpoint=%endpoint, "dialing remote Slice RPC");
-        let channel = service.dial_channel(&endpoint)?;
+        let endpoint = &members[slice_member_index as usize].endpoint;
+        tracing::debug!(slice_member_index, endpoint=%endpoint, "dialing remote Slice RPC");
+        let channel = verify.ok(service.dial_channel(&endpoint))?;
         let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
 
-        client.slice(request_rx).await?.into_inner().boxed()
+        verify
+            .ok(client.slice(request_rx).await)?
+            .into_inner()
+            .boxed()
     };
 
     // Send Open request.
@@ -143,28 +143,19 @@ pub async fn open_slice_rpc(
                 session_id,
                 task: Some(task.clone()),
                 members: members.to_vec(),
-                member_index,
+                member_index: slice_member_index,
             }),
             ..Default::default()
         })
         .await;
 
     // Wait for Opened response.
-    match response_rx.next().await {
-        Some(Ok(shuffle::SliceResponse {
+    match verify.not_eof(response_rx.next().await)? {
+        shuffle::SliceResponse {
             opened: Some(shuffle::slice_response::Opened {}),
             ..
-        })) => {
-            tracing::debug!("read Slice Opened response");
-            Ok((request_tx, response_rx))
-        }
+        } => Ok((request_tx, response_rx)),
 
-        Some(Err(status)) => Err(status),
-        Some(Ok(response)) => Err(tonic::Status::invalid_argument(format!(
-            "expected Opened response from Slice, got: {response:?}"
-        ))),
-        None => Err(tonic::Status::aborted(
-            "unexpected EOF while reading Opened from Slice",
-        )),
+        response => verify.fail(response),
     }
 }

@@ -36,6 +36,8 @@ where
         );
     }
     let task = task.context("Open must include task")?;
+    let (task_name, bindings) = crate::Binding::from_task(&task)?;
+    let clients = std::iter::repeat(None).take(bindings.len()).collect();
 
     tracing::info!(
         session_id,
@@ -61,20 +63,8 @@ where
     let mut queue_request_tx = Vec::with_capacity(members.len());
     let mut queue_response_rx = Vec::with_capacity(members.len());
 
-    for (queue_member_index, result) in open_results.into_iter().enumerate() {
-        let result = result.map_err(crate::status_to_anyhow);
-
-        let (tx, rx) = if queue_member_index == slice_member_index as usize {
-            result
-        } else {
-            result.with_context(|| {
-                format!(
-                    "failed to open Queue RPC with peer {queue_member_index}@{}",
-                    members[queue_member_index as usize].endpoint
-                )
-            })
-        }?;
-
+    for result in open_results {
+        let (tx, rx) = result?;
         queue_request_tx.push(tx);
         queue_response_rx.push(rx);
     }
@@ -94,13 +84,16 @@ where
         .await;
 
     super::actor::SliceActor {
-        members,
-        queue_request_tx,
+        cancel: tokens::CancellationToken::new(),
         service,
         session_id,
-        slice_member_index: slice_member_index as u32,
+        members,
+        slice_member_index,
+        task_name,
+        bindings,
+        clients,
+        queue_request_tx,
         slice_response_tx,
-        task,
     }
     .rx_loop(slice_request_rx, queue_response_rx)
     .await
@@ -114,10 +107,16 @@ async fn open_queue_rpc(
     slice_member_index: u32,
     members: &[shuffle::Member],
     queue_member_index: u32,
-) -> tonic::Result<(
+) -> anyhow::Result<(
     mpsc::Sender<shuffle::QueueRequest>,
     futures::stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>,
 )> {
+    let verify = crate::verify(
+        "QueueResponse",
+        "Opened",
+        &members[queue_member_index as usize].endpoint,
+        queue_member_index as usize,
+    );
     let (request_tx, request_rx) = crate::new_channel::<shuffle::QueueRequest>();
 
     // Spawn or dial RPC, yielding a boxed response stream.
@@ -129,10 +128,13 @@ async fn open_queue_rpc(
     } else {
         let endpoint = &members[queue_member_index as usize].endpoint;
         tracing::debug!(queue_member_index, endpoint=%endpoint, "dialing remote Queue RPC");
-        let channel = service.dial_channel(&endpoint)?;
+        let channel = verify.ok(service.dial_channel(&endpoint))?;
         let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
 
-        client.queue(request_rx).await?.into_inner().boxed()
+        verify
+            .ok(client.queue(request_rx).await)?
+            .into_inner()
+            .boxed()
     };
 
     // Send Open request.
@@ -150,21 +152,12 @@ async fn open_queue_rpc(
         .await;
 
     // Wait for Opened response.
-    match response_rx.next().await {
-        Some(Ok(shuffle::QueueResponse {
+    match verify.not_eof(response_rx.next().await)? {
+        shuffle::QueueResponse {
             opened: Some(shuffle::queue_response::Opened {}),
             ..
-        })) => {
-            tracing::debug!("read Queue Opened response");
-            Ok((request_tx, response_rx))
-        }
+        } => Ok((request_tx, response_rx)),
 
-        Some(Err(status)) => Err(status),
-        Some(Ok(response)) => Err(tonic::Status::invalid_argument(format!(
-            "expected Opened response from Queue, got: {response:?}"
-        ))),
-        None => Err(tonic::Status::aborted(
-            "unexpected EOF while reading Opened from Queue",
-        )),
+        response => verify.fail(response),
     }
 }

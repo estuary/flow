@@ -15,15 +15,23 @@ message Member {
   string endpoint = 2;
 }
 
+message CollectionPartitions {
+  // Collection specification.
+  flow.CollectionSpec collection = 1;
+  // Partition selector for filtering source collection journals.
+  protocol.LabelSelector partition_selector = 2;
+}
+
 // Task which we're performing shuffles for.
 message Task {
   oneof task {
+    // Partitions of a single collection (ad-hoc read).
+    CollectionPartitions collection_partitions = 1;
     // Derivation for which we're performing shuffles.
-    flow.CollectionSpec.Derivation derivation = 2;
+    // The collection's `derivation` field must be set.
+    flow.CollectionSpec derivation = 2;
     // Materialization for which we're performing shuffles.
     flow.MaterializationSpec materialization = 3;
-    // Single collection for which we're performing shuffles (ad-hoc read).
-    flow.CollectionSpec collection = 4;
   }
 }
 
@@ -145,13 +153,28 @@ message SliceResponse {
   message Opened {}
   Opened opened = 1;
 
-  message ListingUpdate {
+  message ListingAdded {
     // Binding index of the listing.
     uint32 binding = 1;
-    // Journal which was added or removed from the listing.
-    protocol.ListResponse.Journal journal = 2;
+    // Journal which was added to the listing.
+    protocol.JournalSpec spec = 2;
+    // Etcd revision at which the journal was created.
+    int64 create_revision = 3;
+    // Etcd revision at which the journal was last modified.
+    int64 mod_revision = 4;
+    // Current route of the journal, as an initial advisory hint.
+    // The Route may change at any time, without triggering further updates.
+    protocol.Route route = 5;
   }
-  ListingUpdate listing_update = 2;
+  ListingAdded listing_added = 2;
+
+  message ListingRemoved {
+    // Binding index of the listing.
+    uint32 binding = 1;
+    // Journal which was previously added to the listing, and is now removed.
+    string journal = 2;
+  }
+  ListingRemoved listing_removed = 3;
 
   // ProgressDelta reports read progress across all journals since the last flush.
   // Sent after completion of each Flush (all Queue RPCs responded Flushed),
@@ -169,7 +192,7 @@ message SliceResponse {
     }
     repeated CausalHint causal_hints = 2;
   }
-  ProgressDelta progress_delta = 3;
+  ProgressDelta progress_delta = 4;
 }
 
 // QueueRequest is sent by Slices to each member's Queue.
