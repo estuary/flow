@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use clap::Parser;
 
+mod alert_subscriptions;
 mod auth;
 mod catalog;
 mod collection;
@@ -20,6 +21,7 @@ mod raw;
 pub(crate) use flow_client::client::Client;
 use flow_client::client::refresh_authorizations;
 pub(crate) use flow_client::{api_exec, api_exec_paginated};
+use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
 use poll::poll_while_queued;
 
@@ -45,6 +47,8 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
+    /// View and manage subscriptions to alerts and notifications
+    AlertSubscriptions(alert_subscriptions::AlertSubscriptions),
     /// Authenticate with Flow.
     Auth(auth::Auth),
     /// Work with the current Flow catalog.
@@ -135,6 +139,17 @@ impl CliContext {
             }
         }
     }
+
+    /// Parses the user access token and returns the deserialized claims.
+    /// This does not check the validity of the token in any way. As long
+    /// the claims can be deserialized, they will be returned as they are.
+    fn require_control_claims(&self) -> anyhow::Result<ControlClaims> {
+        let Some(token) = self.config.user_access_token.as_deref() else {
+            anyhow::bail!("you must be logged in in order to do this. Try `flowctl auth login`");
+        };
+        let claims = flow_client::parse_jwt_claims::<ControlClaims>(token)?;
+        Ok(claims)
+    }
 }
 
 impl Cli {
@@ -172,6 +187,7 @@ impl Cli {
         };
 
         match &self.cmd {
+            Command::AlertSubscriptions(alerts) => alerts.run(&mut context).await,
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
             Command::Collections(collection) => collection.run(&mut context).await,
@@ -228,4 +244,112 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
         email = email.unwrap_or_default(),
         id = id.map(|id| id.to_string()).unwrap_or_default(),
     )
+}
+
+/// Returns a default list of prefixes to use for commands that accept an
+/// optional prefix argument. This will return all of the distinct prefixes that
+/// the user has at least `min_capability` to. If the user has access to more
+/// than `max_count` distinct prefixes, an error will be returned that guides
+/// the user to specify a prefix explicitly. This function will never return an
+/// empty vec, and will instead return an error if the user does not have access
+/// to any prefixes. Note that any `ops/dp/` role grants are ignored.
+async fn get_default_prefix_arguments(
+    ctx: &mut CliContext,
+    min_capability: models::Capability,
+    max_count: usize,
+) -> anyhow::Result<Vec<String>> {
+    // We fetch at least twice the number of roles as requested, so that we can
+    // filter out any duplicates and still probably have enough to fill out the
+    // list.
+    let role_list =
+        crate::auth::list::list_authorized_prefixes(ctx, min_capability, (max_count * 2).max(10))
+            .await?;
+
+    let prefixes = filter_default_prefixes(role_list, max_count)?;
+    if prefixes.is_empty() {
+        anyhow::bail!(
+            "the current user does not have access to any catalog prefixes, please ask your tenant administrator for help"
+        );
+    }
+    tracing::debug!(
+        ?prefixes,
+        "no prefix argument provided, determined prefixes automatically"
+    );
+    Ok(prefixes)
+}
+
+/// Accepts a listing of the users role grants, and returns a deduplicated list
+/// of prefixes, having a length <= `max`.
+fn filter_default_prefixes(
+    mut role_list: Vec<auth::list::AuthorizedPrefix>,
+    max: usize,
+) -> anyhow::Result<Vec<String>> {
+    // Filter out `ops/dp/` prefixes because there are never any live specs under that prefix.
+    role_list.retain(|r| !r.prefix.starts_with("ops/dp/"));
+
+    // Sort the remaining roles so that we can remove redundant prefixes. Top-level
+    // prefixes will sort first, so we can ignore, e.g. `tenant/nested/` if there's
+    // also a `tenant/` grant.
+    role_list.sort_by(|l, r| l.prefix.cmp(&r.prefix));
+
+    let mut prefixes: Vec<String> = Vec::new();
+    for candidate in role_list {
+        if prefixes
+            .last()
+            .is_some_and(|last| candidate.prefix.starts_with(last.as_str()))
+        {
+            continue;
+        }
+        prefixes.push(candidate.prefix.to_string());
+    }
+
+    if prefixes.len() > max {
+        let max_str = if max > 1 {
+            format!("{max} prefixes")
+        } else {
+            "one prefix".to_string()
+        };
+        anyhow::bail!(
+            "an explicit prefix argument is required since you have access to more than {max_str}.\nRun `flowctl auth roles list` to see the prefixes you can access"
+        );
+    }
+    Ok(prefixes)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::auth::list::AuthorizedPrefix;
+
+    #[test]
+    fn test_filter_default_prefixes() {
+        fn pre(prefix: &str) -> AuthorizedPrefix {
+            AuthorizedPrefix {
+                prefix: models::Prefix::new(prefix),
+                user_capability: models::Capability::Admin, // irrelevant
+            }
+        }
+        let roles = vec![
+            pre("wileyCo/"),
+            pre("acmeCo/prod/anvils/"),
+            pre("acmeCo/dev/anvils/"),
+            pre("acmeCo/dev/tnt/"),
+            pre("acmeCo/"),
+            pre("acmeCo/prod/"),
+            pre("acmeCo/foo/"),
+            pre("coyoteCo/"),
+        ];
+        let result = filter_default_prefixes(roles.clone(), 3).expect("should return 3 prefixes");
+        assert_eq!(
+            vec![
+                "acmeCo/".to_string(),
+                "coyoteCo/".to_string(),
+                "wileyCo/".to_string(),
+            ],
+            result
+        );
+
+        let fail_result = filter_default_prefixes(roles, 2);
+        assert!(fail_result.is_err());
+    }
 }

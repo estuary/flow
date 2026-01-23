@@ -1,0 +1,16 @@
+mutation UpdateAlertSubscription(
+    $prefix: Prefix!
+    $email: String!
+    $alertTypes: [AlertType!]
+    $detail: String
+) {
+    updateAlertSubscription(
+        prefix: $prefix
+        email: $email
+        alertTypes: $alertTypes
+        detail: $detail
+    ) {
+        alertTypes
+        detail
+    }
+}

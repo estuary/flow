@@ -1,7 +1,7 @@
 use anyhow::Context;
 
 use crate::catalog::{DataPlaneSelector, NameSelector, SpecTypeSelector};
-use crate::{auth, graphql::*, output};
+use crate::{graphql::*, output};
 
 #[derive(Default, Debug, Clone, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -53,66 +53,14 @@ pub async fn fetch_live_specs(
     use futures::TryStreamExt;
 
     if list.name_selector.name.is_empty() && list.name_selector.prefix.is_empty() {
-        const DEFAULT_PREFIX_LIMIT: usize = 5;
-
-        let role_list = auth::list::list_authorized_prefixes(
-            ctx,
-            models::Capability::Read,
-            DEFAULT_PREFIX_LIMIT * 2,
-        )
-        .await?;
-
-        let prefixes = filter_default_prefixes(role_list, DEFAULT_PREFIX_LIMIT)?;
-        if prefixes.is_empty() {
-            anyhow::bail!(
-                "the current user does not have access to any catalog prefixes, please ask your tenant administrator for help"
-            );
-        }
-        tracing::debug!(
-            ?prefixes,
-            "no --prefix argument provided, determined prefix automatically"
-        );
+        let prefixes =
+            crate::get_default_prefix_arguments(ctx, models::Capability::Read, 5).await?;
         list.name_selector.prefix = prefixes;
     }
 
     fetch_paginated_live_specs(ctx.client.clone(), list)
         .try_collect()
         .await
-}
-
-/// Accepts a listing of the users role grants, and returns a filtered list of
-/// prefixes to use for selecting live specs. This removes any unnecessary or
-/// redundant role grants from `role_list` so that we can avoid making
-/// unnecessary requests and needing to deal with duplicate specs.
-fn filter_default_prefixes(
-    mut role_list: Vec<auth::list::AuthorizedPrefix>,
-    max: usize,
-) -> anyhow::Result<Vec<String>> {
-    // Filter out `ops/dp/` prefixes because there are never any live specs under that prefix.
-    role_list.retain(|r| !r.prefix.starts_with("ops/dp/"));
-
-    // Sort the remaining roles so that we can remove redundant prefixes. Top-level
-    // prefixes will sort first, so we can ignore, e.g. `tenant/nested/` if there's
-    // also a `tenant/` grant.
-    role_list.sort_by(|l, r| l.prefix.cmp(&r.prefix));
-
-    let mut prefixes: Vec<String> = Vec::new();
-    for candidate in role_list {
-        if prefixes
-            .last()
-            .is_some_and(|last| candidate.prefix.starts_with(last.as_str()))
-        {
-            continue;
-        }
-        prefixes.push(candidate.prefix.to_string());
-    }
-
-    if prefixes.len() > max {
-        anyhow::bail!(
-            "an explicit --prefix or --name argument is required since you have access to more than {max} prefixes.\nRun `flowctl auth roles list` to see the prefixes you can access"
-        );
-    }
-    Ok(prefixes)
 }
 
 pub fn into_draft(
@@ -344,42 +292,4 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
         });
     }
     vars
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::auth::list::AuthorizedPrefix;
-
-    #[test]
-    fn test_filter_default_prefixes() {
-        fn pre(prefix: &str) -> AuthorizedPrefix {
-            AuthorizedPrefix {
-                prefix: models::Prefix::new(prefix),
-                user_capability: models::Capability::Admin, // irrelevant
-            }
-        }
-        let roles = vec![
-            pre("wileyCo/"),
-            pre("acmeCo/prod/anvils/"),
-            pre("acmeCo/dev/anvils/"),
-            pre("acmeCo/dev/tnt/"),
-            pre("acmeCo/"),
-            pre("acmeCo/prod/"),
-            pre("acmeCo/foo/"),
-            pre("coyoteCo/"),
-        ];
-        let result = filter_default_prefixes(roles.clone(), 3).expect("should return 3 prefixes");
-        assert_eq!(
-            vec![
-                "acmeCo/".to_string(),
-                "coyoteCo/".to_string(),
-                "wileyCo/".to_string(),
-            ],
-            result
-        );
-
-        let fail_result = filter_default_prefixes(roles, 2);
-        assert!(fail_result.is_err());
-    }
 }
