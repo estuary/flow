@@ -172,7 +172,7 @@ impl StorageMappingsMutation {
         catalog_prefix: models::Prefix,
         detail: Option<String>,
         storage: async_graphql::Json<models::StorageDef>,
-        dry_run: bool,
+        #[graphql(default = false)] dry_run: bool,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -286,7 +286,7 @@ impl StorageMappingsMutation {
         catalog_prefix: models::Prefix,
         detail: Option<String>,
         storage: async_graphql::Json<models::StorageDef>,
-        dry_run: bool,
+        #[graphql(default = false)] dry_run: bool,
     ) -> async_graphql::Result<UpdateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;

@@ -560,7 +560,7 @@ type MutationRoot {
 	
 	All health checks must pass before the storage mapping is created.
 	"""
-	createStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean!): CreateStorageMappingResult!
+	createStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean! = false): CreateStorageMappingResult!
 	"""
 	Update an existing storage mapping for the given catalog prefix.
 
@@ -570,7 +570,7 @@ type MutationRoot {
 
 	All health checks must pass before the storage mapping is updated.
 	"""
-	updateStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean!): UpdateStorageMappingResult!
+	updateStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean! = false): UpdateStorageMappingResult!
 	"""
 	Creates a new alert subscription. Returns an error if there is already
 	an existing subscription for the same prefix and email address.
