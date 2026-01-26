@@ -35,6 +35,26 @@ enum ConnectionScheme {
     Tls,
 }
 
+impl ConnectionScheme {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ConnectionScheme::Plaintext => "tcp",
+            ConnectionScheme::Tls => "tls",
+        }
+    }
+}
+
+fn broker_url_for_host_port(
+    scheme: ConnectionScheme,
+    host: &str,
+    port: impl TryInto<u16>,
+) -> anyhow::Result<String> {
+    let port: u16 = port
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("invalid broker port"))?;
+    Ok(format!("{}://{host}:{port}", scheme.as_str()))
+}
+
 /// Parse a broker URL to extract the connection scheme, host, and port.
 ///
 /// Supported schemes:
@@ -335,6 +355,7 @@ pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
     conn: BoxedKafkaConnection,
     url: String,
+    scheme: ConnectionScheme,
     auth: KafkaClientAuth,
     versions: messages::ApiVersionsResponse,
     // Sometimes we need to connect to a particular broker, be it the coordinator
@@ -369,13 +390,17 @@ impl KafkaApiClient {
 
     /// Attempt to open a connection to a specific broker address
     async fn try_connect(url: &str, mut auth: KafkaClientAuth) -> anyhow::Result<Self> {
-        let mut conn = async_connect(url)
+        // Parse the URL to extract the scheme, and standardize the URL format
+        let (scheme, host, port) = parse_broker_url(url)?;
+        let url = broker_url_for_host_port(scheme, &host, port)?;
+
+        let mut conn = async_connect(&url)
             .await
             .context("Failed to establish TCP connection")?;
 
         if let Some(sasl_config) = auth.sasl_config().await? {
             tracing::debug!("Authenticating connection via SASL");
-            sasl_auth(&mut conn, url, sasl_config)
+            sasl_auth(&mut conn, &url, sasl_config)
                 .await
                 .context("SASL authentication failed")?;
         } else {
@@ -388,7 +413,8 @@ impl KafkaApiClient {
 
         Ok(Self {
             conn,
-            url: url.to_string(),
+            url,
+            scheme,
             auth,
             versions,
             clients: HashMap::new(),
@@ -465,7 +491,7 @@ impl KafkaApiClient {
             (resp.host.as_str(), resp.port)
         };
 
-        let coord_url = format!("tcp://{}:{}", coord_host.to_string(), coord_port);
+        let coord_url = broker_url_for_host_port(self.scheme, coord_host, coord_port)?;
 
         Ok(if coord_host.len() == 0 && coord_port == -1 {
             self
@@ -494,7 +520,8 @@ impl KafkaApiClient {
             .find(|broker| broker.node_id == resp.controller_id)
             .context("Failed to find controller")?;
 
-        let controller_url = format!("tcp://{}:{}", controller.host.to_string(), controller.port);
+        let controller_url =
+            broker_url_for_host_port(self.scheme, controller.host.as_str(), controller.port)?;
 
         self.client_for_broker(&controller_url).await
     }
@@ -856,5 +883,65 @@ impl rsasl::callback::SessionCallback for MSKCredentialsProvider {
     ) -> Result<(), rsasl::prelude::SessionError> {
         request.satisfy::<rsasl::property::OAuthBearerToken>(&self.token)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use insta::assert_snapshot;
+
+    use super::{ConnectionScheme, broker_url_for_host_port, parse_broker_url};
+
+    #[test]
+    fn test_parse_broker_url_success_cases() {
+        assert_eq!(
+            parse_broker_url("example.com:1234").unwrap(),
+            (ConnectionScheme::Tls, "example.com".to_string(), 1234)
+        );
+        assert_eq!(
+            parse_broker_url("tcp://example.com:1234").unwrap(),
+            (ConnectionScheme::Plaintext, "example.com".to_string(), 1234)
+        );
+        assert_eq!(
+            parse_broker_url("tls://example.com:1234").unwrap(),
+            (ConnectionScheme::Tls, "example.com".to_string(), 1234)
+        );
+        assert_eq!(
+            parse_broker_url("tls://example.com").unwrap(),
+            (ConnectionScheme::Tls, "example.com".to_string(), 9092)
+        );
+    }
+
+    #[test]
+    fn test_broker_url_for_host_port_uses_scheme() {
+        assert_eq!(
+            broker_url_for_host_port(ConnectionScheme::Plaintext, "h", 9092).unwrap(),
+            "tcp://h:9092"
+        );
+        assert_eq!(
+            broker_url_for_host_port(ConnectionScheme::Tls, "h", 9092).unwrap(),
+            "tls://h:9092"
+        );
+    }
+
+    #[test]
+    fn test_parse_broker_url_rejects_unknown_scheme() {
+        let err = parse_broker_url("udp://example.com:1234").unwrap_err();
+        assert_snapshot!(err.to_string(), @"unknown broker scheme: udp (expected 'tcp' or 'tls')");
+    }
+
+    #[test]
+    fn test_error_cases() {
+        let err = parse_broker_url("udp://example.com:1234").unwrap_err();
+        assert_snapshot!(err.to_string(), @"unknown broker scheme: udp (expected 'tcp' or 'tls')");
+
+        let err = parse_broker_url("tls:///").unwrap_err();
+        assert_snapshot!(err.to_string(), @"missing host in broker URL");
+
+        let err = broker_url_for_host_port(ConnectionScheme::Tls, "h", -1_i32).unwrap_err();
+        assert_snapshot!(err.to_string(), @"invalid broker port");
+
+        let err = broker_url_for_host_port(ConnectionScheme::Tls, "h", 70000_i32).unwrap_err();
+        assert_snapshot!(err.to_string(), @"invalid broker port");
     }
 }
