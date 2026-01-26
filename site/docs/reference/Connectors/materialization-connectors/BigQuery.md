@@ -40,9 +40,13 @@ During account creation:
    2. Grant the user roles `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, `roles/bigquery.readSessionUser` and `roles/storage.objectAdmin`.
    3. Click **Done**.
 
-2. Select the new service account from the list of service accounts. On the Keys tab, click **Add key** and create a new JSON key.
+2. You can authenticate either using a service account key or by using Google Cloud IAM:
 
-   The key is automatically downloaded. You'll use it to configure the connector.
+   - To use a service account key, select the new service account from the list of service accounts. On the Keys tab, click **Add key** and create a new JSON key.
+
+     The key is automatically downloaded. You'll use it to configure the connector.
+
+   - To use Google Cloud IAM, follow the steps in the [GCP IAM guide](/guides/iam-auth/gcp/).
 
 ## Configuration
 
@@ -60,15 +64,30 @@ For a complete introduction to resource organization in Bigquery, see the [BigQu
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/project_id`**| Project ID | The project ID for the Google Cloud Storage bucket and BigQuery dataset.| String | Required |
-| **`/credentials_json`** | Service Account JSON | The JSON credentials of the service account to use for authorization. | String | Required |
 | **`/region`** | Region | The GCS region. | String | Required |
 | **`/dataset`** | Dataset | BigQuery dataset for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables. | String | Required |
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
+| **`/credentials`** | Credentials | Credentials for authentication. | [Credentials](#credentials) | Required |
 | `/bucket_path` | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | |
 | `/billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery. Typically, you want this to be the same as `project_id` (the default). | String | Same as `project_id` |
 | `/advanced/disableFieldTruncation` | Disable Field Truncation | Disables truncation of large materialized fields | boolean | |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
+
+#### Credentials
+
+Credentials for authenticating with GCP.  Use one of the following sets of options:
+
+| Property                     | Title                   | Description                                                                                               | Type    | Required/Default            |
+| ---------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- | ------- | --------------------------- |
+| **`/auth_type`**             | Auth Type               | Method to use for authentication.                                                                         | string  | Required: `CredentialsJSON` |
+| **`/credentials_json`**      | Service Account JSON    | The JSON credentials of the service account to use for authorization. | String | Required |
+
+| Property                                   | Title                           | Description                                                                         | Type    | Required/Default            |
+| ------------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------- | ------- | --------------------------- |
+| **`/auth_type`**                           | Auth Type                       | Method to use for authentication.                                                   | string  | Required: `GCPIAM`          |
+| **`/gcp_service_account_to_impersonate`**  | Service Account                 | GCP Service Account email for Cloud SQL IAM authentication                          | string  | Required                    |
+| **`/gcp_workload_identity_pool_audience`** | Workload Identity Pool Audience | GCP Workload Identity Pool Audience in the format `https://iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider` | string | Required |
 
 #### Bindings
 
@@ -91,7 +110,9 @@ materializations:
           region: US
           bucket: our-gcs-bucket
           bucket_path: bucket-path/
-          credentials_json: <secret>
+          credentials:
+            auth_type: CredentialsJSON
+            credentials_json: <secret>
         image: ghcr.io/estuary/materialize-bigquery:dev
     bindings:
   	- resource:
