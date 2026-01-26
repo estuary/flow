@@ -53,7 +53,7 @@ The saved payment method will be automatically charged at the end of each billin
 
 ## Estuary for Free
 
-Estuary includes several options for free data movement:
+Estuary includes options for free data movement:
 
 * **Free plan:**
    Use Estuary for free when working with one low-volume data pipeline.
@@ -68,7 +68,3 @@ Estuary includes several options for free data movement:
    Beyond free plan limits, you can trial Estuary using a public deployment for free for 30 days.
 
    If you are interested in trialing a private or BYOC deployment for a proof of concept, [contact us](https://estuary.dev/contact-us).
-
-* **Self hosting:**
-   The Estuary runtime has been made available with specific usage stipulations under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL).
-   Setup and additional self-hosting support are currently not guaranteed and we recommend the hosted version of Estuary for the best experience.
