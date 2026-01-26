@@ -4,7 +4,7 @@ import ReactPlayer from "react-player";
 
 This connector captures data from Oracle NetSuite into Estuary collections. It uses the SuiteAnalytics Connect feature in order to both load large amounts of data quickly, as well as introspect the available tables, their schemas, keys, and cursor fields.
 
-[`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite-v2:dev) provides the
+[`ghcr.io/estuary/source-netsuite-v2:dev`](https://ghcr.io/estuary/source-netsuite-v2:dev) provides the
 latest connector image. You can also follow the link in your browser to see past image versions.
 
 In general, SuiteAnalytics Connect is the preferred method to retrieve data from NetSuite.
@@ -87,7 +87,7 @@ Create a NetSuite _integration_ to obtain a Consumer Key and Consumer Secret.
 
    6. (IMPORTANT) Click **Lists** and add all the dropdown entities with either **full** or **view** access level.
 
-   7. (IMPORTANT) Click **Setup** an add all the dropdown entities with either **full** or **view** access level.
+   7. (IMPORTANT) Click **Setup** and add all the dropdown entities with either **full** or **view** access level.
 
    8. (IMPORTANT) If you have multiple subsidiaries, make sure to select all of the subsidiaries you want the connector to have access to under the **Role** > **Subsidiary Restrictions** configuration.
 
@@ -145,7 +145,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property                      | Title                  | Description                                                                                      | Type   | Required/Default |
 | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ | ------ | ---------------- |
 | `/account`                     | Netsuite Account ID    | Netsuite realm/Account ID e.g. 2344535, as for `production` or 2344535_SB1, as for `sandbox` | string | Required         |
-| `/suiteanalytics_data_source` | Data Source            | Which NetSuite data source to use. Options are `NetSuite.com`, or `NetSuite2.com`                | string | Required         |
+| `/suiteanalytics_data_source` | Data Source            | Which NetSuite data source to use. This should generally be `NetSuite2.com`                | string | Required         |
 | `/authentication`             | Authentication Details | Credentials to access your NetSuite account                                                      | object | Required         |
 | `/authentication/auth_type`   | Authentication Type    | Type of authentication used, either `token` or `user_pass`.                                      | string | `token`          |
 
@@ -181,12 +181,12 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | ------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
 | `/name`                                     | Name                    | The name of the table this binding refers to                                                                                          | string                                                                                                                           | Required                            |
 | `/interval`                                 | Interval                | How frequently to check for incremental changes                                                                                       | [`ISO8601` Duration](https://www.digi.com/resources/documentation/digidocs/90001488-13/reference/r_iso_8601_duration_format.htm) | `PT1H` (1 Hour)                     |
-| `/schedule`         | Schedule     | Schedule to automatically rebackfill this binding. Accepts a cron expression.      | string |   |
+| `/schedule`         | Schedule     | [Schedule](#setting-a-schedule) to automatically rebackfill this binding. Accepts a cron expression.      | string |   |
 | `/log_cursor`                               | Log Cursor              | A date-time column to use for incremental capture of modifications.                                                                   | String                                                                                                                           | Required (Automatically Discovered) |
 | `/page_cursor`                              | Page Cursor             | An indexed, non-NULL integer column to use for ordered table backfills. Does not need to be unique, but should have high cardinality. | String                                                                                                                           | Required (Automatically Discovered) |
 | `/concurrency`                              | Concurrency             | Maximum number of concurrent connections to use for backfilling.                                                                      | int                                                                                                                              | 1 Connection                        |
 | `/query_limit`                              | Query Limit             | Maximum number of rows to fetch in a query. Will be divided between all connections if `/concurrency` > 1                             | int                                                                                                                              | 100,000 Rows                        |
-| `/select_columns`         | Manually Selected Columns     | Override the columns to load from the table. If empty, all columns will be loaded. Ideally this should only be set when loading specific columns is neccesary, as it won't automatically update when new columns are added or removed. | string array | `[]`  |
+| `/select_columns`         | Manually Selected Columns     | Override the columns to load from the table. If empty, all columns will be loaded. Ideally this should only be set when loading specific columns is necessary, as it won't automatically update when new columns are added or removed. | string array | `[]`  |
 | `/snapshot_backfill`     | Single-shot Backfill           | Attempt to backfill using a single-shot query to load all rows. Useful when no good page cursor exists, and the table is of reasonable size. Incremental updates are still possible if a log cursor is defined. | boolean | `false` |
 
 ##### Table Associations
@@ -231,7 +231,6 @@ captures:
                   suiteanalytics_data_source: NetSuite2.com
                   advanced:
                      connection_limit: 20
-                     cursor_fields: []
                      start_date: null
                      task_limit: 10
                      query_idle_timeout_seconds: PT30M
@@ -275,3 +274,15 @@ To set exclusions for particular special column types, configure the resource's 
 If you find these exclusions too broad, you can add back individual filtered-out fields using the resource's **Additional Columns** Advanced Option.
 
 You can find out whether a specific column falls under one of these special types in NetSuite's column metadata under the `userdata` field.
+
+## Setting a Schedule
+
+Certain bindings may not be able to load data incrementally. You can instead use the `schedule` field for these bindings.
+This allows you to specify a cron expression to rebackfill the binding.
+
+This is helpful when performing periodic full refreshes using the paginated backfill mode.
+Schedules are only needed when a binding has a key and page cursor, but no log cursor.
+
+The `schedule` setting should **not** be used in conjunction with **snapshot mode**.
+Snapshots manage their own state and run on a schedule set by the `interval` field.
+Attempting to backfill a snapshot using a cron `schedule` will cause issues with emitting deletions.

@@ -9,7 +9,9 @@ To use SuiteAnalytics Connect to sync your data instead, see the [Netsuite Suite
 
 Currently, this connector supports a subset of NetSuite tables, such as:
 
+* Account
 * Customer
+* DeletedRecord
 * Item
 * Term
 * Transaction
@@ -92,7 +94,7 @@ Create a NetSuite _integration_ to obtain a Consumer Key and Consumer Secret.
 
    6. (IMPORTANT) Click **Lists** and add all the dropdown entities with either **full** or **view** access level.
 
-   7. (IMPORTANT) Click **Setup** an add all the dropdown entities with either **full** or **view** access level.
+   7. (IMPORTANT) Click **Setup** and add all the dropdown entities with either **full** or **view** access level.
 
    8. (IMPORTANT) If you have multiple subsidiaries, make sure to select all of the subsidiaries you want the connector to have access to under the **Role** > **Subsidiary Restrictions** configuration.
 
