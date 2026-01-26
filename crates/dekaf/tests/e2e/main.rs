@@ -7,6 +7,6 @@ mod collection_reset;
 mod empty_fetch;
 mod list_offsets;
 mod not_ready;
-mod task_name_auth;
+mod auth;
 
 pub use harness::{ConnectionInfo, DekafTestEnv, init_tracing};
