@@ -268,6 +268,20 @@ type Controller {
 }
 
 """
+Result of creating a storage mapping.
+"""
+type CreateStorageMappingResult {
+	"""
+	Whether the storage mapping was created (false if dry_run was true, or it previously existed).
+	"""
+	created: Boolean!
+	"""
+	The catalog prefix for which the storage mapping was created or updated.
+	"""
+	catalogPrefix: Prefix!
+}
+
+"""
 Implement the DateTime<Utc> scalar
 
 The input/output is a string in RFC3339 format.
@@ -508,7 +522,7 @@ type LockFailure {
 
 type MutationRoot {
 	"""
-	Create or update a storage mapping for the given catalog prefix.
+	Create a storage mapping for the given catalog prefix.
 	
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
@@ -516,7 +530,17 @@ type MutationRoot {
 	
 	All health checks must pass before the storage mapping is created.
 	"""
-	upsertStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean!): UpsertStorageMappingResult!
+	createStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean! = false): CreateStorageMappingResult!
+	"""
+	Update an existing storage mapping for the given catalog prefix.
+	
+	This validates that the user has admin access to the catalog prefix,
+	runs health checks to verify that data planes can access the storage buckets,
+	and then updates the storage mapping in the database if `dry_run` is false.
+	
+	All health checks must pass before the storage mapping is updated.
+	"""
+	updateStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean! = false): UpdateStorageMappingResult!
 }
 
 scalar Name
@@ -967,17 +991,21 @@ entities without requiring a central allocating authority.
 scalar UUID
 
 """
-Result of creating or updating a storage mapping.
+Result of updating a storage mapping.
 """
-type UpsertStorageMappingResult {
+type UpdateStorageMappingResult {
 	"""
-	Whether the storage mapping was created (false if dry_run was true, or it previously existed).
+	Whether the storage mapping was updated (false if dry_run was true, or it previously existed).
 	"""
-	created: Boolean!
+	updated: Boolean!
 	"""
 	The catalog prefix for which the storage mapping was created or updated.
 	"""
 	catalogPrefix: Prefix!
+	"""
+	Whether a republish is required because the primary storage bucket changed.
+	"""
+	republish: Boolean!
 }
 
 """

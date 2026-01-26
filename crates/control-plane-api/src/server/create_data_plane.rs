@@ -242,8 +242,13 @@ pub async fn create_data_plane(
 
             // Update the storage mapping
             let detail = format!("updated by create-data-plane for {}", data_plane_name);
-            upsert_storage_mapping(&detail, &mapping.catalog_prefix, &storage_spec, &mut txn)
-                .await?;
+            upsert_storage_mapping(
+                Some(&detail),
+                &mapping.catalog_prefix,
+                &storage_spec,
+                &mut txn,
+            )
+            .await?;
 
             tracing::info!(
                 tenant_prefix = %tenant_prefix,
