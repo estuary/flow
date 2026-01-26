@@ -160,8 +160,6 @@ impl RocksDB {
         {
             let state = String::from_utf8(state).context("decoding connector state as UTF-8")?;
             let state = models::RawValue::from_string(state).context("decoding state as JSON")?;
-
-            tracing::debug!(state=?ops::DebugJson(&state), "loaded a persisted connector state");
             return Ok(state);
         };
 
@@ -323,44 +321,124 @@ fn do_merge(
     operands: &rocksdb::merge_operator::MergeOperands,
     schema: &str,
 ) -> anyhow::Result<Vec<u8>> {
-    let bundle = doc::validation::build_bundle(schema.as_bytes()).unwrap();
-    let validator = doc::Validator::new(bundle).unwrap();
+    // Holds outputs of prior iterations, which are now inputs of the next one.
+    let mut input_storage: Vec<Vec<u8>>;
+
+    // Collect all input documents (initial + operands, each newline-delimited).
+    let mut inputs: Vec<&[u8]> = Vec::new();
+    if let Some(initial) = initial {
+        for doc_bytes in initial.split(|c| *c == b'\n') {
+            inputs.push(doc_bytes);
+        }
+    }
+    for op in operands {
+        for doc_bytes in op.split(|c| *c == b'\n') {
+            inputs.push(doc_bytes);
+        }
+    }
+
+    let mut iteration = 0usize;
+    let mut mb_threshold = 32; // Start with 32MB threshold, and double as needed.
+    let mut prev_batches = usize::MAX;
+
+    loop {
+        let mut offset = 0;
+        let mut outputs: Vec<Vec<u8>> = Vec::new();
+
+        // Process all inputs in batches constrained to `mb_threshold`.
+        while offset != inputs.len() {
+            let (output, consumed) =
+                do_merge_bounded(full, &key, &inputs[offset..], schema, mb_threshold)?;
+
+            outputs.push(output);
+            offset += consumed;
+        }
+
+        tracing::debug!(
+            iteration,
+            inputs = inputs.len(),
+            batches = outputs.len(),
+            prev_batches,
+            mb_threshold,
+            "do_merge iteration complete"
+        );
+
+        // Stop when we have a single batch output.
+        if outputs.len() <= 1 {
+            return Ok(outputs.into_iter().next().unwrap_or_default());
+        }
+
+        // Batch count didn't decrease: double the memory threshold to make progress
+        if outputs.len() >= prev_batches {
+            mb_threshold = mb_threshold.saturating_mul(2);
+
+            if mb_threshold > 1024 {
+                anyhow::bail!(
+                    "merge operation would exceed maximum memory threshold \
+                     (MB threshold {mb_threshold}, iteration {iteration}, batches {}, input_docs {})",
+                    outputs.len(),
+                    inputs.len()
+                );
+            }
+        }
+
+        // Iterate again with batch outputs as new inputs
+        prev_batches = outputs.len();
+        input_storage = outputs;
+        inputs = input_storage
+            .iter()
+            .flat_map(|batch| batch.split(|c| *c == b'\n'))
+            .collect();
+
+        iteration += 1;
+    }
+}
+
+/// Process documents from a slice into a MemTable until `mb_threshold` is
+/// reached or all `docs` are consumed. Returns newline-separated reduced
+/// documents and the count of documents consumed.
+fn do_merge_bounded(
+    full: bool,
+    key: &[u8],
+    inputs: &[&[u8]],
+    schema: &str,
+    mb_threshold: usize,
+) -> anyhow::Result<(Vec<u8>, usize)> {
+    let bundle = doc::validation::build_bundle(schema.as_bytes())?;
+    let validator = doc::Validator::new(bundle)?;
     let spec =
         doc::combine::Spec::with_one_binding(full, [], "connector state", Vec::new(), validator);
     let memtable = doc::combine::MemTable::new(spec);
 
     let key = String::from_utf8_lossy(key);
     let key = doc::BumpStr::from_str(&key, memtable.alloc());
+    let mut consumed = 0usize;
 
-    let add_merge_op = |op: &[u8]| -> anyhow::Result<()> {
-        // Split on newline, and parse ordered JSON documents that are added to `memtable`.
-        for op_bytes in op.split(|c| *c == b'\n') {
-            let mut de = serde_json::Deserializer::from_slice(op_bytes);
-            let op = doc::HeapNode::from_serde(&mut de, memtable.alloc()).with_context(|| {
-                format!(
-                    "couldn't parse document as JSON: {}",
-                    String::from_utf8_lossy(op_bytes)
-                )
-            })?;
+    for op_bytes in inputs {
+        let mut de = serde_json::Deserializer::from_slice(op_bytes);
+        let op = doc::HeapNode::from_serde(&mut de, memtable.alloc()).with_context(|| {
+            format!(
+                "couldn't parse document as JSON: {}",
+                String::from_utf8_lossy(op_bytes)
+            )
+        })?;
 
-            let doc = doc::HeapNode::new_array(
-                memtable.alloc(),
-                [doc::HeapNode::String(key), op].into_iter(),
-            );
-            memtable.add(0, doc, false)?;
+        let doc = doc::HeapNode::new_array(
+            memtable.alloc(),
+            [doc::HeapNode::String(key), op].into_iter(),
+        );
+        memtable.add(0, doc, false)?;
+        consumed += 1;
+
+        let bytes_used = memtable
+            .alloc()
+            .allocated_bytes()
+            .saturating_sub(memtable.alloc().chunk_capacity());
+
+        if bytes_used > mb_threshold * 1024 * 1024 {
+            break;
         }
-        Ok(())
-    };
-
-    if let Some(initial) = initial {
-        add_merge_op(initial)?;
     }
-    for op in operands {
-        add_merge_op(op)?;
-    }
-
-    // `ptr` plucks out the second element of the reduced array.
-    let ptr = json::Pointer(vec![json::ptr::Token::Index(1)]);
 
     let mut out = Vec::new();
     for (index, drained) in memtable.try_into_drainer()?.enumerate() {
@@ -368,15 +446,22 @@ fn do_merge(
         let doc::OwnedNode::Heap(root) = root else {
             unreachable!()
         };
-        let node = ptr.query(root.get()).unwrap();
 
         if index != 0 {
             out.push(b'\n');
         }
-        serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on(node)).unwrap();
+
+        // Extract just the document (index 1) from [key, doc] arrays
+        let doc::HeapNode::Array(_, array) = root.get() else {
+            unreachable!()
+        };
+        let node = &array[1];
+
+        serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on(node))
+            .expect("serialization cannot fail");
     }
 
-    Ok(out)
+    Ok((out, consumed))
 }
 
 #[cfg(test)]
@@ -399,5 +484,65 @@ mod test {
 
         let state = db.load_connector_state(Default::default()).await.unwrap();
         assert_eq!(state.get(), r#"{"a":"c","ans":42,"d":"e","n":null}"#);
+    }
+
+    /// Verify merge batching handles many operands that would exceed memory
+    /// threshold. Connectors may emit many small merge-patch updates, and this
+    /// can turn into many merge operands (hundreds of thousands). We handle this
+    /// through iterative merges of batches of inputs, iteratively reducing until
+    /// convergence.
+    #[tokio::test]
+    async fn test_merge_many_operands_batched() {
+        // Initialize tracing to see merge operator logs
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("runtime=debug")
+            .with_writer(std::io::stderr)
+            .try_init();
+
+        let db = RocksDB::open(None).await.unwrap();
+
+        // Generate many merge operations that will exceed the batch memory threshold.
+        // Each document is a merge-patch updating a unique key in a "cursors" object,
+        // similar to how some connectors track per-partition state.
+        let num_operands = 50_000;
+        let mut wb = rocksdb::WriteBatch::default();
+
+        for i in 0..num_operands {
+            // Each merge-patch sets a unique cursor key with some payload.
+            // The payload size ensures we'll exceed the 32MB initial threshold and trigger batching.
+            let doc = format!(
+                r#"{{"cursors":{{"partition_{:05}":{{"offset":{},"timestamp":"2024-01-01T00:00:00Z","metadata":"padding_to_increase_document_size_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}}}}}"#,
+                i,
+                i * 1000
+            );
+            wb.merge(RocksDB::CONNECTOR_STATE_KEY, &doc);
+        }
+        db.write_opt(wb, Default::default()).await.unwrap();
+
+        // Force a compaction to trigger the merge operator with all operands at once.
+        // This is what happens during recovery or when RocksDB decides to compact.
+        db.db.compact_range::<&[u8], &[u8]>(None, None);
+
+        // Load the state - this will also trigger a full merge if not already compacted.
+        let state = db
+            .load_connector_state(models::RawValue::from_string("{}".to_string()).unwrap())
+            .await
+            .expect("batched merge should handle many operands");
+
+        // Verify the merged state contains all cursor entries.
+        let parsed: serde_json::Value = serde_json::from_str(state.get()).unwrap();
+        let cursors = parsed.get("cursors").expect("should have cursors object");
+        let cursors_obj = cursors.as_object().expect("cursors should be an object");
+
+        assert_eq!(
+            cursors_obj.len(),
+            num_operands,
+            "all cursor partitions should be present after merge"
+        );
+
+        // Spot-check a few entries.
+        assert_eq!(cursors_obj["partition_00000"]["offset"], 0);
+        assert_eq!(cursors_obj["partition_00100"]["offset"], 100_000);
+        assert_eq!(cursors_obj["partition_49999"]["offset"], 49_999_000);
     }
 }
