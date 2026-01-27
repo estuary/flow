@@ -67,7 +67,7 @@ impl QueueActor {
         let queue_request = verify.ok(queue_request)?;
 
         match queue_request {
-            request => verify.fail(request),
+            request => Err(verify.fail(request)),
         }
     }
 }

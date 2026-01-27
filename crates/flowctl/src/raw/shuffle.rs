@@ -1,6 +1,8 @@
 use anyhow::Context;
 use futures::{SinkExt, StreamExt, TryStreamExt};
-use proto_flow::shuffle::{Member, SessionRequest, Task, session_request, task};
+use proto_flow::shuffle::{
+    JournalProducerChunk, Member, SessionRequest, Task, session_request, task,
+};
 use proto_grpc::shuffle::shuffle_client::ShuffleClient;
 
 #[derive(Debug, clap::Args)]
@@ -134,10 +136,8 @@ impl Shuffle {
                     session_id,
                     task: Some(task),
                     members,
-                    last_commit: Vec::new(),
-                    read_through: Vec::new(),
                 }),
-                next_checkpoint: None,
+                ..Default::default()
             })
             .await
             .context("sending Session Open")?;
@@ -162,6 +162,24 @@ impl Shuffle {
         );
 
         tracing::info!(session_id, "received Opened from Session");
+
+        // Send last-commit checkpoint (empty).
+        request_tx
+            .send(SessionRequest {
+                last_commit_chunk: Some(JournalProducerChunk { chunk: Vec::new() }),
+                ..Default::default()
+            })
+            .await
+            .context("sending last-commit checkpoint")?;
+
+        // Send read-through checkpoint (empty).
+        request_tx
+            .send(SessionRequest {
+                read_through_chunk: Some(JournalProducerChunk { chunk: Vec::new() }),
+                ..Default::default()
+            })
+            .await
+            .context("sending read-through checkpoint")?;
 
         // Send a NextCheckpoint request.
         /*

@@ -42,21 +42,7 @@ impl gazette::journal::list::Subscriber for Subscriber {
     }
 
     async fn remove_journal(&mut self, journal: String) -> gazette::Result<()> {
-        let removed = shuffle::slice_response::ListingRemoved {
-            binding: self.binding,
-            journal,
-        };
-        tracing::debug!(?removed, "journal removed");
-
-        // Blocking safety: comment of add_journal() applies here as well.
-        let _ignored = self
-            .tx
-            .send(Ok(shuffle::SliceResponse {
-                listing_removed: Some(removed),
-                ..Default::default()
-            }))
-            .await;
-
+        tracing::debug!(binding = self.binding, journal, "journal removed");
         Ok(())
     }
 }

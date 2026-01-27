@@ -35,23 +35,53 @@ message Task {
   }
 }
 
+// When appending to Journals, independent producers author transactions
+// spanning one or more journals. When reading, we track the progress of each
+// producer to understand the status of its transactions. JournalProducer
+// represents the progress of a tuple (journal name, binding index, producer ID).
+// A binding is the context under which a task is reading a journal, and there
+// may be multiple such contexts per journal which read independently.
+//
+// JournalProducer uses a delta-encoding scheme to efficiently represent
+// the progression of journal names across a sequence of instances.
+// Given a known preceding journal name string, an instance encodes how many
+// right-most bytes to truncate, followed by a suffix to append, to reconstruct
+// the present value. In the common case where a journal name is the same
+// (only the producer ID has changed), then related fields are their defaults
+// and are omitted from the encoded protobuf stream.
 message JournalProducer {
-  // Journal of the JournalProducer.
-  string journal = 1;
+  // Number of bytes to truncate from the preceding name.
+  // Must align with a UTF-8 code point boundary.
+  // Negative values (e.x. -1) discard the entire preceding name.
+  int32 journal_name_truncate_delta = 1;
+  // Suffix to append to the preceding, truncated name.
+  string journal_name_suffix = 2;
+  // Binding index of this JournalProducer.
+  // When persisting across sessions, this should be mapped via the task's
+  // `journal_read_suffix` to ensure stability across task versions.
+  uint32 binding = 3;
   // Producer ID of the JournalProducer, extracted from a document UUID.
-  fixed64 producer_id = 2;
+  fixed64 producer_id = 4;
   // Clock of the last ACK seen from this producer.
-  fixed64 last_ack = 3;
+  fixed64 last_ack = 5;
   // Document offset:
   // - When positive, the producer has an uncommitted transaction
   //   which begins at this offset.
   // - When negative, the producer last committed with an
   //   ACK which ends at the byte prior to this offset.
   // - When zero, the producer is committed but the last offset is unknown.
-  int64 offset = 4;
+  int64 offset = 6;
 }
 
-// SessionRequest is sent by the coordinator to manage the shuffle session.
+// JournalProducerChunk is a portion of a sequence of JournalProducers, where the
+// entire sequence is ordered on ascending (journal name, binding index, producer ID).
+//
+// A final empty chunk represents end-of-sequence.
+message JournalProducerChunk {
+  repeated JournalProducer chunk = 1;
+}
+
+// SessionRequest is sent by the Coordinator to manage the shuffle session.
 message SessionRequest {
   // Open initiates a new shuffle session.
   // Sent once at the start of the Session RPC.
@@ -63,42 +93,40 @@ message SessionRequest {
     Task task = 2;
     // Members participating in this shuffle session.
     repeated Member members = 3;
-    // Last fully-committed checkpoint for reads of this task.
-    repeated JournalProducer last_commit = 4;
-    // If set, this is a checkpoint delta atop last_commit that was prepared but not
-    // committed before failure, and which must be read through on startup.
-    // Once ready, this checkpoint will be the first NextCheckpoint response.
-    repeated JournalProducer read_through = 5;
   }
   Open open = 1;
 
+  // The last-committed checkpoint which the session is resuming from.
+  // It's streamed by the Coordinator after reading SessionResponse.Opened.
+  JournalProducerChunk last_commit_chunk = 2;
+
+  // A read-through checkpoint delta (atop the last commit), that was prepared
+  // but not yet committed during the previous session.
+  //
+  // If non-empty, the read-through checkpoint must be read through on startup
+  // and will be the first "next checkpoint" response.
+  JournalProducerChunk read_through_chunk = 3;
+
   // NextCheckpoint requests the next available checkpoint delta.
-  // This is a blocking poll: the Session responds when progress is
-  // available. The client initiates polls at times of their choosing
+  // This is a blocking request: the Session only responds when progress is
+  // available. The client requests a next checkpoint at times of its choosing
   // (e.g., after completing processing of the previous checkpoint).
   message NextCheckpoint {}
-  NextCheckpoint next_checkpoint = 2;
+  NextCheckpoint next_checkpoint = 4;
 }
 
-// SessionResponse is sent by the Session to the coordinator.
+// SessionResponse is sent by the Session to the Coordinator.
 message SessionResponse {
   // Opened confirms the Session is ready.
   // Sent after all Slices have responded Opened.
   message Opened {}
   Opened opened = 1;
 
-  // NextCheckpoint provides the next transaction extent to process.
-  message NextCheckpoint {
-    // Delta checkpoint having the frontier of transactions ready to process.
-    // All documents in this checkpoint extent have been flushed to
-    // member queue files and are ready for dequeue and processing.
-    //
-    // This is a sparse update containing only JournalProducers with
-    // progress since the last checkpoint. The client must merge this
-    // into their base checkpoint.
-    repeated JournalProducer delta_checkpoint = 1;
-  }
-  NextCheckpoint next_checkpoint = 2;
+  // The next checkpoint delta (atop the last commit) which reflects the extents
+  // of a transaction which is ready to be processed. It's sent in response to
+  // SessionRequest.NextCheckpoint, and is never empty (though the Session may
+  // block indefinitely until progress is available).
+  JournalProducerChunk next_checkpoint_chunk = 2;
 }
 
 // SliceRequest is sent by the Session to each member's Slice RPC.
@@ -118,8 +146,9 @@ message SliceRequest {
   }
   Open open = 1;
 
-  // Start is sent after all Slices have responded Opened,
-  // and indicates that the distributed shuffle may begin.
+  // Start is sent after all Slices have responded Opened and the Session has
+  // received the last-committed & read-through checkpoints from the Coordinator.
+  // On receipt, Slices start listing watches and may send SliceResponse.ListingAdded.
   message Start {}
   Start start = 2;
 
@@ -128,13 +157,16 @@ message SliceRequest {
     // Binding index within the task (derivation transform or
     // materialization binding).
     uint32 binding = 1;
-    // Name of the journal to read.
-    string journal = 2;
-    // Checkpoint state for this journal from last_commit.
-    // The Slice reads from the earliest offset of all uncommitted
-    // producers, or the latest offset of all committed producers,
-    // or zero if there are no producers.
-    repeated JournalProducer checkpoint = 3;
+    // Journal to be read.
+    protocol.JournalSpec spec = 2;
+    // Etcd revision at which the journal was created.
+    int64 create_revision = 3;
+    // Etcd revision at which the journal was last modified.
+    int64 mod_revision = 4;
+    // Current route of the journal, as an initial advisory hint.
+    protocol.Route route = 5;
+    // Producers of this Journal as-of the last-committed checkpoint.
+    repeated JournalProducer checkpoint = 6;
   }
   StartRead start_read = 3;
 
@@ -163,18 +195,9 @@ message SliceResponse {
     // Etcd revision at which the journal was last modified.
     int64 mod_revision = 4;
     // Current route of the journal, as an initial advisory hint.
-    // The Route may change at any time, without triggering further updates.
     protocol.Route route = 5;
   }
   ListingAdded listing_added = 2;
-
-  message ListingRemoved {
-    // Binding index of the listing.
-    uint32 binding = 1;
-    // Journal which was previously added to the listing, and is now removed.
-    string journal = 2;
-  }
-  ListingRemoved listing_removed = 3;
 
   // ProgressDelta reports read progress across all journals since the last flush.
   // Sent after completion of each Flush (all Queue RPCs responded Flushed),
@@ -192,7 +215,7 @@ message SliceResponse {
     }
     repeated CausalHint causal_hints = 2;
   }
-  ProgressDelta progress_delta = 4;
+  ProgressDelta progress_delta = 3;
 }
 
 // QueueRequest is sent by Slices to each member's Queue.
@@ -266,7 +289,7 @@ message QueueResponse {
 
 // Shuffle service provides coordinated, disk-backed shuffled reads.
 service Shuffle {
-  // Session is the top-level RPC opened by the coordinator (typically
+  // Session is the top-level RPC opened by the Coordinator (typically
   // shard-000). It manages the shuffle lifecycle, journal watches,
   // and checkpoint aggregation.
   rpc Session(stream SessionRequest) returns (stream SessionResponse);

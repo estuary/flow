@@ -91,7 +91,7 @@ pub mod shuffle_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        /// Session is the top-level RPC opened by the coordinator (typically
+        /// Session is the top-level RPC opened by the Coordinator (typically
         /// shard-000). It manages the shuffle lifecycle, journal watches,
         /// and checkpoint aggregation.
         pub async fn session(
@@ -170,7 +170,7 @@ pub mod shuffle_server {
                 Item = std::result::Result<::proto_flow::shuffle::SessionResponse, tonic::Status>,
             > + std::marker::Send
             + 'static;
-        /// Session is the top-level RPC opened by the coordinator (typically
+        /// Session is the top-level RPC opened by the Coordinator (typically
         /// shard-000). It manages the shuffle lifecycle, journal watches,
         /// and checkpoint aggregation.
         async fn session(

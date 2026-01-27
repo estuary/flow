@@ -40,16 +40,40 @@ pub mod task {
         Materialization(super::super::flow::MaterializationSpec),
     }
 }
+/// When appending to Journals, independent producers author transactions
+/// spanning one or more journals. When reading, we track the progress of each
+/// producer to understand the status of its transactions. JournalProducer
+/// represents the progress of a tuple (journal name, binding index, producer ID).
+/// A binding is the context under which a task is reading a journal, and there
+/// may be multiple such contexts per journal which read independently.
+///
+/// JournalProducer uses a delta-encoding scheme to efficiently represent
+/// the progression of journal names across a sequence of instances.
+/// Given a known preceding journal name string, an instance encodes how many
+/// right-most bytes to truncate, followed by a suffix to append, to reconstruct
+/// the present value. In the common case where a journal name is the same
+/// (only the producer ID has changed), then related fields are their defaults
+/// and are omitted from the encoded protobuf stream.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JournalProducer {
-    /// Journal of the JournalProducer.
-    #[prost(string, tag = "1")]
-    pub journal: ::prost::alloc::string::String,
+    /// Number of bytes to truncate from the preceding name.
+    /// Must align with a UTF-8 code point boundary.
+    /// Negative values (e.x. -1) discard the entire preceding name.
+    #[prost(int32, tag = "1")]
+    pub journal_name_truncate_delta: i32,
+    /// Suffix to append to the preceding, truncated name.
+    #[prost(string, tag = "2")]
+    pub journal_name_suffix: ::prost::alloc::string::String,
+    /// Binding index of this JournalProducer.
+    /// When persisting across sessions, this should be mapped via the task's
+    /// `journal_read_suffix` to ensure stability across task versions.
+    #[prost(uint32, tag = "3")]
+    pub binding: u32,
     /// Producer ID of the JournalProducer, extracted from a document UUID.
-    #[prost(fixed64, tag = "2")]
+    #[prost(fixed64, tag = "4")]
     pub producer_id: u64,
     /// Clock of the last ACK seen from this producer.
-    #[prost(fixed64, tag = "3")]
+    #[prost(fixed64, tag = "5")]
     pub last_ack: u64,
     /// Document offset:
     ///
@@ -58,15 +82,35 @@ pub struct JournalProducer {
     /// * When negative, the producer last committed with an
     ///   ACK which ends at the byte prior to this offset.
     /// * When zero, the producer is committed but the last offset is unknown.
-    #[prost(int64, tag = "4")]
+    #[prost(int64, tag = "6")]
     pub offset: i64,
 }
-/// SessionRequest is sent by the coordinator to manage the shuffle session.
+/// JournalProducerChunk is a portion of a sequence of JournalProducers, where the
+/// entire sequence is ordered on ascending (journal name, binding index, producer ID).
+///
+/// A final empty chunk represents end-of-sequence.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct JournalProducerChunk {
+    #[prost(message, repeated, tag = "1")]
+    pub chunk: ::prost::alloc::vec::Vec<JournalProducer>,
+}
+/// SessionRequest is sent by the Coordinator to manage the shuffle session.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SessionRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<session_request::Open>,
+    /// The last-committed checkpoint which the session is resuming from.
+    /// It's streamed by the Coordinator after reading SessionResponse.Opened.
     #[prost(message, optional, tag = "2")]
+    pub last_commit_chunk: ::core::option::Option<JournalProducerChunk>,
+    /// A read-through checkpoint delta (atop the last commit), that was prepared
+    /// but not yet committed during the previous session.
+    ///
+    /// If non-empty, the read-through checkpoint must be read through on startup
+    /// and will be the first "next checkpoint" response.
+    #[prost(message, optional, tag = "3")]
+    pub read_through_chunk: ::core::option::Option<JournalProducerChunk>,
+    #[prost(message, optional, tag = "4")]
     pub next_checkpoint: ::core::option::Option<session_request::NextCheckpoint>,
 }
 /// Nested message and enum types in `SessionRequest`.
@@ -85,29 +129,25 @@ pub mod session_request {
         /// Members participating in this shuffle session.
         #[prost(message, repeated, tag = "3")]
         pub members: ::prost::alloc::vec::Vec<super::Member>,
-        /// Last fully-committed checkpoint for reads of this task.
-        #[prost(message, repeated, tag = "4")]
-        pub last_commit: ::prost::alloc::vec::Vec<super::JournalProducer>,
-        /// If set, this is a checkpoint delta atop last_commit that was prepared but not
-        /// committed before failure, and which must be read through on startup.
-        /// Once ready, this checkpoint will be the first NextCheckpoint response.
-        #[prost(message, repeated, tag = "5")]
-        pub read_through: ::prost::alloc::vec::Vec<super::JournalProducer>,
     }
     /// NextCheckpoint requests the next available checkpoint delta.
-    /// This is a blocking poll: the Session responds when progress is
-    /// available. The client initiates polls at times of their choosing
+    /// This is a blocking request: the Session only responds when progress is
+    /// available. The client requests a next checkpoint at times of its choosing
     /// (e.g., after completing processing of the previous checkpoint).
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NextCheckpoint {}
 }
-/// SessionResponse is sent by the Session to the coordinator.
+/// SessionResponse is sent by the Session to the Coordinator.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SessionResponse {
     #[prost(message, optional, tag = "1")]
     pub opened: ::core::option::Option<session_response::Opened>,
+    /// The next checkpoint delta (atop the last commit) which reflects the extents
+    /// of a transaction which is ready to be processed. It's sent in response to
+    /// SessionRequest.NextCheckpoint, and is never empty (though the Session may
+    /// block indefinitely until progress is available).
     #[prost(message, optional, tag = "2")]
-    pub next_checkpoint: ::core::option::Option<session_response::NextCheckpoint>,
+    pub next_checkpoint_chunk: ::core::option::Option<JournalProducerChunk>,
 }
 /// Nested message and enum types in `SessionResponse`.
 pub mod session_response {
@@ -115,19 +155,6 @@ pub mod session_response {
     /// Sent after all Slices have responded Opened.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
-    /// NextCheckpoint provides the next transaction extent to process.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct NextCheckpoint {
-        /// Delta checkpoint having the frontier of transactions ready to process.
-        /// All documents in this checkpoint extent have been flushed to
-        /// member queue files and are ready for dequeue and processing.
-        ///
-        /// This is a sparse update containing only JournalProducers with
-        /// progress since the last checkpoint. The client must merge this
-        /// into their base checkpoint.
-        #[prost(message, repeated, tag = "1")]
-        pub delta_checkpoint: ::prost::alloc::vec::Vec<super::JournalProducer>,
-    }
 }
 /// SliceRequest is sent by the Session to each member's Slice RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -161,8 +188,9 @@ pub mod slice_request {
         #[prost(uint32, tag = "4")]
         pub member_index: u32,
     }
-    /// Start is sent after all Slices have responded Opened,
-    /// and indicates that the distributed shuffle may begin.
+    /// Start is sent after all Slices have responded Opened and the Session has
+    /// received the last-committed & read-through checkpoints from the Coordinator.
+    /// On receipt, Slices start listing watches and may send SliceResponse.ListingAdded.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Start {}
     /// StartRead instructs the Slice to begin reading a journal.
@@ -172,14 +200,20 @@ pub mod slice_request {
         /// materialization binding).
         #[prost(uint32, tag = "1")]
         pub binding: u32,
-        /// Name of the journal to read.
-        #[prost(string, tag = "2")]
-        pub journal: ::prost::alloc::string::String,
-        /// Checkpoint state for this journal from last_commit.
-        /// The Slice reads from the earliest offset of all uncommitted
-        /// producers, or the latest offset of all committed producers,
-        /// or zero if there are no producers.
-        #[prost(message, repeated, tag = "3")]
+        /// Journal to be read.
+        #[prost(message, optional, tag = "2")]
+        pub spec: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
+        /// Etcd revision at which the journal was created.
+        #[prost(int64, tag = "3")]
+        pub create_revision: i64,
+        /// Etcd revision at which the journal was last modified.
+        #[prost(int64, tag = "4")]
+        pub mod_revision: i64,
+        /// Current route of the journal, as an initial advisory hint.
+        #[prost(message, optional, tag = "5")]
+        pub route: ::core::option::Option<::proto_gazette::broker::Route>,
+        /// Producers of this Journal as-of the last-committed checkpoint.
+        #[prost(message, repeated, tag = "6")]
         pub checkpoint: ::prost::alloc::vec::Vec<super::JournalProducer>,
     }
     /// StopRead instructs the Slice to stop reading a journal.
@@ -198,8 +232,6 @@ pub struct SliceResponse {
     #[prost(message, optional, tag = "2")]
     pub listing_added: ::core::option::Option<slice_response::ListingAdded>,
     #[prost(message, optional, tag = "3")]
-    pub listing_removed: ::core::option::Option<slice_response::ListingRemoved>,
-    #[prost(message, optional, tag = "4")]
     pub progress_delta: ::core::option::Option<slice_response::ProgressDelta>,
 }
 /// Nested message and enum types in `SliceResponse`.
@@ -223,18 +255,8 @@ pub mod slice_response {
         #[prost(int64, tag = "4")]
         pub mod_revision: i64,
         /// Current route of the journal, as an initial advisory hint.
-        /// The Route may change at any time, without triggering further updates.
         #[prost(message, optional, tag = "5")]
         pub route: ::core::option::Option<::proto_gazette::broker::Route>,
-    }
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct ListingRemoved {
-        /// Binding index of the listing.
-        #[prost(uint32, tag = "1")]
-        pub binding: u32,
-        /// Journal which was previously added to the listing, and is now removed.
-        #[prost(string, tag = "2")]
-        pub journal: ::prost::alloc::string::String,
     }
     /// ProgressDelta reports read progress across all journals since the last flush.
     /// Sent after completion of each Flush (all Queue RPCs responded Flushed),

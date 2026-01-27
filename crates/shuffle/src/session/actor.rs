@@ -73,7 +73,7 @@ impl SessionActor {
         let verify = crate::verify("SessionRequest", "TODO", "coordinator", 0);
 
         match verify.ok(session_request)? {
-            request => verify.fail(request),
+            request => Err(verify.fail(request)),
         }
     }
 
@@ -94,14 +94,9 @@ impl SessionActor {
             shuffle::SliceResponse {
                 listing_added: Some(added),
                 ..
-            } => self.on_listing_added(added).await?,
+            } => self.on_listing_added(added).await,
 
-            shuffle::SliceResponse {
-                listing_removed: Some(removed),
-                ..
-            } => self.on_listing_removed(removed).await?,
-
-            response => verify.fail(response),
+            response => Err(verify.fail(response)),
         }
     }
 
@@ -124,9 +119,13 @@ impl SessionActor {
             .send(shuffle::SliceRequest {
                 start_read: Some(shuffle::slice_request::StartRead {
                     binding,
-                    checkpoint: Vec::new(), // TODO,
-                    journal,
+                    spec,
+                    create_revision,
+                    mod_revision,
+                    route,
+                    checkpoint: Vec::new(), // TODO
                 }),
+                ..Default::default()
             })
             .await
             .map_err(|e| anyhow::anyhow!("failed to send Listing to Slice RPC: {e}"))?;

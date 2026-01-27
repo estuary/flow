@@ -72,7 +72,7 @@ impl<'p> Verify<'p> {
         if let Some(t) = t {
             Ok(self.ok(t)?)
         } else {
-            self.fail(Option::<()>::None)
+            Err(self.fail(Option::<()>::None))
         }
     }
 
@@ -81,7 +81,7 @@ impl<'p> Verify<'p> {
     #[inline]
     fn is_eof<T: std::fmt::Debug>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<()> {
         if let Some(t) = t {
-            self.fail(t.map_err(status_to_anyhow)?)
+            Err(self.fail(t.map_err(status_to_anyhow)?))
         } else {
             Ok(())
         }
@@ -90,7 +90,7 @@ impl<'p> Verify<'p> {
 
     #[must_use]
     #[cold]
-    fn fail<Ok, T: serde::Serialize>(&self, t: T) -> anyhow::Result<Ok> {
+    fn fail<T: serde::Serialize>(&self, t: T) -> anyhow::Error {
         let Self {
             source,
             expect,
@@ -102,13 +102,11 @@ impl<'p> Verify<'p> {
         t.truncate(4096);
 
         if t == "None" {
-            Err(anyhow::format_err!(
-                "unexpected {source} EOF (expected {expect})"
-            ))
+            anyhow::format_err!("unexpected {source} EOF (expected {expect})")
         } else {
-            Err(anyhow::format_err!(
+            anyhow::format_err!(
                 "{source} protocol error (expected {expect}) from {peer_endpoint}@{peer_index}: {t}"
-            ))
+            )
         }
     }
 

@@ -22,8 +22,6 @@ where
         session_id,
         task,
         members,
-        last_commit,
-        read_through,
     } = open.open.context("first message must be Open")?;
 
     if members.first().map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
@@ -38,8 +36,6 @@ where
     tracing::info!(
         session_id,
         member_count = members.len(),
-        last_commit_count = last_commit.len(),
-        read_through_count = read_through.len(),
         "Session received Open"
     );
 
@@ -70,9 +66,45 @@ where
     let _ignored = response_tx
         .send(Ok(shuffle::SessionResponse {
             opened: Some(shuffle::session_response::Opened {}),
-            next_checkpoint: None,
+            ..Default::default()
         }))
         .await;
+
+    // Read last-commit chunks.
+    let mut last_commit = Vec::new();
+    let verify = crate::verify("SessionRequest", "last-commit chunk", "coordinator", 0);
+    loop {
+        match verify.not_eof(request_rx.next().await)? {
+            shuffle::SessionRequest {
+                last_commit_chunk: Some(shuffle::JournalProducerChunk { chunk }),
+                ..
+            } => {
+                if chunk.is_empty() {
+                    break;
+                }
+                last_commit.extend(chunk);
+            }
+            request => return Err(verify.fail(request)),
+        };
+    }
+
+    // Read read-through chunks.
+    let mut read_through = Vec::new();
+    let verify = crate::verify("SessionRequest", "read-through chunk", "coordinator", 0);
+    loop {
+        match verify.not_eof(request_rx.next().await)? {
+            shuffle::SessionRequest {
+                read_through_chunk: Some(shuffle::JournalProducerChunk { chunk }),
+                ..
+            } => {
+                if chunk.is_empty() {
+                    break;
+                }
+                read_through.extend(chunk);
+            }
+            request => return Err(verify.fail(request)),
+        };
+    }
 
     // Send Start request to all Slices.
     for tx in &request_tx {
@@ -156,6 +188,6 @@ pub async fn open_slice_rpc(
             ..
         } => Ok((request_tx, response_rx)),
 
-        response => verify.fail(response),
+        response => Err(verify.fail(response)),
     }
 }

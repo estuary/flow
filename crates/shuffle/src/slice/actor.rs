@@ -46,7 +46,7 @@ impl SliceActor {
                 start: Some(shuffle::slice_request::Start {}),
                 ..
             } => (),
-            request => return verify.fail(request),
+            request => return Err(verify.fail(request)),
         };
 
         // Start tasks that watch journal listings of assigned bindings.
@@ -102,7 +102,7 @@ impl SliceActor {
         let verify = crate::verify("SliceRequest", "TODO", &self.members[0].endpoint, 0);
 
         match verify.ok(slice_request)? {
-            request => verify.fail(request),
+            request => Err(verify.fail(request)),
         }
     }
 
@@ -120,7 +120,7 @@ impl SliceActor {
         let queue_response = verify.not_eof(queue_response)?;
 
         match queue_response {
-            response => verify.fail(response),
+            response => Err(verify.fail(response)),
         }
     }
 

@@ -158,6 +158,6 @@ async fn open_queue_rpc(
             ..
         } => Ok((request_tx, response_rx)),
 
-        response => verify.fail(response),
+        response => Err(verify.fail(response)),
     }
 }
