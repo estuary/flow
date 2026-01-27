@@ -32,6 +32,11 @@ impl Transcoded {
     pub fn into_inner(self) -> rkyv::util::AlignedVec {
         self.v
     }
+
+    #[inline]
+    pub fn offset(&self) -> i64 {
+        self.offset
+    }
 }
 
 pub struct IterOut<'s> {

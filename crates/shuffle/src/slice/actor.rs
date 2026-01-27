@@ -1,5 +1,7 @@
+use anyhow::Context;
 use futures::{StreamExt, stream::BoxStream};
 use proto_flow::shuffle;
+use proto_gazette::broker;
 use tokio::sync::mpsc;
 
 pub struct SliceActor {
@@ -99,9 +101,14 @@ impl SliceActor {
         &mut self,
         slice_request: tonic::Result<shuffle::SliceRequest>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("SliceRequest", "TODO", &self.members[0].endpoint, 0);
+        let verify = crate::verify("SliceRequest", "StartRead", &self.members[0].endpoint, 0);
 
         match verify.ok(slice_request)? {
+            shuffle::SliceRequest {
+                start_read: Some(start_read),
+                ..
+            } => self.on_start_read(start_read).await,
+
             request => Err(verify.fail(request)),
         }
     }
@@ -133,6 +140,54 @@ impl SliceActor {
             Ok(None) => anyhow::bail!("listing task canceled before SliceActor::rx_loop exited"),
             Ok(Some(err)) => Err(err),
         }
+    }
+
+    pub async fn on_start_read(
+        &mut self,
+        start_read: shuffle::slice_request::StartRead,
+    ) -> anyhow::Result<()> {
+        let shuffle::slice_request::StartRead {
+            binding,
+            spec,
+            create_revision: _,
+            mod_revision: _,
+            route,
+            checkpoint,
+        } = start_read;
+
+        let binding = self
+            .bindings
+            .get(binding as usize)
+            .context("StartRead invalid binding")?;
+
+        let spec = spec.context("StartRead missing spec")?;
+        let client = journal_client(&self.service, &mut self.clients, binding, &self.task_name);
+        let offset = checkpoint.iter().map(|p| p.offset).min().unwrap_or(0);
+
+        let request = broker::ReadRequest {
+            begin_mod_time: binding.not_before.to_unix().0 as i64,
+
+            // Add `journal_read_suffix` as a metadata component to the journal name.
+            // This helps identify the sources of reads from the perspective of a gazette broker.
+            journal: format!("{};{}", spec.name, binding.journal_read_suffix),
+
+            block: true,
+            do_not_proxy: true,
+            offset,
+            end_offset: 0, // No end offset.
+            metadata_only: false,
+            header: route.map(|r| broker::Header {
+                route: Some(r),
+                ..Default::default()
+            }),
+        };
+
+        // Start read and box the resulting stream.
+        let read = client.read(request).boxed();
+        // Align on newline boundaries.
+        let _read = gazette::journal::read::ReadLines::new(read);
+
+        todo!()
     }
 }
 

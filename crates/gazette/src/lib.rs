@@ -63,9 +63,14 @@ impl Error {
         match self {
             // These errors are generally failure of a transport, and can be retried.
             Error::Transport(_) => true,
-            Error::FetchFragment(_) => true,
             Error::ReadFragment(_) => true,
             Error::UnexpectedEof => true,
+
+            // Fetching a fragment may be transient, depending on the underlying error.
+            Error::FetchFragment(inner) => inner
+                .status()
+                .map(|status| !status.is_client_error())
+                .unwrap_or(true),
 
             // Some gRPC codes are transient failures.
             Error::Grpc(status) => match status.code() {

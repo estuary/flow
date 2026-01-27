@@ -189,6 +189,15 @@ where
     }
 }
 
+impl<S> futures::stream::FusedStream for ReadLines<S>
+where
+    S: futures::Stream<Item = crate::RetryResult<broker::ReadResponse>>,
+{
+    fn is_terminated(&self) -> bool {
+        matches!(self.state, State::Done)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
