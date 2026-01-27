@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n        catalog_prefix as \"catalog_prefix: models::Prefix\",\n        email as \"email!: String\",\n        include_alert_types as \"alert_types: Vec<AlertType>\",\n        created_at,\n        updated_at,\n        detail\n        from alert_subscriptions\n        where\n          catalog_prefix = $1::catalog_prefix\n          and email = $2\n        ",
+  "query": "select\n        catalog_prefix as \"catalog_prefix: models::Prefix\",\n        email as \"email!: String\",\n        include_alert_types as \"alert_types: Vec<AlertType>\",\n        created_at,\n        updated_at,\n        detail\n        from alert_subscriptions\n        where\n          catalog_prefix = $1::catalog_prefix\n          and email = $2\n        for update of alert_subscriptions\n        ",
   "describe": {
     "columns": [
       {
@@ -79,5 +79,5 @@
       true
     ]
   },
-  "hash": "dfcf55df0818f1709983ff85d7746e52e55f186ac1326bddcd2aed346fcd81c5"
+  "hash": "ed7adc991c84e3dfb1caeb832decfef4b4241e88ce0678fbc5f3f68fb6fc8526"
 }
