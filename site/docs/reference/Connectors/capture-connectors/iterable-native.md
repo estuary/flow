@@ -42,6 +42,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/credentials/credentials_title`** | Authentication Method | Name of the credentials set. Set to `Private App Credentials`. | string | Required |
 | **`/project_type`** | Project Type | The type of Iterable [project](#project-types-and-user-identification), which determines how users are uniquely identified. One of `Email-based`, `UserID-based`, or `Hybrid`. | string | Required |
 | `/start_date` | Start Date | UTC date and time in the format `YYYY-MM-DDTHH:MM:SSZ`. Any data generated before this date will not be replicated. If left blank, the start date will be set to 30 days before the present date. | string | |
+| `/advanced/list_users_timeout` | list_users Request Timeout | HTTP request timeout for fetching users of a list in ISO 8601 format. E.g. PT30M means 30 minutes, PT1H means 1 hour. | string | PT30M |
 | `/advanced/window_size` | Window Size | Date window size for export jobs in ISO 8601 format. ex: P30D means 30 days, PT6H means 6 hours. If you have a significant amount of `events` or `users` data to backfill, smaller window sizes will allow the connector to checkpoint its progress more frequently. | string | PT12H |
 
 #### Bindings
