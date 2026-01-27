@@ -236,6 +236,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - QuickBooks
   - [Configuration](./quickbooks.md)
   - Package - ghcr.io/estuary/source-quickbooks:dev
+- RingCentral
+  -  [Configuration](./ringcentral.md)
+  - Package - ghcr.io/estuary/source-ringcentral:dev
 - Sage Intacct
   - [Configuration](./sage-intacct.md)
   - Package — ghcr.io/estuary/source-sage-intacct:dev
