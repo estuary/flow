@@ -259,8 +259,8 @@ tonic-prost-build = "0"
 
 
 [profile.release]
-debug = "none"
-strip = "debuginfo"
+debug = "full"
+#strip = "debuginfo"
 incremental = false
 lto = "thin"
 
