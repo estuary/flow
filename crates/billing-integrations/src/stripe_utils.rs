@@ -1,6 +1,4 @@
-use crate::publish::{
-    BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY, TENANT_METADATA_KEY,
-};
+use crate::publish::{BILLING_PERIOD_START_KEY, TENANT_METADATA_KEY};
 use num_format::{Locale, ToFormattedString};
 use serde::{Serialize, de::DeserializeOwned};
 use std::ops::{Deref, DerefMut};
