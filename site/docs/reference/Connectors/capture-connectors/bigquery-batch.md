@@ -27,11 +27,20 @@ Here's how to provision a suitable service account:
 2. Note down the ID of the service account you just created. Service Account IDs typically follow the format `<account-name>@<project-name>.iam.gserviceaccount.com`.
 3. Follow Google Cloud Platform's instructions for [Granting IAM Roles](https://cloud.google.com/iam/docs/grant-role-console#grant_an_iam_role) to the new service account. The "principal" email address should be the ID of the service account you just created, and the roles granted should be "BigQuery User" and "BigQuery Data Viewer".
 
+Once you have a Service Account created, you can authenticate with either a Service Account Key or using Google Cloud IAM.
+
 ### Service Account Key
 
 Service Account Keys are used to authenticate as Google Service Accounts. To be able to utilize the permissions granted to the Service Account in the previous step, you'll need to provide its Service Account Key when creating the capture. It is a good practice, though not required, to create a new key for Estuary even if you're reusing a preexisting account.
 
 To create a new key for a service account, follow Google Cloud Platform's instructions for [Creating a Service Account Key](https://cloud.google.com/iam/docs/keys-create-delete#creating). Be sure to create the key in JSON format. Once the linked instructions have been followed you should have a key file, which will need to be uploaded to Estuary when setting up your capture.
+
+### Google Cloud IAM
+
+Google Cloud IAM authentication uses a Workflow Identity Pool which allows the
+connector to be configured without storing any secrets.  To use this method,
+follow the steps in the [GCP IAM guide](/guides/iam-auth/gcp/) and make note of
+the audience for the provider and the service account name.
 
 ### Set up the BigQuery connector in Estuary
 
@@ -80,12 +89,27 @@ You configure connectors either in the Estuary web app, or by directly editing t
 
 #### Endpoint
 
-| Property            | Title            | Description                                                               | Type   | Required/Default |
-| ------------------- | ---------------- | ------------------------------------------------------------------------- | ------ | ---------------- |
-| `/project_id`       | Project ID       | The GCP project ID for the project containing the source BigQuery dataset | string | Required         |
-| `/dataset`          | Dataset          | The BigQuery dataset to discover tables within                            | string | Required         |
-| `/credentials_json` | Credentials JSON | The contents of your Service Account Key JSON file                        | string | Required         |
-| `/advanced/poll`    | Poll Interval    | How often to poll bindings (may be overridden for a specific binding)     | string | `"24h"` |
+| Property            | Title            | Description                                                               | Type                        | Required/Default |
+| ------------------- | ---------------- | ------------------------------------------------------------------------- | --------------------------- | ---------------- |
+| `/project_id`       | Project ID       | The GCP project ID for the project containing the source BigQuery dataset | string                      | Required         |
+| `/dataset`          | Dataset          | The BigQuery dataset to discover tables within                            | string                      | Required         |
+| `/credentials`      | Credentials      | Credentials for authentication.                                           | [Credentials](#credentials) | Required         |
+| `/advanced/poll`    | Poll Interval    | How often to poll bindings (may be overridden for a specific binding)     | string                      | `"24h"`          |
+
+#### Credentials
+
+Credentials for authenticating with GCP.  Use one of the following sets of options:
+
+| Property                     | Title                   | Description                                                                                               | Type    | Required/Default            |
+| ---------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- | ------- | --------------------------- |
+| **`/auth_type`**             | Auth Type               | Method to use for authentication.                                                                         | string  | Required: `CredentialsJSON` |
+| **`/credentials_json`**      | Service Account JSON    | The service account JSON credentials to use for authorization.                                            | string  | Required                    |
+
+| Property                                   | Title                           | Description                                                                         | Type    | Required/Default            |
+| ------------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------- | ------- | --------------------------- |
+| **`/auth_type`**                           | Auth Type                       | Method to use for authentication.                                                   | string  | Required: `GCPIAM`          |
+| **`/gcp_service_account_to_impersonate`**  | Service Account                 | GCP Service Account email for Cloud SQL IAM authentication                          | string  | Required                    |
+| **`/gcp_workload_identity_pool_audience`** | Workload Identity Pool Audience | GCP Workload Identity Pool Audience in the format `https://iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider` | string | Required |
 
 #### Bindings
 
