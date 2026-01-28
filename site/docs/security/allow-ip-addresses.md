@@ -25,7 +25,10 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 
    If you wish to use a public data plane, Estuary offers several options across US, EU, and APAC regions with AWS and GCP.
 
-3. Find the **CIDR Blocks** column in the Data Planes table. This column includes a comma-separated list of IP addresses for that data plane.
+3. Select your desired data plane from the table to open the **Details and Configuration modal**.
+
+4. The **IPs** field provides a comma-separated list of associated IP addresses. You can choose between **v4** and **v6** options.
+Click the clipboard to copy the addresses.
 
    Ensure that these IP addresses are allowlisted on both the source and destination systems that interact with Estuary.
 

@@ -55,4 +55,4 @@ To find your private data plane's IP addresses and other information:
 
 4. You can toggle between your available private and public data planes.
 
-This table provides information on your private data plane's cloud, region, AWS IAM user ARN, GCP service account email, and CIDR blocks. The CIDR blocks field provides IPv4 and IPv6 (if applicable) addresses.
+5. Select your private data plane to open additional details and configuration, including the data plane's cloud, region, service account identities, and IP addresses.

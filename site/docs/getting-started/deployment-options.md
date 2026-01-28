@@ -74,16 +74,3 @@ our [Slack channel](https://go.estuary.dev/slack) and send us a message!
 - **Cost savings**: Potential to reduce costs by using existing cloud infrastructure and negotiated pricing.
 - **Flexible data residency**: You choose where data is stored and processed, ensuring compliance with regional
   regulations.
-
-## Self-hosting Estuary
-
-The Estuary runtime is available under
-the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Estuary
-using a cloud provider of your choice.
-
-:::caution Beta
-Setup for self-hosting is not covered in this documentation, and full support is not guaranteed at this time.
-We recommend using the [hosted version of Estuary](../concepts/web-app.md) for the best experience.
-If you'd still like to self-host, refer to the [GitHub repository](https://github.com/estuary/flow) or
-the [Estuary Slack](https://join.slack.com/t/estuary-dev/shared_invite/zt-86nal6yr-VPbv~YfZE9Q~6Zl~gmZdFQ).
-:::

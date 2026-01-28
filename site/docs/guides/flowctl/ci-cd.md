@@ -447,7 +447,9 @@ You can copy the full name of your desired data plane from this listing or retri
 
 2. Choose between the **Public** or **Private** data plane tabs.
 
-3. Next to your desired data plane, click the **Copy** button. The full name of the data plane will be copied to your clipboard.
+3. Select your desired data plane to open further details.
+
+4. Click the **Copy** button next to the **Internal ID** field. The full name of the data plane will be copied to your clipboard.
 
 When publishing resources to a data plane besides the default, make sure to specify this data plane name in an option:
 

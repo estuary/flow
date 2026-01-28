@@ -22,8 +22,9 @@ To find the correct issuer value:
 2. Select the **Settings** tab.
 
 3. Find the **Data Planes** table and make sure you're viewing the correct tab for your data plane (either **public** or **private**).
+Select your data plane to open additional configuration details.
 
-4. Copy the value from the **IAM OIDC** column. This should look something like: `https://openid.estuary.dev/your-data-plane-identifier.dp.estuary-data.com`
+4. Copy the value from the **IAM OIDC** field. This should look something like: `https://openid.estuary.dev/your-data-plane-identifier.dp.estuary-data.com`
 
 For example, these are the issuer values for a few common public data planes:
 
