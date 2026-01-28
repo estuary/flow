@@ -18,8 +18,8 @@ async fn test_auth_task_name_with_period() -> anyhow::Result<()> {
     );
 
     let token = env.dekaf_token()?;
-    let mut client =
-        TestKafkaClient::connect(&env.connection_info().broker, materialization, &token).await?;
+    let info = env.connection_info().await?;
+    let mut client = TestKafkaClient::connect(&info.broker, materialization, &token).await?;
 
     let metadata = client.metadata(&[]).await?;
     let mut topic_names: Vec<_> = metadata

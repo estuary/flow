@@ -15,9 +15,15 @@ ExecStartPre=sleep 2
 
 # Call control-plane API to register the data plane
 # Use printf to build JSON and avoid shell quoting complexities
+# DEKAF_ADDRESS and DEKAF_REGISTRY_ADDRESS are optional; if not set, omit them from the payload
 ExecStart=/bin/bash -c ' \
-    printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"]}}}" \
-        "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}" | \
+    if [ -n "${DEKAF_ADDRESS:-}" ] && [ -n "${DEKAF_REGISTRY_ADDRESS:-}" ]; then \
+        printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"],\\"dekafAddress\\":\\"%%s\\",\\"dekafRegistryAddress\\":\\"%%s\\"}}}" \
+            "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}" "${DEKAF_ADDRESS}" "${DEKAF_REGISTRY_ADDRESS}"; \
+    else \
+        printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"]}}}" \
+            "${DATA_PLANE_NAME}" "${BROKER_ADDRESS}" "${REACTOR_ADDRESS}" "${HMAC_KEY}"; \
+    fi | \
     curl -v \
         -X POST \
         -H "content-type: application/json" \

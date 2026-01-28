@@ -19,7 +19,7 @@ async fn test_basic_roundtrip() -> anyhow::Result<()> {
     )
     .await?;
 
-    let consumer = env.kafka_consumer()?;
+    let consumer = env.kafka_consumer().await?;
     consumer.subscribe(&["test_topic"])?;
 
     let records = consumer.fetch().await?;

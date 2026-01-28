@@ -882,6 +882,8 @@ mod test {
             models::Collection::new("ops/acmeCo/stats"),
             "broker.example.com".to_string(),
             "reactor.example.com".to_string(),
+            None::<String>, // dekaf_address
+            None::<String>, // dekaf_registry_address
         );
         let mut storage_mappings = tables::StorageMappings::new();
         storage_mappings.insert_row(

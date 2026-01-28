@@ -1,0 +1,50 @@
+---
+source: crates/dekaf/tests/e2e/migration.rs
+expression: metadata
+---
+MetadataResponse {
+    throttle_time_ms: 0,
+    brokers: [
+        MetadataResponseBroker {
+            node_id: 1,
+            host: "127.0.0.1",
+            port: 8050,
+            rack: None,
+            unknown_tagged_fields: {},
+        },
+    ],
+    cluster_id: Some(
+        "estuary-dekaf",
+    ),
+    controller_id: 1,
+    topics: [
+        MetadataResponseTopic {
+            error_code: 0,
+            name: Some(
+                "test_topic",
+            ),
+            topic_id: 00000000-0000-0000-0000-000000000000,
+            is_internal: false,
+            partitions: [
+                MetadataResponsePartition {
+                    error_code: 0,
+                    partition_index: 0,
+                    leader_id: 1,
+                    leader_epoch: 1,
+                    replica_nodes: [
+                        1,
+                    ],
+                    isr_nodes: [
+                        1,
+                    ],
+                    offline_replicas: [],
+                    unknown_tagged_fields: {},
+                },
+            ],
+            topic_authorized_operations: -2147483648,
+            unknown_tagged_fields: {},
+        },
+    ],
+    cluster_authorized_operations: -2147483648,
+    unknown_tagged_fields: {},
+}

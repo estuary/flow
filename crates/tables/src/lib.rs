@@ -93,6 +93,14 @@ tables!(
         val broker_address: String,
         // Address of reactors within the data-plane.
         val reactor_address: String,
+        // Kafka-protocol URI for this dataplane's Dekaf instance.
+        // This is managed by the data-plane-controller, and is
+        // None if this data-plane has no Dekaf instance.
+        val dekaf_address: Option<String>,
+        // Schema registry endpoint for this dataplane's Dekaf instance.
+        // This is managed by the data-plane-controller, and is
+        // None if this data-plane has no Dekaf instance.
+        val dekaf_registry_address: Option<String>,
     }
 
     table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
