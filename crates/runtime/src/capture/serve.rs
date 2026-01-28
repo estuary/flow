@@ -268,17 +268,10 @@ pub async fn read_transaction<R: ResponseStream + FusedStream + Unpin>(
             }
             (false, None) => {
                 txn.connector_eof = true;
-                // Were we previously asked to yield, and now we know there's no more data coming?
-                if yield_rx.is_terminated() {
-                    return Ok((accumulator, connector_rx, task, txn));
-                }
             }
             (true, _none) => {
-                // Have we been asked to yield, and either have a non-empty transaction,
-                // reached our timeout, or the connector has exited?
-                if yield_rx.is_terminated()
-                    && (txn.checkpoints != 0 || timeout.is_terminated() || txn.connector_eof)
-                {
+                // Have we been asked to yield, and either have a non-empty transaction or reached our timeout?
+                if yield_rx.is_terminated() && (txn.checkpoints != 0 || timeout.is_terminated()) {
                     return Ok((accumulator, connector_rx, task, txn));
                 }
             }
