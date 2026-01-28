@@ -89,12 +89,28 @@ Use the below properties to configure a SQLServer materialization, which will di
 
 #### Endpoint
 
-| Property        | Title    | Description                                                                                | Type   | Required/Default |
-| --------------- | -------- | ------------------------------------------------------------------------------------------ | ------ | ---------------- |
-| **`/database`** | Database | Name of the logical database to materialize to.                                            | string | Required         |
-| **`/address`**  | Address  | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
-| **`/password`** | Password | Password for the specified database user.                                                  | string | Required         |
-| **`/user`**     | User     | Database user to connect as.                                                               | string | Required         |
+| Property           | Title       | Description                                                                                | Type    | Required/Default |
+| ------------------ | ----------- | ------------------------------------------------------------------------------------------ | ------- | ---------------- |
+| **`/address`**     | Address     | Host and port of the database. If only the host is specified, port will default to `3306`. | string  | Required         |
+| **`/user`**        | User        | Database user to connect as.                                                               | string  | Required         |
+| **`/database`**    | Database    | Name of the logical database to materialize to.                                            | string  | Required         |
+| **`/schema`**      | Schema      | Default database schema for bound collection tables.                                       | string  | Optional         |
+| **`/credentials`** | Credentials | Credentials for authentication.                                                            | [Credentials](#credentials) | Required |
+
+#### Credentials
+
+Credentials for authentication.  Use one of the following sets of options:
+
+| Property                                 | Title                   | Description                                              | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `UserPassword` |
+| **`/credentials/password`**              | Password                | Password for the user.                                   | string  | Required                 |
+
+| Property                                 | Title                   | Description                                              | Type    | Required/Default   |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------- | ------- | ------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `AWSIAM` |
+| **`/credentials/aws_role_arn`**          | AWS Role ARN            | IAM Role to assume.                                      | string  | Required           |
+| **`/credentials/aws_region`**            | AWS Region              | AWS Region to authenticate in.                           | string  | Required           |
 
 #### Bindings
 
@@ -112,10 +128,12 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-sqlserver:dev
         config:
-          database: flow
           address: localhost:5432
-          password: flow
-          user: flow
+          user: flow_materialize
+          database: flow
+          credentials:
+            auth_type: UserPassword
+            password: flow
     bindings:
       - resource:
           table: ${TABLE_NAME}
