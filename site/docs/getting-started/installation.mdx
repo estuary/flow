@@ -57,15 +57,18 @@ You can find your available data planes and their authentication details from th
 2. Scroll down to the **Data Planes** table.
 
 3. Find your desired data plane by the **cloud provider** and **region** listing.
+Select it to open additional details about the data plane.
+
+4. Find the **Service Account Identity** field and choose between **AWS** or **GCP** depending on the location of your storage bucket.
 Copy its information for use when setting up your storage bucket permissions:
 
-   * For [GCS buckets](#google-cloud-storage-buckets), copy the **GCP Service Account Email**.
+   * For [GCS buckets](#google-cloud-storage-buckets), the service account identity is the **GCP Service Account Email**.
 
-   * For [S3 buckets](#amazon-s3-buckets), copy the **AWS IAM User ARN**.
+   * For [S3 buckets](#amazon-s3-buckets), the service account identity is the **AWS IAM User ARN**.
 
 :::tip
-When setting up storage, disregard the [CIDR Blocks](/reference/allow-ip-addresses) column of the Data Planes table.
-These IPs can be allowlisted for connectors.
+When setting up storage, disregard the data plane's listed IPs.
+These IPs can be allowlisted for _connectors_.
 
 Storage connected with public data planes should not limit access by IP.
 Storage for private data planes can use [PrivateLink](/private-byoc/privatelink) to restrict access.

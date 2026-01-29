@@ -20,6 +20,7 @@ walk you through the steps to connect to Estuary using Dekaf and its schema regi
 - **Kafka Topic Emulation**: Access Estuary collections as if they were Kafka topics.
 - **Schema Registry Emulation**: Manage and retrieve schemas assigned to Estuary collections, emulating Confluent's
   Schema Registry.
+- **Backfill Support**: Estuary signals to downstream consumers when offsets need to be reset via Kafka leader epochs.
 
 ## Connection Details
 
