@@ -49,12 +49,12 @@ pub async fn apply(
         catalog_prefix,
         spec,
     } = collection_data;
-    upsert_storage_mapping(&detail, &catalog_prefix, spec, txn).await?;
+    upsert_storage_mapping(Some(&detail), &catalog_prefix, spec, txn).await?;
     let ProposedMapping {
         catalog_prefix,
         spec,
     } = recovery;
-    upsert_storage_mapping(&detail, &catalog_prefix, spec, txn).await?;
+    upsert_storage_mapping(Some(&detail), &catalog_prefix, spec, txn).await?;
 
     Ok(JobStatus::Success)
 }
