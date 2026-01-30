@@ -67,7 +67,7 @@ This will be the second half of the OpenID issuer value you used before. For exa
 Now in IAM & Admin -> Service Accounts, find your service account which has access to the resource you want to authenticate to, and in its Principals with access tab, grant the "Workload Identity User" role to the workload identity principal with the SUBJECT_ATTRIBUTE_VALUE filled in, e.g.
 
 ```
-principal://iam.googleapis.com/projects/12345/locations/global/workloadIdentityPools/estuary-flow-internal/subject/flow-258@helpful-kingdom-273219.iam.gserviceaccount.com
+principal://iam.googleapis.com/projects/12345/locations/global/workloadIdentityPools/estuary-flow-internal/subject/gcp-us-central1-c2.dp.estuary-data.com
 ```
 
 ![Workload Identity User Access Granted to Principal](../guide-images/gcp-iam-4-identity-user-access.png)
