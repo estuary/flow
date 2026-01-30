@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use itertools::Itertools;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -1929,7 +1930,7 @@ impl Session {
     #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn offset_fetch(
         &mut self,
-        mut req: messages::OffsetFetchRequest,
+        req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
         let redirect_response = messages::OffsetFetchResponse::default().with_topics(
@@ -1955,38 +1956,50 @@ impl Session {
             return Ok(redirect_response);
         }
 
-        let collection_statuses = if let Some(topics) = &req.topics {
-            match self
-                .fetch_collections(topics.iter().map(|topic| &topic.name))
-                .await
-            {
-                Ok(statuses) => Some(statuses),
-                Err(e) if Self::is_redirect_error(&e) => return Ok(redirect_response),
-                Err(e) => return Err(e),
-            }
+        let mut requested_topics = if let Some(topics) = req.topics.clone() {
+            topics
         } else {
-            None
+            // We don't currently support fetching all topics' offsets.
+            return Ok(messages::OffsetFetchResponse::default()
+                .with_error_code(ResponseError::InvalidRequest.code()));
         };
 
-        // Check for NotFound/NotReady collections - return per-topic errors
-        if let Some(ref statuses) = collection_statuses {
-            for (topic_name, status) in statuses {
-                let Some(error_code) = status.error_code() else {
+        let collection_statuses = match self
+            .fetch_collections(requested_topics.iter().map(|topic| &topic.name))
+            .await
+        {
+            Ok(statuses) => statuses,
+            Err(e) if Self::is_redirect_error(&e) => return Ok(redirect_response),
+            Err(e) => return Err(e),
+        };
+
+        // Check for NotFound/NotReady collections - return per-topic errors and remove from fetch list
+        let mut error_topics = vec![];
+        let mut ready_collections = vec![];
+        for (topic_name, status) in collection_statuses {
+            let error_code = match status {
+                CollectionStatus::Ready(collection) => {
+                    ready_collections.push((topic_name, collection));
                     continue;
-                };
-                tracing::warn!(topic = ?topic_name, error_code, "Collection not available");
-                // Return error response for all topics
-                let topics = req
-                    .topics
-                    .as_ref()
-                    .map(|topics| {
-                        topics
-                            .iter()
-                            .map(|t| {
-                                messages::offset_fetch_response::OffsetFetchResponseTopic::default()
-                                    .with_name(t.name.clone())
+                }
+                CollectionStatus::Unavailable(reason) => reason.code(),
+            };
+
+            tracing::warn!(topic = ?topic_name, error_code, "Collection not available");
+
+            let (topic_idx, _) = requested_topics
+                .iter()
+                .find_position(|t| t.name == topic_name)
+                .ok_or(anyhow::anyhow!("topic {:?} can't be found", topic_name))?;
+
+            // Remove from list of topics to fetch
+            let topic = requested_topics.swap_remove(topic_idx);
+
+            error_topics.push(
+                    messages::offset_fetch_response::OffsetFetchResponseTopic::default()
+                                    .with_name(topic.name.clone())
                                     .with_partitions(
-                                        t.partition_indexes
+                                        topic.partition_indexes
                                             .iter()
                                             .map(|&p| {
                                                 messages::offset_fetch_response::OffsetFetchResponsePartition::default()
@@ -1994,113 +2007,128 @@ impl Session {
                                                     .with_error_code(error_code)
                                             })
                                             .collect(),
-                                    )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                return Ok(messages::OffsetFetchResponse::default().with_topics(topics));
-            }
+                                    ));
         }
 
-        // All collections are Ready at this point
-        let collection_partitions = if let Some(ref statuses) = collection_statuses {
-            statuses
-                .iter()
-                .filter_map(|(topic_name, status)| match status {
-                    CollectionStatus::Ready(collection) => Some(
-                        self.encrypt_topic_name(
-                            topic_name.clone(),
-                            Some(collection.binding_backfill_counter),
-                        )
-                        .map(|encrypted_name| (encrypted_name, collection.partitions.len())),
-                    ),
-                    CollectionStatus::Unavailable(_) => None,
+        // Build epoch-qualified request
+        let epoch_req = messages::OffsetFetchRequest::default()
+            .with_group_id(req.group_id.clone())
+            .with_topics(Some(
+                requested_topics
+                    .iter()
+                    .cloned()
+                    .map(|mut topic| {
+                        let backfill_counter = ready_collections
+                            .iter()
+                            .find(|(name, _)| name == &topic.name)
+                            .map(|(_, c)| c.binding_backfill_counter)
+                            .context(format!("Collection not found for topic {:?}", topic.name))?;
+                        topic.name =
+                            self.encrypt_topic_name(topic.name.clone(), Some(backfill_counter))?;
+                        Ok(topic)
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            ));
+
+        // Send epoch-qualified request
+        let mut resp = {
+            let client = self
+                .get_kafka_client()
+                .await?
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?;
+
+            client.send_request(epoch_req, Some(header.clone())).await?
+        };
+
+        // Decrypt topic names in response.
+        for topic in resp.topics.iter_mut() {
+            topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
+        }
+
+        // The upgrade path can result in a partially-migrated state where some partitions
+        // have an epoch-qualified committed offset while others still only have a committed
+        // offset from before the migration. Fetch legacy offsets for topics that need them.
+        let (topics_needing_fallback, topics_with_epoch_qualified_offset): (Vec<_>, Vec<_>) =
+            resp.topics.into_iter().partition(|t| {
+                t.partitions.iter().any(|p| {
+                    (p.error_code == 0
+                        || p.error_code == ResponseError::UnknownTopicOrPartition.code()
+                        || p.error_code == ResponseError::UnknownTopicId.code())
+                        && p.committed_offset == -1
                 })
-                .collect::<Result<Vec<_>, _>>()?
+            });
+
+        let fetched_legacy_offsets = if !topics_needing_fallback.is_empty() {
+            let topic_names_needing_fallback = topics_needing_fallback
+                .iter()
+                .map(|t| t.name.clone())
+                .collect::<Vec<_>>();
+
+            // Build fallback request only for topics that need it
+            let mut fallback_topics = requested_topics
+                .iter()
+                .filter(|t| topic_names_needing_fallback.contains(&t.name))
+                .cloned()
+                .collect::<Vec<_>>();
+
+            // Encrypt with non-epoch names for legacy lookup
+            for t in fallback_topics.iter_mut() {
+                t.name = self.encrypt_topic_name(t.name.clone(), None)?;
+            }
+
+            let mut legacy_resp = self
+                .get_kafka_client()
+                .await?
+                .connect_to_group_coordinator(req.group_id.as_str())
+                .await?
+                .send_request(
+                    req.clone().with_topics(Some(fallback_topics)),
+                    Some(header.clone()),
+                )
+                .await?;
+
+            // Decrypt topic names in legacy response.
+            for topic in legacy_resp.topics.iter_mut() {
+                topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
+            }
+
+            legacy_resp.topics
         } else {
             vec![]
         };
 
-        // Encrypt topic names with epoch-qualified names
-        if let Some(ref mut topics) = req.topics {
-            for topic in topics.iter_mut() {
-                let backfill_counter = collection_statuses
-                    .as_ref()
-                    .and_then(|statuses| statuses.iter().find(|(name, _)| name == &topic.name))
-                    .and_then(|(_, status)| match status {
-                        CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
-                        CollectionStatus::Unavailable(_) => None,
-                    })
-                    .context(format!("Collection not found for topic {:?}", topic.name))?;
-                topic.name = self.encrypt_topic_name(topic.name.clone(), Some(backfill_counter))?;
-            }
-        }
-
-        // Prepare fallback request (non-epoch names) ahead of time
-        let mut fallback_req = req.clone();
-        if let Some(ref mut topics) = fallback_req.topics {
-            for topic in topics.iter_mut() {
-                let decrypted = self.decrypt_topic_name(topic.name.clone())?;
-                topic.name = self.encrypt_topic_name(decrypted, None)?;
-            }
-        }
-
-        let client = self
-            .get_kafka_client()
-            .await?
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-
-        if !collection_partitions.is_empty() {
-            client.ensure_topics(collection_partitions.clone()).await?;
-        }
-
-        let mut resp = client
-            .send_request(req.clone(), Some(header.clone()))
-            .await?;
-
-        // try fallback to previous topic names to serve the committed offset upgrade path
-        let should_fallback = resp.topics.iter().all(|topic| {
-            topic.partitions.iter().all(|p| {
-                // -1 = no committed offset
-                p.committed_offset == -1
-            })
-        });
-
-        if should_fallback && collection_statuses.is_some() {
-            tracing::info!(group_id = ?req.group_id, "No offsets found with epoch, falling back to legacy format");
-            resp = client.send_request(fallback_req, Some(header)).await?;
-        }
-
-        for topic in resp.topics.iter_mut() {
-            topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
-            let maybe_backfill_counter = collection_statuses.as_ref().and_then(|statuses| {
-                statuses
+        // Now, merge all 3 sources: epoch-qualified offsets, legacy offsets, and errors for unavailable topics.
+        let response_topics = topics_with_epoch_qualified_offset
+            .into_iter()
+            .chain(fetched_legacy_offsets.into_iter())
+            .map(|mut topic_response| {
+                // Populate committed_leader_epoch for partitions where we have a committed offset.
+                let maybe_backfill_counter = ready_collections
                     .iter()
-                    .find(|(topic_name, _)| topic_name == &topic.name)
-                    .and_then(|(_, status)| match status {
-                        CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
-                        // Unavailable: don't set committed_leader_epoch
-                        CollectionStatus::Unavailable(_) => None,
-                    })
-            });
+                    .find(|(topic_name, _)| topic_name == &topic_response.name)
+                    .map(|(_, c)| c.binding_backfill_counter);
 
-            if let Some(backfill_counter) = maybe_backfill_counter {
-                for partition in topic.partitions.iter_mut() {
-                    // Only set epoch for partitions that have committed offsets.
-                    // When committed_offset is -1 (no offset), committed_leader_epoch
-                    // must be -1 per Kafka protocol semantics.
-                    if partition.committed_offset >= 0 {
-                        partition.committed_leader_epoch = backfill_counter as i32;
-                    } else {
-                        partition.committed_leader_epoch = -1;
+                if let Some(backfill_counter) = maybe_backfill_counter {
+                    for partition in topic_response.partitions.iter_mut() {
+                        // Only set epoch for partitions that have committed offsets.
+                        // When committed_offset is -1 (no offset), committed_leader_epoch
+                        // must be -1 per Kafka protocol semantics.
+                        if partition.committed_offset >= 0 {
+                            partition.committed_leader_epoch = backfill_counter as i32;
+                        } else {
+                            partition.committed_leader_epoch = -1;
+                        }
                     }
                 }
-            }
-        }
 
-        Ok(resp)
+                topic_response
+            })
+            // don't set committed_leader_epoch for unavailable topics
+            .chain(error_topics.into_iter())
+            .collect::<Vec<_>>();
+
+        Ok(messages::OffsetFetchResponse::default().with_topics(response_topics))
     }
 
     /// OffsetForLeaderEpoch handles consumer requests to validate their position after receiving FENCED_LEADER_EPOCH.

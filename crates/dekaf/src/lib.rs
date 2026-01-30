@@ -627,7 +627,7 @@ fn enc_resp<
 /// NOTE that the output of this function must be deterministic,
 /// that is: it cannot use a random nonce like you normally would
 /// when encrypting data.
-fn to_upstream_topic_name(
+pub fn to_upstream_topic_name(
     topic: TopicName,
     secret: String,
     nonce: String,

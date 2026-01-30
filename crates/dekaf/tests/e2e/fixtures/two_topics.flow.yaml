@@ -1,0 +1,51 @@
+collections:
+    test_data_a:
+        schema:
+            type: object
+            properties:
+                id: { type: string }
+                value: { type: string }
+            required: [id]
+        key: [/id]
+
+    test_data_b:
+        schema:
+            type: object
+            properties:
+                id: { type: string }
+                value: { type: string }
+            required: [id]
+        key: [/id]
+
+captures:
+    source_ingest:
+        endpoint:
+            connector:
+                image: ghcr.io/estuary/source-http-ingest:dev
+                config:
+                    paths: ["/data_a", "/data_b"]
+        bindings:
+            - resource: { path: "/data_a", stream: "/data_a" }
+              target: test_data_a
+            - resource: { path: "/data_b", stream: "/data_b" }
+              target: test_data_b
+
+materializations:
+    dekaf_test:
+        endpoint:
+            dekaf:
+                variant: testing
+                config:
+                    token: "test-token-12345"
+                    strict_topic_names: false
+        bindings:
+            - source: test_data_a
+              resource: { topic_name: topic_a }
+              fields:
+                recommended: true
+                exclude: [flow_published_at]
+            - source: test_data_b
+              resource: { topic_name: topic_b }
+              fields:
+                recommended: true
+                exclude: [flow_published_at]
