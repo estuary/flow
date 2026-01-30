@@ -19,7 +19,7 @@ async fn test_all_operations_return_leader_not_available_when_no_journals() -> a
     super::init_tracing();
 
     let env = DekafTestEnv::setup("not_ready", FIXTURE).await?;
-    let info = env.connection_info();
+    let info = env.connection_info().await?;
 
     env.inject_documents("data", vec![json!({"id": "1", "value": "initial"})])
         .await?;
@@ -63,7 +63,7 @@ async fn test_all_operations_return_leader_not_available_when_no_journals() -> a
     env.enable_capture().await?;
 
     let capture = env.capture_name().unwrap();
-    env.wait_for_primary(capture).await?;
+    env.wait_for_primary(capture, SPEC_REFRESH_TIMEOUT).await?;
 
     // Poll until we enter the NotReady state
     let deadline = std::time::Instant::now() + SPEC_REFRESH_TIMEOUT;

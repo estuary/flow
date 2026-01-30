@@ -1,6 +1,5 @@
 ---
 source: crates/data-plane-controller/tests/test_private_links.rs
-assertion_line: 112
 expression: trace.lock().unwrap().as_slice()
 ---
 [
@@ -109,6 +108,18 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/gazette/broker:v1.2.3",
               "desired": 4,
+              "current": 0
+            },
+            {
+              "role": "dekaf",
+              "template": {
+                "os_id": 2284,
+                "plan": "vc2-1c-2gb",
+                "provider": "vultr",
+                "region": "ord"
+              },
+              "oci_image": "ghcr.io/estuary/dekaf:v1.0.0",
+              "desired": 1,
               "current": 0
             }
           ],
@@ -320,7 +331,9 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mg==",
         "a2V5Mw=="
       ],
-      "ssh_key": ""
+      "ssh_key": "",
+      "dekaf_address": "tls://dekaf.test-plane.estuary.dev:9092",
+      "dekaf_registry_address": "https://dekaf.test-plane.estuary.dev:443"
     }
   },
   {
@@ -444,6 +457,18 @@ expression: trace.lock().unwrap().as_slice()
               "oci_image": "ghcr.io/gazette/broker:v1.2.3",
               "desired": 4,
               "current": 4
+            },
+            {
+              "role": "dekaf",
+              "template": {
+                "os_id": 2284,
+                "plan": "vc2-1c-2gb",
+                "provider": "vultr",
+                "region": "ord"
+              },
+              "oci_image": "ghcr.io/estuary/dekaf:v1.0.0",
+              "desired": 1,
+              "current": 1
             }
           ],
           "connector_limits": {
@@ -615,7 +640,9 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mg==",
         "a2V5Mw=="
       ],
-      "ssh_key": ""
+      "ssh_key": "",
+      "dekaf_address": "tls://dekaf.test-plane.estuary.dev:9092",
+      "dekaf_registry_address": "https://dekaf.test-plane.estuary.dev:443"
     }
   },
   {
@@ -747,6 +774,18 @@ expression: trace.lock().unwrap().as_slice()
               "oci_image": "ghcr.io/gazette/broker:v1.2.3",
               "desired": 4,
               "current": 4
+            },
+            {
+              "role": "dekaf",
+              "template": {
+                "os_id": 2284,
+                "plan": "vc2-1c-2gb",
+                "provider": "vultr",
+                "region": "ord"
+              },
+              "oci_image": "ghcr.io/estuary/dekaf:v1.0.0",
+              "desired": 1,
+              "current": 1
             }
           ],
           "connector_limits": {

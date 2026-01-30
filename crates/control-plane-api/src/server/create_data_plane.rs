@@ -23,6 +23,12 @@ pub struct Manual {
     reactor_address: String,
     /// HMAC keys of the data-plane.
     hmac_keys: Vec<String>,
+    /// Kafka-protocol address of Dekaf in this data-plane (tls:// URL).
+    #[serde(default)]
+    dekaf_address: Option<String>,
+    /// Schema registry HTTP address of Dekaf in this data-plane (https:// URL).
+    #[serde(default)]
+    dekaf_registry_address: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
@@ -105,18 +111,31 @@ pub async fn create_data_plane(
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
-    let (broker_address, reactor_address, hmac_keys) = match category {
-        Category::Managed => (
-            format!("https://gazette.{data_plane_fqdn}"),
-            format!("https://reactor.{data_plane_fqdn}"),
-            Vec::new(),
-        ),
-        Category::Manual(Manual {
-            broker_address,
-            reactor_address,
-            hmac_keys,
-        }) => (broker_address, reactor_address, hmac_keys),
-    };
+    let (broker_address, reactor_address, dekaf_address, dekaf_registry_address, hmac_keys) =
+        match category {
+            Category::Managed => (
+                format!("https://gazette.{data_plane_fqdn}"),
+                format!("https://reactor.{data_plane_fqdn}"),
+                // dekaf_address and dekaf_registry_address are set by the
+                // data-plane-controller when Dekaf is actually deployed.
+                None,
+                None,
+                Vec::new(),
+            ),
+            Category::Manual(Manual {
+                broker_address,
+                reactor_address,
+                hmac_keys,
+                dekaf_address,
+                dekaf_registry_address,
+            }) => (
+                broker_address,
+                reactor_address,
+                dekaf_address,
+                dekaf_registry_address,
+                hmac_keys,
+            ),
+        };
 
     // Grant a private tenant access to their data-plane and task logs & stats.
     // These grants are always safe to create for every tenant, but we only
@@ -150,17 +169,21 @@ pub async fn create_data_plane(
             ops_l2_events_transform,
             broker_address,
             reactor_address,
+            dekaf_address,
+            dekaf_registry_address,
             hmac_keys,
             enable_l2,
             pulumi_stack
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
         )
         on conflict (data_plane_name) do update set
             broker_address = $11,
             reactor_address = $12,
+            dekaf_address = coalesce($13, data_planes.dekaf_address),
+            dekaf_registry_address = coalesce($14, data_planes.dekaf_registry_address),
             -- Don't replace non-empty hmac_keys with empty ones.
-            hmac_keys = case when array_length($13, 1) > 0 then $13
+            hmac_keys = case when array_length($15, 1) > 0 then $15
                         else data_planes.hmac_keys end
         returning logs_token
         ;
@@ -177,6 +200,8 @@ pub async fn create_data_plane(
         &ops_l2_events_transform,
         broker_address,
         reactor_address,
+        &dekaf_address as &Option<String>,
+        &dekaf_registry_address as &Option<String>,
         &hmac_keys,
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
@@ -269,6 +294,8 @@ pub async fn create_data_plane(
         ops_stats_name,
         broker_address,
         reactor_address,
+        ?dekaf_address,
+        ?dekaf_registry_address,
         "data-plane created"
     );
 

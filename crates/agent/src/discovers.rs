@@ -162,6 +162,8 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                 d.data_plane_fqdn,
                 d.broker_address,
                 d.reactor_address,
+                d.dekaf_address,
+                d.dekaf_registry_address,
                 d.ops_logs_name AS "ops_logs_name: models::Collection",
                 d.ops_stats_name AS "ops_stats_name: models::Collection"
             FROM data_planes d
@@ -403,6 +405,8 @@ mod test {
             ops_stats_name: models::Collection::new("tha/stats"),
             broker_address: "broker.test".to_string(),
             reactor_address: "reactor.test".to_string(),
+            dekaf_address: None,
+            dekaf_registry_address: None,
         };
 
         let result = super::prepare_discover(

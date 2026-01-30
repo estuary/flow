@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes\n        WHERE data_plane_name = $1\n        ",
+  "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            dekaf_address,\n            dekaf_registry_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes\n        WHERE data_plane_name = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -40,11 +40,21 @@
       },
       {
         "ordinal": 7,
-        "name": "ops_logs_name: models::Collection",
+        "name": "dekaf_address",
         "type_info": "Text"
       },
       {
         "ordinal": 8,
+        "name": "dekaf_registry_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "ops_logs_name: models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
         "name": "ops_stats_name: models::Collection",
         "type_info": "Text"
       }
@@ -62,9 +72,11 @@
       false,
       false,
       false,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "6a73d5d0b25c4fbe94ab9999304c7efa53ddbc039d7e336ff75ed835aebc55ee"
+  "hash": "66af8a581c8cbdcab8877d50c3ebcb23163d0d213c5e6c74a30d15d62ab79955"
 }
