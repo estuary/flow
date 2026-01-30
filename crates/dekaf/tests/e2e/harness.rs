@@ -257,6 +257,33 @@ impl DekafTestEnv {
         connection_info_for_dataplane("local-cluster", username, collections).await
     }
 
+    pub fn upstream_broker_urls(&self) -> anyhow::Result<Vec<String>> {
+        let urls = std::env::var("DEKAF_UPSTREAM_BROKER_URLS")
+            .context("DEKAF_UPSTREAM_BROKER_URLS must be set for e2e tests")?;
+        let urls: Vec<String> = urls
+            .split(',')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect();
+        anyhow::ensure!(
+            !urls.is_empty(),
+            "DEKAF_UPSTREAM_BROKER_URLS must not be empty"
+        );
+        Ok(urls)
+    }
+
+    pub fn dekaf_encryption_secret(&self) -> anyhow::Result<String> {
+        std::env::var("DEKAF_ENCRYPTION_SECRET")
+            .context("DEKAF_ENCRYPTION_SECRET must be set for e2e tests")
+    }
+
+    pub async fn upstream_kafka_client(&self) -> anyhow::Result<dekaf::KafkaApiClient> {
+        let upstreams = self.upstream_broker_urls()?;
+        dekaf::KafkaApiClient::connect(&upstreams, dekaf::KafkaClientAuth::None)
+            .await
+            .context("failed to connect to upstream broker")
+    }
+
     /// Get the Dekaf auth token from the fixture's materialization config.
     ///
     /// Extracts the token from `materializations.<name>.endpoint.dekaf.config.token`.

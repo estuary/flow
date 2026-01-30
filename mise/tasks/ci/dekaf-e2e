@@ -73,6 +73,8 @@ export DEKAF_BROKER="localhost:${DEKAF1_KAFKA_PORT}"
 export DEKAF_REGISTRY="http://localhost:$((DEKAF1_KAFKA_PORT + 1))"
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
 export FLOW_ACCESS_TOKEN="${SYSTEM_USER_TOKEN}"
+export DEKAF_UPSTREAM_BROKER_URLS="tcp://localhost:29092"
+export DEKAF_ENCRYPTION_SECRET="test-encryption-secret-32-bytes!"
 
 if [ "${DEBUG}" = "true" ]; then
     export RUST_LOG="debug"
