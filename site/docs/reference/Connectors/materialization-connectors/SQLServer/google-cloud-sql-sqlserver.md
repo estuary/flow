@@ -47,32 +47,6 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
    Together, you'll use the host:port as the `address` property when you configure the connector.
 
-## Connecting to SQLServer
-
-1. Allow connections between the database and Estuary. There are two ways to do this: by granting direct access to Estuary's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-
-      - [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add [Estuary IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
-
-   2. To allow secure connections via SSH tunneling:
-      - Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-      - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'Secret123!';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-
-3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
-   Together, you'll use the host:port as the `address` property when you configure the connector.
-
 ## Configuration
 
 To use this connector, begin with data in one or more Estuary collections.
@@ -82,12 +56,22 @@ Use the below properties to configure a SQLServer materialization, which will di
 
 #### Endpoint
 
-| Property        | Title    | Description                                                                                | Type   | Required/Default |
-| --------------- | -------- | ------------------------------------------------------------------------------------------ | ------ | ---------------- |
-| **`/database`** | Database | Name of the logical database to materialize to.                                            | string | Required         |
-| **`/address`**  | Address  | Host and port of the database. If only the host is specified, port will default to `1433`. | string | Required         |
-| **`/password`** | Password | Password for the specified database user.                                                  | string | Required         |
-| **`/user`**     | User     | Database user to connect as.                                                               | string | Required         |
+| Property           | Title       | Description                                                                                | Type    | Required/Default |
+| ------------------ | ----------- | ------------------------------------------------------------------------------------------ | ------- | ---------------- |
+| **`/address`**     | Address     | Host and port of the database. If only the host is specified, port will default to `3306`. | string  | Required         |
+| **`/user`**        | User        | Database user to connect as.                                                               | string  | Required         |
+| **`/database`**    | Database    | Name of the logical database to materialize to.                                            | string  | Required         |
+| **`/schema`**      | Schema      | Default database schema for bound collection tables.                                       | string  | Optional         |
+| **`/credentials`** | Credentials | Credentials for authentication.                                                            | [Credentials](#credentials) | Required |
+
+#### Credentials
+
+Credentials for authentication.
+
+| Property                                 | Title                   | Description                                              | Type    | Required/Default         |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------- | ------- | ------------------------ |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `UserPassword` |
+| **`/credentials/password`**              | Password                | Password for the user.                                   | string  | Required                 |
 
 #### Bindings
 
@@ -105,10 +89,12 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-sqlserver:dev
         config:
-          database: flow
           address: localhost:5432
-          password: flow
-          user: flow
+          user: flow_materialize
+          database: flow
+          credentials:
+            auth_type: UserPassword
+            password: flow
     bindings:
       - resource:
           table: ${TABLE_NAME}
