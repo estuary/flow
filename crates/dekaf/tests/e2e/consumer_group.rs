@@ -168,3 +168,90 @@ async fn test_offset_commit_unknown_topic() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Regression test: OffsetFetch with `topics == None` should return the same
+/// committed offsets as an explicit topic query.
+///
+/// When a Kafka client first connects, it sends OffsetFetch with `topics == None`
+/// to discover all committed offsets for the consumer group. This must return the
+/// same values as an explicit topic query.
+#[tokio::test]
+async fn test_offset_fetch_all_matches_explicit() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("cg_offset_fetch_all", FIXTURE).await?;
+
+    env.inject_documents(
+        "data",
+        vec![
+            json!({"id": "doc-a", "value": "one"}),
+            json!({"id": "doc-b", "value": "two"}),
+        ],
+    )
+    .await?;
+
+    let group_id = format!("test-group-{}", uuid::Uuid::new_v4());
+
+    // Consume and commit using the high-level consumer
+    {
+        let consumer = env.kafka_consumer_with_group_id(&group_id)?;
+        consumer.subscribe(&["test_topic"])?;
+
+        let records = consumer.fetch().await?;
+        assert_eq!(records.len(), 2, "should receive both injected documents");
+
+        // Commit offset after the last record
+        let last_record = records.last().unwrap();
+        let commit_offset = last_record.offset + 1;
+        consumer.commit_offset("test_topic", last_record.partition, commit_offset)?;
+
+        // Verify commit succeeded
+        let readback = consumer.committed_offset("test_topic", last_record.partition)?;
+        assert_eq!(readback, Some(commit_offset), "commit should succeed");
+    }
+
+    let info = env.connection_info();
+    let token = env.dekaf_token()?;
+
+    let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+
+    // OffsetFetch with topics == None (all topics)
+    let all_topics_resp = client.offset_fetch_all(&group_id).await?;
+
+    let all_topics_result = offset_fetch_partition_result(&all_topics_resp, "test_topic", 0)
+        .expect("all-topics response should include test_topic");
+
+    // OffsetFetch with explicit topic
+    let explicit_resp = client.offset_fetch(&group_id, "test_topic", &[0]).await?;
+
+    let explicit_result = offset_fetch_partition_result(&explicit_resp, "test_topic", 0)
+        .expect("explicit response should include test_topic");
+
+    // Both should return the same committed offset
+    assert_eq!(
+        all_topics_result.committed_offset, explicit_result.committed_offset,
+        "OffsetFetch(all) returned {}, OffsetFetch(explicit) returned {}",
+        all_topics_result.committed_offset, explicit_result.committed_offset
+    );
+
+    // The offset should be a real commit (not -1 which indicates no committed offset).
+    // Dekaf uses journal byte offsets, so after reading 2 JSON documents the offset
+    // will be in the hundreds or thousands of bytes, not a small record count.
+    assert!(
+        all_topics_result.committed_offset > 0,
+        "expected a real committed offset (> 0), got {}",
+        all_topics_result.committed_offset
+    );
+
+    // No errors
+    assert_eq!(
+        all_topics_result.error_code, 0,
+        "all-topics fetch should succeed"
+    );
+    assert_eq!(
+        explicit_result.error_code, 0,
+        "explicit fetch should succeed"
+    );
+
+    Ok(())
+}
