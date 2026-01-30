@@ -236,6 +236,16 @@ enum CatalogType {
 	test
 }
 
+"""
+Cloud provider where the data plane is hosted.
+"""
+enum CloudProvider {
+	AWS
+	AZURE
+	GCP
+	LOCAL
+}
+
 scalar Collection
 
 """
@@ -323,6 +333,82 @@ type CreateStorageMappingResult {
 	The catalog prefix for which the storage mapping was created.
 	"""
 	catalogPrefix: Prefix!
+}
+
+"""
+A data plane where tasks execute and collections are stored.
+"""
+type DataPlane {
+	"""
+	Name of this data-plane under the catalog namespace.
+	"""
+	dataPlaneName: String!
+	"""
+	Fully-qualified domain name of this data-plane.
+	"""
+	dataPlaneFqdn: String!
+	"""
+	Address of reactors within the data-plane.
+	"""
+	reactorAddress: String!
+	"""
+	CIDR blocks for this data-plane.
+	"""
+	cidrBlocks: [String!]!
+	"""
+	GCP service account email for this data-plane.
+	"""
+	gcpServiceAccountEmail: String
+	"""
+	AWS IAM user ARN for this data-plane.
+	"""
+	awsIamUserArn: String
+	"""
+	The current user's capability to this data plane's name prefix.
+	"""
+	userCapability: Capability!
+	"""
+	Cloud provider where this data-plane is hosted.
+	"""
+	cloudProvider: CloudProvider!
+	"""
+	Cloud region where this data-plane is hosted.
+	For example: "us-east-1" (AWS), "us-central1" (GCP), "eastus" (Azure).
+	"""
+	region: String!
+	"""
+	Cluster identifier within the region.
+	"""
+	cluster: String!
+	"""
+	Whether this is a private data-plane.
+	"""
+	isPrivate: Boolean!
+}
+
+type DataPlaneConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [DataPlaneEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type DataPlaneEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: DataPlane!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
 }
 
 """
@@ -567,21 +653,21 @@ type LockFailure {
 type MutationRoot {
 	"""
 	Create a storage mapping for the given catalog prefix.
-	
+
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
 	and then saves the storage mapping to the database.
-	
+
 	All health checks must pass before the storage mapping is created.
 	"""
 	createStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!): CreateStorageMappingResult!
 	"""
 	Update an existing storage mapping for the given catalog prefix.
-	
+
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
 	and then updates the storage mapping in the database.
-	
+
 	Health checks for newly added stores or data planes must pass before the
 	storage mapping is updated. Health check failures for existing stores/data planes
 	are allowed (they were already validated when created).
@@ -589,10 +675,10 @@ type MutationRoot {
 	updateStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!): UpdateStorageMappingResult!
 	"""
 	Check storage health for a given catalog prefix and storage definition.
-	
+
 	This validates the inputs, verifies that the user has admin access to the catalog prefix,
 	and runs health checks to verify that data planes can access the storage buckets.
-	
+
 	Unlike create/update mutations, this does not modify any data and always returns
 	health check results (both successes and failures) rather than erroring on failures.
 	"""
@@ -772,7 +858,7 @@ type QueryRoot {
 	"""
 	Returns a paginated list of live specs under the given prefix and
 	matching the given type.
-	
+
 	Note that the `user_capability` that's returned as part of the reference
 	represents the user's capability to the whole prefix, and it is possible
 	that there are more specific grants for a broader capability. In other
@@ -792,11 +878,17 @@ type QueryRoot {
 	alertSubscriptions(by: AlertSubscriptionsBy!): [AlertSubscription!]!
 	"""
 	Returns storage mappings accessible to the current user.
-	
+
 	Requires at least read capability to the queried prefixes.
 	Results are paginated and sorted by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+	Returns data planes accessible to the current user.
+
+	Results are paginated and sorted by data_plane_name.
+	Only data planes the user has at least read capability to are returned.
+	"""
+	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 }
 
 """
