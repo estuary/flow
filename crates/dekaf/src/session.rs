@@ -2020,21 +2020,68 @@ impl Session {
             .send_request(req.clone(), Some(header.clone()))
             .await?;
 
-        // try fallback to previous topic names to serve the committed offset upgrade path
-        let should_fallback = resp.topics.iter().all(|topic| {
-            topic.partitions.iter().all(|p| {
-                // -1 = no committed offset
-                p.committed_offset == -1
-            })
-        });
+        // Legacy fallback behavior for epoch-qualified topic names.
+        //
+        // The upgrade path can result in a partially-migrated state where some partitions
+        // have an epoch-qualified committed offset while others still only have a legacy
+        // committed offset. If we only fall back when *all* partitions are -1, the legacy-only
+        // partitions are reported as missing and consumers apply `auto.offset.reset`.
+        let legacy_resp = if collection_statuses.is_some()
+            && resp.topics.iter().any(|t| {
+                t.partitions
+                    .iter()
+                    .any(|p| p.error_code == 0 && p.committed_offset == -1)
+            }) {
+            Some(
+                client
+                    .send_request(fallback_req, Some(header.clone()))
+                    .await?,
+            )
+        } else {
+            None
+        };
 
-        if should_fallback && collection_statuses.is_some() {
-            tracing::info!(group_id = ?req.group_id, "No offsets found with epoch, falling back to legacy format");
-            resp = client.send_request(fallback_req, Some(header)).await?;
-        }
-
+        // Decrypt topic names.
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
+        }
+        let mut legacy_resp = legacy_resp;
+        if let Some(ref mut legacy) = legacy_resp {
+            for topic in legacy.topics.iter_mut() {
+                topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
+            }
+
+            // Merge legacy offsets into the epoch response for partitions that are still missing.
+            use std::collections::BTreeMap;
+            let mut legacy_by_tp: BTreeMap<
+                (String, i32),
+                messages::offset_fetch_response::OffsetFetchResponsePartition,
+            > = BTreeMap::new();
+
+            for topic in legacy.topics.iter() {
+                for p in topic.partitions.iter() {
+                    if p.error_code == 0 && p.committed_offset >= 0 {
+                        legacy_by_tp.insert((topic.name.to_string(), p.partition_index), p.clone());
+                    }
+                }
+            }
+
+            for topic in resp.topics.iter_mut() {
+                for p in topic.partitions.iter_mut() {
+                    if p.error_code == 0 && p.committed_offset == -1 {
+                        if let Some(legacy_p) =
+                            legacy_by_tp.get(&(topic.name.to_string(), p.partition_index))
+                        {
+                            p.committed_offset = legacy_p.committed_offset;
+                            p.metadata = legacy_p.metadata.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Populate committed_leader_epoch for partitions where we have a committed offset.
+        for topic in resp.topics.iter_mut() {
             let maybe_backfill_counter = collection_statuses.as_ref().and_then(|statuses| {
                 statuses
                     .iter()

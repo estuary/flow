@@ -54,6 +54,8 @@ echo "Running Dekaf E2E tests..."
 export DEKAF_BROKER="localhost:${KAFKA_PORT}"
 export DEKAF_REGISTRY="http://localhost:${REGISTRY_PORT}"
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
+export DEKAF_UPSTREAM_BROKER_URLS="tcp://localhost:29092"
+export DEKAF_ENCRYPTION_SECRET="test-encryption-secret-32-bytes!"
 
 # A token for the local-stack system user signed against the local-stack
 # supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).

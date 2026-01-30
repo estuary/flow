@@ -608,7 +608,7 @@ fn enc_resp<
 /// NOTE that the output of this function must be deterministic,
 /// that is: it cannot use a random nonce like you normally would
 /// when encrypting data.
-fn to_upstream_topic_name(
+pub fn to_upstream_topic_name(
     topic: TopicName,
     secret: String,
     nonce: String,
@@ -628,7 +628,7 @@ fn to_upstream_topic_name(
 }
 
 /// Detects if a topic name has an epoch suffix in the format `-e{digits}`.
-pub(crate) fn has_epoch_suffix(topic_str: &str) -> bool {
+pub fn has_epoch_suffix(topic_str: &str) -> bool {
     if let Some(pos) = topic_str.rfind("-e") {
         !topic_str[pos + 2..].is_empty() && topic_str[pos + 2..].chars().all(|c| c.is_ascii_digit())
     } else {

@@ -193,6 +193,27 @@ impl TestKafkaClient {
 
         self.inner.send_request(req, Some(header)).await
     }
+
+    /// OffsetFetch with `topics == None` to fetch offsets for all topics.
+    ///
+    /// This is the request pattern used by Kafka clients on initial connect
+    /// to discover all committed offsets for a consumer group.
+    pub async fn offset_fetch_all(
+        &mut self,
+        group_id: &str,
+    ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        let req = messages::OffsetFetchRequest::default()
+            .with_group_id(messages::GroupId::from(StrBytes::from_string(
+                group_id.to_string(),
+            )))
+            .with_topics(None);
+
+        let header = messages::RequestHeader::default()
+            .with_request_api_key(messages::ApiKey::OffsetFetch as i16)
+            .with_request_api_version(protocol_versions::OFFSET_FETCH);
+
+        self.inner.send_request(req, Some(header)).await
+    }
 }
 
 /// Extract the error code from a FetchResponse for a specific topic/partition.
