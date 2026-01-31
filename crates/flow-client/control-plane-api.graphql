@@ -239,6 +239,24 @@ enum CatalogType {
 scalar Collection
 
 """
+Result of checking storage health for a catalog prefix.
+"""
+type ConnectionHealthTestResult {
+	"""
+	The catalog prefix for which storage health was checked.
+	"""
+	catalogPrefix: Prefix!
+	"""
+	Whether all health checks passed.
+	"""
+	allPassed: Boolean!
+	"""
+	Individual health check results for each data plane and store combination.
+	"""
+	results: [StorageHealthItem!]!
+}
+
+"""
 The shape of a connector status, which matches that of an ops::Log.
 """
 type ConnectorStatus {
@@ -302,11 +320,7 @@ Result of creating a storage mapping.
 """
 type CreateStorageMappingResult {
 	"""
-	Whether the storage mapping was created (false if dry_run was true, or it previously existed).
-	"""
-	created: Boolean!
-	"""
-	The catalog prefix for which the storage mapping was created or updated.
+	The catalog prefix for which the storage mapping was created.
 	"""
 	catalogPrefix: Prefix!
 }
@@ -553,24 +567,36 @@ type LockFailure {
 type MutationRoot {
 	"""
 	Create a storage mapping for the given catalog prefix.
-
+	
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
-	and then saves the storage mapping to the database if `dry_run` is false.
+	and then saves the storage mapping to the database.
 	
 	All health checks must pass before the storage mapping is created.
 	"""
-	createStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean! = false): CreateStorageMappingResult!
+	createStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!): CreateStorageMappingResult!
 	"""
 	Update an existing storage mapping for the given catalog prefix.
-
+	
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
-	and then updates the storage mapping in the database if `dry_run` is false.
-
-	All health checks must pass before the storage mapping is updated.
+	and then updates the storage mapping in the database.
+	
+	Health checks for newly added stores or data planes must pass before the
+	storage mapping is updated. Health check failures for existing stores/data planes
+	are allowed (they were already validated when created).
 	"""
-	updateStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!, dryRun: Boolean! = false): UpdateStorageMappingResult!
+	updateStorageMapping(catalogPrefix: Prefix!, detail: String, storage: JSON!): UpdateStorageMappingResult!
+	"""
+	Check storage health for a given catalog prefix and storage definition.
+	
+	This validates the inputs, verifies that the user has admin access to the catalog prefix,
+	and runs health checks to verify that data planes can access the storage buckets.
+	
+	Unlike create/update mutations, this does not modify any data and always returns
+	health check results (both successes and failures) rather than erroring on failures.
+	"""
+	testConnectionHealth(catalogPrefix: Prefix!, storage: JSON!): ConnectionHealthTestResult!
 	"""
 	Creates a new alert subscription. Returns an error if there is already
 	an existing subscription for the same prefix and email address.
@@ -746,7 +772,7 @@ type QueryRoot {
 	"""
 	Returns a paginated list of live specs under the given prefix and
 	matching the given type.
-
+	
 	Note that the `user_capability` that's returned as part of the reference
 	represents the user's capability to the whole prefix, and it is possible
 	that there are more specific grants for a broader capability. In other
@@ -1027,6 +1053,24 @@ enum StatusType {
 }
 
 """
+Result of testing storage health for a single data plane and store.
+"""
+type StorageHealthItem {
+	"""
+	Name of the data plane that was checked.
+	"""
+	dataPlaneName: String!
+	"""
+	The fragment store that was checked.
+	"""
+	fragmentStore: JSON!
+	"""
+	Error message if the health check failed, or null if it passed.
+	"""
+	error: String
+}
+
+"""
 A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
 Strings within GraphQL. UUIDs are used to assign unique identifiers to
 entities without requiring a central allocating authority.
@@ -1043,11 +1087,7 @@ Result of updating a storage mapping.
 """
 type UpdateStorageMappingResult {
 	"""
-	Whether the storage mapping was updated (false if dry_run was true, or it previously existed).
-	"""
-	updated: Boolean!
-	"""
-	The catalog prefix for which the storage mapping was created or updated.
+	The catalog prefix for which the storage mapping was updated.
 	"""
 	catalogPrefix: Prefix!
 	"""
