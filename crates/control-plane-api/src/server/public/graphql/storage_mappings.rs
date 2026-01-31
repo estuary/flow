@@ -2,33 +2,42 @@ use crate::directives::storage_mappings::{
     insert_storage_mapping, split_collection_and_recovery_storage, update_storage_mapping,
     upsert_storage_mapping,
 };
-use async_graphql::{Context, ErrorExtensions};
+use async_graphql::Context;
 use proto_gazette::broker;
 use validator::Validate;
 /// Result of testing storage health for a single data plane and store.
-#[derive(Debug, Clone)]
-struct StorageHealthResult {
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct StorageHealthItem {
+    /// Name of the data plane that was checked.
     data_plane_name: String,
-    fragment_store: url::Url,
+    /// The fragment store URL that was checked.
+    fragment_store: String,
+    /// Error message if the health check failed, or null if it passed.
     error: Option<String>,
+}
+
+/// Result of checking storage health for a catalog prefix.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct ConnectionHealthTestResult {
+    /// The catalog prefix for which storage health was checked.
+    pub catalog_prefix: models::Prefix,
+    /// Whether all health checks passed.
+    pub all_passed: bool,
+    /// Individual health check results for each data plane and store combination.
+    pub results: Vec<StorageHealthItem>,
 }
 
 /// Result of creating a storage mapping.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct CreateStorageMappingResult {
-    /// Whether the storage mapping was created (false if dry_run was true, or it previously existed).
-    pub created: bool,
-    /// The catalog prefix for which the storage mapping was created or updated.
+    /// The catalog prefix for which the storage mapping was created.
     pub catalog_prefix: models::Prefix,
 }
 
 /// Result of updating a storage mapping.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
-
 pub struct UpdateStorageMappingResult {
-    /// Whether the storage mapping was updated (false if dry_run was true, or it previously existed).
-    pub updated: bool,
-    /// The catalog prefix for which the storage mapping was created or updated.
+    /// The catalog prefix for which the storage mapping was updated.
     pub catalog_prefix: models::Prefix,
     /// Whether a republish is required because the primary storage bucket changed.
     pub republish: bool,
@@ -69,7 +78,7 @@ async fn check_store_health(
     client: gazette::journal::Client,
     data_plane_name: String,
     fragment_store: url::Url,
-) -> StorageHealthResult {
+) -> StorageHealthItem {
     let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
         fragment_store: fragment_store.to_string(),
     });
@@ -81,20 +90,19 @@ async fn check_store_health(
         Err(_) => Some("Health check timed out".to_string()),
     };
 
-    StorageHealthResult {
+    StorageHealthItem {
         data_plane_name,
-        fragment_store,
+        fragment_store: fragment_store.to_string(),
         error,
     }
 }
 
 /// Run storage health checks for each data plane + store combination.
-/// Returns Ok(()) if all checks pass, or an error with details of failures.
 async fn run_all_health_checks(
     data_planes: &[&tables::DataPlane],
     fragment_stores: &[url::Url],
-) -> async_graphql::Result<()> {
-    let mut errors = Vec::new();
+) -> Vec<StorageHealthItem> {
+    let mut results = Vec::new();
     let mut handles = Vec::new();
 
     for dp in data_planes {
@@ -102,11 +110,11 @@ async fn run_all_health_checks(
             Ok(client) => client,
             Err(err) => {
                 for store in fragment_stores {
-                    errors.push(serde_json::json!({
-                        "dataPlane": dp.data_plane_name,
-                        "fragmentStore": store.to_string(),
-                        "error": format!("Failed to create client: {err}"),
-                    }));
+                    results.push(StorageHealthItem {
+                        data_plane_name: dp.data_plane_name.clone(),
+                        fragment_store: store.to_string(),
+                        error: Some(format!("Failed to create client: {err}")),
+                    });
                 }
                 continue;
             }
@@ -121,37 +129,20 @@ async fn run_all_health_checks(
                 let fragment_store = fragment_store.clone();
                 async move { check_store_health(client, data_plane_name, fragment_store).await }
             });
-            handles.push(handle);
+            handles.push((handle, data_plane_name, fragment_store));
         }
     }
 
-    for handle in handles {
-        let result = handle.await.unwrap_or_else(|err| StorageHealthResult {
-            data_plane_name: String::new(),
-            fragment_store: url::Url::parse("error:///join-failed").unwrap(),
+    for (handle, data_plane_name, fragment_store) in handles {
+        let result = handle.await.unwrap_or_else(|err| StorageHealthItem {
+            data_plane_name,
+            fragment_store: fragment_store.to_string(),
             error: Some(format!("Health check task failed: {err}")),
         });
-        if let Some(err) = result.error {
-            errors.push(serde_json::json!({
-                "dataPlane": result.data_plane_name,
-                "fragmentStore": result.fragment_store.to_string(),
-                "error": err,
-            }));
-        }
+        results.push(result);
     }
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        let errors_value: async_graphql::Value =
-            serde_json::from_value(serde_json::Value::Array(errors)).expect("valid JSON");
-
-        Err(
-            async_graphql::Error::new("Storage health checks failed").extend_with(|_, ext| {
-                ext.set("healthCheckErrors", errors_value.clone());
-            }),
-        )
-    }
+    results
 }
 
 #[derive(Debug, Default)]
@@ -163,7 +154,7 @@ impl StorageMappingsMutation {
     ///
     /// This validates that the user has admin access to the catalog prefix,
     /// runs health checks to verify that data planes can access the storage buckets,
-    /// and then saves the storage mapping to the database if `dry_run` is false.
+    /// and then saves the storage mapping to the database.
     ///
     /// All health checks must pass before the storage mapping is created.
     pub async fn create_storage_mapping(
@@ -172,7 +163,6 @@ impl StorageMappingsMutation {
         catalog_prefix: models::Prefix,
         detail: Option<String>,
         storage: async_graphql::Json<models::StorageDef>,
-        #[graphql(default = false)] dry_run: bool,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -194,9 +184,13 @@ impl StorageMappingsMutation {
             .collect();
 
         // Run health checks.
-        run_all_health_checks(&data_planes, &store_urls).await?;
+        let health_checks = run_all_health_checks(&data_planes, &store_urls).await;
+        let all_passed = health_checks.iter().all(|c| c.error.is_none());
 
-        // Begin a transaction to check for conflicts and insert the storage mapping.
+        if !all_passed {
+            return Err(async_graphql::Error::new("Storage health checks failed"));
+        }
+
         let mut txn = env.pg_pool.begin().await?;
 
         // Check if any existing tasks or collections would be affected by this new storage mapping.
@@ -219,13 +213,6 @@ impl StorageMappingsMutation {
                 "Cannot create storage mapping for '{catalog_prefix}': existing specs would be affected: {}",
                 sampled_specs.join(", "),
             )));
-        }
-
-        if dry_run {
-            return Ok(CreateStorageMappingResult {
-                created: false,
-                catalog_prefix,
-            });
         }
 
         // A single conceptual "storage mapping" is (today) stored as two
@@ -267,26 +254,24 @@ impl StorageMappingsMutation {
             "created storage mapping"
         );
 
-        Ok(CreateStorageMappingResult {
-            created: true,
-            catalog_prefix,
-        })
+        Ok(CreateStorageMappingResult { catalog_prefix })
     }
 
     /// Update an existing storage mapping for the given catalog prefix.
     ///
     /// This validates that the user has admin access to the catalog prefix,
     /// runs health checks to verify that data planes can access the storage buckets,
-    /// and then updates the storage mapping in the database if `dry_run` is false.
+    /// and then updates the storage mapping in the database.
     ///
-    /// All health checks must pass before the storage mapping is updated.
+    /// Health checks for newly added stores or data planes must pass before the
+    /// storage mapping is updated. Health check failures for existing stores/data planes
+    /// are allowed (they were already validated when created).
     pub async fn update_storage_mapping(
         &self,
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
         detail: Option<String>,
         storage: async_graphql::Json<models::StorageDef>,
-        #[graphql(default = false)] dry_run: bool,
     ) -> async_graphql::Result<UpdateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -307,8 +292,8 @@ impl StorageMappingsMutation {
             .map(|store| store.to_url(&catalog_prefix))
             .collect();
 
-        // Run health checks.
-        run_all_health_checks(&data_planes, &store_urls).await?;
+        // Run health checks outside of transaction so as not to keep rows locked too long.
+        let health_checks = run_all_health_checks(&data_planes, &store_urls).await;
 
         // Begin a transaction to fetch existing mapping and update.
         let mut txn = env.pg_pool.begin().await?;
@@ -345,18 +330,28 @@ impl StorageMappingsMutation {
 
         let republish = store_urls != current_store_urls;
 
+        // Check if any health check failed for a newly added store or data plane.
+        let has_new_failures = health_checks.iter().any(|c| {
+            if c.error.is_none() {
+                return false;
+            }
+            let is_new_store = !current_store_urls
+                .iter()
+                .any(|u| u.to_string() == c.fragment_store);
+            let is_new_dp = !current.0.data_planes.contains(&c.data_plane_name);
+            is_new_store || is_new_dp
+        });
+
+        if has_new_failures {
+            return Err(async_graphql::Error::new(
+                "Storage health checks failed for newly added stores or data planes",
+            ));
+        }
+
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
         let (collection_storage, recovery_storage) = split_collection_and_recovery_storage(storage);
-
-        if dry_run {
-            return Ok(UpdateStorageMappingResult {
-                updated: false,
-                catalog_prefix,
-                republish,
-            });
-        }
 
         let updated = update_storage_mapping(
             detail.as_deref(),
@@ -393,9 +388,51 @@ impl StorageMappingsMutation {
         );
 
         Ok(UpdateStorageMappingResult {
-            updated: true,
             catalog_prefix,
             republish,
+        })
+    }
+
+    /// Check storage health for a given catalog prefix and storage definition.
+    ///
+    /// This validates the inputs, verifies that the user has admin access to the catalog prefix,
+    /// and runs health checks to verify that data planes can access the storage buckets.
+    ///
+    /// Unlike create/update mutations, this does not modify any data and always returns
+    /// health check results (both successes and failures) rather than erroring on failures.
+    pub async fn test_connection_health(
+        &self,
+        ctx: &Context<'_>,
+        catalog_prefix: models::Prefix,
+        storage: async_graphql::Json<models::StorageDef>,
+    ) -> async_graphql::Result<ConnectionHealthTestResult> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let claims = env.claims()?;
+        let snapshot = env.snapshot();
+        let async_graphql::Json(storage) = storage;
+
+        // Do basic input validation checks first.
+        validate_inputs(&catalog_prefix, &storage)?;
+
+        // Verify user has admin capability to the catalog prefix and read capability to named data planes.
+        evaluate_authorization(env, claims, &catalog_prefix, &storage.data_planes).await?;
+
+        let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
+
+        let store_urls: Vec<url::Url> = storage
+            .stores
+            .iter()
+            .map(|store| store.to_url(&catalog_prefix))
+            .collect();
+
+        // Run health checks and collect results.
+        let results = run_all_health_checks(&data_planes, &store_urls).await;
+        let all_passed = results.iter().all(|c| c.error.is_none());
+
+        Ok(ConnectionHealthTestResult {
+            catalog_prefix,
+            all_passed,
+            results,
         })
     }
 }

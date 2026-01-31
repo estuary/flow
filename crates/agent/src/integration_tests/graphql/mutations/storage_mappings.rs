@@ -2,9 +2,8 @@ use crate::integration_tests::harness::TestHarness;
 use serde_json::json;
 
 const CREATE_STORAGE_MAPPING_MUTATION: &str = r#"
-mutation CreateStorageMapping($catalogPrefix: Prefix!, $storage: JSON!, $dryRun: Boolean!) {
-    createStorageMapping(catalogPrefix: $catalogPrefix, storage: $storage, dryRun: $dryRun) {
-        created
+mutation CreateStorageMapping($catalogPrefix: Prefix!, $storage: JSON!) {
+    createStorageMapping(catalogPrefix: $catalogPrefix, storage: $storage) {
         catalogPrefix
     }
 }
@@ -26,7 +25,6 @@ async fn test_create_storage_mapping_validation_errors() {
                     "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
                     "data_planes": []
                 },
-                "dryRun": false
             }),
         )
         .await;
@@ -48,7 +46,6 @@ async fn test_create_storage_mapping_validation_errors() {
                     "stores": [],
                     "data_planes": ["ops/dp/public/test"]
                 },
-                "dryRun": false
             }),
         )
         .await;
@@ -70,7 +67,6 @@ async fn test_create_storage_mapping_validation_errors() {
                     "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
                     "data_planes": ["ops/dp/public/test"]
                 },
-                "dryRun": false
             }),
         )
         .await;
