@@ -81,6 +81,7 @@ fn validate_inputs(
 const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Check storage health for a single data plane + store combination.
+#[allow(dead_code)]
 async fn check_store_health(
     client: gazette::journal::Client,
     fragment_store: url::Url,
@@ -98,26 +99,35 @@ async fn check_store_health(
 }
 
 /// Run storage health checks for each data plane + store combination.
+///
+/// If `success_rate` is provided (0.0-1.0), simulates health checks with that
+/// probability of success instead of running real checks.
 async fn run_all_health_checks(
     catalog_prefix: &models::Prefix,
     data_planes: &[&tables::DataPlane],
     fragment_stores: &[models::Store],
+    success_rate: Option<f64>,
 ) -> Vec<StorageHealthItem> {
     let mut results = Vec::new();
     let mut handles = Vec::new();
 
     for dp in data_planes {
-        let client = match crate::data_plane::build_journal_client(dp) {
-            Ok(client) => client,
-            Err(err) => {
-                for store in fragment_stores {
-                    results.push(StorageHealthItem {
-                        data_plane_name: dp.data_plane_name.clone(),
-                        fragment_store: async_graphql::Json(store.clone()),
-                        error: Some(format!("Failed to create client: {err}")),
-                    });
+        // Skip building a real client if we're simulating.
+        let client = if success_rate.is_some() {
+            None
+        } else {
+            match crate::data_plane::build_journal_client(dp) {
+                Ok(client) => Some(client),
+                Err(err) => {
+                    for store in fragment_stores {
+                        results.push(StorageHealthItem {
+                            data_plane_name: dp.data_plane_name.clone(),
+                            fragment_store: async_graphql::Json(store.clone()),
+                            error: Some(format!("Failed to create client: {err}")),
+                        });
+                    }
+                    continue;
                 }
-                continue;
             }
         };
 
@@ -125,10 +135,23 @@ async fn run_all_health_checks(
             let data_plane_name = dp.data_plane_name.clone();
             let fragment_store = store.clone();
             let client = client.clone();
-            let catalog_prefix = catalog_prefix.clone();
-            let handle = tokio::spawn({
-                let fragment_store = fragment_store.clone();
-                async move { check_store_health(client, fragment_store.to_url(&catalog_prefix)).await }
+            let store_url = store.to_url(catalog_prefix.as_str());
+
+            let handle = tokio::spawn(async move {
+                if let Some(rate) = success_rate {
+                    // Simulate health check with provided success rate.
+                    let sleep_ms = rand::random::<u64>() % 500 + 100; // 100-600ms
+                    tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+
+                    if rand::random::<f64>() < rate {
+                        None
+                    } else {
+                        Some("Simulated health check failure".to_string())
+                    }
+                } else {
+                    // Run real health check.
+                    check_store_health(client.unwrap(), store_url).await
+                }
             });
             handles.push((handle, data_plane_name, fragment_store));
         }
@@ -182,7 +205,7 @@ impl StorageMappingsMutation {
 
         // Run health checks.
         let health_checks =
-            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
+            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores, Some(1.0)).await;
         let all_passed = health_checks.iter().all(|c| c.error.is_none());
 
         if !all_passed {
@@ -286,7 +309,7 @@ impl StorageMappingsMutation {
 
         // Run health checks outside of transaction so as not to keep rows locked too long.
         let health_checks =
-            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
+            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores, None).await;
 
         // Begin a transaction to fetch existing mapping and update.
         let mut txn = env.pg_pool.begin().await?;
@@ -408,7 +431,8 @@ impl StorageMappingsMutation {
         let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
 
         // Run health checks and collect results.
-        let results = run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
+        let results =
+            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores, Some(0.5)).await;
 
         Ok(ConnectionHealthTestResult {
             catalog_prefix,
