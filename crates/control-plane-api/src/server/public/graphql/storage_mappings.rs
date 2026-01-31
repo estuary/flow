@@ -10,8 +10,8 @@ use validator::Validate;
 pub struct StorageHealthItem {
     /// Name of the data plane that was checked.
     data_plane_name: String,
-    /// The fragment store URL that was checked.
-    fragment_store: String,
+    /// The fragment store that was checked.
+    fragment_store: async_graphql::Json<models::Store>,
     /// Error message if the health check failed, or null if it passed.
     error: Option<String>,
 }
@@ -76,31 +76,25 @@ const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// Check storage health for a single data plane + store combination.
 async fn check_store_health(
     client: gazette::journal::Client,
-    data_plane_name: String,
     fragment_store: url::Url,
-) -> StorageHealthItem {
+) -> Option<String> {
     let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
         fragment_store: fragment_store.to_string(),
     });
 
-    let error = match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
+    match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
         Ok(Ok(resp)) if resp.store_health_error.is_empty() => None,
         Ok(Ok(resp)) => Some(resp.store_health_error),
         Ok(Err(err)) => Some(err.to_string()),
         Err(_) => Some("Health check timed out".to_string()),
-    };
-
-    StorageHealthItem {
-        data_plane_name,
-        fragment_store: fragment_store.to_string(),
-        error,
     }
 }
 
 /// Run storage health checks for each data plane + store combination.
 async fn run_all_health_checks(
+    catalog_prefix: &models::Prefix,
     data_planes: &[&tables::DataPlane],
-    fragment_stores: &[url::Url],
+    fragment_stores: &[models::Store],
 ) -> Vec<StorageHealthItem> {
     let mut results = Vec::new();
     let mut handles = Vec::new();
@@ -112,7 +106,7 @@ async fn run_all_health_checks(
                 for store in fragment_stores {
                     results.push(StorageHealthItem {
                         data_plane_name: dp.data_plane_name.clone(),
-                        fragment_store: store.to_string(),
+                        fragment_store: async_graphql::Json(store.clone()),
                         error: Some(format!("Failed to create client: {err}")),
                     });
                 }
@@ -124,22 +118,24 @@ async fn run_all_health_checks(
             let data_plane_name = dp.data_plane_name.clone();
             let fragment_store = store.clone();
             let client = client.clone();
+            let catalog_prefix = catalog_prefix.clone();
             let handle = tokio::spawn({
-                let data_plane_name = data_plane_name.clone();
                 let fragment_store = fragment_store.clone();
-                async move { check_store_health(client, data_plane_name, fragment_store).await }
+                async move { check_store_health(client, fragment_store.to_url(&catalog_prefix)).await }
             });
             handles.push((handle, data_plane_name, fragment_store));
         }
     }
 
     for (handle, data_plane_name, fragment_store) in handles {
-        let result = handle.await.unwrap_or_else(|err| StorageHealthItem {
+        let error = handle
+            .await
+            .unwrap_or_else(|err| Some(format!("Task join error: {}", err)));
+        results.push(StorageHealthItem {
             data_plane_name,
-            fragment_store: fragment_store.to_string(),
-            error: Some(format!("Health check task failed: {err}")),
+            fragment_store: async_graphql::Json(fragment_store),
+            error,
         });
-        results.push(result);
     }
 
     results
@@ -177,14 +173,9 @@ impl StorageMappingsMutation {
 
         let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
 
-        let store_urls: Vec<url::Url> = storage
-            .stores
-            .iter()
-            .map(|store| store.to_url(&catalog_prefix))
-            .collect();
-
         // Run health checks.
-        let health_checks = run_all_health_checks(&data_planes, &store_urls).await;
+        let health_checks =
+            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
         let all_passed = health_checks.iter().all(|c| c.error.is_none());
 
         if !all_passed {
@@ -286,14 +277,9 @@ impl StorageMappingsMutation {
 
         let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
 
-        let store_urls: Vec<url::Url> = storage
-            .stores
-            .iter()
-            .map(|store| store.to_url(&catalog_prefix))
-            .collect();
-
         // Run health checks outside of transaction so as not to keep rows locked too long.
-        let health_checks = run_all_health_checks(&data_planes, &store_urls).await;
+        let health_checks =
+            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
 
         // Begin a transaction to fetch existing mapping and update.
         let mut txn = env.pg_pool.begin().await?;
@@ -321,23 +307,14 @@ impl StorageMappingsMutation {
         };
 
         // Determine if republish is needed: stores added or removed.
-        let current_store_urls: Vec<url::Url> = current
-            .0
-            .stores
-            .iter()
-            .map(|s| s.to_url(&catalog_prefix))
-            .collect();
-
-        let republish = store_urls != current_store_urls;
+        let republish = storage.stores != current.0.stores;
 
         // Check if any health check failed for a newly added store or data plane.
         let has_new_failures = health_checks.iter().any(|c| {
             if c.error.is_none() {
                 return false;
             }
-            let is_new_store = !current_store_urls
-                .iter()
-                .any(|u| u.to_string() == c.fragment_store);
+            let is_new_store = !current.0.stores.contains(&c.fragment_store.0);
             let is_new_dp = !current.0.data_planes.contains(&c.data_plane_name);
             is_new_store || is_new_dp
         });
@@ -419,14 +396,8 @@ impl StorageMappingsMutation {
 
         let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
 
-        let store_urls: Vec<url::Url> = storage
-            .stores
-            .iter()
-            .map(|store| store.to_url(&catalog_prefix))
-            .collect();
-
         // Run health checks and collect results.
-        let results = run_all_health_checks(&data_planes, &store_urls).await;
+        let results = run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
         let all_passed = results.iter().all(|c| c.error.is_none());
 
         Ok(ConnectionHealthTestResult {
