@@ -16,12 +16,14 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 
 anyhow = { workspace = true }
+axum = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -29,6 +31,8 @@ serde_yaml = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
+tokio-util = "0.7"
+tower = "0.5"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
