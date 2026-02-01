@@ -137,8 +137,8 @@ pub async fn dry_run(
 
     // Return a fixture which models a typical Pulumi stack history output with a change.
     if starts_with(&cmd, &["pulumi", "stack", "history"]) {
-        return Ok(serde_json::to_vec(&[crate::stack::PulumiStackHistory {
-            resource_changes: crate::stack::PulumiStackResourceChanges {
+        return Ok(serde_json::to_vec(&[super::stack::PulumiStackHistory {
+            resource_changes: super::stack::PulumiStackResourceChanges {
                 create: 1,
                 delete: 0,
                 same: 0,
@@ -160,7 +160,7 @@ pub fn write_stack_init_fixture(
         "Pulumi.{}.yaml",
         args(cmd).nth(3).unwrap().to_str().unwrap()
     ));
-    let mut stack: crate::stack::PulumiStack =
+    let mut stack: super::stack::PulumiStack =
         serde_yaml::from_slice(&std::fs::read(&stack_path).context("failed to read stack YAML")?)
             .context("failed to parse stack from YAML")?;
 

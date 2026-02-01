@@ -19,6 +19,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   postgresql-client-16 \
   postgresql-client-common \
   python3-venv \
+  python3-poetry \
 
 # Configure system default compilers and linkers using update-alternatives.
 sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
