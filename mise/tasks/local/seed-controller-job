@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Seed a controller job to trigger data plane converge"
+#MISE depends=["local:supabase"]
+
+PGURL="postgresql://postgres:postgres@localhost:5432/postgres"
+
+# 1. Find the most recent data plane
+DATA_PLANE_QUERY="
+SELECT id::text, controller_task_id::text, data_plane_name
+FROM data_planes
+WHERE data_plane_name LIKE 'ops/dp/public/%'
+ORDER BY created_at DESC
+LIMIT 1;
+"
+
+DATA_PLANE_INFO=$(psql "${PGURL}" -t -A -F'|' -c "${DATA_PLANE_QUERY}")
+
+# 2. Validate data plane exists
+if [ -z "${DATA_PLANE_INFO}" ]; then
+    echo "Error: No data plane found."
+    echo "Please run: mise run local:data-plane local-cluster 8100 --num-brokers 1 --num-reactors 1 --link"
+    exit 1
+fi
+
+# 3. Extract values
+DATA_PLANE_ID=$(echo "${DATA_PLANE_INFO}" | cut -d'|' -f1)
+CONTROLLER_TASK_ID=$(echo "${DATA_PLANE_INFO}" | cut -d'|' -f2)
+DATA_PLANE_NAME=$(echo "${DATA_PLANE_INFO}" | cut -d'|' -f3)
+
+echo "Found data plane: ${DATA_PLANE_NAME}"
+echo "  ID: ${DATA_PLANE_ID}"
+echo "  Controller Task ID: ${CONTROLLER_TASK_ID}"
+
+# 4. Update data plane with minimal valid config
+# The controller requires config with builds_root, gcp_project, etc.
+echo ""
+echo "Updating data plane config..."
+psql "${PGURL}" -c "
+UPDATE data_planes
+SET config = '{
+    \"builds_root\": \"file:///tmp/flow-local/builds/\",
+    \"gcp_project\": \"local-dev\",
+    \"control_plane_api\": \"http://agent.flow.localhost:8675/\",
+    \"data_buckets\": [],
+    \"builds_kms_keys\": [],
+    \"ssh_subnets\": [],
+    \"allow_cidrs\": [],
+    \"private_links\": [],
+    \"deployments\": []
+}'::json,
+deploy_branch = 'main'
+WHERE id = '${DATA_PLANE_ID}'::flowid;
+"
+echo "  ✓ Config updated"
+
+# 5. Create task if it doesn't exist (task_type=1 for DATA_PLANE_CONTROLLER)
+# Use DO block to handle conflict gracefully
+psql "${PGURL}" -c "
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM internal.tasks WHERE task_id = '${CONTROLLER_TASK_ID}'::flowid) THEN
+        PERFORM internal.create_task(
+            '${CONTROLLER_TASK_ID}'::flowid,
+            1::smallint,  -- DATA_PLANE_CONTROLLER task type
+            NULL::flowid  -- No parent task
+        );
+        RAISE NOTICE 'Created controller task: %', '${CONTROLLER_TASK_ID}';
+    ELSE
+        RAISE NOTICE 'Controller task already exists: %', '${CONTROLLER_TASK_ID}';
+    END IF;
+END
+\$\$;
+"
+
+# 6. Send message sequence to trigger processing
+# The controller requires three messages in order: start, enable, converge
+echo ""
+echo "Sending message sequence..."
+
+# 6a. Send Start message with data plane ID
+psql "${PGURL}" -c "
+SELECT internal.send_to_task(
+    '${CONTROLLER_TASK_ID}'::flowid,
+    '00:00:00:00:00:00:00:00'::flowid,  -- System sender
+    JSON_BUILD_OBJECT('start', '${DATA_PLANE_ID}'::text)
+);
+"
+echo "  ✓ Sent Start message"
+
+# 6b. Send Enable message
+psql "${PGURL}" -c "
+SELECT internal.send_to_task(
+    '${CONTROLLER_TASK_ID}'::flowid,
+    '00:00:00:00:00:00:00:00'::flowid,  -- System sender
+    '{\"enable\": null}'::json
+);
+"
+echo "  ✓ Sent Enable message"
+
+# 6c. Send Converge message
+psql "${PGURL}" -c "
+SELECT internal.send_to_task(
+    '${CONTROLLER_TASK_ID}'::flowid,
+    '00:00:00:00:00:00:00:00'::flowid,  -- System sender
+    '{\"converge\": null}'::json
+);
+"
+echo "  ✓ Sent Converge message"
+
+echo ""
+echo "✓ Message sequence sent successfully!"
+echo ""
+echo "Monitor the controller with:"
+echo "  journalctl --user -u flow-data-plane-controller -f"
+echo ""
+echo "Check task status:"
+echo "  psql \"${PGURL}\" -c \"SELECT task_id, inbox, inbox_next FROM internal.tasks WHERE task_id = '${CONTROLLER_TASK_ID}'::flowid;\""
+echo ""
+echo "Check data plane status:"
+echo "  psql \"${PGURL}\" -c \"SELECT data_plane_name, status FROM data_planes WHERE id = '${DATA_PLANE_ID}'::flowid;\""
