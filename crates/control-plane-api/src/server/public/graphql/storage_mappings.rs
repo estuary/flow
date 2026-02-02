@@ -18,13 +18,20 @@ pub struct StorageHealthItem {
 
 /// Result of checking storage health for a catalog prefix.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct ConnectionHealthTestResult {
     /// The catalog prefix for which storage health was checked.
     pub catalog_prefix: models::Prefix,
-    /// Whether all health checks passed.
-    pub all_passed: bool,
     /// Individual health check results for each data plane and store combination.
     pub results: Vec<StorageHealthItem>,
+}
+
+#[async_graphql::ComplexObject]
+impl ConnectionHealthTestResult {
+    /// Whether all health checks passed.
+    pub async fn all_passed(&self) -> bool {
+        self.results.iter().all(|c| c.error.is_none())
+    }
 }
 
 /// Result of creating a storage mapping.
@@ -320,6 +327,10 @@ impl StorageMappingsMutation {
         });
 
         if has_new_failures {
+            // We only fail on health check errors for newly added stores or data planes.
+            // Tasks under this storage mapping will still be broken if there are any failing
+            // health checks, but we allow the update so long as the user isn't adding more
+            // problems than there already were.
             return Err(async_graphql::Error::new(
                 "Storage health checks failed for newly added stores or data planes",
             ));
@@ -398,11 +409,9 @@ impl StorageMappingsMutation {
 
         // Run health checks and collect results.
         let results = run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
-        let all_passed = results.iter().all(|c| c.error.is_none());
 
         Ok(ConnectionHealthTestResult {
             catalog_prefix,
-            all_passed,
             results,
         })
     }
