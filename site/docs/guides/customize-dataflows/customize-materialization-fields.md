@@ -287,3 +287,91 @@ bindings:
       require:
         flow_document: {}
 ```
+
+## Re-adding pruned fields
+
+Estuary's schema inference tracks unique field locations. To prevent excessively large schemas, there's a complexity limit:
+
+| Source Type | Default Limit |
+|-------------|---------------|
+| Most sources (MongoDB, HTTP, etc.) | 1,000 fields |
+| SQL databases (PostgreSQL, MySQL, etc.) | 10,000 fields |
+
+When the limit is reached, additional fields are **pruned** from the inferred schema. The data still exists in documents, but the fields aren't available in field selection.
+
+### How to re-add pruned fields
+
+Add pruned fields to the collection's **readSchema** alongside the inferred schema reference. This survives inference updates.
+
+**Using the web app:**
+
+1. Go to **Materializations** and click **Edit** on your materialization
+2. Select the collection binding
+3. Click **Collection Schema** → **Edit**
+4. Add your pruned fields as a third `allOf` entry (see schema structure below)
+5. Click **Save and Publish**
+
+**Using flowctl:**
+
+1. Pull the collection spec:
+   ```bash
+   flowctl catalog pull-specs --name <tenant>/<collection>
+   ```
+
+2. Find the readSchema file (e.g., `<collection>.read.schema.yaml`). Typical structure:
+   ```yaml
+   allOf:
+     - $ref: flow://relaxed-write-schema
+     - $ref: flow://inferred-schema
+   ```
+
+3. Add a third `allOf` entry with your pruned fields:
+   ```yaml
+   allOf:
+     - $ref: flow://relaxed-write-schema
+     - $ref: flow://inferred-schema
+     # Add pruned fields here - survives inference updates
+     - type: object
+       properties:
+         your_pruned_field:
+           type: string
+   ```
+
+4. Publish:
+   ```bash
+   flowctl catalog publish --source flow.yaml
+   ```
+
+:::warning
+Add fields to the **third allOf entry**, not the inferred schema itself. The inferred schema is regenerated periodically and will overwrite manual changes.
+:::
+
+### Nested fields example
+
+For deeply nested fields (e.g., Jira custom fields):
+
+```yaml
+allOf:
+  - $ref: flow://relaxed-write-schema
+  - $ref: flow://inferred-schema
+  - type: object
+    properties:
+      fields:
+        type: object
+        properties:
+          project:
+            type: object
+            properties:
+              id:
+                type: string
+```
+
+### Finding the field path
+
+To discover the JSON path of a pruned field, read documents from the collection:
+
+```bash
+flowctl collections read --collection <name> --uncommitted | head -5
+```
+
+Examine the document structure to identify the path using `/` separators (e.g., `/fields/project/id`).
