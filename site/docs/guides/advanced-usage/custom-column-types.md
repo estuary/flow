@@ -144,4 +144,4 @@ When using `castToString` with `DDL` that limits string length:
 ## Related
 
 - [Customize Materialized Fields](/guides/customize-materialization-fields/) - Field selection basics
-- [Feature Flags](/features/feature-flags) - Additional connector configuration options
+- [Feature Flags](./feature-flags.md) - Additional connector configuration options
