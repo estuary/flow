@@ -1,6 +1,5 @@
 ---
-sidebar_position: 2
-slug: /reference/metadata-fields/
+sidebar_position: 1
 ---
 
 # Document Metadata Fields

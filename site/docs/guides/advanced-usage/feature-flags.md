@@ -1,3 +1,7 @@
+---
+sidebar_position: 2
+---
+
 # Feature Flags
 
 Feature flags are advanced configuration options that modify connector behavior for non-standard or complex situations. They're intentionally not prominently exposed because most users don't need them—they exist for edge cases like migrating existing tables, preserving data during backfills, or controlling schema inference behavior.

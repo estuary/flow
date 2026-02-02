@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # Custom Column Types
 
 Estuary automatically maps collection fields to appropriate column types in your destination. However, some scenarios require overriding these defaults. The `castToString` and `DDL` field configurations give you precise control over how individual fields are materialized.
