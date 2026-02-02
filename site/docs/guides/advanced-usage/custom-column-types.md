@@ -17,7 +17,9 @@ Common scenarios include:
 
 ## Configuration
 
-Custom column types are configured per-field in the materialization's `fields` stanza:
+Custom column types are configured per-field in the materialization's `fields` stanza.
+
+**Path:** `materializations.<name>.bindings[].fields.include.<fieldName>`
 
 ```yaml
 materializations:
@@ -31,6 +33,8 @@ materializations:
             revenue: { castToString: true }
             large_integer: { DDL: "DECIMAL(38,0)" }
 ```
+
+To add custom column types to an existing binding, locate the binding by its `source` collection name, then add or merge into the `fields.include` object.
 
 ### castToString
 

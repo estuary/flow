@@ -10,7 +10,11 @@ Feature flags are advanced configuration options that modify connector behavior 
 
 ## Setting Feature Flags
 
-Some connectors expose feature flags directly in the web app under **Endpoint Config → Advanced → Feature Flags**. For connectors that don't expose them in the UI, or to set flags via spec files, use the `advanced.feature_flags` field as a comma-separated string:
+Some connectors expose feature flags directly in the web app under **Endpoint Config → Advanced → Feature Flags**. For connectors that don't expose them in the UI, or to set flags via spec files, use the `advanced.feature_flags` field as a comma-separated string.
+
+### Materialization Example
+
+**Path:** `materializations.<name>.endpoint.connector.config.advanced.feature_flags`
 
 ```yaml
 materializations:
@@ -25,6 +29,39 @@ materializations:
           password: secret
           advanced:
             feature_flags: "allow_existing_tables_for_new_bindings,retain_existing_data_on_backfill"
+```
+
+### Capture Example
+
+**Path:** `captures.<name>.endpoint.connector.config.advanced.feature_flags`
+
+```yaml
+captures:
+  acmeCo/my-capture:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-postgres:dev
+        config:
+          address: localhost:5432
+          database: mydb
+          user: flow_user
+          password: secret
+          advanced:
+            feature_flags: "no_emit_sourced_schemas"
+```
+
+### Modifying Existing Flags
+
+Feature flags are a comma-separated string. To add a flag to an existing configuration:
+
+```yaml
+# Before
+advanced:
+  feature_flags: "existing_flag"
+
+# After - append with comma
+advanced:
+  feature_flags: "existing_flag,new_flag"
 ```
 
 ## Materialization Feature Flags
