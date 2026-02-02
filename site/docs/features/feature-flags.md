@@ -31,7 +31,10 @@ Allows materializations to write to tables that already exist in the destination
 
 - **Default:** Disabled. New bindings fail if the target table already exists.
 - **Use case:** Migrating data from another system into Estuary-managed tables, or re-creating a materialization that was previously deleted.
-- **Caveat:** Enabling this flag disables load optimization for affected bindings, which may impact performance. The connector cannot verify that existing table schemas are compatible.
+- **Caveats:**
+  - Enabling this flag disables load-key optimizations for affected bindings, which may impact performance. This is necessary to ensure merge operations work correctly with pre-existing data.
+  - The connector cannot verify that existing table schemas are compatible.
+  - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/concepts/materialization/#backfills) or use "Only Changes" mode on the binding.
 - **Applies to:** All SQL and warehouse materializers (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
 
 ### retain_existing_data_on_backfill
@@ -40,15 +43,18 @@ Skips truncating destination tables when a backfill is triggered.
 
 - **Default:** Disabled. Tables are truncated at the start of a backfill to ensure consistency.
 - **Use case:** Preserving historical data in the destination when a schema change triggers an automatic backfill.
-- **Caveat:** May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
+- **Caveats:**
+  - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
+  - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materializers.
 
 ### datetime_keys_as_string
 
 Converts datetime columns used as collection keys to string representation instead of native datetime types.
 
-- **Default:** Enabled for most connectors.
-- **Use case:** Ensures consistent key handling across systems with different datetime precision or timezone behavior.
+- **Default:** Enabled for new materializations. This is the standard behavior to preserve precision for datetime keys used as unique identifiers.
+- **Use case:** Datetime values used as keys often require exact string matching. Native datetime types may lose precision or have inconsistent timezone handling, causing key mismatches.
+- **Opt-out:** Use `no_datetime_keys_as_string` if you need the legacy behavior of using native datetime types for key columns.
 - **Applies to:** PostgreSQL, MySQL, Snowflake, BigQuery, and other SQL materializers.
 
 ### Additional Materialization Flags
