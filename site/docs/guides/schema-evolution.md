@@ -458,3 +458,92 @@ Remember: auto-inference only widens, never narrows. Once a field is inferred as
 :::tip
 When setting up captures from schema-flexible sources, review the inferred schema before creating materializations. If types look incorrect, fix the source data and backfill *before* proceeding—it's much easier to get the schema right from the start.
 :::
+
+### Schema not yet available for new collections
+
+When creating a materialization for a newly captured collection, you may see:
+
+```
+Schema not yet available for collection '{collection}'
+```
+
+**Why this happens:**
+
+Schema inference requires data to flow through the capture before it can determine the schema. For new captures:
+1. The capture starts and begins reading from the source
+2. Documents are captured and schema inference analyzes them
+3. The inferred schema is published to the collection
+4. Only then can materializations validate against the schema
+
+**Solution:**
+
+1. **Wait 5-10 minutes** for the capture to process initial documents
+2. **Check capture logs** to confirm data is flowing
+3. **Re-publish the materialization** to pick up the inferred schema
+
+If the issue persists after 30 minutes:
+- Verify your source has data to capture
+- Check capture logs for connection or permission errors
+
+### Binding not found
+
+When editing or publishing a capture, you may see:
+
+```
+Binding not found for '{binding_name}'
+```
+
+**Common causes:**
+
+1. **Source table was renamed or deleted**
+   - Check if the table still exists in your source system
+   - If renamed, remove the old binding and add the new table name
+
+2. **Insufficient permissions**
+   - Verify the capture's credentials have access to the table
+   - For databases, check SELECT permissions on the specific table/schema
+
+3. **Table not yet discovered**
+   - Click **Refresh** on your capture to re-run discovery
+   - New tables may take a few minutes to appear
+
+4. **Case sensitivity**
+   - Some databases are case-sensitive for table names
+   - Ensure the binding name matches the exact table name
+
+**To resolve:**
+
+1. Go to your capture and click **Edit**
+2. Click **Refresh** to re-discover available tables
+3. If the table appears, re-add it as a binding
+4. If not, check source permissions and table existence
+
+### Unsupported DDL operations (MySQL/MariaDB CDC)
+
+MySQL and MariaDB CDC captures read changes from the binary log. Certain DDL operations cannot be processed from the binlog:
+
+```
+Unsupported operation ALTER TABLE for table '{table_name}'
+```
+
+**Why this happens:**
+
+The binary log contains row-level changes, but some DDL operations (like `ALTER TABLE`) don't include enough information to reconstruct the new schema. When the capture encounters these, it cannot continue processing that table.
+
+**Solution - Remove and re-add the binding:**
+
+1. **Edit your capture** and remove the affected table binding
+2. **Save and publish** - this preserves other bindings
+3. **Edit again** and re-add the table binding
+4. **Trigger a backfill** on the materialization for this table
+
+This resets the CDC position for only this table. Other tables continue from their current position.
+
+**To avoid this issue:**
+
+- Use `pt-online-schema-change` or `gh-ost` for schema migrations (these use row-based operations)
+- Or temporarily pause the capture before DDL operations
+
+:::note
+This only affects MySQL/MariaDB CDC captures. PostgreSQL and SQL Server handle DDL differently.
+:::
