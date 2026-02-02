@@ -1,12 +1,12 @@
 # Feature Flags
 
-Feature flags are advanced configuration options that modify connector behavior. They are located in the `advanced.feature_flags` field of a connector's endpoint configuration.
+Feature flags are advanced configuration options that modify connector behavior for non-standard or complex situations. They're intentionally not prominently exposed because most users don't need them—they exist for edge cases like migrating existing tables, preserving data during backfills, or controlling schema inference behavior.
 
 **Important:** Feature flags have specific caveats and trade-offs. Contact [Estuary support](mailto:support@estuary.dev) before enabling any feature flag to ensure it's appropriate for your use case.
 
 ## Setting Feature Flags
 
-Feature flags are specified as a comma-separated string in your connector configuration:
+Some connectors expose feature flags directly in the web app under **Endpoint Config → Advanced → Feature Flags**. For connectors that don't expose them in the UI, or to set flags via spec files, use the `advanced.feature_flags` field as a comma-separated string:
 
 ```yaml
 materializations:
