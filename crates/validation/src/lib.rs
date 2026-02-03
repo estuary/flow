@@ -884,6 +884,9 @@ mod test {
             "reactor.example.com".to_string(),
             None::<String>, // dekaf_address
             None::<String>, // dekaf_registry_address
+            Vec::new(),     // cidr_blocks
+            None::<String>, // gcp_service_account_email
+            None::<String>, // aws_iam_user_arn
         );
         let mut storage_mappings = tables::StorageMappings::new();
         storage_mappings.insert_row(

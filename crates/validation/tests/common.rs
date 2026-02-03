@@ -128,6 +128,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             "reactor:address".to_string(),
             None::<String>, // dekaf_address
             None::<String>, // dekaf_registry_address
+            Vec::new(),     // cidr_blocks
+            None::<String>, // gcp_service_account_email
+            None::<String>, // aws_iam_user_arn
         );
     }
 

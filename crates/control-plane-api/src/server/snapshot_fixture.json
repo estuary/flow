@@ -71,7 +71,8 @@
       "broker_address": "broker.1",
       "reactor_address": "reactor.1",
       "dekaf_address": "tls://dekaf.fqdn1:9092",
-      "dekaf_registry_address": "https://dekaf.fqdn1:443"
+      "dekaf_registry_address": "https://dekaf.fqdn1:443",
+      "cidr_blocks": []
     },
     {
       "control_id": "0202020202020202",
@@ -86,7 +87,8 @@
       "broker_address": "broker.2",
       "reactor_address": "reactor.2",
       "dekaf_address": "tls://dekaf.fqdn2:9092",
-      "dekaf_registry_address": "https://dekaf.fqdn2:443"
+      "dekaf_registry_address": "https://dekaf.fqdn2:443",
+      "cidr_blocks": []
     }
   ],
   "migrations": [

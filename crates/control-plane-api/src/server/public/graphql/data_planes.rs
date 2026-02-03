@@ -219,10 +219,9 @@ impl DataPlanesQuery {
                         data_plane_name,
                         data_plane_fqdn: dp.data_plane_fqdn.clone(),
                         reactor_address: dp.reactor_address.clone(),
-                        // TODO: These fields are not yet in tables::DataPlane.
-                        cidr_blocks: Vec::new(),
-                        gcp_service_account_email: None,
-                        aws_iam_user_arn: None,
+                        cidr_blocks: dp.cidr_blocks.clone(),
+                        gcp_service_account_email: dp.gcp_service_account_email.clone(),
+                        aws_iam_user_arn: dp.aws_iam_user_arn.clone(),
                         user_capability: user_capability
                             .expect("capability guaranteed by pre-filter"),
                         cloud_provider,

@@ -165,7 +165,10 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                 d.dekaf_address,
                 d.dekaf_registry_address,
                 d.ops_logs_name AS "ops_logs_name: models::Collection",
-                d.ops_stats_name AS "ops_stats_name: models::Collection"
+                d.ops_stats_name AS "ops_stats_name: models::Collection",
+                d.cidr_blocks::text[] AS "cidr_blocks!",
+                d.gcp_service_account_email,
+                d.aws_iam_user_arn
             FROM data_planes d
             WHERE data_plane_name = $1
             AND EXISTS (
@@ -407,6 +410,9 @@ mod test {
             reactor_address: "reactor.test".to_string(),
             dekaf_address: None,
             dekaf_registry_address: None,
+            cidr_blocks: Vec::new(),
+            gcp_service_account_email: None,
+            aws_iam_user_arn: None,
         };
 
         let result = super::prepare_discover(

@@ -101,6 +101,12 @@ tables!(
         // This is managed by the data-plane-controller, and is
         // None if this data-plane has no Dekaf instance.
         val dekaf_registry_address: Option<String>,
+        // CIDR blocks for this data-plane's network.
+        val cidr_blocks: Vec<String>,
+        // GCP service account email for cross-cloud access.
+        val gcp_service_account_email: Option<String>,
+        // AWS IAM user ARN for cross-cloud access.
+        val aws_iam_user_arn: Option<String>,
     }
 
     table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
