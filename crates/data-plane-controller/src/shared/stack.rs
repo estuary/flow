@@ -416,8 +416,8 @@ impl DataPlane {
                         desired: _,            // Allowed to change.
                         oci_image_override: _, // Allowed to change.
                         rollout: _,            // Allowed to change.
-                        tier: _,               // Allowed to change
-                        tag: _,                // Allowed to change
+                        tier: _,               // Allowed to change.
+                        tag: _,                // Allowed to change.
                     },
                     next @ Deployment {
                         current: next_current,
@@ -427,8 +427,8 @@ impl DataPlane {
                         desired: _,            // Allowed to change.
                         oci_image_override: _, // Allowed to change.
                         rollout: _,            // Allowed to change.
-                        tier: _,               // Allowed to change
-                        tag: _,                // Allowed to change
+                        tier: _,               // Allowed to change.
+                        tag: _,                // Allowed to change.
                     },
                 ) => {
                     if cur_current != next_current
@@ -454,11 +454,10 @@ impl DataPlane {
     /// desired replicas of deployments subject to a rollout.
     /// Returns true iff a change was made to any Deployment.
     pub fn evaluate_release_steps(&mut self, releases: &[Release]) -> bool {
-        assert!(
-            self.deployments
-                .iter()
-                .all(|deployment| deployment.current == deployment.desired)
-        );
+        assert!(self
+            .deployments
+            .iter()
+            .all(|deployment| deployment.current == deployment.desired));
 
         let mut changed = false;
 
