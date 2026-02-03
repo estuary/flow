@@ -247,13 +247,13 @@ type ConnectionHealthTestResult {
 	"""
 	catalogPrefix: Prefix!
 	"""
-	Whether all health checks passed.
-	"""
-	allPassed: Boolean!
-	"""
 	Individual health check results for each data plane and store combination.
 	"""
 	results: [StorageHealthItem!]!
+	"""
+	Whether all health checks passed.
+	"""
+	allPassed: Boolean!
 }
 
 """
@@ -790,6 +790,13 @@ type QueryRoot {
 	Returns a complete list of alert subscriptions.
 	"""
 	alertSubscriptions(by: AlertSubscriptionsBy!): [AlertSubscription!]!
+	"""
+	Returns storage mappings accessible to the current user.
+	
+	Requires at least read capability to the queried prefixes.
+	Results are paginated and sorted by catalog_prefix.
+	"""
+	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 }
 
 """
@@ -1068,6 +1075,70 @@ type StorageHealthItem {
 	Error message if the health check failed, or null if it passed.
 	"""
 	error: String
+}
+
+"""
+A storage mapping that defines where collection data is stored.
+"""
+type StorageMapping {
+	"""
+	The catalog prefix this storage mapping applies to.
+	"""
+	catalogPrefix: Prefix!
+	"""
+	Optional description of this storage mapping.
+	"""
+	detail: String
+	"""
+	The storage definition containing stores and data plane assignments.
+	"""
+	storage: JSON!
+	"""
+	The current user's capability to this storage mapping's prefix.
+	"""
+	userCapability: Capability!
+}
+
+type StorageMappingConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [StorageMappingEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type StorageMappingEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: StorageMapping!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Input type for querying storage mappings.
+"""
+input StorageMappingsBy {
+	"""
+	Fetch storage mappings by exact catalog prefixes.
+	At least one of `exactPrefixes` or `underPrefix` must be provided.
+	"""
+	exactPrefixes: [Prefix!]
+	"""
+	Fetch all storage mappings under this prefix pattern.
+	For example, "acmeCo/" returns mappings for "acmeCo/", "acmeCo/team-a/", etc.
+	At least one of `exactPrefixes` or `underPrefix` must be provided.
+	"""
+	underPrefix: Prefix
 }
 
 """

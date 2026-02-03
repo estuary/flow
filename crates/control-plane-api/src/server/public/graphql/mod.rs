@@ -30,6 +30,7 @@ pub struct QueryRoot(
     alerts::AlertsQuery,
     prefixes::PrefixesQuery,
     alert_subscriptions::AlertSubscriptionsQuery,
+    storage_mappings::StorageMappingsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.

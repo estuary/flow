@@ -1,8 +1,11 @@
 use crate::directives::storage_mappings::{
-    insert_storage_mapping, split_collection_and_recovery_storage, update_storage_mapping,
-    upsert_storage_mapping,
+    insert_storage_mapping, split_collection_and_recovery_storage, strip_collection_data_suffix,
+    update_storage_mapping, upsert_storage_mapping,
 };
-use async_graphql::Context;
+use async_graphql::{
+    Context,
+    types::connection::{self, Connection},
+};
 use proto_gazette::broker;
 use validator::Validate;
 /// Result of testing storage health for a single data plane and store.
@@ -79,6 +82,7 @@ fn validate_inputs(
 }
 
 const HEALTH_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const DEFAULT_PAGE_SIZE: usize = 50;
 
 /// Check storage health for a single data plane + store combination.
 async fn check_store_health(
@@ -484,4 +488,295 @@ fn resolve_data_planes<'s>(
             })
         })
         .collect()
+}
+
+// ============================================================================
+// Query types and implementation
+// ============================================================================
+
+/// Input type for querying storage mappings.
+#[derive(Debug, Clone, async_graphql::InputObject)]
+pub struct StorageMappingsBy {
+    /// Fetch storage mappings by exact catalog prefixes.
+    /// At least one of `exactPrefixes` or `underPrefix` must be provided.
+    pub exact_prefixes: Option<Vec<models::Prefix>>,
+    /// Fetch all storage mappings under this prefix pattern.
+    /// For example, "acmeCo/" returns mappings for "acmeCo/", "acmeCo/team-a/", etc.
+    /// At least one of `exactPrefixes` or `underPrefix` must be provided.
+    pub under_prefix: Option<models::Prefix>,
+}
+
+/// A storage mapping that defines where collection data is stored.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct StorageMapping {
+    /// The catalog prefix this storage mapping applies to.
+    pub catalog_prefix: models::Prefix,
+    /// Optional description of this storage mapping.
+    pub detail: Option<String>,
+    /// The storage definition containing stores and data plane assignments.
+    pub storage: async_graphql::Json<models::StorageDef>,
+    /// The current user's capability to this storage mapping's prefix.
+    pub user_capability: models::Capability,
+}
+
+pub type PaginatedStorageMappings = Connection<
+    String,
+    StorageMapping,
+    connection::EmptyFields,
+    connection::EmptyFields,
+    connection::DefaultConnectionName,
+    connection::DefaultEdgeName,
+    connection::DisableNodesField,
+>;
+
+#[derive(Debug, Default)]
+pub struct StorageMappingsQuery;
+
+#[async_graphql::Object]
+impl StorageMappingsQuery {
+    /// Returns storage mappings accessible to the current user.
+    ///
+    /// Requires at least read capability to the queried prefixes.
+    /// Results are paginated and sorted by catalog_prefix.
+    pub async fn storage_mappings(
+        &self,
+        ctx: &Context<'_>,
+        by: StorageMappingsBy,
+        after: Option<String>,
+        before: Option<String>,
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedStorageMappings> {
+        let env = ctx.data::<crate::Envelope>()?;
+
+        let StorageMappingsBy {
+            exact_prefixes,
+            under_prefix,
+        } = by;
+        let exact_prefixes = exact_prefixes.unwrap_or_default();
+
+        // Validate that exactly one of the two input options is provided.
+        match (exact_prefixes.is_empty(), under_prefix.is_none()) {
+            (true, true) => {
+                return Err("must provide exactly one of `exactPrefixes` or `underPrefix`".into());
+            }
+            (false, false) => {
+                return Err(
+                    "`exactPrefixes` and `underPrefix` are mutually exclusive; provide only one"
+                        .into(),
+                );
+            }
+            _ => {}
+        }
+
+        // Verify user has read capability to the queried prefixes.
+        let claims = env.claims()?;
+        let user_email = claims.email.as_deref().unwrap_or("user");
+
+        let prefixes_to_check: Vec<&models::Prefix> = if let Some(ref prefix) = under_prefix {
+            vec![prefix]
+        } else {
+            exact_prefixes.iter().collect()
+        };
+
+        for prefix in prefixes_to_check {
+            let policy_result = if tables::UserGrant::is_authorized(
+                &env.snapshot().role_grants,
+                &env.snapshot().user_grants,
+                claims.sub,
+                prefix,
+                models::Capability::Read,
+            ) {
+                Ok((None, ()))
+            } else {
+                Err(tonic::Status::permission_denied(format!(
+                    "{user_email} is not authorized to read catalog prefix '{prefix}'",
+                )))
+            };
+            env.authorization_outcome(policy_result).await?;
+        }
+
+        let (rows, has_prev, has_next) =
+            connection::query_with::<String, _, _, _, async_graphql::Error>(
+                after,
+                before,
+                first,
+                last,
+                |after, before, first, last| async move {
+                    let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
+                    if limit == 0 {
+                        return Ok((Vec::new(), false, false));
+                    }
+
+                    let result = if before.is_some() || last.is_some() {
+                        let rows = fetch_storage_mappings_before(
+                            &env.pg_pool,
+                            &exact_prefixes,
+                            under_prefix.as_ref(),
+                            before.as_deref(),
+                            limit as i64,
+                        )
+                        .await
+                        .map_err(async_graphql::Error::from)?;
+                        let has_prev = rows.len() == limit;
+                        (rows, has_prev, before.is_some())
+                    } else {
+                        let rows = fetch_storage_mappings_after(
+                            &env.pg_pool,
+                            &exact_prefixes,
+                            under_prefix.as_ref(),
+                            after.as_deref(),
+                            limit as i64,
+                        )
+                        .await
+                        .map_err(async_graphql::Error::from)?;
+                        let has_next = rows.len() == limit;
+                        (rows, after.is_some(), has_next)
+                    };
+
+                    async_graphql::Result::Ok(result)
+                },
+            )
+            .await?;
+
+        let snapshot = env.snapshot();
+        let claims = env.claims()?;
+        let edges = rows
+            .into_iter()
+            .map(|row| {
+                let user_capability = tables::UserGrant::get_user_capability(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    &row.catalog_prefix,
+                )
+                .ok_or_else(|| {
+                    async_graphql::Error::new(format!(
+                        "missing capability for catalog prefix '{}'",
+                        row.catalog_prefix
+                    ))
+                })?;
+
+                // Strip "collection-data/" suffix from store prefixes before returning to user.
+                let user_facing_storage = strip_collection_data_suffix(row.spec);
+
+                Ok(connection::Edge::new(
+                    row.catalog_prefix.clone(),
+                    StorageMapping {
+                        catalog_prefix: models::Prefix::new(row.catalog_prefix),
+                        detail: row.detail,
+                        storage: async_graphql::Json(user_facing_storage),
+                        user_capability,
+                    },
+                ))
+            })
+            .collect::<Result<Vec<_>, async_graphql::Error>>()?;
+
+        let mut conn = PaginatedStorageMappings::new(has_prev, has_next);
+        conn.edges = edges;
+        Ok(conn)
+    }
+}
+
+struct StorageMappingRow {
+    catalog_prefix: String,
+    detail: Option<String>,
+    spec: models::StorageDef,
+}
+
+async fn fetch_storage_mappings_after(
+    db: &sqlx::PgPool,
+    exact_prefixes: &[models::Prefix],
+    under_prefix: Option<&models::Prefix>,
+    after: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<StorageMappingRow>> {
+    // Convert to plain strings to avoid sqlx encoding as `_catalog_name` domain array,
+    // which would trigger domain constraint validation on bind.
+    let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
+    let under_prefix = under_prefix.map(|p| p.as_str());
+
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            catalog_prefix as "catalog_prefix!: String",
+            detail,
+            spec as "spec!: crate::TextJson<models::StorageDef>"
+        FROM storage_mappings
+        WHERE NOT starts_with(catalog_prefix, 'recovery/')
+        AND (
+            catalog_prefix::text = any($1::text[])
+            OR ($2::text IS NOT NULL AND starts_with(catalog_prefix, $2::text))
+        )
+        AND ($3::text IS NULL OR catalog_prefix > $3::text)
+        ORDER BY catalog_prefix ASC
+        LIMIT $4
+        "#,
+        &exact_prefixes,
+        under_prefix,
+        after,
+        limit,
+    )
+    .fetch_all(db)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| StorageMappingRow {
+            catalog_prefix: r.catalog_prefix,
+            detail: r.detail,
+            spec: r.spec.0,
+        })
+        .collect())
+}
+
+async fn fetch_storage_mappings_before(
+    db: &sqlx::PgPool,
+    exact_prefixes: &[models::Prefix],
+    under_prefix: Option<&models::Prefix>,
+    before: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<StorageMappingRow>> {
+    // TODO: Greg is skeptical about this _catalog_name workaround - investigate further.
+
+    // Convert to plain strings to avoid sqlx encoding as `_catalog_name` domain array,
+    // which would trigger domain constraint validation on bind.
+    let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
+    let under_prefix = under_prefix.map(|p| p.as_str());
+
+    let mut rows = sqlx::query!(
+        r#"
+        SELECT
+            catalog_prefix as "catalog_prefix!: String",
+            detail,
+            spec as "spec!: crate::TextJson<models::StorageDef>"
+        FROM storage_mappings
+        WHERE NOT starts_with(catalog_prefix, 'recovery/')
+        AND (
+            catalog_prefix::text = any($1::text[])
+            OR ($2::text IS NOT NULL AND starts_with(catalog_prefix, $2::text))
+        )
+        AND ($3::text IS NULL OR catalog_prefix < $3::text)
+        ORDER BY catalog_prefix DESC
+        LIMIT $4
+        "#,
+        &exact_prefixes,
+        under_prefix,
+        before,
+        limit,
+    )
+    .fetch_all(db)
+    .await?;
+
+    // Reverse to maintain ascending order per Relay spec.
+    rows.reverse();
+
+    Ok(rows
+        .into_iter()
+        .map(|r| StorageMappingRow {
+            catalog_prefix: r.catalog_prefix,
+            detail: r.detail,
+            spec: r.spec.0,
+        })
+        .collect())
 }

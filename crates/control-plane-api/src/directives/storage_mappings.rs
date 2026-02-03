@@ -118,6 +118,31 @@ pub async fn fetch_storage_mappings(
 
 const COLLECTION_DATA_SUFFIX: &str = "collection-data/";
 
+/// Strip the "collection-data/" suffix from each store's prefix in a StorageDef.
+///
+/// This is the inverse of what `split_collection_and_recovery_storage` does when storing.
+/// Used when returning storage mappings to users via the API.
+pub fn strip_collection_data_suffix(storage: models::StorageDef) -> models::StorageDef {
+    let models::StorageDef {
+        data_planes,
+        stores,
+    } = storage;
+
+    models::StorageDef {
+        data_planes,
+        stores: stores
+            .into_iter()
+            .map(|mut store| {
+                let prefix = store.prefix_mut();
+                if let Some(base) = prefix.as_str().strip_suffix(COLLECTION_DATA_SUFFIX) {
+                    *prefix = models::Prefix::new(base);
+                }
+                store
+            })
+            .collect(),
+    }
+}
+
 /// Split a user-provided `StorageDef` into separate collection and recovery storage definitions.
 ///
 /// The collection storage gets `collection-data/` appended to each store's prefix (if not already
