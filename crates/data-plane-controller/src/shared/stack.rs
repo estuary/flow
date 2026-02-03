@@ -454,10 +454,11 @@ impl DataPlane {
     /// desired replicas of deployments subject to a rollout.
     /// Returns true iff a change was made to any Deployment.
     pub fn evaluate_release_steps(&mut self, releases: &[Release]) -> bool {
-        assert!(self
-            .deployments
-            .iter()
-            .all(|deployment| deployment.current == deployment.desired));
+        assert!(
+            self.deployments
+                .iter()
+                .all(|deployment| deployment.current == deployment.desired)
+        );
 
         let mut changed = false;
 

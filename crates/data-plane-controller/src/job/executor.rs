@@ -102,16 +102,13 @@ impl Executor {
         let state_ref = state.as_mut().unwrap();
 
         let sleep = match state_ref.status {
-            Status::Idle => {
-                self.on_idle(state_ref, inbox, releases, row_state).await?
-            }
+            Status::Idle => self.on_idle(state_ref, inbox, releases, row_state).await?,
             status => {
                 // For all non-Idle statuses, dispatch to service worker.
-                let action = Action::from_status(status)
-                    .context("cannot convert status to action")?;
+                let action =
+                    Action::from_status(status).context("cannot convert status to action")?;
 
-                self.dispatch_to_service(task_id, state_ref, action)
-                    .await?
+                self.dispatch_to_service(task_id, state_ref, action).await?
             }
         };
 
@@ -283,10 +280,7 @@ impl Executor {
             .context("HTTP request to service failed")?;
 
         if !response.status().is_success() {
-            anyhow::bail!(
-                "service returned non-success status: {}",
-                response.status()
-            );
+            anyhow::bail!("service returned non-success status: {}", response.status());
         }
 
         let execute_response: ExecuteResponse = response
@@ -509,6 +503,8 @@ impl automations::Outcome for Outcome {
             bastion_tunnel_private_key,
             azure_application_name,
             azure_application_client_id,
+            dekaf_address,
+            dekaf_registry_address,
         }) = self.publish_exports
         {
             let encrypted_hmac_keys = encrypt_hmac_keys(&self.kms_key, hmac_keys.clone()).await?;
@@ -526,7 +522,9 @@ impl automations::Outcome for Outcome {
                     bastion_tunnel_private_key = $10,
                     azure_application_name = $11,
                     azure_link_endpoints = $12,
-                    azure_application_client_id = $13
+                    azure_application_client_id = $13,
+                    dekaf_address = $14,
+                    dekaf_registry_address = $15
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -542,6 +540,8 @@ impl automations::Outcome for Outcome {
                 azure_application_name,
                 &azure_link_endpoints,
                 azure_application_client_id,
+                dekaf_address,
+                dekaf_registry_address,
             )
             .execute(&mut *txn)
             .await

@@ -280,8 +280,7 @@ impl Worker {
             )
             .await;
 
-        if matches!(&result, Err(err) if err.downcast_ref::<commands::NonZeroExit>().is_some())
-        {
+        if matches!(&result, Err(err) if err.downcast_ref::<commands::NonZeroExit>().is_some()) {
             // We refreshed some changes, and must converge to (for example)
             // provision a replaced EC2 instance.
             state.pending_converge = true;
@@ -351,7 +350,10 @@ impl Worker {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id),
     )]
-    async fn on_await_dns_1(&self, state: &mut stack::State) -> anyhow::Result<std::time::Duration> {
+    async fn on_await_dns_1(
+        &self,
+        state: &mut stack::State,
+    ) -> anyhow::Result<std::time::Duration> {
         let remainder = (state.last_pulumi_up + self.config.dns_ttl) - chrono::Utc::now();
 
         if remainder > chrono::TimeDelta::zero() {
@@ -460,6 +462,27 @@ impl Worker {
             .deployments
             .retain_mut(stack::Deployment::mark_current);
 
+        // Compute dekaf addresses based on whether Dekaf is deployed with current > 0.
+        let dekaf_deployed = state
+            .stack
+            .config
+            .model
+            .deployments
+            .iter()
+            .any(|d| d.role == stack::Role::Dekaf && d.current > 0);
+
+        let (dekaf_address, dekaf_registry_address) =
+            match (dekaf_deployed, &state.stack.config.model.fqdn) {
+                (true, Some(fqdn)) => (
+                    Some(format!("tls://dekaf.{fqdn}:9092")),
+                    Some(format!("https://dekaf.{fqdn}:443")),
+                ),
+                _ => (None, None),
+            };
+
+        control.dekaf_address = dekaf_address;
+        control.dekaf_registry_address = dekaf_registry_address;
+
         state.status = stack::Status::PulumiUp2;
         state.publish_exports = Some(control);
         state.publish_stack = Some(state.stack.clone());
@@ -520,7 +543,10 @@ impl Worker {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id),
     )]
-    async fn on_await_dns_2(&self, state: &mut stack::State) -> anyhow::Result<std::time::Duration> {
+    async fn on_await_dns_2(
+        &self,
+        state: &mut stack::State,
+    ) -> anyhow::Result<std::time::Duration> {
         let remainder = (state.last_pulumi_up + self.config.dns_ttl) - chrono::Utc::now();
 
         if remainder > chrono::TimeDelta::zero() {
