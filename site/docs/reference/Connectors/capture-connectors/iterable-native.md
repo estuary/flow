@@ -23,6 +23,10 @@ The following data resources are supported:
 
 By default, each resource is mapped to an Estuary collection through a separate binding.
 
+:::tip
+The `list_users` stream re-captures all lists' memberships with periodic backfills. These backfills can be scheduled with the `schedule` resource config setting. By default, `list_users`'s schedule is `55 23 * * *`, which means the stream attempts to backfill every day at 23:55 UTC.
+:::
+
 ## Prerequisites
 
 To set up the Iterable source connector, you'll need an Iterable [server-side API key](https://support.iterable.com/hc/en-us/articles/360043464871-API-Keys-) with standard permissions.
@@ -51,6 +55,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
 | `/interval` | Interval | Interval between data syncs. | string | |
+| `/schedule` | Backfill schedule | The schedule for automatically backfilling this binding. Accepts a cron expression. For example, a schedule of `55 23 * * *` means the binding will initiate a new backfill at 23:55 UTC every day. If left empty, the binding will not automatically backfill. | string | |
 
 ### Sample
 
@@ -75,6 +80,10 @@ captures:
       - resource:
           name: events
         target: ${PREFIX}/events
+      - resource:
+          name: list_users
+          schedule: 55 23 * * *
+        target: ${PREFIX}/list_users
       {...}
 ```
 
