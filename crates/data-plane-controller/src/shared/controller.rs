@@ -1,29 +1,3 @@
-use futures::future::BoxFuture;
-use sqlx::types::uuid;
-
-/// EmitLogFn is a function type that emits a log message to a logs sink.
-pub type EmitLogFn = Box<
-    dyn Fn(
-            uuid::Uuid,   // Logs token.
-            &'static str, // Stream name.
-            String,       // Log message
-        ) -> BoxFuture<'static, anyhow::Result<()>>
-        + Send
-        + Sync,
->;
-
-/// RunCmdFn is a function type that runs a command and optionally returns its stdout.
-pub type RunCmdFn = Box<
-    dyn Fn(
-            async_process::Command,
-            bool,         // Capture stdout?
-            &'static str, // Stream name.
-            uuid::Uuid,   // Logs token.
-        ) -> BoxFuture<'static, anyhow::Result<Vec<u8>>>
-        + Send
-        + Sync,
->;
-
 /// ControllerConfig contains all configuration needed to execute data-plane controller work.
 #[derive(Clone)]
 pub struct ControllerConfig {

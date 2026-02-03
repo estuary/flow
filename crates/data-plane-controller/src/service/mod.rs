@@ -3,7 +3,10 @@ pub mod worker;
 
 use crate::shared::logs;
 use anyhow::Context;
-use axum::{routing::{get, post}, Router};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 
 #[derive(clap::Parser, Debug, serde::Serialize)]
 pub struct ServiceArgs {
@@ -98,9 +101,7 @@ pub async fn run_service(args: ServiceArgs) -> anyhow::Result<()> {
     std::mem::drop(logs_tx);
 
     // Wait for logs sink to complete.
-    logs_sink_task
-        .await
-        .context("logs sink task panicked")??;
+    logs_sink_task.await.context("logs sink task panicked")??;
 
     tracing::info!("service shut down cleanly");
     Ok(())
