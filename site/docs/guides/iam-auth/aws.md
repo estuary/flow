@@ -8,6 +8,8 @@ In order to authenticate using AWS IAM, you need a IAM role which has access to 
 
 To create the role, select "AWS Account" and click next, select the required permissions for your resource, set the role name, and create the role.
 
+Next we need to update the maximum session duration for the role, view the role you created and select **Edit** in the summary box.  Set the maximum session duration to 12 hours.
+
 For more information about role creation check the [IAM User Guide](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create.html).
 
 ## Identity Provider for Estuary
