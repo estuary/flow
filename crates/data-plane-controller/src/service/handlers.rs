@@ -1,6 +1,6 @@
 use crate::protocol::{ExecuteRequest, ExecuteResponse};
 use crate::shared::logs;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 
 pub type LogsTx = logs::Tx;
 
