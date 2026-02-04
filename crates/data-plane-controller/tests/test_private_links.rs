@@ -1,4 +1,4 @@
-use data_plane_controller::{controller, stack};
+use data_plane_controller::shared::{controller, stack};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
