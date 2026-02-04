@@ -85,18 +85,18 @@ pub async fn fetch_status(
 ) -> Result<Vec<StatusResponse>, crate::ApiError> {
     let rows = sqlx::query_as!(StatusRow, r#"select
         ls.catalog_name as "catalog_name!: String",
-        ls.id as "live_spec_id: Id",
+        ls.id as "live_spec_id!: Id",
         ls.spec_type as "spec_type: models::CatalogType",
         coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as "disabled!: bool",
-        ls.last_pub_id as "last_pub_id: Id",
-        ls.last_build_id as "last_build_id: Id",
-        t.wake_at as "controller_next_run: DateTime<Utc>",
-        ls.updated_at as "live_spec_updated_at: DateTime<Utc>",
+        ls.last_pub_id as "last_pub_id!: Id",
+        ls.last_build_id as "last_build_id!: Id",
+        t.wake_at as "controller_next_run?: DateTime<Utc>",
+        ls.updated_at as "live_spec_updated_at!: DateTime<Utc>",
         cs.flow_document as "connector_status?: ConnectorStatus",
-        cj.updated_at as "controller_updated_at: DateTime<Utc>",
+        cj.updated_at as "controller_updated_at!: DateTime<Utc>",
         cj.status as "controller_status?: status::ControllerStatus",
-        cj.error as "controller_error: String",
-        cj.failures as "controller_failures: i32"
+        cj.error as "controller_error?: String",
+        cj.failures as "controller_failures!: i32"
     from live_specs ls
     join controller_jobs cj on ls.id = cj.live_spec_id
     join internal.tasks t on ls.controller_task_id = t.task_id

@@ -116,16 +116,16 @@ async fn fetch_status(
     let rows = sqlx::query_as!(
         StatusRow,
         r#"select
-        ls.catalog_name as "catalog_name: String",
-        ls.last_build_id as "last_build_id: models::Id",
+        ls.catalog_name as "catalog_name!: String",
+        ls.last_build_id as "last_build_id!: models::Id",
         coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as "disabled!: bool",
-        cj.controller_version as "controller_version: i32",
+        cj.controller_version as "controller_version!: i32",
         cs.flow_document as "connector_status?: ConnectorStatus",
-        t.wake_at as "controller_next_run: DateTime<Utc>",
-        cj.updated_at as "controller_updated_at: DateTime<Utc>",
+        t.wake_at as "controller_next_run?: DateTime<Utc>",
+        cj.updated_at as "controller_updated_at!: DateTime<Utc>",
         coalesce(cj.status::text, '{}') as "controller_status_json!: String",
-        cj.error as "controller_error: String",
-        cj.failures as "controller_failures: i32"
+        cj.error as "controller_error?: String",
+        cj.failures as "controller_failures!: i32"
     from live_specs ls
     join controller_jobs cj on ls.id = cj.live_spec_id
     join internal.tasks t on ls.controller_task_id = t.task_id
