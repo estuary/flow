@@ -201,7 +201,7 @@ impl StorageMappingsMutation {
             r#"
             SELECT catalog_name
             FROM live_specs
-            WHERE starts_with(catalog_name, $1)
+            WHERE catalog_name ^@ $1
             AND spec IS NOT NULL
             LIMIT 5
             "#,
@@ -571,7 +571,6 @@ impl StorageMappingsQuery {
 
         // Verify user has read capability to the queried prefixes.
         let claims = env.claims()?;
-        let user_email = claims.email.as_deref().unwrap_or("user");
 
         let prefixes_to_check: Vec<&models::Prefix> = if let Some(ref prefix) = under_prefix {
             vec![prefix]
@@ -579,22 +578,13 @@ impl StorageMappingsQuery {
             exact_prefixes.iter().collect()
         };
 
-        for prefix in prefixes_to_check {
-            let policy_result = if tables::UserGrant::is_authorized(
-                &env.snapshot().role_grants,
-                &env.snapshot().user_grants,
-                claims.sub,
-                prefix,
-                models::Capability::Read,
-            ) {
-                Ok((None, ()))
-            } else {
-                Err(tonic::Status::permission_denied(format!(
-                    "{user_email} is not authorized to read catalog prefix '{prefix}'",
-                )))
-            };
-            env.authorization_outcome(policy_result).await?;
-        }
+        let policy_result = crate::server::evaluate_names_authorization(
+            &env.snapshot(),
+            claims,
+            models::Capability::Read,
+            prefixes_to_check,
+        );
+        env.authorization_outcome(policy_result).await?;
 
         let (rows, has_prev, has_next) =
             connection::query_with::<String, _, _, _, async_graphql::Error>(
@@ -703,10 +693,10 @@ async fn fetch_storage_mappings_after(
             detail,
             spec as "spec!: crate::TextJson<models::StorageDef>"
         FROM storage_mappings
-        WHERE NOT starts_with(catalog_prefix, 'recovery/')
+        WHERE NOT catalog_prefix ^@ 'recovery/'
         AND (
             catalog_prefix::text = any($1::text[])
-            OR ($2::text IS NOT NULL AND starts_with(catalog_prefix, $2::text))
+            OR ($2::text IS NOT NULL AND catalog_prefix ^@ $2::text)
         )
         AND ($3::text IS NULL OR catalog_prefix > $3::text)
         ORDER BY catalog_prefix ASC
@@ -737,8 +727,6 @@ async fn fetch_storage_mappings_before(
     before: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<StorageMappingRow>> {
-    // TODO: Greg is skeptical about this _catalog_name workaround - investigate further.
-
     // Convert to plain strings to avoid sqlx encoding as `_catalog_name` domain array,
     // which would trigger domain constraint validation on bind.
     let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
@@ -751,10 +739,10 @@ async fn fetch_storage_mappings_before(
             detail,
             spec as "spec!: crate::TextJson<models::StorageDef>"
         FROM storage_mappings
-        WHERE NOT starts_with(catalog_prefix, 'recovery/')
+        WHERE NOT catalog_prefix ^@ 'recovery/'
         AND (
             catalog_prefix::text = any($1::text[])
-            OR ($2::text IS NOT NULL AND starts_with(catalog_prefix, $2::text))
+            OR ($2::text IS NOT NULL AND catalog_prefix ^@ $2::text)
         )
         AND ($3::text IS NULL OR catalog_prefix < $3::text)
         ORDER BY catalog_prefix DESC
