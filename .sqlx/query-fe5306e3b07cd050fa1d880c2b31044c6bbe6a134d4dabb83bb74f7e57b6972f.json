@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        update storage_mappings set\n            detail = $1,\n            spec = $2,\n            updated_at = now()\n        where catalog_prefix = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Json",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe5306e3b07cd050fa1d880c2b31044c6bbe6a134d4dabb83bb74f7e57b6972f"
+}
