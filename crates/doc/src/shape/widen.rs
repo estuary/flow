@@ -60,7 +60,7 @@ impl ObjShape {
 
         // on_unknown_property closes over `new_fields` to enqueue
         // properties which will be added to this ObjShape.
-        let mut new_fields = Vec::new();
+        let mut new_fields: Vec<ObjProperty> = Vec::new();
 
         let mut on_unknown_property =
             |rhs: &<<N as AsNode>::Fields as Fields<N>>::Field<'n>| -> bool {
@@ -87,19 +87,28 @@ impl ObjShape {
                     _ => (),
                 }
 
-                let mut shape = Shape::nothing();
-                _ = shape.widen(rhs.value());
+                // If the last new_fields entry has the same property name,
+                // this is a duplicate — widen that entry instead of creating another.
+                if let Some(last) = new_fields
+                    .last_mut()
+                    .filter(|last| last.name.as_ref() == rhs.property())
+                {
+                    _ = last.shape.widen(rhs.value());
+                } else {
+                    let mut shape = Shape::nothing();
+                    _ = shape.widen(rhs.value());
 
-                new_fields.push(ObjProperty {
-                    name: rhs.property().into(),
-                    is_property: true,
-                    // A field can only be required if every single document we've seen
-                    // has that field present. This means that ONLY fields that exist
-                    // on the very first object we encounter for a particular location should
-                    // get marked as required.
-                    is_required: is_first,
-                    shape,
-                });
+                    new_fields.push(ObjProperty {
+                        name: rhs.property().into(),
+                        is_property: true,
+                        // A field can only be required if every single document we've seen
+                        // has that field present. This means that ONLY fields that exist
+                        // on the very first object we encounter for a particular location should
+                        // get marked as required.
+                        is_required: is_first,
+                        shape,
+                    });
+                }
 
                 true
             };
@@ -118,8 +127,18 @@ impl ObjShape {
                     Ordering::Equal => {
                         // Both the Shape and `fields` have this property.
                         changed |= lhs.shape.widen(rhs.value());
-                        maybe_lhs = lhs_it.next();
+                        let prop = rhs.property();
                         maybe_rhs = rhs_it.next();
+
+                        // Only advance past this schema property when the next
+                        // document property is different (or exhausted), so that
+                        // all occurrences of a duplicate property widen the same shape.
+                        if !maybe_rhs
+                            .as_ref()
+                            .map_or(false, |next| next.property() == prop)
+                        {
+                            maybe_lhs = lhs_it.next();
+                        }
                     }
                     Ordering::Less => {
                         // Shape has a property that the node is missing.
@@ -465,7 +484,6 @@ mod test {
         schema
     }
 
-    // Cases detected by quickcheck:
     #[test]
     fn test_unicode_multibyte_widening() {
         widening_snapshot_helper(
@@ -1258,5 +1276,304 @@ mod test {
                 "number bounds of index {ind}: {given:?}"
             );
         }
+    }
+
+    // Parse JSON as a HeapNode, which preserves duplicate properties
+    // (unlike serde_json::Value which deduplicates).
+    macro_rules! heap_doc {
+        ($name:ident, $json:expr) => {
+            let _alloc = crate::HeapNode::new_allocator();
+            let mut _de = serde_json::Deserializer::from_str($json);
+            let $name = crate::HeapNode::from_serde(&mut _de, &_alloc).unwrap();
+        };
+    }
+
+    #[test]
+    fn test_widening_duplicate_properties() {
+        // From scratch: duplicates should create one property widened by both values.
+        let mut schema = Shape::nothing();
+        heap_doc!(doc, r#"{"foo": "short", "foo": "a longer string!"}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties: false
+                required: [foo]
+                properties:
+                    foo:
+                        type: string
+                        minLength: 4
+                        maxLength: 16
+                "#
+            )
+        );
+
+        // Duplicate unknown property with additionalProperties (not false).
+        // Both values should widen additionalProperties.
+        let mut schema = shape_from(
+            r#"
+            type: object
+            additionalProperties:
+                type: string
+            "#,
+        );
+        heap_doc!(doc, r#"{"unk": "a", "unk": 42}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties:
+                    type: [string, integer]
+                    minimum: 10
+                    maximum: 100
+                "#
+            )
+        );
+
+        // Mix of duplicates, non-duplicates, and missing schema properties.
+        // `bbb` is missing from the doc so it gets demoted from required.
+        // `aaa` has duplicates; the second widens its type.
+        let mut schema = shape_from(
+            r#"
+            type: object
+            additionalProperties: false
+            required: [aaa, bbb, ccc]
+            properties:
+                aaa:
+                    type: string
+                bbb:
+                    type: string
+                ccc:
+                    type: string
+            "#,
+        );
+        heap_doc!(doc, r#"{"aaa": "x", "aaa": 42, "ccc": "z"}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties: false
+                required: [aaa, ccc]
+                properties:
+                    aaa:
+                        type: [string, integer]
+                        minimum: 10
+                        maximum: 100
+                    bbb:
+                        type: string
+                    ccc:
+                        type: string
+                "#
+            )
+        );
+
+        // Three duplicates of the same property with different types.
+        let mut schema = shape_from(
+            r#"
+            type: object
+            additionalProperties: false
+            properties:
+                foo:
+                    type: string
+            "#,
+        );
+        heap_doc!(doc, r#"{"foo": "hi", "foo": 50, "foo": true}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties: false
+                properties:
+                    foo:
+                        type: [string, integer, boolean]
+                        minimum: 10
+                        maximum: 100
+                "#
+            )
+        );
+    }
+
+    #[test]
+    fn test_widening_duplicate_pattern_properties() {
+        // Duplicates matching a patternProperty widen that pattern shape.
+        let mut schema = shape_from(
+            r#"
+            type: object
+            patternProperties:
+                '^S_':
+                    type: string
+                    minLength: 0
+                    maxLength: 0
+            additionalProperties: false
+            "#,
+        );
+        heap_doc!(doc, r#"{"S_a": "short", "S_a": 42}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                patternProperties:
+                    '^S_':
+                        type: [string, integer]
+                        minLength: 0
+                        maxLength: 8
+                        minimum: 10
+                        maximum: 100
+                additionalProperties: false
+                "#
+            )
+        );
+    }
+
+    #[test]
+    fn test_widening_duplicate_nested_objects() {
+        // Duplicate object values merge their subproperties.
+        let mut schema = Shape::nothing();
+        heap_doc!(doc, r#"{"a": {"x": 1}, "a": {"y": 2}}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties: false
+                required: [a]
+                properties:
+                    a:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                            x:
+                                type: integer
+                                minimum: 1
+                                maximum: 10
+                            y:
+                                type: integer
+                                minimum: 1
+                                maximum: 10
+                "#
+            )
+        );
+    }
+
+    #[test]
+    fn test_widening_duplicate_across_documents() {
+        // First doc: duplicates create a widened property.
+        let mut schema = Shape::nothing();
+        heap_doc!(doc1, r#"{"foo": "hi", "foo": 42}"#);
+        assert!(schema.widen(&doc1));
+
+        // Second doc: duplicate values that already fit produce no change.
+        heap_doc!(doc2, r#"{"foo": "x", "foo": 99}"#);
+        assert!(!schema.widen(&doc2));
+
+        // Third doc: non-duplicate that fits also produces no change.
+        assert!(!schema.widen(&json!({"foo": "a"})));
+
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties: false
+                required: [foo]
+                properties:
+                    foo:
+                        type: [string, integer]
+                        minLength: 1
+                        maxLength: 2
+                        minimum: 10
+                        maximum: 100
+                "#
+            )
+        );
+    }
+
+    #[test]
+    fn test_widening_duplicate_unknown_before_known() {
+        // Unknown duplicates that sort before a known property
+        // exercise the Greater branch's on_unknown_property dedup.
+        let mut schema = shape_from(
+            r#"
+            type: object
+            additionalProperties: false
+            required: [zzz]
+            properties:
+                zzz:
+                    type: string
+            "#,
+        );
+        heap_doc!(doc, r#"{"aaa": 1, "aaa": "two", "zzz": "hi"}"#);
+        assert!(schema.widen(&doc));
+        assert_eq!(
+            schema,
+            shape_from(
+                r#"
+                type: object
+                additionalProperties: false
+                required: [zzz]
+                properties:
+                    aaa:
+                        type: [integer, string]
+                        minimum: 1
+                        maximum: 10
+                        minLength: 2
+                        maxLength: 4
+                    zzz:
+                        type: string
+                "#
+            )
+        );
+    }
+
+    #[test]
+    fn test_widening_misc_coverage() {
+        // Null and boolean only affect the type set.
+        let mut schema = Shape::nothing();
+        assert!(schema.widen(&json!(null)));
+        assert_eq!(schema.type_, types::NULL);
+        assert!(schema.widen(&json!(true)));
+        assert_eq!(schema.type_, types::NULL | types::BOOLEAN);
+        assert!(!schema.widen(&json!(false)));
+
+        // Integer zero.
+        widening_snapshot_helper(
+            None,
+            "type: integer\nminimum: 0\nmaximum: 0",
+            &[(true, json!(0))],
+        );
+
+        // Empty object.
+        widening_snapshot_helper(
+            None,
+            "type: object\nadditionalProperties: false",
+            &[(true, json!({}))],
+        );
+
+        // Empty array.
+        let mut schema = Shape::nothing();
+        assert!(schema.widen(&json!([])));
+        assert_eq!(schema.array.min_items, 0);
+        assert_eq!(schema.array.max_items, Some(0));
+
+        // Unknown fields are silently accepted when additionalProperties
+        // is absent (the implicit "true" schema).
+        let yaml = r#"
+            type: object
+            properties:
+                known:
+                    type: string
+        "#;
+        widening_snapshot_helper(Some(yaml), yaml, &[(false, json!({"unknown": 42}))]);
     }
 }
