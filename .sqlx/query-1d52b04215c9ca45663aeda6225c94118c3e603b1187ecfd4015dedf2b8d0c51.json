@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT catalog_name\n            FROM live_specs\n            WHERE starts_with(catalog_name, $1)\n            AND spec IS NOT NULL\n            LIMIT 5\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1d52b04215c9ca45663aeda6225c94118c3e603b1187ecfd4015dedf2b8d0c51"
+}
