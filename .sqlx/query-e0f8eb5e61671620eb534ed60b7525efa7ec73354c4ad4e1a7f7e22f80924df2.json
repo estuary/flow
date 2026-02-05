@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            catalog_prefix as \"catalog_prefix!: String\",\n            detail,\n            spec as \"spec!: crate::TextJson<models::StorageDef>\"\n        FROM storage_mappings\n        WHERE NOT catalog_prefix ^@ 'recovery/'\n        AND (\n            catalog_prefix::text = any($1::text[])\n            OR ($2::text IS NOT NULL AND catalog_prefix ^@ $2::text)\n        )\n        AND ($3::text IS NULL OR catalog_prefix < $3::text)\n        ORDER BY catalog_prefix DESC\n        LIMIT $4\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec!: crate::TextJson<models::StorageDef>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e0f8eb5e61671620eb534ed60b7525efa7ec73354c4ad4e1a7f7e22f80924df2"
+}
