@@ -11,6 +11,7 @@ mise run ci:format-check
 mise run ci:musl-dev
 mise run ci:wasm-test
 mise run local:supabase
+mise run ci:sqlx-check
 mise run ci:sql-tap
 mise run ci:gnu-dev
 mise run build:gazette
