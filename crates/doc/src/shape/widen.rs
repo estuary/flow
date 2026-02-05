@@ -7,14 +7,24 @@ use json::{AsNode, Node};
 use std::cmp::Ordering;
 
 impl StringShape {
+    #[inline(always)]
     fn widen(&mut self, val: &str, is_first: bool) -> bool {
-        let chars_count = val.chars().count();
         if is_first {
-            let (min, max) = length_bounds(chars_count);
+            // Detect format first: this accesses the string data with mixed-in
+            // compute, warming CPU cache for is_ascii (which is memory bound).
             self.format = Format::detect(val);
+
+            // str::is_ascii() is SIMD-optimized and much faster than chars().count().
+            let chars_count = if val.is_ascii() {
+                val.len()
+            } else {
+                val.chars().count()
+            };
+
+            let (min, max) = length_bounds(chars_count);
             self.max_length = Some(max);
             self.min_length = min;
-            // TODO(johnny): detect base64?
+
             return true;
         }
 
@@ -33,6 +43,23 @@ impl StringShape {
                 changed = true;
             }
         }
+
+        // Use byte length to avoid expensive chars().count() when possible.
+        // For UTF-8: chars_count <= byte_len   (each char is at least 1 byte)
+        //       and: chars_count >= byte_len/4 (each char is at most 4 bytes)
+        let byte_len = val.len();
+        let max_ok = self.max_length.map_or(true, |max| byte_len <= max as usize);
+        let min_ok = self.min_length == 0 || byte_len >= self.min_length as usize * 4;
+
+        if max_ok && min_ok {
+            return changed;
+        }
+
+        let chars_count = if val.is_ascii() {
+            byte_len
+        } else {
+            val.chars().count()
+        };
 
         if self.min_length as usize > chars_count {
             self.min_length = length_bounds(chars_count).0;
