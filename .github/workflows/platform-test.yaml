@@ -1,4 +1,4 @@
-name: Platform Test
+name: Platform
 permissions:
   contents: read
 
@@ -13,6 +13,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  format-check:
+    name: Format Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build tools
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+      - run: rustup upgrade
+
+      - run: mise run ci:format-check
+
+  sqlx-check:
+    name: SQLx Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build tools
+        uses: jdx/mise-action@9dc7d5dd454262207dea3ab5a06a3df6afc8ff26 # v3.4.1
+      - run: rustup upgrade
+
+      - run: mise run local:supabase --no-block
+
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: ". -> ../../../cargo-target"
+
+      - name: Cache RocksDB
+        uses: actions/cache@v4
+        with:
+          key: rocksdb-${{ runner.os }}-${{ runner.arch }}-${{ env.ROCKSDB_VERSION }}
+          path: |
+            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/include/
+            ~/rocksdb-${{ env.ROCKSDB_VERSION }}/lib/
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+
+      - name: Cache sqlx-cli
+        id: cache-sqlx
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/sqlx
+          key: sqlx-cli-${{ runner.os }}-${{ runner.arch }}-0.8.6
+
+      - name: Install sqlx-cli
+        if: steps.cache-sqlx.outputs.cache-hit != 'true'
+        run: cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
+
+      - run: mise run build:rocksdb
+      - run: mise run local:supabase
+      - run: mise run ci:sqlx-check
+
   platform-test:
     name: Platform Test
     runs-on: ubuntu-2404-large
@@ -49,9 +104,9 @@ jobs:
       - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
 
       # These steps are kept in lockstep with task `ci:platform-test`
+      # (formating and SQLx checks are run in separate jobs above to provide faster feedback).
       - run: mise run local:supabase --no-block
       - run: mise run build:rocksdb
-      - run: mise run ci:format-check
       - run: mise run ci:musl-dev
       - run: mise run ci:wasm-test --browser
       - run: mise run local:supabase
