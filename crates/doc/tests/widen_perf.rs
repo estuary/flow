@@ -31,7 +31,7 @@ const GITHUB_SCRAPES: &[&[u8]] = &[
     include_bytes!("../../json/benches/testdata/github-scrape3.json"),
     include_bytes!("../../json/benches/testdata/github-scrape4.json"),
 ];
-const CITI_RIDES: &[u8] = include_bytes!("../../json/benches/testdata/citi-rides1.json");
+const WIKI_CHANGES: &[u8] = include_bytes!("../../json/benches/testdata/wiki-changes1.json");
 
 #[test]
 pub fn widen_perf() {
@@ -42,9 +42,9 @@ pub fn widen_perf() {
         .flat_map(|s| serde_json::from_slice::<Vec<Value>>(s).unwrap())
         .collect::<Vec<Value>>();
 
-    // Load all citi-bike document fixtures into Value.
-    let ride_docs = serde_json::Deserializer::from_slice(CITI_RIDES).into_iter::<Value>();
-    let ride_docs = ride_docs.collect::<Result<Vec<_>, _>>().unwrap();
+    // Load all wikimedia change fixtures into Value.
+    let wiki_docs = serde_json::Deserializer::from_slice(WIKI_CHANGES).into_iter::<Value>();
+    let wiki_docs = wiki_docs.collect::<Result<Vec<_>, _>>().unwrap();
 
     // Assemble parts for document generation and validation.
     let mut rng = rand::rngs::SmallRng::seed_from_u64(8675309);
@@ -55,7 +55,7 @@ pub fn widen_perf() {
     let begin = Instant::now();
 
     for _round in 0..TOTAL_ROUNDS {
-        shape.widen(&ride_docs[(rng.random::<f64>() * ride_docs.len() as f64) as usize]);
+        shape.widen(&wiki_docs[(rng.random::<f64>() * wiki_docs.len() as f64) as usize]);
         shape.widen(&github_docs[(rng.random::<f64>() * github_docs.len() as f64) as usize]);
     }
 
