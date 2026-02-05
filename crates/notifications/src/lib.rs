@@ -1,4 +1,5 @@
 mod auto_discover_failed;
+mod background_publication_failed;
 mod data_movement_stalled;
 mod free_trial;
 mod free_trial_ending;
@@ -133,6 +134,7 @@ impl Renderer {
         register_common_templates(&mut hb)?;
 
         auto_discover_failed::register_templates(&mut hb)?;
+        background_publication_failed::register_templates(&mut hb)?;
         data_movement_stalled::register_templates(&mut hb)?;
         free_trial::register_templates(&mut hb)?;
         free_trial_stalled::register_templates(&mut hb)?;
@@ -433,6 +435,48 @@ mod tests {
             "Estuary Flow: Auto-discover resolved for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("auto_discover_failed_resolved_body", email.body);
+    }
+
+    #[test]
+    fn test_background_publication_failed_fired() {
+        let email = test_single_email(
+            AlertType::BackgroundPublicationFailed,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [ user_a() ],
+                "spec_type": "capture",
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary Flow: Automated background publication failed for capture acmeCo/test/capture",
+        );
+        insta::assert_snapshot!("background_publication_failed_fired_body", email.body);
+    }
+
+    #[test]
+    fn test_background_publication_failed_resolved() {
+        let email = test_single_email(
+            AlertType::BackgroundPublicationFailed,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+            }),
+            State::Resolved,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_RESOLVED,
+            "Estuary Flow: Automated background publication alert resolved for capture acmeCo/test/capture",
+        );
+        insta::assert_snapshot!("background_publication_failed_resolved_body", email.body);
     }
 
     #[test]
