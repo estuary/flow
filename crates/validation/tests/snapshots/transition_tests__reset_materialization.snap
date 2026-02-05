@@ -425,6 +425,11 @@ expression: outcome.built_materializations
                                             value: "the/collection",
                                             prefix: false,
                                         },
+                                        Label {
+                                            name: "name",
+                                            value: "the/collection/0000000000000001/",
+                                            prefix: true,
+                                        },
                                     ],
                                 },
                             ),

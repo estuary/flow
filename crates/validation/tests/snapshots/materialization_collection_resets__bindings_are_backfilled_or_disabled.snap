@@ -687,6 +687,11 @@ Outcome {
                                                 value: "testing/reset/a",
                                                 prefix: false,
                                             },
+                                            Label {
+                                                name: "name",
+                                                value: "testing/reset/a/2020202020202020/",
+                                                prefix: true,
+                                            },
                                         ],
                                     },
                                 ),
