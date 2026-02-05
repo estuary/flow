@@ -1,7 +1,8 @@
-use super::{ControlPlane, ControllerState, Event, Inbox, NextRun};
-use crate::controllers::publication_status;
+use super::{ControlPlane, ControllerState, Inbox, NextRun};
+use crate::controllers::{RetryableError, publication_status};
+use control_plane_api::controllers::Message;
 use models::status::{
-    PendingConfigUpdateStatus, connector::ConfigUpdate, publications::PublicationStatus,
+    Alerts, PendingConfigUpdateStatus, connector::ConfigUpdate, publications::PublicationStatus,
 };
 
 pub const CONFIG_UPDATE_PUBLICATION_DETAIL: &str =
@@ -11,6 +12,7 @@ pub async fn updated_config_publish<C: ControlPlane, F>(
     state: &ControllerState,
     config_update_status: &mut Option<PendingConfigUpdateStatus>,
     publication_status: &mut PublicationStatus,
+    alerts: &mut Alerts,
     events: &Inbox,
     control_plane: &C,
     update_config: F,
@@ -28,7 +30,7 @@ where
 
     let has_config_update_event = events
         .iter()
-        .any(|(_, e)| matches!(e, Some(Event::ConfigUpdated)));
+        .any(|(_, e)| matches!(e, Some(Message::ConfigUpdated)));
 
     // If there's no config_update_status from a previous ConfigUpdated event
     // and there's no ConfigUpdated event in the inbox, return early.
@@ -69,7 +71,7 @@ where
 
     // Attempt to finish the publication.
     let pub_result = pending
-        .finish(state, publication_status, control_plane)
+        .finish(state, publication_status, Some(alerts), control_plane)
         .await?
         .error_for_status();
 
@@ -84,21 +86,21 @@ where
 
             return Ok(true);
         }
-        Err(_) => {
+        Err(pub_err) => {
             // The publication failed, so set config_update_status and return a backoff
             // error to retry in 10 minutes.
-            let fail_count = pub_failure_count(state);
-            let next_attempt = chrono::Utc::now() + chrono::Duration::minutes(10);
+            let fail_count = pub_failure_count(state) + 1;
+            let next_attempt =
+                chrono::Utc::now() + chrono::Duration::minutes(fail_count as i64 * 5);
             *config_update_status = Some(PendingConfigUpdateStatus {
                 next_attempt: next_attempt,
                 build: log.shard.build,
             });
-
-            return super::backoff_err(
-                NextRun::after(next_attempt).with_jitter_percent(10),
-                "config update publication",
-                fail_count,
-            );
+            return Err(anyhow::Error::new(RetryableError {
+                inner: pub_err,
+                retry: Some(NextRun::after(next_attempt)),
+                is_backoff: false,
+            }));
         }
     }
 }

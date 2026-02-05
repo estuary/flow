@@ -30,6 +30,7 @@ pub enum AlertType {
     FreeTrialStalled,
     MissingPaymentMethod,
     ShardFailed,
+    BackgroundPublicationFailed,
 }
 
 impl std::fmt::Display for AlertType {
@@ -48,6 +49,7 @@ impl AlertType {
             AlertType::FreeTrialEnding => "free_trial_ending",
             AlertType::FreeTrialStalled => "free_trial_stalled",
             AlertType::MissingPaymentMethod => "missing_payment_method",
+            AlertType::BackgroundPublicationFailed => "background_publication_failed",
         }
     }
 
@@ -60,6 +62,7 @@ impl AlertType {
             AlertType::FreeTrialEnding,
             AlertType::FreeTrialStalled,
             AlertType::MissingPaymentMethod,
+            AlertType::BackgroundPublicationFailed,
         ]
     }
 
@@ -74,6 +77,7 @@ impl AlertType {
             AlertType::FreeTrialStalled => Some("tenant_alerts"),
             AlertType::MissingPaymentMethod => Some("tenant_alerts"),
             AlertType::ShardFailed => None,
+            AlertType::BackgroundPublicationFailed => None,
         }
     }
 

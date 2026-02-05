@@ -1,12 +1,18 @@
 use crate::{
-    controllers::{NextRun, RetryableError},
+    controllers::{
+        NextRun, RetryableError,
+        alerts::{resolve_alert, set_alert_firing},
+    },
     controlplane::ControlPlane,
 };
 use anyhow::Context;
 use control_plane_api::publications::PublicationResult;
 use models::{
     Id, draft_error,
-    status::publications::{PUBLICATION_COOLDOWN_ERROR, PublicationInfo, PublicationStatus},
+    status::{
+        AlertType, Alerts,
+        publications::{PUBLICATION_COOLDOWN_ERROR, PublicationInfo, PublicationStatus},
+    },
 };
 use tables::BuiltRow;
 
@@ -196,12 +202,27 @@ impl PendingPublication {
         &mut self.draft
     }
 
+    /// Attempt the publication and return the result.
+    /// An `Ok` result does _not_ necessarily mean that the publication was
+    /// successful. The inner `PublicationResult` must be queried to determine
+    /// that. An `Err` indicates an error in the publication process, such as a
+    /// database connection error.
+    ///
+    /// The `status` will be updated to reflect the result of the publication,
+    /// which will be recorded in the history.
+    /// If `alerts` is `Some`, then alerts will be fired or resolved as
+    /// appropriate. Any successful publication will resolve an open alert. And
+    /// we fire it after `ALERT_AFTER_PUBLICATION_FAILURES` consecutive
+    /// failures.
     pub async fn finish<C: ControlPlane>(
         &mut self,
         state: &ControllerState,
         status: &mut PublicationStatus,
+        alerts: Option<&mut Alerts>,
         control_plane: &C,
     ) -> anyhow::Result<PublicationResult> {
+        use itertools::Itertools;
+
         // Whether the draft was intended as a touch. This is used
         // only to set is_touch in cases where the publication failed
         // due to an error.
@@ -218,16 +239,16 @@ impl PendingPublication {
                 state.data_plane_name.clone(),
             )
             .await;
-        match result.as_ref() {
+
+        let publish_successful = match result.as_ref() {
             Ok(r) => {
                 record_result(status, pub_info(r));
-                if r.status.is_success() {
-                    control_plane
-                        .notify_dependents(state.live_spec_id)
-                        .await
-                        .context("notifying dependents after successful publication")?;
-                    status.max_observed_pub_id = r.pub_id;
-                }
+                control_plane
+                    .notify_dependents(state.live_spec_id)
+                    .await
+                    .context("notifying dependents after successful publication")?;
+                status.max_observed_pub_id = r.pub_id;
+                r.status.is_success()
             }
             Err(err) => {
                 let info = PublicationInfo {
@@ -244,21 +265,72 @@ impl PendingPublication {
                     is_touch: draft_is_touch,
                 };
                 record_result(status, info);
+                false
+            }
+        };
+
+        // Do we need to fire or resolve an alert?
+        let Some(alert_state) = alerts else {
+            return result;
+        };
+
+        if publish_successful {
+            resolve_alert(alert_state, AlertType::BackgroundPublicationFailed);
+        } else {
+            let last_entry = &status.history[0];
+            if last_entry.count >= ALERT_AFTER_PUBLICATION_FAILURES {
+                let error = format!(
+                    "automated publication failed {} times, most recent errors: {}",
+                    last_entry.count,
+                    last_entry
+                        .errors
+                        .iter()
+                        .map(|e| format!("{}: {}", e.catalog_name, e.detail))
+                        .join("\n")
+                );
+                let spec_type = state.live_spec.as_ref().map(|s| s.catalog_type()).unwrap();
+                set_alert_firing(
+                    alert_state,
+                    AlertType::BackgroundPublicationFailed,
+                    control_plane.current_time(),
+                    error,
+                    last_entry.count,
+                    spec_type,
+                );
             }
         }
+
         result
     }
 }
 
 const MAX_HISTORY: usize = 5;
+const ALERT_AFTER_PUBLICATION_FAILURES: u32 = 3;
 
-pub async fn update_notify_dependents<C: ControlPlane>(
+pub async fn update_observed_pub_id<C: ControlPlane>(
     status: &mut PublicationStatus,
+    alerts: &mut Alerts,
     state: &ControllerState,
     control_plane: &C,
 ) -> anyhow::Result<()> {
     if state.last_pub_id > status.max_observed_pub_id {
-        control_plane.notify_dependents(state.live_spec_id).await?;
+        // If this is a capture or collection, then notifiy any dependents that the spec has been published
+        if state
+            .live_spec
+            .as_ref()
+            .is_some_and(|ls| match ls.catalog_type() {
+                models::CatalogType::Capture | models::CatalogType::Collection => true,
+                models::CatalogType::Materialization | models::CatalogType::Test => false,
+            })
+        {
+            control_plane.notify_dependents(state.live_spec_id).await?;
+        }
+        // Clear any background_publication_failed alert that may have been
+        // firing. Any publication of the spec should resolve any issues that
+        // controllers were having with the publication, since all model updates
+        // are handled by the validation crate now.
+        resolve_alert(alerts, AlertType::BackgroundPublicationFailed);
+
         status.max_observed_pub_id = state.last_pub_id;
     }
     Ok(())

@@ -10,6 +10,7 @@ use itertools::Itertools;
 use models::{
     MaterializationEndpoint, ModelDef, RawValue, SourceType,
     status::{
+        Alerts,
         connector::ConfigUpdate,
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
@@ -31,6 +32,7 @@ pub async fn update<C: ControlPlane>(
         state,
         &mut status.config_updates,
         &mut status.publications,
+        &mut status.alerts,
         events,
         control_plane,
         |config_update: &ConfigUpdate| -> anyhow::Result<PendingPublication> {
@@ -81,9 +83,13 @@ pub async fn update<C: ControlPlane>(
 
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
     let dep_result = dependencies
-        .update(state, control_plane, &mut status.publications, |deleted| {
-            Ok(handle_deleted_dependencies(deleted, model.clone()))
-        })
+        .update(
+            state,
+            control_plane,
+            &mut status.publications,
+            &mut status.alerts,
+            |deleted| Ok(handle_deleted_dependencies(deleted, model.clone())),
+        )
         .await;
     if dep_result.as_ref().is_ok_and(|d| d.is_some()) {
         return Ok(Some(NextRun::immediately()));
@@ -95,8 +101,14 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    let periodic_published =
-        periodic::update_periodic_publish(state, &mut status.publications, control_plane).await;
+
+    let periodic_published = periodic::update_periodic_publish(
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await;
     if periodic_published.as_ref().is_ok_and(|r| r.is_some()) {
         return Ok(Some(NextRun::immediately()));
     }
@@ -104,7 +116,10 @@ pub async fn update<C: ControlPlane>(
 
     let pending_publish = status.publications.next_after;
     let MaterializationStatus {
-        activation, alerts, ..
+        activation,
+        alerts,
+        publications,
+        ..
     } = status;
     let activation_result = activation::update_activation(
         activation,
@@ -118,10 +133,16 @@ pub async fn update<C: ControlPlane>(
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
+    let observe_result =
+        publication_status::update_observed_pub_id(publications, alerts, state, control_plane)
+            .await
+            .map(|_| None);
+
     // There isn't any call to notify dependents because nothing currently can depend on a materialization.
     coalesce_results(
         state.failures,
         [
+            observe_result,
             periodic_result,
             activation_result,
             source_capture_published.map(|_| None),
@@ -146,6 +167,7 @@ async fn source_capture_update<C: ControlPlane>(
         let MaterializationStatus {
             source_capture,
             publications,
+            alerts,
             ..
         } = status;
         // If the source capture has been deleted, we should have already
@@ -158,6 +180,7 @@ async fn source_capture_update<C: ControlPlane>(
         update_source_capture(
             source_capture_status,
             publications,
+            alerts,
             state,
             control_plane,
             capture_model,
@@ -195,6 +218,7 @@ fn handle_deleted_dependencies(
 pub async fn update_source_capture<C: ControlPlane>(
     status: &mut SourceCaptureStatus,
     pub_status: &mut PublicationStatus,
+    alerts: &mut Alerts,
     state: &ControllerState,
     control_plane: &C,
     live_capture: &tables::LiveCapture,
@@ -273,7 +297,7 @@ pub async fn update_source_capture<C: ControlPlane>(
     let mut pending_pub =
         PendingPublication::update_model(&state.catalog_name, state.last_pub_id, new_model, detail);
     let result = pending_pub
-        .finish(state, pub_status, control_plane)
+        .finish(state, pub_status, Some(alerts), control_plane)
         .await
         .context("executing source capture update publication")?;
     let prev_failures = super::last_pub_failed(&*pub_status, DETAIL_PREFIX)

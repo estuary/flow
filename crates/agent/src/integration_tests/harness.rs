@@ -290,6 +290,10 @@ impl TestHarness {
         HarnessBuilder::new(test_name).build().await
     }
 
+    pub fn builder(test_name: &str) -> HarnessBuilder {
+        HarnessBuilder::new(test_name)
+    }
+
     async fn setup_test_connectors(&mut self) {
         sqlx::query!(r##"
             with source_image as (

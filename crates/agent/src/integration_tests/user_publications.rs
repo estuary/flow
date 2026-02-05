@@ -1,6 +1,10 @@
-use super::harness::{TestHarness, draft_catalog, set_of};
-use crate::{ControlPlane, controllers::ControllerState};
-use models::{Capability, CatalogType, Id};
+use super::harness::{
+    TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema, set_of,
+};
+use crate::{
+    ControlPlane, controllers::ControllerState, integration_tests::harness::InjectBuildError,
+};
+use models::{Capability, CatalogType, Id, status::AlertType};
 
 #[tokio::test]
 async fn test_user_publications() {
@@ -287,6 +291,141 @@ async fn test_user_publications() {
         .unwrap()
         .expect("dogs/materialize must exist");
     assert!(dog_mat.model.bindings[0].disable);
+}
+
+#[tokio::test]
+async fn successful_user_publication_clears_background_publication_failed_alert() {
+    let mut harness =
+        TestHarness::init("successful_user_publication_clears_background_publication_failed_alert")
+            .await;
+
+    let cats_user = harness.setup_tenant("cats").await;
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "cats/noms": {
+                "writeSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    },
+                },
+                "readSchema": {
+                    "allOf": [
+                        {"$ref": "flow://write-schema"},
+                        {"$ref": "flow://inferred-schema"}
+                    ]
+                },
+                "key": ["/id"]
+            }
+        },
+        "captures": {
+            "cats/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": {
+                            "id": "noms",
+                        },
+                        "target": "cats/noms"
+                    }
+                ]
+            }
+        },
+    }));
+    let setup_result = harness
+        .user_publication(cats_user, format!("initial publication"), draft)
+        .await;
+    assert!(
+        setup_result.status.is_success(),
+        "setup errors: {:?}",
+        setup_result.errors
+    );
+    harness.run_pending_controllers(None).await;
+
+    // Trigger an inferred schema update to noms, and simulate a publication failure of the capture.
+    let noms_state = harness.get_controller_state("cats/noms").await;
+    harness
+        .upsert_inferred_schema(mock_inferred_schema(
+            "cats/noms",
+            get_collection_generation_id(&noms_state),
+            1,
+        ))
+        .await;
+    harness.run_pending_controller("cats/noms").await;
+
+    for i in 0..3 {
+        if i > 0 {
+            // Simulate the passage of time to allow the publication to be re-attempted
+            let fake_time = harness.control_plane().current_time() - chrono::Duration::minutes(20);
+            harness
+                .push_back_last_pub_history_ts("cats/capture", fake_time)
+                .await;
+        }
+
+        harness.control_plane().fail_next_build(
+            "cats/capture",
+            InjectBuildError::new(
+                tables::synthetic_scope("capture", "cats/capture"),
+                anyhow::anyhow!("simulated failure i={i}"),
+            ),
+        );
+        let result = harness.run_pending_controller("cats/capture").await;
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("publication failed")),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    let fired_alert = harness
+        .assert_alert_firing("cats/capture", AlertType::BackgroundPublicationFailed)
+        .await;
+    let _alerting_capture_state = harness.get_controller_state("cats/capture").await;
+
+    let user_draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "cats/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": { "updated": "this is totally gonna work, probably" }
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": {
+                            "id": "noms",
+                        },
+                        "target": "cats/noms"
+                    }
+                ]
+            }
+        }
+    }));
+    let result = harness
+        .user_publication(cats_user, "after alerting", user_draft)
+        .await;
+    assert!(result.status.is_success());
+
+    let after_user_pub_state = harness.run_pending_controller("cats/capture").await;
+    assert!(after_user_pub_state.error.is_none());
+
+    harness.control_plane().assert_activations(
+        "after user publication",
+        vec![
+            ("cats/capture", Some(CatalogType::Capture)),
+            ("cats/noms", Some(CatalogType::Collection)),
+        ],
+    );
+    harness.assert_alert_resolved(fired_alert.alert.id).await;
 }
 
 async fn assert_publication_included(

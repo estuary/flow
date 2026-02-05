@@ -5,6 +5,29 @@ use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::fmt::Debug;
 
+/// Messages that can be sent to a controller.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Message {
+    /// A dependency of the controlled spec has been updated.
+    DependencyUpdated,
+    /// The controlled spec has just been published.
+    SpecPublished {
+        /// The ID of the publication that touched or modified the spec.
+        pub_id: models::Id,
+    },
+    /// The inferred schema of the controlled collection spec has been updated.
+    InferredSchemaUpdated,
+    /// A request to trigger the controller manually. This is primarily used
+    /// in tests to trigger the controller without waiting the `wake_at` time.
+    ManualTrigger {
+        /// The ID of the user who sent the message.
+        user_id: uuid::Uuid,
+    },
+    ShardFailed,
+    ConfigUpdated,
+}
+
 #[derive(Debug)]
 pub struct ControllerJob {
     pub live_spec_id: Id,
