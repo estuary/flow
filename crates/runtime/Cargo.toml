@@ -68,3 +68,4 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+quickcheck = { workspace = true }
