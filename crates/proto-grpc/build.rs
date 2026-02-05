@@ -17,6 +17,7 @@ fn main() {
         .client_mod_attribute("materialize", "#[cfg(feature = \"materialize_client\")]")
         .client_mod_attribute("protocol", "#[cfg(feature = \"broker_client\")]")
         .client_mod_attribute("runtime", "#[cfg(feature = \"runtime_client\")]")
+        .client_mod_attribute("shuffle", "#[cfg(feature = \"shuffle_client\")]")
         .extern_path(".capture", "::proto_flow::capture")
         .extern_path(".consumer", "::proto_gazette::consumer")
         .extern_path(".derive", "::proto_flow::derive")
@@ -26,6 +27,7 @@ fn main() {
         .extern_path(".protocol", "::proto_gazette::broker")
         .extern_path(".recoverylog", "::proto_gazette::recoverylog")
         .extern_path(".runtime", "::proto_flow::runtime")
+        .extern_path(".shuffle", "::proto_flow::shuffle")
         .server_mod_attribute("capture", "#[cfg(feature = \"capture_server\")]")
         .server_mod_attribute("consumer", "#[cfg(feature = \"consumer_server\")]")
         .server_mod_attribute("derive", "#[cfg(feature = \"derive_server\")]")
@@ -33,6 +35,7 @@ fn main() {
         .server_mod_attribute("materialize", "#[cfg(feature = \"materialize_server\")]")
         .server_mod_attribute("protocol", "#[cfg(feature = \"broker_server\")]")
         .server_mod_attribute("runtime", "#[cfg(feature = \"runtime_server\")]")
+        .server_mod_attribute("shuffle", "#[cfg(feature = \"shuffle_server\")]")
         .compile_protos(&proto_build, &b.proto_include())
         .expect("tonic build failed");
 }

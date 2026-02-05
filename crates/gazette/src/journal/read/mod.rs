@@ -3,6 +3,13 @@ use crate::{Error, router};
 use futures::TryStreamExt;
 use proto_gazette::broker;
 
+mod lines;
+pub use lines::{LinesBatch, ReadLines};
+
+// TODO(johnny): Replace usages of ReadJsonLines with ReadLines.
+mod json_lines;
+pub use json_lines::{ReadJsonLine, ReadJsonLines};
+
 impl Client {
     /// Invoke the Gazette journal Read API.
     /// This routine directly fetches journal fragments from cloud storage where possible,

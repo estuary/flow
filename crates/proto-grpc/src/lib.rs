@@ -5,6 +5,7 @@ pub mod flow;
 pub mod materialize;
 mod protocol;
 pub mod runtime;
+pub mod shuffle;
 
 // The `protocol` package is publicly exported as `broker`.
 #[cfg(any(feature = "broker_client", feature = "broker_server"))]

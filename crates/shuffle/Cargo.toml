@@ -1,0 +1,50 @@
+[package]
+name = "shuffle"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+doc = { path = "../doc" }
+flow-client-next = { path = "../flow-client-next" }
+gazette = { path = "../gazette" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = [
+    "shuffle_client",
+    "shuffle_server",
+] }
+simd-doc = { path = "../simd-doc" }
+tables = { path = "../tables" }
+tokens = { path = "../tokens" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+md5 = { workspace = true }
+memchr = { workspace = true }
+pbjson-types = { workspace = true }
+pin-project-lite = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde-transcode = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+superslice = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+
+insta = { workspace = true }

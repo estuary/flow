@@ -3304,6 +3304,7 @@ dependencies = [
  "doc",
  "extractors",
  "flow-client",
+ "flow-client-next",
  "futures",
  "gazette",
  "graphql_client",
@@ -3334,13 +3335,16 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "shuffle",
  "simd-doc",
  "size",
  "sources",
  "tables",
  "tempfile",
  "time",
+ "tokens",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tonic",
  "tracing",
@@ -3574,6 +3578,7 @@ dependencies = [
  "hexdump",
  "hyper-util",
  "jsonwebtoken",
+ "memchr",
  "ops",
  "pin-project-lite",
  "proto-gazette",
@@ -7586,6 +7591,44 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "shuffle"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "doc",
+ "flow-client-next",
+ "futures",
+ "gazette",
+ "insta",
+ "json",
+ "labels",
+ "md5",
+ "memchr",
+ "models",
+ "ops",
+ "pbjson-types",
+ "pin-project-lite",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "schemars",
+ "serde",
+ "serde-transcode",
+ "serde_json",
+ "serde_yaml",
+ "simd-doc",
+ "superslice",
+ "tables",
+ "tokens",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tracing",
+ "url",
+]
 
 [[package]]
 name = "signal-hook"
