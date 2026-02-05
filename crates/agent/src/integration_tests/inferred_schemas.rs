@@ -3,6 +3,7 @@ use super::harness::{
 };
 use crate::{controllers::ControllerState, integration_tests::harness::InjectBuildError};
 use chrono::{DateTime, Utc};
+use models::status::AlertType;
 use serde_json::json;
 
 #[tokio::test]
@@ -267,7 +268,7 @@ async fn test_inferred_schema_updates_with_cooldown() {
         .push_back_last_pub_history_ts("frogs/inferred-collection", cooldown_time_ago())
         .await;
 
-    // Simulate multiple publication failures to test exponential backoff
+    // Simulate multiple publication failures to test exponential backoff and alerting
     for attempt in 2..=4 {
         // Fail the next publication again
         harness.control_plane().fail_next_build(
@@ -307,6 +308,12 @@ async fn test_inferred_schema_updates_with_cooldown() {
             .push_back_last_pub_history_ts("frogs/inferred-collection", cooldown_time_ago())
             .await;
     }
+    let fired = harness
+        .assert_alert_firing(
+            "frogs/inferred-collection",
+            AlertType::BackgroundPublicationFailed,
+        )
+        .await;
     let last_update_time = harness
         .get_controller_state("frogs/inferred-collection")
         .await
@@ -322,6 +329,8 @@ async fn test_inferred_schema_updates_with_cooldown() {
 
     assert_inferred_schema_present_with(&collection_state, generation_id, 1);
     assert_inferred_schema_status_completed(&collection_state, &schema_v2_md5, last_update_time);
+
+    harness.assert_alert_resolved(fired.alert.id).await;
 }
 
 fn assert_awaiting_publication_cooldown(state: &ControllerState) {

@@ -2,7 +2,10 @@ use crate::{
     ControlPlane,
     integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog},
 };
-use models::{CaptureEndpoint, MaterializationEndpoint, status::ShardRef};
+use models::{
+    CaptureEndpoint, MaterializationEndpoint,
+    status::{AlertType, ShardRef},
+};
 use uuid::Uuid;
 
 fn initial_config() -> serde_json::Value {
@@ -331,12 +334,58 @@ async fn test_config_update_publication_failure() {
     };
 
     assert!(initial_config() == materialization_endpoint.config.to_value());
+
+    // Run a few more times, and then expect that an alert fires
+    for i in 0..2 {
+        tracing::info!(%i, "will expect publication failure");
+        let fake_last_attempt =
+            harness.control_plane().current_time() - chrono::Duration::minutes(15);
+        harness
+            .push_back_last_pub_history_ts(MATERIALIZATION_NAME, fake_last_attempt)
+            .await;
+        harness
+            .push_back_last_config_update_pub_history_ts(MATERIALIZATION_NAME, fake_last_attempt)
+            .await;
+
+        harness.control_plane().fail_next_build(
+            MATERIALIZATION_NAME,
+            InjectBuildError::new(
+                tables::synthetic_scope("materialization", MATERIALIZATION_NAME),
+                anyhow::anyhow!("simulated build failure"),
+            ),
+        );
+        let materialization_state = harness.run_pending_controller(MATERIALIZATION_NAME).await;
+        assert!(
+            materialization_state
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("publication failed")),
+            "unexpected controller error: {:?}",
+            materialization_state.error
+        );
+    }
+    let fired = harness
+        .assert_alert_firing(MATERIALIZATION_NAME, AlertType::BackgroundPublicationFailed)
+        .await;
+
+    // Let the publication succeed and assert that the alert clears
+    let fake_last_attempt = harness.control_plane().current_time() - chrono::Duration::minutes(15);
+    harness
+        .push_back_last_config_update_pub_history_ts(MATERIALIZATION_NAME, fake_last_attempt)
+        .await;
+
+    let materialization_state = harness.run_pending_controller(MATERIALIZATION_NAME).await;
+    assert!(materialization_state.error.is_none());
+    harness.assert_alert_resolved(fired.alert.id).await;
 }
 
 #[tokio::test]
 async fn test_config_update_publication_backoff() {
     // Set up harness & tenant.
-    let mut harness = TestHarness::init("test_config_update_publication_backoff").await;
+    let mut harness = TestHarness::builder("test_config_update_publication_backoff")
+        .with_publication_cooldown(chrono::Duration::minutes(5))
+        .build()
+        .await;
     let _user_id = harness.setup_tenant("ducks").await;
 
     const CAPTURE_NAME: &str = "ducks/capture";
@@ -424,6 +473,7 @@ async fn test_config_update_publication_backoff() {
     // Run controllers a few times to trigger the initial
     // failure & subsequent backoffs.
     for i in 0..3 {
+        tracing::info!(%i, "starting controller test run iteration");
         let capture_state = harness.run_pending_controller(CAPTURE_NAME).await;
 
         let last_entry = capture_state
@@ -438,21 +488,22 @@ async fn test_config_update_publication_backoff() {
         assert!(capture_state.error.is_some());
 
         if i > 0 {
-            assert!(
-                capture_state
-                    .error
-                    .as_deref()
-                    .unwrap()
-                    .contains("backing off config update publication")
+            assert_eq!(
+                Some("waiting on publication cooldown (will retry)"),
+                capture_state.error.as_deref()
             );
         }
     }
+    tracing::info!("finished failures");
 
     // Change the timestamp of the last attempted config update publication to simulate
     // the passage of time, and confirm another publication will be attempted on the next
     // controller run.
     let last_attempt = chrono::Utc::now() - chrono::Duration::hours(4);
 
+    harness
+        .push_back_last_pub_history_ts(CAPTURE_NAME, last_attempt)
+        .await;
     harness
         .push_back_last_config_update_pub_history_ts(CAPTURE_NAME, last_attempt)
         .await;

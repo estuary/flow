@@ -1,11 +1,13 @@
 use std::str::FromStr;
 
+use super::{ControllerState, NextRun, alerts, backoff_data_plane_activate};
 use crate::{
     controllers::{ControllerErrorExt, Inbox},
     controlplane::ControlPlane,
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use control_plane_api::controllers::Message;
 use gazette::consumer::{self, list_response, replica_status};
 use itertools::Itertools;
 use models::{
@@ -15,8 +17,6 @@ use models::{
         activation::{ActivationStatus, ShardFailure, ShardStatusCheck, ShardsStatus},
     },
 };
-
-use super::{ControllerState, NextRun, alerts, backoff_data_plane_activate, executor::Event};
 
 /// Helper for getting a `chrono::Duration` from an environment variable, using humantime so it
 /// supports parsing durations like `3h`.
@@ -70,7 +70,7 @@ pub async fn update_activation<C: ControlPlane>(
     // Did we receive at least one shard failure message?
     let observed_shard_failures = events
         .iter()
-        .filter(|(_, e)| matches!(e, Some(Event::ShardFailed)))
+        .filter(|(_, e)| matches!(e, Some(Message::ShardFailed)))
         .count();
 
     // Activating a new build always takes precedence over failure handling.

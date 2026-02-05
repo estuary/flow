@@ -1,5 +1,5 @@
 use crate::integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog};
-use models::status::ControllerStatus;
+use models::status::AlertType;
 use std::collections::BTreeSet;
 
 #[tokio::test]
@@ -178,6 +178,37 @@ async fn specs_are_published_periodically() {
                 );
             }
         }
+
+        // Test repeated publication failures, and expect an alert to fire
+        for i in 0..2 {
+            let last_attempt = chrono::Utc::now() - chrono::Duration::hours(4);
+            harness
+                .push_back_last_pub_history_ts(&name, last_attempt)
+                .await;
+
+            harness.control_plane().fail_next_build(
+                &name,
+                InjectBuildError::new(
+                    tables::synthetic_scope("test-whatever", &name),
+                    anyhow::anyhow!("simulated build failure: {i}"),
+                ),
+            );
+            let state = harness.run_pending_controller(&name).await;
+            assert!(state.error.is_some());
+            let last_entry = state
+                .current_status
+                .publication_status()
+                .unwrap()
+                .history
+                .front()
+                .unwrap();
+            assert_eq!(i + 2, last_entry.count);
+            assert!(!last_entry.errors.is_empty());
+        }
+        let fired = harness
+            .assert_alert_firing(&name, AlertType::BackgroundPublicationFailed)
+            .await;
+
         // Change the timestamp of the last publication in the history to
         // simulate the passage of time, so another publication will be
         // attempted.
@@ -188,14 +219,8 @@ async fn specs_are_published_periodically() {
 
         tracing::info!(%name, "expecting to be touched");
         let after_state = harness.run_pending_controller(&name).await;
+        let pub_status = after_state.current_status.publication_status().unwrap();
 
-        let pub_status = match after_state.current_status {
-            ControllerStatus::Capture(cap) => cap.publications,
-            ControllerStatus::Materialization(m) => m.publications,
-            ControllerStatus::Collection(c) => c.publications,
-            ControllerStatus::Test(t) => t.publications,
-            ControllerStatus::Uninitialized => panic!("unexpected status"),
-        };
         assert_eq!(
             Some("periodic publication"),
             pub_status.history[0].detail.as_deref()
@@ -203,6 +228,8 @@ async fn specs_are_published_periodically() {
         assert!(pub_status.history[0].is_success());
         assert!(after_state.last_build_id > before_state.last_build_id);
         assert_eq!(after_state.last_pub_id, before_state.last_pub_id);
+
+        harness.assert_alert_resolved(fired.alert.id).await;
     }
 
     // Assert that the disabled tasks were not touched

@@ -1,7 +1,7 @@
 use crate::{ControlPlane, integration_tests::harness::InjectBuildError};
 
 use super::harness::{TestHarness, draft_catalog};
-use models::Id;
+use models::{Id, status::AlertType};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -99,19 +99,43 @@ async fn test_source_captures() {
             .is_some_and(|d| d.starts_with("adding "))
     );
 
-    let new_last_pub = harness.control_plane().current_time() - chrono::Duration::minutes(4);
+    // Fail the publication a few more times, and assert that an alert fires
+    for i in 0..2 {
+        let new_last_pub = harness.control_plane().current_time() - chrono::Duration::minutes(10);
+        harness
+            .push_back_last_pub_history_ts("ducks/materializeA", new_last_pub)
+            .await;
+        harness.control_plane().fail_next_build(
+            "ducks/materializeA",
+            InjectBuildError::new(
+                scope.clone(),
+                anyhow::anyhow!("simulated build error, i={i}"),
+            ),
+        );
+        let state = harness.run_pending_controller("ducks/materializeA").await;
+        assert!(state.error.is_some());
+        let pub_entry = &state.current_status.publication_status().unwrap().history[0];
+        assert!(!pub_entry.errors.is_empty());
+        assert_eq!(i + 2, pub_entry.count);
+    }
+    let fired = harness
+        .assert_alert_firing("ducks/materializeA", AlertType::BackgroundPublicationFailed)
+        .await;
+
+    // It should now retry and successfully add the bindings, resolving the alert.
     // Simulate the passage of time to allow the materialization to re-try adding the bindings
+    let new_last_pub = harness.control_plane().current_time() - chrono::Duration::minutes(40);
     harness
         .push_back_last_pub_history_ts("ducks/materializeA", new_last_pub)
         .await;
 
-    // A should now retry and successfully add the bindings.
     let a_state = harness.run_pending_controller("ducks/materializeA").await;
     assert!(
         a_state.error.is_none(),
         "expected no error, got: {:?}",
         a_state.error
     );
+    harness.assert_alert_resolved(fired.alert.id).await;
     let a_model = a_state
         .live_spec
         .as_ref()
