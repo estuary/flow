@@ -283,7 +283,7 @@ fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> 
                               initial: Option<&[u8]>,
                               operands: &rocksdb::merge_operator::MergeOperands|
           -> Option<Vec<u8>> {
-        match do_merge(true, initial, key, operands, &schema_1) {
+        match do_merge_rocks(true, initial, key, operands, &schema_1) {
             Ok(ok) => Some(ok),
             Err(err) => {
                 tracing::error!(%err, "error within RocksDB full-merge operator");
@@ -298,7 +298,7 @@ fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> 
                                  initial: Option<&[u8]>,
                                  operands: &rocksdb::merge_operator::MergeOperands|
           -> Option<Vec<u8>> {
-        match do_merge(false, initial, key, operands, &schema_2) {
+        match do_merge_rocks(false, initial, key, operands, &schema_2) {
             Ok(ok) => Some(ok),
             Err(err) => {
                 tracing::error!(%err, "error within RocksDB partial-merge operator");
@@ -314,16 +314,13 @@ fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> 
     Ok(())
 }
 
-fn do_merge(
+fn do_merge_rocks(
     full: bool,
     initial: Option<&[u8]>,
     key: &[u8],
     operands: &rocksdb::merge_operator::MergeOperands,
     schema: &str,
 ) -> anyhow::Result<Vec<u8>> {
-    // Holds outputs of prior iterations, which are now inputs of the next one.
-    let mut input_storage: Vec<Vec<u8>>;
-
     // Collect all input documents (initial + operands, each newline-delimited).
     let mut inputs: Vec<&[u8]> = Vec::new();
     if let Some(initial) = initial {
@@ -337,18 +334,53 @@ fn do_merge(
         }
     }
 
+    do_merge(full, key, inputs, schema, 32 * 1024 * 1024, usize::MAX)
+}
+
+/// Iteratively reduce `inputs` in batches, re-merging batch outputs until a
+/// single result remains. `batch_byte_target` is the initial allocator memory per batch,
+/// and `batch_op_target` is the initial documents per batch (useful for testing).
+fn do_merge(
+    full: bool,
+    key: &[u8],
+    inputs: Vec<&[u8]>,
+    schema: &str,
+    mut batch_byte_target: usize,
+    mut batch_op_target: usize,
+) -> anyhow::Result<Vec<u8>> {
+    const MAX_BYTE_THRESHOLD: usize = 1 << 30; // 1 GiB
+
+    // Shadow `inputs` to decouple the reference lifetime from the caller,
+    // allowing reassignment to borrow from local `input_storage` in the loop.
+    let mut inputs: Vec<&[u8]> = inputs;
+    let mut input_storage: Vec<Vec<u8>>;
+
     let mut iteration = 0usize;
-    let mut mb_threshold = 32; // Start with 32MB threshold, and double as needed.
     let mut prev_batches = usize::MAX;
 
     loop {
         let mut offset = 0;
         let mut outputs: Vec<Vec<u8>> = Vec::new();
 
-        // Process all inputs in batches constrained to `mb_threshold`.
+        // Only the first batch of each iteration uses `full` reduction.
+        // The initial/base value is always in the first batch. Subsequent batches
+        // contain only operands and must use associative (non-full) reduction to
+        // preserve null deletion markers in merge-patch schemas.
+        let mut is_first_batch = true;
+
+        // Process all inputs in batches constrained to `byte_threshold` and `max_count`.
         while offset != inputs.len() {
-            let (output, consumed) =
-                do_merge_bounded(full, &key, &inputs[offset..], schema, mb_threshold)?;
+            let batch_full = full && is_first_batch;
+            is_first_batch = false;
+
+            let (output, consumed) = do_merge_bounded(
+                batch_full,
+                key,
+                &inputs[offset..],
+                schema,
+                batch_byte_target,
+                batch_op_target,
+            )?;
 
             outputs.push(output);
             offset += consumed;
@@ -359,7 +391,7 @@ fn do_merge(
             inputs = inputs.len(),
             batches = outputs.len(),
             prev_batches,
-            mb_threshold,
+            batch_byte_target,
             "do_merge iteration complete"
         );
 
@@ -368,21 +400,27 @@ fn do_merge(
             return Ok(outputs.into_iter().next().unwrap_or_default());
         }
 
-        // Batch count didn't decrease: double the memory threshold to make progress
+        // Batch count didn't decrease: double thresholds to make progress.
+        // Bail if both thresholds are already at their caps — we've exhausted
+        // our escalation budget and still can't converge.
         if outputs.len() >= prev_batches {
-            mb_threshold = mb_threshold.saturating_mul(2);
-
-            if mb_threshold > 1024 {
+            if batch_byte_target >= MAX_BYTE_THRESHOLD && batch_op_target >= 1_024 * 1_024 {
                 anyhow::bail!(
-                    "merge operation would exceed maximum memory threshold \
-                     (MB threshold {mb_threshold}, iteration {iteration}, batches {}, input_docs {})",
+                    "merge operation failed to converge \
+                     (batch_byte_target {batch_byte_target}, batch_op_target {batch_op_target}, \
+                     iteration {iteration}, batches {}, input_docs {})",
                     outputs.len(),
                     inputs.len()
                 );
             }
+            batch_byte_target = batch_byte_target.saturating_mul(2).min(MAX_BYTE_THRESHOLD);
+            batch_op_target = batch_op_target.saturating_mul(2);
         }
 
-        // Iterate again with batch outputs as new inputs
+        // Iterate again with batch outputs (which are a newline-separated
+        // remainder of non-associative merge operands) as new inputs.
+        // The first output descends from the original base value, so
+        // `is_first_batch` will correctly be `true` for it on the next iteration.
         prev_batches = outputs.len();
         input_storage = outputs;
         inputs = input_storage
@@ -394,15 +432,16 @@ fn do_merge(
     }
 }
 
-/// Process documents from a slice into a MemTable until `mb_threshold` is
-/// reached or all `docs` are consumed. Returns newline-separated reduced
-/// documents and the count of documents consumed.
+/// Process documents from a slice into a MemTable until `byte_threshold` is
+/// reached, `max_count` documents are consumed, or all `inputs` are consumed.
+/// Returns newline-separated reduced documents and the count consumed.
 fn do_merge_bounded(
     full: bool,
     key: &[u8],
     inputs: &[&[u8]],
     schema: &str,
-    mb_threshold: usize,
+    byte_threshold: usize,
+    max_count: usize,
 ) -> anyhow::Result<(Vec<u8>, usize)> {
     let bundle = doc::validation::build_bundle(schema.as_bytes())?;
     let validator = doc::Validator::new(bundle)?;
@@ -435,7 +474,7 @@ fn do_merge_bounded(
             .allocated_bytes()
             .saturating_sub(memtable.alloc().chunk_capacity());
 
-        if bytes_used > mb_threshold * 1024 * 1024 {
+        if bytes_used > byte_threshold || consumed >= max_count {
             break;
         }
     }
@@ -468,6 +507,45 @@ fn do_merge_bounded(
 mod test {
     use super::*;
 
+    fn test_schema() -> String {
+        let state_schema = doc::reduce::merge_patch_schema();
+        task_state_default_json_schema(&state_schema).to_string()
+    }
+
+    /// Compute expected result via `json_patch::merge`, then verify `do_merge_batched`
+    /// matches for both full and partial-then-full merges at each batch size.
+    fn check_merge(base: &str, ops: &[&str], max_counts: &[usize]) {
+        let schema = test_schema();
+        let key = RocksDB::CONNECTOR_STATE_KEY.as_bytes();
+
+        let mut expected: serde_json::Value = serde_json::from_str(base).unwrap();
+        for op in ops {
+            json_patch::merge(&mut expected, &serde_json::from_str(op).unwrap());
+        }
+
+        let op_bytes: Vec<&[u8]> = ops.iter().map(|o| o.as_bytes()).collect();
+        let mut all_inputs: Vec<&[u8]> = vec![base.as_bytes()];
+        all_inputs.extend_from_slice(&op_bytes);
+
+        for &mc in max_counts {
+            // Full merge.
+            let result = do_merge(true, key, all_inputs.clone(), &schema, usize::MAX, mc).unwrap();
+            let actual: serde_json::Value = serde_json::from_slice(&result).unwrap();
+            assert_eq!(actual, expected, "full merge at max_count={mc}");
+
+            // Partial merge of just operands, then full merge with base.
+            let partial = do_merge(false, key, op_bytes.clone(), &schema, usize::MAX, mc).unwrap();
+            let mut final_inputs: Vec<&[u8]> = vec![base.as_bytes()];
+            for doc in partial.split(|c| *c == b'\n') {
+                final_inputs.push(doc);
+            }
+            let result =
+                do_merge(true, key, final_inputs, &schema, usize::MAX, usize::MAX).unwrap();
+            let actual: serde_json::Value = serde_json::from_slice(&result).unwrap();
+            assert_eq!(actual, expected, "partial+full merge at max_count={mc}");
+        }
+    }
+
     #[tokio::test]
     async fn connector_state_merge() {
         let mut wb = rocksdb::WriteBatch::default();
@@ -493,11 +571,13 @@ mod test {
     /// convergence.
     #[tokio::test]
     async fn test_merge_many_operands_batched() {
-        // Initialize tracing to see merge operator logs
+        // Uncomment to initialize tracing and see merge operator logs.
+        /*
         let _ = tracing_subscriber::fmt()
             .with_env_filter("runtime=debug")
             .with_writer(std::io::stderr)
             .try_init();
+        */
 
         let db = RocksDB::open(None).await.unwrap();
 
@@ -531,18 +611,184 @@ mod test {
 
         // Verify the merged state contains all cursor entries.
         let parsed: serde_json::Value = serde_json::from_str(state.get()).unwrap();
-        let cursors = parsed.get("cursors").expect("should have cursors object");
-        let cursors_obj = cursors.as_object().expect("cursors should be an object");
-
-        assert_eq!(
-            cursors_obj.len(),
-            num_operands,
-            "all cursor partitions should be present after merge"
-        );
+        let cursors = parsed["cursors"]
+            .as_object()
+            .expect("cursors should be an object");
+        assert_eq!(cursors.len(), num_operands);
 
         // Spot-check a few entries.
-        assert_eq!(cursors_obj["partition_00000"]["offset"], 0);
-        assert_eq!(cursors_obj["partition_00100"]["offset"], 100_000);
-        assert_eq!(cursors_obj["partition_49999"]["offset"], 49_999_000);
+        assert_eq!(cursors["partition_00000"]["offset"], 0);
+        assert_eq!(cursors["partition_00100"]["offset"], 100_000);
+        assert_eq!(cursors["partition_49999"]["offset"], 49_999_000);
+    }
+
+    /// Null deletion markers must survive batching. Historical bug: when a non-first
+    /// batch used `full=true`, LWW delete stripped null markers within the batch
+    /// instead of preserving them for re-merge with the base value.
+    /// Also verifies the partial merge path preserves null markers.
+    #[test]
+    fn test_null_deletion_survives_batching() {
+        // batch1=[base,op1], batch2=[op2,op3_null] at max_count=2.
+        check_merge(
+            r#"{"a":1,"x":10}"#,
+            &[r#"{"b":2}"#, r#"{"a":5}"#, r#"{"a":null}"#],
+            &[2, 3, usize::MAX],
+        );
+        // Multiple interleaved deletions across batch boundaries.
+        check_merge(
+            r#"{"a":1,"b":2,"c":3}"#,
+            &[
+                r#"{"e":5}"#,
+                r#"{"a":5}"#,
+                r#"{"a":null}"#,
+                r#"{"b":5}"#,
+                r#"{"b":null}"#,
+            ],
+            &[2, 3, usize::MAX],
+        );
+    }
+
+    /// Quickcheck for merge-patch-relevant JSON: small key alphabet to force collisions,
+    /// high null frequency to exercise deletion markers, and controlled nesting depth.
+    #[derive(Clone, Debug)]
+    struct MergePatchValue(serde_json::Value);
+
+    impl quickcheck::Arbitrary for MergePatchValue {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            Self(gen_merge_patch_value(g, 3))
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            match &self.0 {
+                serde_json::Value::Object(map) => {
+                    let entries: Vec<(String, MergePatchValue)> = map
+                        .iter()
+                        .map(|(k, v)| (k.clone(), MergePatchValue(v.clone())))
+                        .collect();
+                    Box::new(entries.shrink().map(|es| {
+                        let map: serde_json::Map<String, serde_json::Value> =
+                            es.into_iter().map(|(k, v)| (k, v.0)).collect();
+                        MergePatchValue(serde_json::Value::Object(map))
+                    }))
+                }
+                serde_json::Value::Null => quickcheck::empty_shrinker(),
+                _ => Box::new(std::iter::once(MergePatchValue(serde_json::Value::Null))),
+            }
+        }
+    }
+
+    fn gen_range(g: &mut quickcheck::Gen, range: std::ops::Range<u64>) -> u64 {
+        <u64 as quickcheck::Arbitrary>::arbitrary(g) % (range.end - range.start) + range.start
+    }
+
+    fn gen_merge_patch_value(g: &mut quickcheck::Gen, depth: usize) -> serde_json::Value {
+        let choices = if depth > 0 { 10 } else { 7 };
+        match gen_range(g, 0..choices) {
+            0 | 1 | 2 => serde_json::Value::Null, // ~30% null
+            3 => serde_json::Value::Bool(<bool as quickcheck::Arbitrary>::arbitrary(g)),
+            4 => serde_json::json!(<u8 as quickcheck::Arbitrary>::arbitrary(g)),
+            5 => serde_json::json!(<String as quickcheck::Arbitrary>::arbitrary(g)),
+            6 => serde_json::json!([<u8 as quickcheck::Arbitrary>::arbitrary(g)]),
+            _ => {
+                let keys = ["a", "b", "c", "d", "e"];
+                let num_keys = gen_range(g, 1..6) as usize;
+                let mut map = serde_json::Map::new();
+                for _ in 0..num_keys {
+                    let ki = gen_range(g, 0..keys.len() as u64) as usize;
+                    map.insert(keys[ki].to_string(), gen_merge_patch_value(g, depth - 1));
+                }
+                serde_json::Value::Object(map)
+            }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct MergePatchSequence {
+        base: MergePatchValue,
+        operands: Vec<MergePatchValue>,
+    }
+
+    impl quickcheck::Arbitrary for MergePatchSequence {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            let n = gen_range(g, 1..21) as usize;
+            // Connector state is always a JSON object at the top level.
+            let gen_obj = |g: &mut quickcheck::Gen| loop {
+                let v = gen_merge_patch_value(g, 3);
+                if v.is_object() {
+                    return MergePatchValue(v);
+                }
+            };
+            Self {
+                base: gen_obj(g),
+                operands: (0..n).map(|_| gen_obj(g)).collect(),
+            }
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let base = self.base.clone();
+            let operands = self.operands.clone();
+            Box::new(operands.shrink().map(move |ops| MergePatchSequence {
+                base: base.clone(),
+                operands: ops,
+            }))
+        }
+    }
+
+    /// Fuzz: `do_merge_batched` at various batch sizes must match `json_patch::merge`,
+    /// for both full merges and partial-then-full merges.
+    #[test]
+    fn fuzz_batched_merge_matches_reference() {
+        fn prop(seq: MergePatchSequence) -> bool {
+            let schema = test_schema();
+            let key = RocksDB::CONNECTOR_STATE_KEY.as_bytes();
+
+            let mut expected = seq.base.0.clone();
+            for op in &seq.operands {
+                json_patch::merge(&mut expected, &op.0);
+            }
+
+            let base_bytes = serde_json::to_vec(&seq.base.0).unwrap();
+            let op_bytes: Vec<Vec<u8>> = seq
+                .operands
+                .iter()
+                .map(|op| serde_json::to_vec(&op.0).unwrap())
+                .collect();
+
+            let mut all_inputs: Vec<&[u8]> = vec![&base_bytes];
+            all_inputs.extend(op_bytes.iter().map(|v| v.as_slice()));
+            let ops_only: Vec<&[u8]> = op_bytes.iter().map(|v| v.as_slice()).collect();
+
+            for mc in [2, 3, 5, usize::MAX] {
+                // Full merge.
+                let result =
+                    do_merge(true, key, all_inputs.clone(), &schema, usize::MAX, mc).unwrap();
+                if serde_json::from_slice::<serde_json::Value>(&result).unwrap() != expected {
+                    return false;
+                }
+
+                if ops_only.is_empty() {
+                    continue;
+                }
+
+                // Partial merge of operands, then full merge with base.
+                let partial =
+                    do_merge(false, key, ops_only.clone(), &schema, usize::MAX, mc).unwrap();
+                let mut final_inputs: Vec<&[u8]> = vec![&base_bytes];
+                for doc in partial.split(|c| *c == b'\n') {
+                    final_inputs.push(doc);
+                }
+                let result =
+                    do_merge(true, key, final_inputs, &schema, usize::MAX, usize::MAX).unwrap();
+                if serde_json::from_slice::<serde_json::Value>(&result).unwrap() != expected {
+                    return false;
+                }
+            }
+            true
+        }
+
+        quickcheck::QuickCheck::new()
+            .tests(1000)
+            .max_tests(2000)
+            .quickcheck(prop as fn(MergePatchSequence) -> bool);
     }
 }

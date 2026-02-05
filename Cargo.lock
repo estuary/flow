@@ -6980,6 +6980,7 @@ dependencies = [
  "proto-flow",
  "proto-gazette",
  "proto-grpc",
+ "quickcheck",
  "reqwest 0.12.23",
  "rocksdb",
  "serde",
