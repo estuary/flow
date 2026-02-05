@@ -1,10 +1,12 @@
 # Session Context
 
-**Status:** PR #2648 ready for merge
+**Status:** PR #2648 open, blocked by unrelated CI failure (sccache)
 
-## Session Summary (2026-02-02)
+## Session Summary (2026-02-06)
 
-Created 4 new documentation pages covering advanced Estuary features:
+Brief session - added OpenMetrics API documentation task to inbox. No code changes.
+
+**Previous session (2026-02-02):** Created 4 new documentation pages covering advanced Estuary features:
 
 1. **Document Metadata Fields** - Explains `_meta` fields added by captures (uuid, op, source) with connector-specific details for PostgreSQL, MySQL, SQL Server, Oracle, MongoDB, and Snowflake.
 
@@ -18,8 +20,12 @@ Reorganized pages from Advanced Features to Using Estuary > Advanced Usage for b
 
 ## Active Work
 
-- Merge PR #2648: https://github.com/estuary/flow/pull/2648
-- All 11 commits are pushed and build passes
+- **Merge PR #2648**: https://github.com/estuary/flow/pull/2648
+  - All 11 commits pushed, docs preview passes
+  - Platform Test failed due to sccache infrastructure issue (unrelated to docs)
+  - May need rebase or re-run to clear
+
+- **OpenMetrics API docs update** (in Inbox): Add month-to-date counter explanation, Prometheus/Grafana guidance
 
 ## Key Files
 

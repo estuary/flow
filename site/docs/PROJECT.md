@@ -9,7 +9,7 @@ Documentation for the Estuary Flow real-time data platform.
 - [x] Add custom column types documentation (`castToString`, `DDL`)
 - [x] Add schema evolution troubleshooting guide
 - [x] Reorganize advanced docs under Using Estuary > Advanced Usage
-- [ ] Merge PR #2648 with all documentation updates
+- [ ] Merge PR #2648 with all documentation updates (blocked by unrelated CI failure - sccache issue)
 
 ## Plan
 
@@ -32,6 +32,7 @@ Documentation for the Estuary Flow real-time data platform.
 
 ## Inbox
 
+- [2026-02-04] Update OpenMetrics API Documentation (site/docs/features/openmetrics-api.md): Add "How metrics are calculated" section explaining month-to-date counters, add Time Scope column to metrics table, add "Using with Prometheus/Grafana" subsection with increase() examples and month boundary warnings, clarify in Custom integration that API returns month-to-date totals not deltas
 - Consider adding more connector-specific troubleshooting pages
 - Document additional feature flags as they're added to connectors
 
