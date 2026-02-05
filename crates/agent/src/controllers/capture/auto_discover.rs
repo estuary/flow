@@ -315,8 +315,9 @@ async fn try_auto_discover<C: ControlPlane>(
     pending.details.push(publish_detail);
     // Add the draft back into the pending publication, so it will be published.
     pending.draft = draft;
+    // Use `None` for alerts param to suppress the generic background_publication_failed alert.
     let pub_result = pending
-        .finish(state, pub_status, control_plane)
+        .finish(state, pub_status, None, control_plane)
         .await
         .context("executing publication")?;
 

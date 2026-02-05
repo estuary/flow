@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use control_plane_api::publications::PublicationResult;
-use models::{AnySpec, ModelDef, status::publications::PublicationStatus};
+use models::{
+    AnySpec, ModelDef,
+    status::{Alerts, publications::PublicationStatus},
+};
 
 use crate::{
     ControlPlane,
@@ -85,6 +88,7 @@ impl Dependencies {
         state: &ControllerState,
         control_plane: &C,
         pub_status: &mut PublicationStatus,
+        alerts: &mut Alerts,
         handle_deleted: DF,
     ) -> anyhow::Result<Option<PublicationResult>>
     where
@@ -106,7 +110,7 @@ impl Dependencies {
             publication_status::check_can_publish(pub_status, control_plane)?;
 
             let pub_result = pending
-                .finish(state, pub_status, control_plane)
+                .finish(state, pub_status, Some(alerts), control_plane)
                 .await
                 .context("failed to execute publish")?
                 .error_for_status();
