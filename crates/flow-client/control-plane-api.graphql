@@ -126,13 +126,51 @@ input AlertSubscriptionsBy {
 }
 
 enum AlertType {
+	"""
+	Triggers when the automated background discovery process fails. If this
+	alert is firing, it means that the Capture may be unable to respond to
+	schema changes in the source system.
+	"""
 	auto_discover_failed
+	"""
+	Triggers when there has been no data successfully processed by the task during
+	the configured alert interval.
+	"""
 	data_movement_stalled
+	"""
+	Triggers automatically for every tenant that begins a free
+	trial, and resolves when the trial period ends.
+	"""
 	free_trial
+	"""
+	Triggers when the free trial is getting close to expiring.
+	"""
 	free_trial_ending
+	"""
+	Triggers after the free trial period has expired, and still no payment info
+	has been added.
+	"""
 	free_trial_stalled
+	"""
+	Triggers for any tenants that do not have a payment method, and resolves when
+	a payment method is added.
+	"""
 	missing_payment_method
+	"""
+	Triggers after repeated task failures have been observed. The task may or may not
+	continue to make progress in between failures, but at a minimum, performance will
+	be degraded. And in many scenarios, the task will be unable to process data at all.
+	"""
 	shard_failed
+	"""
+	Triggers when an automated background process needs to publish a spec,
+	but is unable to because of publication errors. Background publications
+	are peformed on all specs for a variety of reasons. For example,
+	updating inferred schemas, or updating materialization bindings to match
+	the source capture. When these publications fail, tasks are likely to
+	stop functioning correctly until the issue can be address.
+	"""
+	background_publication_failed
 }
 
 input AlertsBy {
