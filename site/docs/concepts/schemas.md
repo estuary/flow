@@ -114,6 +114,7 @@ There are a few things to know, however.
 * The top-level type must be `object`.
   Estuary adds a bit of metadata to each of your documents under the `_meta` property,
   which can only be done with a top-level object.
+  See [Document Metadata Fields](/guides/advanced-usage/metadata-fields) for details.
 
 * Any fields that are part of the collection's `key` must provably exist
   in any document that validates against the schema.

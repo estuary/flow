@@ -29,7 +29,7 @@ The `flow_published_at` projection is automatically derived from the UUID's time
 
 ### Delete Events
 
-Delete events (`op: "d"`) contain only the document key and `_meta` fields—other fields are omitted. When processing deletes, use the key to identify which document was removed.
+Delete events (`op: "d"`) contain only the document key and `_meta` fields—other fields are omitted. When processing deletes, use the key to identify which document was removed. See the [deletions guide](/reference/deletions/) for handling soft and hard deletes.
 
 ## Common Source Fields (SQL Captures)
 

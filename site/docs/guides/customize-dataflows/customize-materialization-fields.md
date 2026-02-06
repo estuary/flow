@@ -288,7 +288,7 @@ bindings:
         flow_document: {}
 ```
 
-## Re-adding pruned fields
+## Pruned fields
 
 Estuary's schema inference tracks unique field locations. To prevent excessively large schemas, there's a complexity limit:
 

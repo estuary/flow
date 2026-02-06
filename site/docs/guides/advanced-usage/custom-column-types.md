@@ -17,6 +17,51 @@ Common scenarios include:
 
 ## Configuration
 
+### Via the Web App
+
+1. Navigate to your materialization and click **Edit Specification**
+2. Scroll down to the **Advanced Spec Editor**
+3. Find the relevant binding by its `source` collection name
+4. Add the field configuration inside the binding's `fields.include` section
+
+:::note
+`include` requires the field to exist in the **collection schema**—if the field is removed from the schema, the materialization will fail to publish. However, individual documents don't need to have the field: if a document is missing the field or it's null, the destination column will contain `NULL` for that row.
+:::
+
+For example, to cast a field to string:
+
+```json
+{
+  "fields": {
+    "recommended": true,
+    "include": {
+      "CampaignLineItemId": {
+        "castToString": true
+      }
+    }
+  }
+}
+```
+
+Or to set a custom DDL:
+
+```json
+{
+  "fields": {
+    "recommended": true,
+    "include": {
+      "your_field": {
+        "ddl": "NUMBER(14,6)"
+      }
+    }
+  }
+}
+```
+
+5. Click **Save and Publish**
+
+### Via YAML
+
 Custom column types are configured per-field in the materialization's `fields` stanza.
 
 **Path:** `materializations.<name>.bindings[].fields.include.<fieldName>`
@@ -58,7 +103,7 @@ fields:
 - The destination column is created as a string/text type
 - Original type information is preserved in the collection; only the materialized representation changes
 
-**Connector support:** Most SQL and warehouse materializers support `castToString`. However, **Elasticsearch**, **MongoDB**, and **DynamoDB** connectors do not support this option.
+**Connector support:** Most SQL and warehouse materialization connectors support `castToString`. However, **Elasticsearch**, **MongoDB**, and **DynamoDB** connectors do not support this option.
 
 ### DDL
 
@@ -94,7 +139,7 @@ fields:
 | BigQuery | `JSON` | Native JSON column type |
 | MySQL | `DECIMAL(65,30)` | Maximum precision decimal |
 
-**Connector support:** DDL is supported by most SQL and warehouse materializers. The **Iceberg** connector does not support DDL; use the `ignoreStringFormat` option instead for similar functionality.
+**Connector support:** DDL is supported by most SQL and warehouse materialization connectors. The **Iceberg** connector does not support DDL; use the `ignoreStringFormat` option instead for similar functionality.
 
 ## Combining Options
 
@@ -109,17 +154,6 @@ fields:
 When combined:
 - The value is first converted to a string
 - The string is stored in a column with your custom DDL
-
-## Configuring via the Web App
-
-You can also configure these options through Estuary's web application:
-
-1. Navigate to your materialization and click **Edit**
-2. Select the binding you want to modify
-3. In the **Field Selection** table, find the field you want to customize
-4. Click the field's configuration button to access advanced options
-5. Set `castToString` or provide custom `DDL` as needed
-6. Click **Save and Publish**
 
 ## Troubleshooting
 

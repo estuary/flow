@@ -2,7 +2,7 @@
 sidebar_position: 1
 ---
 
-# Fixing Schema Inference Issues from Bad Upstream Data
+# Fixing Schema Inference Issues
 
 ## Problem
 
@@ -31,75 +31,18 @@ If you can fix or remove the bad data upstream, this is the easiest option and l
 
 ### Option 2: Cast to String (`castToString`)
 
-If you can't fix the source data, the simplest workaround is to cast the field to a string at the materialization level:
+If you can't fix the source data, the simplest workaround is to cast the field to a string at the materialization level. This works for any connector and converts the value to its string representation.
 
-```json
-{
-  "source": "your/collection/path",
-  "resource": {
-    "schema": "PUBLIC",
-    "table": "your_table"
-  },
-  "fields": {
-    "recommended": true,
-    "include": {
-      "problematic_field": {
-        "castToString": true
-      }
-    }
-  }
-}
-```
-
-This works for any connector and converts the value to its string representation.
+See [Custom Column Types — castToString](/guides/advanced-usage/custom-column-types#casttostring) for configuration details.
 
 ### Option 3: Custom DDL Override (`ddl`)
 
-For more control, use the `ddl` option to specify the exact column type in the destination:
+For more control, use the `ddl` option to specify the exact column type in the destination. The `ddl` value is passed directly to the destination database, so use syntax appropriate for your connector (e.g., `VARCHAR(255)` for Snowflake, `STRING` for BigQuery).
 
-```json
-{
-  "source": "your/collection/path",
-  "resource": {
-    "schema": "PUBLIC",
-    "table": "your_table"
-  },
-  "fields": {
-    "recommended": true,
-    "include": {
-      "problematic_field": {
-        "ddl": "VARCHAR(255)"
-      }
-    }
-  }
-}
-```
-
-The `ddl` value is passed directly to the destination database, so use syntax appropriate for your connector (e.g., `VARCHAR(255)` for Snowflake, `STRING` for BigQuery).
-
-## How to Apply Options 2 & 3
-
-1. Go to your materialization in the Estuary dashboard
-2. Click **Edit** → **Spec Editor** (advanced mode)
-3. Find the binding for your collection
-4. Add the `fields.include` section with your field configuration
-5. **Save and Publish**
-
-**Tip:** First "require" the field in the UI, then add the `ddl` or `castToString` option in the spec editor.
+See [Custom Column Types — DDL](/guides/advanced-usage/custom-column-types#ddl) for configuration details and supported connectors.
 
 ## Why Schema Keeps Reverting
 
 If you edit the collection's schema directly (under Sources → Collection), schema inference may overwrite your changes when new data arrives that doesn't match your edits.
 
 The `ddl` and `castToString` options are applied at the **materialization** level, so they persist regardless of schema inference changes to the source collection.
-
-## Supported Connectors
-
-The `ddl` override is supported by SQL-based materialization connectors including:
-- Snowflake
-- BigQuery
-- Redshift
-- PostgreSQL
-- MySQL
-- SQL Server
-- Databricks
