@@ -8,6 +8,7 @@ Estuary supports two categories of deletions: **soft deletes** and **hard delete
 
 Delete events contain a very limited set of fields compared to create and update events.
 Only the primary key and meta information are present. The `_meta/op` field will be set to `d`.
+See [Document Metadata Fields](/guides/advanced-usage/metadata-fields) for details on all `_meta` fields.
 For example:
 
 ```json

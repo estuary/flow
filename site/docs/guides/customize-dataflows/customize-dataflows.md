@@ -40,6 +40,7 @@ While this setup supports use cases like audit trails, un-reduced documents will
 
 If you provide a value in a capture's Source Tag field, that value will be populated in the `_meta/source` column on every row the capture writes.
 For captures that write into the same collection, this feature helps note downstream which capture wrote a particular row.
+See [Document Metadata Fields](/guides/advanced-usage/metadata-fields) for all available `_meta` fields.
 
 You can edit the Source Tag in a capture's **Advanced Options** configuration.
 
