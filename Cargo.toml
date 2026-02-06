@@ -32,7 +32,7 @@ async-compression = { version = "0", features = [
     "tokio",
     "zstd",
 ] }
-async-stripe = { version = "0", features = ["runtime-tokio-hyper"] }
+async-stripe = { version = "0", default-features = false, features = ["billing", "checkout", "runtime-tokio-hyper"] }
 async-trait = "0"
 atty = "0"
 # TODO: Add "xz" feature after next apache-avro release (>0.20.0)
