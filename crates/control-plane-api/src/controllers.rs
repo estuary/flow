@@ -16,6 +16,11 @@ pub enum Message {
         /// The ID of the publication that touched or modified the spec.
         pub_id: models::Id,
     },
+    /// Signals that a publication of the spec is necessary, and should be performed
+    /// as soon as practical after the controller recieves this message.
+    Republish {
+        reason: String,
+    },
     /// The inferred schema of the controlled collection spec has been updated.
     InferredSchemaUpdated,
     /// A request to trigger the controller manually. This is primarily used
@@ -116,6 +121,38 @@ pub async fn update_status(
     .execute(txn)
     .await?;
     Ok(())
+}
+
+/// Sends the given message to the controller for every collection, enabled
+/// task, and test under the given `catalog_prefix`. Returns the number of
+/// controllers that were sent the message. The message will _not_ be sent to
+/// any disabled captures or materializations, but it will be sent to disabled
+/// derivations since those are still just collections. This filtering is just
+/// an optimization, since over time we tend to accumulate quite a few more
+/// disabled tasks than enabled ones.
+pub async fn broadcast_to_prefix<T: serde::Serialize>(
+    catalog_prefix: &str,
+    message: T,
+    db: &mut sqlx::PgConnection,
+) -> anyhow::Result<i64> {
+    let message_json = serde_json::to_value(message)?;
+    let result = sqlx::query_scalar!(r#"
+        with ids as (
+          select controller_task_id
+          from live_specs
+          where catalog_name::text ^@ $1
+          and coalesce(spec->'shards'->>'disable', 'false') = 'false'
+        ),
+        sends as (
+          select 1 as sent, internal.send_to_task(controller_task_id::flowid, '0000000000000000'::flowid, $2::json)
+          from ids
+        )
+        select count(sent) from sends
+          "#,
+        catalog_prefix,
+        TextJson(message_json) as TextJson<serde_json::Value>,
+    ).fetch_one(db).await?;
+    Ok(result.unwrap_or(0))
 }
 
 /// Trigger a controller sync of all dependents of the given `live_spec_id`.

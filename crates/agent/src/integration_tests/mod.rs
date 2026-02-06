@@ -14,6 +14,7 @@ mod locking_retries;
 mod null_bytes;
 mod periodic_publications;
 mod quotas;
+mod republish;
 mod shard_failures;
 mod source_captures;
 mod tenant_alerts;

@@ -338,8 +338,14 @@ pub async fn update_observed_pub_id<C: ControlPlane>(
 
 pub fn record_result(status: &mut PublicationStatus, publication: PublicationInfo) {
     tracing::info!(pub_id = ?publication.id, status = ?publication.result, "controller finished publication");
+
     for err in publication.errors.iter() {
         tracing::debug!(?err, "publication error");
+    }
+    if publication.result.as_ref().is_some_and(|r| r.is_success()) {
+        if let Some(req) = status.pending_republish.take() {
+            tracing::info!(?req, "successfully completed requested re-publish");
+        }
     }
     let maybe_new_entry = if let Some(last_entry) = status.history.front_mut() {
         last_entry.try_reduce(publication)

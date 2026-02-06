@@ -1,12 +1,16 @@
 use std::collections::BTreeSet;
 
-use super::{ControlPlane, ControllerState, Inbox, NextRun, dependencies::Dependencies, periodic};
+use crate::controllers::publication_status;
+
+use super::{
+    ControlPlane, ControllerState, Inbox, NextRun, dependencies::Dependencies, periodic, republish,
+};
 use models::status::catalog_test::TestStatus;
 
 pub async fn update<C: ControlPlane>(
     status: &mut TestStatus,
     state: &ControllerState,
-    _events: &Inbox,
+    events: &Inbox,
     control_plane: &C,
     _model: &models::TestDef,
 ) -> anyhow::Result<Option<NextRun>> {
@@ -28,6 +32,17 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
+    let republish_result = republish::update_republish(
+        events,
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await?;
+    if republish_result.is_some() {
+        return Ok(Some(NextRun::immediately()));
+    }
 
     if periodic::update_periodic_publish(
         state,

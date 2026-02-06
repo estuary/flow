@@ -9,6 +9,7 @@ pub(crate) mod executor;
 pub(crate) mod materialization;
 pub(crate) mod periodic;
 pub(crate) mod publication_status;
+pub(crate) mod republish;
 
 use crate::controlplane::ControlPlane;
 use anyhow::Context;

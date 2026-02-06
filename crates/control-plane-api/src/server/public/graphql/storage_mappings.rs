@@ -385,6 +385,18 @@ impl StorageMappingsMutation {
         )
         .await?;
 
+        if republish {
+            let message = crate::controllers::Message::Republish {
+                reason: format!(
+                    "storage mappings updated by user {} ({})",
+                    claims.email.as_deref().unwrap_or_default(),
+                    claims.sub
+                ),
+            };
+            crate::controllers::broadcast_to_prefix(catalog_prefix.as_str(), message, &mut *txn)
+                .await?;
+        }
+
         txn.commit().await?;
 
         tracing::info!(
