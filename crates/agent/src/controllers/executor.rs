@@ -15,7 +15,7 @@ use crate::{
 };
 use anyhow::Context;
 use automations::{Action, Executor, TaskType};
-use control_plane_api::{alerts, live_specs};
+use control_plane_api::{alerts, controllers::Message, live_specs};
 use models::{
     Id,
     status::{AlertType, ControllerStatus},
@@ -37,30 +37,7 @@ impl<C: ControlPlane> LiveSpecControllerExecutor<C> {
     }
 }
 
-/// Messages that can be sent to a controller.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Event {
-    /// A dependency of the controlled spec has been updated.
-    DependencyUpdated,
-    /// The controlled spec has just been published.
-    SpecPublished {
-        /// The ID of the publication that touched or modified the spec.
-        pub_id: models::Id,
-    },
-    /// The inferred schema of the controlled collection spec has been updated.
-    InferredSchemaUpdated,
-    /// A request to trigger the controller manually. This is primarily used
-    /// in tests to trigger the controller without waiting the `wake_at` time.
-    ManualTrigger {
-        /// The ID of the user who sent the message.
-        user_id: uuid::Uuid,
-    },
-    ShardFailed,
-    ConfigUpdated,
-}
-
-pub type Inbox = VecDeque<(Id, Option<Event>)>;
+pub type Inbox = VecDeque<(Id, Option<Message>)>;
 
 /// The state of the controller automation task stores infomation that's useful
 /// for debugging, but isn't meant to be directly exposed to users.
@@ -168,7 +145,7 @@ impl automations::Outcome for Outcome {
 impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExecutor<C> {
     const TASK_TYPE: TaskType = automations::task_types::LIVE_SPEC_CONTROLLER;
 
-    type Receive = Event;
+    type Receive = Message;
     type State = State;
     type Outcome = Outcome;
 
@@ -296,7 +273,7 @@ fn to_alert_view(
 ))]
 async fn run_controller<C: ControlPlane>(
     task_state: &mut State,
-    inbox: &mut VecDeque<(Id, Option<Event>)>,
+    inbox: &mut VecDeque<(Id, Option<Message>)>,
     _task_id: Id,
     controller_state: &ControllerState,
     control_plane: &C,

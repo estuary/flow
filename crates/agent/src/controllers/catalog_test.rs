@@ -1,12 +1,16 @@
 use std::collections::BTreeSet;
 
-use super::{ControlPlane, ControllerState, Inbox, NextRun, dependencies::Dependencies, periodic};
+use crate::controllers::publication_status;
+
+use super::{
+    ControlPlane, ControllerState, Inbox, NextRun, dependencies::Dependencies, periodic, republish,
+};
 use models::status::catalog_test::TestStatus;
 
 pub async fn update<C: ControlPlane>(
     status: &mut TestStatus,
     state: &ControllerState,
-    _events: &Inbox,
+    events: &Inbox,
     control_plane: &C,
     _model: &models::TestDef,
 ) -> anyhow::Result<Option<NextRun>> {
@@ -17,6 +21,7 @@ pub async fn update<C: ControlPlane>(
             state,
             control_plane,
             &mut status.publications,
+            &mut status.alerts,
             error_on_deleted_dependencies,
         )
         .await?
@@ -27,9 +32,26 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    if periodic::update_periodic_publish(state, &mut status.publications, control_plane)
-        .await?
-        .is_some()
+    let republish_result = republish::update_republish(
+        events,
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await?;
+    if republish_result.is_some() {
+        return Ok(Some(NextRun::immediately()));
+    }
+
+    if periodic::update_periodic_publish(
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await?
+    .is_some()
     {
         // We've successfully published against the latest versions of the dependencies
         status.passing = true;
@@ -38,6 +60,16 @@ pub async fn update<C: ControlPlane>(
 
     // If dependencies are up to date, then the test is passing.
     status.passing = true;
+
+    // Clear any background_publication_failed alert if the test has been successfully published by the user
+    publication_status::update_observed_pub_id(
+        &mut status.publications,
+        &mut status.alerts,
+        state,
+        control_plane,
+    )
+    .await?;
+
     Ok(periodic::next_periodic_publish(state))
 }
 

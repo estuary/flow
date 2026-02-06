@@ -3,7 +3,7 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
     coalesce_results, dependencies::Dependencies,
 };
-use crate::controllers::{activation, config_update, periodic, publication_status};
+use crate::controllers::{activation, config_update, periodic, publication_status, republish};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
@@ -59,6 +59,7 @@ pub async fn update<C: ControlPlane>(
         state,
         config_updates,
         publications,
+        alerts,
         events,
         control_plane,
         |config_update: &ConfigUpdate| -> anyhow::Result<publication_status::PendingPublication> {
@@ -108,7 +109,7 @@ pub async fn update<C: ControlPlane>(
 
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
     let dependencies_published = dependencies
-        .update(state, control_plane, publications, |deleted| {
+        .update(state, control_plane, publications, alerts, |deleted| {
             let mut draft_capture = model.clone();
             let mut disabled_count = 0;
             for binding in draft_capture.bindings.iter_mut() {
@@ -129,8 +130,15 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
     let dependencies_result = dependencies_published.map(|_| None);
+
+    let republish_result =
+        republish::update_republish(events, state, publications, alerts, control_plane).await;
+    if republish_result.as_ref().is_ok_and(|r| r.is_some()) {
+        return Ok(Some(NextRun::immediately()));
+    }
+
     let periodic_published =
-        periodic::update_periodic_publish(state, publications, control_plane).await;
+        periodic::update_periodic_publish(state, publications, alerts, control_plane).await;
     if periodic_published.as_ref().is_ok_and(|r| r.is_some()) {
         return Ok(Some(NextRun::immediately()));
     }
@@ -138,7 +146,7 @@ pub async fn update<C: ControlPlane>(
     // updated_at timestamp of the live spec.
     let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
-    let pending_publish = status.publications.next_after;
+    let pending_publish = publications.next_after;
     let activate_result = activation::update_activation(
         activation,
         alerts,
@@ -151,14 +159,11 @@ pub async fn update<C: ControlPlane>(
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
-    let notify_result = publication_status::update_notify_dependents(
-        &mut status.publications,
-        state,
-        control_plane,
-    )
-    .await
-    .context("failed to notify dependents")
-    .map(|_| None);
+    let notify_result =
+        publication_status::update_observed_pub_id(publications, alerts, state, control_plane)
+            .await
+            .context("failed to notify dependents")
+            .map(|_| None);
 
     coalesce_results(
         state.failures,
@@ -167,6 +172,7 @@ pub async fn update<C: ControlPlane>(
             updated_config_result,
             dependencies_result,
             periodic_result,
+            republish_result.map(|_| None),
             activate_result,
             notify_result,
         ],

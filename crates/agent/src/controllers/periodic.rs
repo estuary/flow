@@ -8,7 +8,10 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use control_plane_api::publications::PublicationResult;
-use models::{ModelDef, status::publications::PublicationStatus};
+use models::{
+    ModelDef,
+    status::{Alerts, publications::PublicationStatus},
+};
 
 use crate::{ControlPlane, controllers::publication_status};
 
@@ -63,6 +66,7 @@ fn next_pub_time(state: &ControllerState) -> Option<(DateTime<Utc>, u32)> {
 pub async fn update_periodic_publish<C: ControlPlane>(
     state: &ControllerState,
     pub_status: &mut PublicationStatus,
+    alerts: &mut Alerts,
     control_plane: &C,
 ) -> anyhow::Result<Option<PublicationResult>> {
     let mut pending = start_periodic_publish_update(state, control_plane)?;
@@ -72,7 +76,7 @@ pub async fn update_periodic_publish<C: ControlPlane>(
     publication_status::check_can_publish(pub_status, control_plane)?;
 
     let pub_result = pending
-        .finish(state, pub_status, control_plane)
+        .finish(state, pub_status, Some(alerts), control_plane)
         .await
         .context("executing periodic publication")?;
     let success_result = pub_result

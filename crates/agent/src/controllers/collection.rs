@@ -6,6 +6,7 @@ use super::{
     dependencies::Dependencies,
     periodic,
     publication_status::{self, PendingPublication},
+    republish,
 };
 use anyhow::Context;
 use control_plane_api::publications::PublicationResult;
@@ -20,7 +21,7 @@ pub async fn update<C: ControlPlane>(
     model: &models::CollectionDef,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
-    let published = maybe_publish(status, state, control_plane, model).await;
+    let published = maybe_publish(events, status, state, control_plane, model).await;
     // Return now only if a publication was performed successfully. If the
     // publication failed, then we still attempt to update the activation.
     if Some(&true) == published.as_ref().ok() {
@@ -48,7 +49,7 @@ pub async fn update<C: ControlPlane>(
     .map_err(Into::into);
 
     let notify_result =
-        publication_status::update_notify_dependents(publications, state, control_plane)
+        publication_status::update_observed_pub_id(publications, alerts, state, control_plane)
             .await
             .map(|_| None);
 
@@ -74,6 +75,7 @@ pub async fn update<C: ControlPlane>(
 /// - Update the inferred schema
 /// - Update inlined spec dependencies
 /// - Periodically rebuild the spec
+/// - In response to a Republish request
 ///
 /// Returns a boolean indicating whether a publication was performed.
 /// Note that unlike captures and materializations, all collection publications
@@ -83,6 +85,7 @@ pub async fn update<C: ControlPlane>(
 /// why we might publish. This is why we can have a single `maybe_publish` function
 /// instead of needing separate results like captures and materializations.
 async fn maybe_publish<C: ControlPlane>(
+    events: &Inbox,
     status: &mut CollectionStatus,
     state: &ControllerState,
     control_plane: &C,
@@ -94,9 +97,13 @@ async fn maybe_publish<C: ControlPlane>(
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
 
     let dep_update_pub = dependencies
-        .update(state, control_plane, &mut status.publications, |deleted| {
-            handle_deleted_dependencies(model.clone(), deleted)
-        })
+        .update(
+            state,
+            control_plane,
+            &mut status.publications,
+            &mut status.alerts,
+            |deleted| handle_deleted_dependencies(model.clone(), deleted),
+        )
         .await?;
 
     if let Some(success_result) = dep_update_pub {
@@ -104,8 +111,26 @@ async fn maybe_publish<C: ControlPlane>(
         return Ok(true);
     }
 
-    if let Some(success_result) =
-        periodic::update_periodic_publish(state, &mut status.publications, control_plane).await?
+    let republish_result = republish::update_republish(
+        events,
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await?;
+    if let Some(success_result) = republish_result {
+        collection_published_successfully(status, state, &success_result);
+        return Ok(true);
+    }
+
+    if let Some(success_result) = periodic::update_periodic_publish(
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await?
     {
         collection_published_successfully(status, state, &success_result);
         return Ok(true);
@@ -249,7 +274,12 @@ pub async fn update_inferred_schema<C: ControlPlane>(
                 .unwrap_or(1);
             let min_backoff = control_plane.controller_publication_cooldown();
             let successful_result = pending_pub
-                .finish(state, &mut collection_status.publications, control_plane)
+                .finish(
+                    state,
+                    &mut collection_status.publications,
+                    Some(&mut collection_status.alerts),
+                    control_plane,
+                )
                 .await?
                 .error_for_status()
                 .with_retry(backoff_publication_failure(failures, min_backoff))?;

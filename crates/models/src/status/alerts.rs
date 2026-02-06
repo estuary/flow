@@ -23,13 +23,35 @@ use serde::{Deserialize, Serialize};
 )]
 #[serde(rename_all = "snake_case")]
 pub enum AlertType {
+    /// Triggers when the automated background discovery process fails. If this
+    /// alert is firing, it means that the Capture may be unable to respond to
+    /// schema changes in the source system.
     AutoDiscoverFailed,
+    /// Triggers when there has been no data successfully processed by the task during
+    /// the configured alert interval.
     DataMovementStalled,
+    /// Triggers automatically for every tenant that begins a free
+    /// trial, and resolves when the trial period ends.
     FreeTrial,
+    /// Triggers when the free trial is getting close to expiring.
     FreeTrialEnding,
+    /// Triggers after the free trial period has expired, and still no payment info
+    /// has been added.
     FreeTrialStalled,
+    /// Triggers for any tenants that do not have a payment method, and resolves when
+    /// a payment method is added.
     MissingPaymentMethod,
+    /// Triggers after repeated task failures have been observed. The task may or may not
+    /// continue to make progress in between failures, but at a minimum, performance will
+    /// be degraded. And in many scenarios, the task will be unable to process data at all.
     ShardFailed,
+    /// Triggers when an automated background process needs to publish a spec,
+    /// but is unable to because of publication errors. Background publications
+    /// are peformed on all specs for a variety of reasons. For example,
+    /// updating inferred schemas, or updating materialization bindings to match
+    /// the source capture. When these publications fail, tasks are likely to
+    /// stop functioning correctly until the issue can be addressed.
+    BackgroundPublicationFailed,
 }
 
 impl std::fmt::Display for AlertType {
@@ -48,6 +70,7 @@ impl AlertType {
             AlertType::FreeTrialEnding => "free_trial_ending",
             AlertType::FreeTrialStalled => "free_trial_stalled",
             AlertType::MissingPaymentMethod => "missing_payment_method",
+            AlertType::BackgroundPublicationFailed => "background_publication_failed",
         }
     }
 
@@ -60,6 +83,7 @@ impl AlertType {
             AlertType::FreeTrialEnding,
             AlertType::FreeTrialStalled,
             AlertType::MissingPaymentMethod,
+            AlertType::BackgroundPublicationFailed,
         ]
     }
 
@@ -74,6 +98,7 @@ impl AlertType {
             AlertType::FreeTrialStalled => Some("tenant_alerts"),
             AlertType::MissingPaymentMethod => Some("tenant_alerts"),
             AlertType::ShardFailed => None,
+            AlertType::BackgroundPublicationFailed => None,
         }
     }
 

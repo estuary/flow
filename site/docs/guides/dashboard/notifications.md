@@ -37,6 +37,12 @@ You can check the current status of the connector in your dashboard.
 
 Additional details about the failure will be available in the connector's `Alerts` tab.
 
+## Background Publication Failed Alerts
+
+Triggers when an automated background process needs to publish a spec, but is unable to because of publication errors. Background publications are peformed on all specs for a variety of reasons. For example, updating inferred schemas, or updating materialization bindings to match the source capture. When these publications fail, tasks are likely to stop functioning correctly until the issue can be addressed.
+
+A recommended troubleshooting step is to try to publish the spec yourself, resolving any validation errors you encounter along the way. Once you're able to publish the spec, our background automation should be able to as well.
+
 ## Billing Alerts
 
 Billing alerts are automatically subscribed to when a user inputs their email into the `Organization Notifications` table. Alerts will be sent out for the following events:

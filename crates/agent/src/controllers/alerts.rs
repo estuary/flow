@@ -54,7 +54,7 @@ pub fn set_alert_firing(
 /// alert status in place and updating the `state` to `Resolved` (and then scheduling
 /// a subsequent removal of the alert from `statuses` some time in the future).
 pub fn resolve_alert(statuses: &mut Alerts, alert_type: AlertType) {
-    if let Some(_cleared) = statuses.remove(&alert_type) {
-        tracing::info!(%alert_type, "alert resolved");
+    if let Some(cleared) = statuses.remove(&alert_type) {
+        tracing::info!(%alert_type, %cleared.first_ts, %cleared.spec_type, "alert resolved");
     }
 }

@@ -9,6 +9,7 @@ pub(crate) mod executor;
 pub(crate) mod materialization;
 pub(crate) mod periodic;
 pub(crate) mod publication_status;
+pub(crate) mod republish;
 
 use crate::controlplane::ControlPlane;
 use anyhow::Context;
@@ -20,7 +21,7 @@ use serde::Serialize;
 use sqlx::types::Uuid;
 use std::fmt::Debug;
 
-pub use executor::{Event, Inbox, LiveSpecControllerExecutor};
+pub use executor::{Inbox, LiveSpecControllerExecutor};
 
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
@@ -189,6 +190,9 @@ fn backoff_err<T>(next_attempt: NextRun, action: &str, fail_count: u32) -> anyho
 pub struct RetryableError {
     pub inner: anyhow::Error,
     pub retry: Option<NextRun>,
+    /// If true, then this error represents a backoff, meaning that something
+    /// had previously failed, and at this point we just need to wait before we
+    /// can try again.
     pub is_backoff: bool,
 }
 
