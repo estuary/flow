@@ -439,6 +439,9 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
                 "reactor:address".to_string(),
                 Some("tls://dekaf.noop.dp.estuary-data.com:9092".to_string()),
                 Some("https://dekaf.noop.dp.estuary-data.com:443".to_string()),
+                Vec::new(),     // cidr_blocks
+                None::<String>, // gcp_service_account_email
+                None::<String>, // aws_iam_user_arn
             );
 
             live

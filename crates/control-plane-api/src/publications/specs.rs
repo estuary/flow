@@ -878,7 +878,10 @@ pub async fn resolve_live_specs(
             d.dekaf_address,
             d.dekaf_registry_address,
             d.ops_logs_name AS "ops_logs_name: models::Collection",
-            d.ops_stats_name AS "ops_stats_name: models::Collection"
+            d.ops_stats_name AS "ops_stats_name: models::Collection",
+            d.cidr_blocks::text[] AS "cidr_blocks!",
+            d.gcp_service_account_email,
+            d.aws_iam_user_arn
         FROM data_planes d
         WHERE
             d.id IN (select id from data_plane_ids) OR

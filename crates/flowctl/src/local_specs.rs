@@ -351,6 +351,9 @@ impl Resolver {
                 String::new(),                 // reactor_address
                 None,                          // dekaf_address
                 None,                          // dekaf_registry_address
+                Vec::new(),                    // cidr_blocks
+                None,                          // gcp_service_account_email
+                None,                          // aws_iam_user_arn
             );
         }
 

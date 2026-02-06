@@ -530,7 +530,10 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
             dekaf_address,
             dekaf_registry_address,
             ops_logs_name AS "ops_logs_name: models::Collection",
-            ops_stats_name AS "ops_stats_name: models::Collection"
+            ops_stats_name AS "ops_stats_name: models::Collection",
+            cidr_blocks::text[] AS "cidr_blocks!",
+            gcp_service_account_email,
+            aws_iam_user_arn
         FROM data_planes
         WHERE data_plane_name = $1
         "#,
