@@ -18,7 +18,10 @@ import (
 
 func BenchmarkAll(b *testing.B) {
 	b.Run("simulated-deploy", func(b *testing.B) {
-		benchmarkSimulatedDeploy(b)
+		benchmarkSimulatedDeploy(b, false)
+	})
+	b.Run("simulated-deploy-down-first", func(b *testing.B) {
+		benchmarkSimulatedDeploy(b, true)
 	})
 }
 
@@ -28,13 +31,17 @@ type BenchmarkHealthSuite struct{}
 func (s *BenchmarkHealthSuite) TestBenchmarkHealth(c *gc.C) {
 	var fakeB = testing.B{N: 1}
 
-	benchmarkSimulatedDeploy(&fakeB)
+	benchmarkSimulatedDeploy(&fakeB, false)
 	BenchmarkChangingReplication(&fakeB)
 }
 
 var _ = gc.Suite(&BenchmarkHealthSuite{})
 
-func benchmarkSimulatedDeploy(b *testing.B) {
+// benchmarkSimulatedDeploy simulates a rolling deployment where half of the
+// cluster's members are cycled out and replaced. If |downFirst|, members are
+// marked as exiting before their replacements join, stressing the ShedCapacity
+// mechanism. Otherwise, replacements join first (the typical rolling deploy).
+func benchmarkSimulatedDeploy(b *testing.B, downFirst bool) {
 	var client = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
@@ -48,7 +55,16 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	var NMembers = b.N * 10
 	var NItems = NMembers * 200
 
-	b.Logf("Benchmarking with %d items, %d members (%d /2, %d /10)", NItems, NMembers, NMembersHalf, NMembers10)
+	var mode = "up-first"
+	if downFirst {
+		mode = "down-first"
+	}
+	b.Logf("Benchmarking %s with %d items, %d members (%d /2, %d /10)", mode, NItems, NMembers, NMembersHalf, NMembers10)
+
+	// Snapshot counters before this run.
+	var addsBefore = counterVal(allocatorAssignmentAddedTotal)
+	var removesBefore = counterVal(allocatorAssignmentRemovedTotal)
+	var packsBefore = counterVal(allocatorAssignmentPackedTotal)
 
 	// fill inserts (if |asInsert|) or modifies keys/values defined by |kvcb| and the range [begin, end).
 	var fill = func(begin, end int, asInsert bool, kvcb func(i int) (string, string)) {
@@ -81,7 +97,18 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	var testState = struct {
 		nextBlock int  // Next block of Members to cycle down & up.
 		nextDown  bool // Are we next scaling down, or up?
-	}{}
+	}{nextDown: downFirst}
+
+	var scaleUp = func(begin, end int) {
+		fill(NMembersHalf+begin, NMembersHalf+end, true, func(i int) (string, string) {
+			return benchMemberKey(ks, i), `{"R": 1205}` // Less than before, but _just_ enough.
+		})
+	}
+	var scaleDown = func(begin, end int) {
+		fill(begin, end, false, func(i int) (string, string) {
+			return benchMemberKey(ks, i), `{"R": 1500, "E": true}`
+		})
+	}
 
 	var testHook = func(round int, idle bool) {
 		var begin = NMembers10 * testState.nextBlock
@@ -112,25 +139,22 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 		}).Info("next test step")
 
 		if begin == NMembersHalf {
-			// We've cycled all Members. Gracefully exit by setting our ItemLimit to zero,
+			// We've cycled all Members. Gracefully exit by marking as exiting,
 			// and waiting for Serve to complete.
-			update(ctx, client, state.LocalKey, `{"R": 0}`)
+			update(ctx, client, state.LocalKey, `{"R": 1, "E": true}`)
 			return
 		}
 
-		if !testState.nextDown {
-			// Mark a block of Members as starting up.
-			fill(NMembersHalf+begin, NMembersHalf+end, true, func(i int) (string, string) {
-				return benchMemberKey(ks, i), `{"R": 1205}` // Less than before, but _just_ enough.
-			})
-			testState.nextDown = true
+		if testState.nextDown {
+			scaleDown(begin, end)
 		} else {
-			// Mark a block of Members as shutting down.
-			fill(begin, end, false, func(i int) (string, string) {
-				return benchMemberKey(ks, i), `{"R": 0}`
-			})
+			scaleUp(begin, end)
+		}
+		testState.nextDown = !testState.nextDown
+
+		// Advance to next block after completing a full cycle (both up and down).
+		if testState.nextDown == downFirst {
 			testState.nextBlock += 1
-			testState.nextDown = false
 		}
 	}
 
@@ -145,9 +169,10 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	}))
 
 	log.WithFields(log.Fields{
-		"adds":    counterVal(allocatorAssignmentAddedTotal),
-		"removes": counterVal(allocatorAssignmentRemovedTotal),
-		"packs":   counterVal(allocatorAssignmentPackedTotal),
+		"mode":    mode,
+		"adds":    counterVal(allocatorAssignmentAddedTotal) - addsBefore,
+		"removes": counterVal(allocatorAssignmentRemovedTotal) - removesBefore,
+		"packs":   counterVal(allocatorAssignmentPackedTotal) - packsBefore,
 	}).Info("final metrics")
 }
 
@@ -231,7 +256,7 @@ func BenchmarkChangingReplication(b *testing.B) {
 
 		if testState.step == b.N {
 			// Begin a graceful exit.
-			update(ctx, client, state.LocalKey, `{"R": 0}`)
+			update(ctx, client, state.LocalKey, `{"R": 0, "E": true}`)
 			return
 		}
 		testState.step += 1

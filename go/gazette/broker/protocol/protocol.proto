@@ -373,6 +373,8 @@ message BrokerSpec {
   ];
   // Maximum number of assigned Journal replicas.
   uint32 journal_limit = 2;
+  // When true, this broker has been signaled to exit.
+  bool exiting = 3;
 }
 
 // Fragment is a content-addressed description of a contiguous Journal span,

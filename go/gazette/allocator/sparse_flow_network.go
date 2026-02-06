@@ -351,7 +351,7 @@ func (fs *sparseFlowNetwork) buildCurrentItemArcs(item int, bound int) []pr.Arc 
 
 // buildMemberArc from member `member` to the sink.
 func (fs *sparseFlowNetwork) buildMemberArc(mf *pr.MaxFlow, id pr.NodeID, member int) []pr.Arc {
-	var c = memberAt(fs.Members, member).ItemLimit()
+	var c = fs.memberEffectiveLimit(member)
 
 	// Scale ItemLimit by the relative share of ItemSlots within
 	// our subset of the global assignment problem.

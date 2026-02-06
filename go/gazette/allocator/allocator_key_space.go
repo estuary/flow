@@ -34,6 +34,8 @@ const (
 type MemberValue interface {
 	// ItemLimit is the maximum number of Items this Member may be assigned.
 	ItemLimit() int
+	// IsExiting returns true if this Member has been signaled to exit.
+	IsExiting() bool
 }
 
 // ItemValue is a user-defined Item representation which also supports required

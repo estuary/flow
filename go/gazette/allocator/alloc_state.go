@@ -1,8 +1,10 @@
 package allocator
 
 import (
+	"cmp"
 	"hash/crc64"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -51,6 +53,13 @@ type State struct {
 	// These share cardinality with |Members|.
 	MemberTotalCount   []int
 	MemberPrimaryCount []int
+
+	// Number of item slots to shed from each member's ItemLimit, reducing its
+	// effective capacity to ItemLimit - ShedCapacity. Exiting members are granted
+	// ShedCapacity from available excess cluster capacity, ordered by age
+	// (CreateRevision), so that the oldest exiting members drain first.
+	// Shares cardinality with |Members|.
+	ShedCapacity []int
 }
 
 // NewObservedState returns a *State instance which extracts and updates itself
@@ -89,12 +98,15 @@ func (s *State) observe() {
 	s.NetworkHash = 0
 	s.MemberTotalCount = make([]int, len(s.Members))
 	s.MemberPrimaryCount = make([]int, len(s.Members))
+	s.ShedCapacity = make([]int, len(s.Members))
 
 	// Walk Members to:
 	//  * Group the set of ordered |Zones| across all Members.
 	//  * Initialize |ZoneSlots|.
 	//  * Initialize |MemberSlots|.
 	//  * Initialize |NetworkHash|.
+	//  * Collect indices of exiting members.
+	var exiting []int
 	for i := range s.Members {
 		var m = memberAt(s.Members, i)
 		var slots = m.ItemLimit()
@@ -114,6 +126,10 @@ func (s *State) observe() {
 
 		s.MemberSlots += slots
 		s.NetworkHash = foldCRC(s.NetworkHash, s.Members[i].Raw.Key, slots)
+
+		if m.IsExiting() {
+			exiting = append(exiting, i)
+		}
 	}
 
 	// Fetch |localMember| identified by |LocalKey|.
@@ -135,11 +151,14 @@ func (s *State) observe() {
 			return strings.Compare(itemAt(s.Items, l).ID, assignmentAt(s.Assignments, r).ItemID)
 		},
 	}
+
+	var maxReplicationFactor int
 	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
 		var item = itemAt(s.Items, cur.Left)
 		var slots = item.DesiredReplication()
 
 		s.ItemSlots += slots
+		maxReplicationFactor = max(maxReplicationFactor, slots)
 		s.NetworkHash = foldCRC(s.NetworkHash, s.Items[cur.Left].Raw.Key, slots)
 
 		for r := cur.RightBegin; r != cur.RightEnd; r++ {
@@ -161,11 +180,39 @@ func (s *State) observe() {
 			}
 		}
 	}
+
+	// Compute ShedCapacity for exiting members. ShedCapacity is granted to
+	// exiting members, oldest first, up to each member's ItemLimit.
+	// Excess slots available to grant as ShedCapacity. When the cluster is
+	// overloaded (MemberSlots < ItemSlots), there is no excess to shed.
+	var excessSlots = max(0, s.MemberSlots-s.ItemSlots)
+	slices.SortFunc(exiting, func(a, b int) int {
+		return cmp.Compare(s.Members[a].Raw.CreateRevision, s.Members[b].Raw.CreateRevision)
+	})
+
+	// We must retain at least maxReplicationFactor members at full capacity
+	// to satisfy replication requirements. This is a numerical bound, not
+	// zone-aware: we shed the oldest members first, expecting that replacement
+	// members will restore zone diversity as they join.
+	var maxShedding = len(s.Members) - maxReplicationFactor
+	if maxShedding < 0 {
+		maxShedding = 0
+	}
+	for n, i := range exiting {
+		if n == maxShedding || excessSlots == 0 {
+			break
+		}
+		var shed = min(memberAt(s.Members, i).ItemLimit(), excessSlots)
+		s.ShedCapacity[i] = shed
+		s.MemberSlots -= shed
+		excessSlots -= shed
+		s.NetworkHash = foldCRC(s.NetworkHash, s.Members[i].Raw.Key, shed)
+	}
 }
 
 // shouldExit returns true iff the local Member is able to safely exit.
 func (s *State) shouldExit() bool {
-	return memberAt(s.Members, s.LocalMemberInd).ItemLimit() == 0 && len(s.LocalItems) == 0
+	return memberAt(s.Members, s.LocalMemberInd).IsExiting() && len(s.LocalItems) == 0
 }
 
 // isLeader returns true iff the local Member key is ordered first on
@@ -201,16 +248,22 @@ func (s *State) debugLog() {
 	}).Info("extracted State")
 }
 
+// memberEffectiveLimit returns the effective item limit for the member at
+// index |ind|, accounting for any ShedCapacity granted to exiting members.
+func (s *State) memberEffectiveLimit(ind int) int {
+	return memberAt(s.Members, ind).ItemLimit() - s.ShedCapacity[ind]
+}
+
 // memberLoadRatio maps an |assignment| to a Member "load ratio". Given all
 // |Members| and their corresponding |counts| (1:1 with |Members|),
 // memberLoadRatio maps |assignment| to a Member and, if found, returns the
-// ratio of the Member's index in |counts| to the Member's ItemLimit. If the
-// Member is not found, infinity is returned.
+// ratio of the Member's index in |counts| to the Member's effective item
+// limit. If the Member is not found, infinity is returned.
 func (s *State) memberLoadRatio(assignment keyspace.KeyValue, counts []int) float32 {
 	var a = assignment.Decoded.(Assignment)
 
 	if ind, found := s.Members.Search(MemberKey(s.KS, a.MemberZone, a.MemberSuffix)); found {
-		return float32(counts[ind]) / float32(memberAt(s.Members, ind).ItemLimit())
+		return float32(counts[ind]) / float32(s.memberEffectiveLimit(ind))
 	}
 	return math.MaxFloat32
 }

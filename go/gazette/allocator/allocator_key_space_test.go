@@ -354,11 +354,15 @@ func isConsistent(_ Item, assignment keyspace.KeyValue, allAssignments keyspace.
 	return assignment.Decoded.(Assignment).AssignmentValue.(testAssignment).consistent
 }
 
-type testMember struct{ R int }
+type testMember struct {
+	R int  // ItemLimit
+	E bool // Exiting
+}
 
-func (m testMember) ItemLimit() int  { return m.R }
-func (m testMember) Validate() error { return nil }
-func (m *testMember) ZeroLimit()     { m.R = 0 }
+func (m testMember) ItemLimit() int   { return m.R }
+func (m testMember) Validate() error  { return nil }
+func (m *testMember) SetExiting()     { m.E = true }
+func (m testMember) IsExiting() bool  { return m.E }
 
 func (m *testMember) MarshalString() string {
 	if b, err := json.Marshal(m); err != nil {

@@ -803,6 +803,91 @@ func TestSingleZoneRebalanceOnMemberScaleUp(t *testing.T) {
 	})
 }
 
+func TestShedCapacityDrainsExitingMembers(t *testing.T) {
+	var ctx, client, ks = testSetup(t)
+
+	// Start with a stable allocation across 4 members.
+	// Insert A2 first so it becomes the leader (lowest CreateRevision)
+	// and won't be an exiting member.
+	require.NoError(t, insert(ctx, client,
+		"/root/members/zone-a#member-A2", `{"R": 4}`,
+	))
+	require.NoError(t, insert(ctx, client,
+		"/root/items/item-1", `{"R": 1}`,
+		"/root/items/item-2", `{"R": 1}`,
+		"/root/items/item-3", `{"R": 1}`,
+		"/root/items/item-4", `{"R": 1}`,
+
+		"/root/members/zone-a#member-A1", `{"R": 4}`,
+		"/root/members/zone-b#member-B1", `{"R": 4}`,
+		"/root/members/zone-b#member-B2", `{"R": 4}`,
+	))
+	require.Equal(t, serveUntilIdle(t, ctx, client, ks, ""), 2)
+
+	// Mark A1 and B1 as exiting. maxRF = 1, maxShedding = 3.
+	// Both can shed their full capacity.
+	require.NoError(t, update(ctx, client,
+		"/root/members/zone-a#member-A1", `{"R": 4, "E": true}`,
+		"/root/members/zone-b#member-B1", `{"R": 4, "E": true}`,
+	))
+	serveUntilIdle(t, ctx, client, ks, "")
+
+	// Expect all assignments moved to non-exiting members.
+	var assignmentKeys = keys(ks.Prefixed(ks.Root + AssignmentsPrefix))
+	for _, key := range assignmentKeys {
+		require.NotContains(t, key, "member-A1")
+		require.NotContains(t, key, "member-B1")
+	}
+	require.Len(t, assignmentKeys, 4) // All 4 items still assigned.
+}
+
+func TestShedCapacityLeaderExits(t *testing.T) {
+	var ctx, client, ks = testSetup(t)
+
+	// A1 is the oldest member (leader) and will be marked as exiting.
+	require.NoError(t, insert(ctx, client,
+		"/root/items/item-1", `{"R": 1}`,
+		"/root/items/item-2", `{"R": 1}`,
+		"/root/items/item-3", `{"R": 1}`,
+
+		"/root/members/zone-a#member-A1", `{"R": 4}`,
+		"/root/members/zone-a#member-A2", `{"R": 4}`,
+		"/root/members/zone-b#member-B1", `{"R": 4}`,
+	))
+	require.Equal(t, serveUntilIdle(t, ctx, client, ks, ""), 2)
+
+	// Mark A1 (the leader) as exiting.
+	require.NoError(t, update(ctx, client,
+		"/root/members/zone-a#member-A1", `{"R": 4, "E": true}`,
+	))
+
+	// Run the allocator as A1. It drains its own assignments and then
+	// Allocate returns nil (shouldExit).
+	var state = NewObservedState(ks, "/root/members/zone-a#member-A1", isConsistent)
+
+	ctx2, cancel2 := context.WithCancel(ctx)
+	require.NoError(t, ks.Load(ctx2, client, 0))
+	go ks.Watch(ctx2, client)
+
+	require.NoError(t, Allocate(AllocateArgs{
+		Context: ctx2,
+		Etcd:    client,
+		State:   state,
+		TestHook: func(_ int, idle bool) {
+			if idle {
+				markAllConsistent(ctx2, client, ks, "")
+			}
+		},
+	}))
+	cancel2()
+
+	// A1 drained itself. Verify no assignments remain on A1.
+	for _, key := range keys(ks.Prefixed(ks.Root + AssignmentsPrefix)) {
+		require.NotContains(t, key, "member-A1")
+	}
+	require.Len(t, keys(ks.Prefixed(ks.Root+AssignmentsPrefix)), 3)
+}
+
 func TestCleanupOfAssignmentsWithoutItems(t *testing.T) {
 	var ctx, client, ks = testSetup(t)
 

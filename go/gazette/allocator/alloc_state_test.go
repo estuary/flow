@@ -109,7 +109,7 @@ func (s *AllocStateSuite) TestExitCondition(c *gc.C) {
 	buildAllocKeySpaceFixture(c, ctx, client)
 	defer etcdtest.Cleanup()
 
-	var _, err = client.Put(ctx, "/root/members/us-east#allowed-to-exit", `{"R": 0}`)
+	var _, err = client.Put(ctx, "/root/members/us-east#allowed-to-exit", `{"R": 0, "E": true}`)
 	c.Assert(err, gc.IsNil)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -126,7 +126,7 @@ func (s *AllocStateSuite) TestExitCondition(c *gc.C) {
 	c.Check(states[1].shouldExit(), gc.Equals, true)
 
 	// While we're at it, expect |NetworkHash| changed with the new member.
-	c.Check(states[0].NetworkHash, gc.Equals, uint64(0xfce0237931d8c200))
+	c.Check(states[0].NetworkHash, gc.Equals, uint64(0x554c9f4e9605a7a1))
 }
 
 func (s *AllocStateSuite) TestLoadRatio(c *gc.C) {
@@ -150,6 +150,204 @@ func (s *AllocStateSuite) TestLoadRatio(c *gc.C) {
 	}
 	for i, f := range []float32{0, 1.0 / 3.0, 1.0 / 3.0, math.MaxFloat32, 1.0 / 1.0, 1.0 / 3.0} {
 		c.Check(state.memberLoadRatio(state.Assignments[i], state.MemberPrimaryCount), gc.Equals, f)
+	}
+}
+
+func (s *AllocStateSuite) TestLoadRatioWithShedding(c *gc.C) {
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
+
+	// m1 is exiting with R:5. m2 is not exiting with R:5.
+	// 2 items at R:1. MemberSlots=10, ItemSlots=2, excessSlots=8.
+	// m1 sheds its full capacity (5), so its effective limit is 0.
+	for _, kv := range [][2]string{
+		{"/root/items/item-a", `{"R": 1}`},
+		{"/root/items/item-b", `{"R": 1}`},
+
+		{"/root/members/zone-a#m1", `{"R": 5, "E": true}`},
+		{"/root/members/zone-a#m2", `{"R": 5, "E": false}`},
+
+		{"/root/assign/item-a#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-b#zone-a#m2#0", `consistent`},
+	} {
+		var _, err = client.Put(ctx, kv[0], kv[1])
+		c.Assert(err, gc.IsNil)
+	}
+
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "zone-a", "m1"), isConsistent)
+	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+
+	c.Check(state.ShedCapacity[0], gc.Equals, 5) // m1 fully shed.
+	c.Check(state.ShedCapacity[1], gc.Equals, 0)
+
+	// m1 has 1 assignment but effective capacity 0: load ratio is +Inf.
+	c.Check(state.memberLoadRatio(state.Assignments[0], state.MemberTotalCount), gc.Equals, float32(math.Inf(1)))
+	// m2 has 1 assignment and effective capacity 5: load ratio is 1/5.
+	c.Check(state.memberLoadRatio(state.Assignments[1], state.MemberTotalCount), gc.Equals, float32(1.0/5.0))
+}
+
+func (s *AllocStateSuite) TestShedCapacityAllAtOnce(c *gc.C) {
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
+
+	// 5 members, capacity 5 each. MemberSlots = 25.
+	// 2 items at R:1. ItemSlots = 2. excessSlots = 23.
+	// maxReplicationFactor = 1, maxShedding = 4.
+	// Both exiting members shed their full capacity.
+	for _, kv := range [][2]string{
+		{"/root/items/item-a", `{"R": 1}`},
+		{"/root/items/item-b", `{"R": 1}`},
+
+		{"/root/members/zone-a#m1", `{"R": 5, "E": true}`},
+		{"/root/members/zone-a#m2", `{"R": 5, "E": true}`},
+		{"/root/members/zone-a#m3", `{"R": 5, "E": false}`},
+		{"/root/members/zone-b#m4", `{"R": 5, "E": false}`},
+		{"/root/members/zone-b#m5", `{"R": 5, "E": false}`},
+
+		{"/root/assign/item-a#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-b#zone-b#m4#0", `consistent`},
+	} {
+		var _, err = client.Put(ctx, kv[0], kv[1])
+		c.Assert(err, gc.IsNil)
+	}
+
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "zone-a", "m1"), isConsistent)
+	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+
+	c.Check(state.ShedCapacity[0], gc.Equals, 5) // m1 sheds fully.
+	c.Check(state.ShedCapacity[1], gc.Equals, 5) // m2 sheds fully.
+	c.Check(state.ShedCapacity[2], gc.Equals, 0)
+	c.Check(state.ShedCapacity[3], gc.Equals, 0)
+	c.Check(state.ShedCapacity[4], gc.Equals, 0)
+}
+
+func (s *AllocStateSuite) TestShedCapacityReplicationConstrained(c *gc.C) {
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
+
+	// 4 members, capacity 10 each. MemberSlots = 40.
+	// 3 items: R:3, R:2, R:1. ItemSlots = 6. excessSlots = 34.
+	// maxReplicationFactor = 3, maxShedding = 1.
+	// m1 and m2 are both exiting, but only the oldest (m1) sheds.
+	for _, kv := range [][2]string{
+		{"/root/items/item-a", `{"R": 3}`},
+		{"/root/items/item-b", `{"R": 2}`},
+		{"/root/items/item-c", `{"R": 1}`},
+
+		{"/root/members/zone-a#m1", `{"R": 10, "E": true}`},
+		{"/root/members/zone-a#m2", `{"R": 10, "E": true}`},
+		{"/root/members/zone-b#m3", `{"R": 10, "E": false}`},
+		{"/root/members/zone-b#m4", `{"R": 10, "E": false}`},
+
+		{"/root/assign/item-a#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-a#zone-a#m2#1", `consistent`},
+		{"/root/assign/item-a#zone-b#m3#2", `consistent`},
+		{"/root/assign/item-b#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-b#zone-b#m4#1", `consistent`},
+		{"/root/assign/item-c#zone-b#m3#0", `consistent`},
+	} {
+		var _, err = client.Put(ctx, kv[0], kv[1])
+		c.Assert(err, gc.IsNil)
+	}
+
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "zone-a", "m1"), isConsistent)
+	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+
+	c.Check(state.ShedCapacity[0], gc.Equals, 10) // m1 sheds fully (oldest).
+	c.Check(state.ShedCapacity[1], gc.Equals, 0)  // m2 blocked by maxShedding.
+	c.Check(state.ShedCapacity[2], gc.Equals, 0)
+	c.Check(state.ShedCapacity[3], gc.Equals, 0)
+}
+
+func (s *AllocStateSuite) TestShedCapacityExcessConstrained(c *gc.C) {
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
+
+	// 4 members, capacity 3 each. MemberSlots = 12.
+	// 5 items at R:1. ItemSlots = 5. excessSlots = 7.
+	// maxReplicationFactor = 1, maxShedding = 3.
+	// 3 exiting members need 9 total shed, but only 7 excess available.
+	// m1: sheds 3 (full), m2: sheds 3 (full), m3: sheds 1 (partial).
+	for _, kv := range [][2]string{
+		{"/root/items/item-a", `{"R": 1}`},
+		{"/root/items/item-b", `{"R": 1}`},
+		{"/root/items/item-c", `{"R": 1}`},
+		{"/root/items/item-d", `{"R": 1}`},
+		{"/root/items/item-e", `{"R": 1}`},
+
+		{"/root/members/zone-a#m1", `{"R": 3, "E": true}`},
+		{"/root/members/zone-a#m2", `{"R": 3, "E": true}`},
+		{"/root/members/zone-b#m3", `{"R": 3, "E": true}`},
+		{"/root/members/zone-b#m4", `{"R": 3, "E": false}`},
+
+		{"/root/assign/item-a#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-b#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-c#zone-a#m2#0", `consistent`},
+		{"/root/assign/item-d#zone-b#m3#0", `consistent`},
+		{"/root/assign/item-e#zone-b#m4#0", `consistent`},
+	} {
+		var _, err = client.Put(ctx, kv[0], kv[1])
+		c.Assert(err, gc.IsNil)
+	}
+
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "zone-a", "m1"), isConsistent)
+	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+
+	c.Check(state.ShedCapacity[0], gc.Equals, 3) // m1 sheds fully.
+	c.Check(state.ShedCapacity[1], gc.Equals, 3) // m2 sheds fully.
+	c.Check(state.ShedCapacity[2], gc.Equals, 1) // m3 gets remaining excess.
+	c.Check(state.ShedCapacity[3], gc.Equals, 0) // non-exiting.
+}
+
+func (s *AllocStateSuite) TestShedCapacityOverloadedCluster(c *gc.C) {
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
+
+	// 2 members, capacity 2 each. MemberSlots = 4.
+	// 5 items at R:1. ItemSlots = 5. excessSlots = -1 (clamped to 0).
+	// No shedding is possible because the cluster is overloaded.
+	for _, kv := range [][2]string{
+		{"/root/items/item-a", `{"R": 1}`},
+		{"/root/items/item-b", `{"R": 1}`},
+		{"/root/items/item-c", `{"R": 1}`},
+		{"/root/items/item-d", `{"R": 1}`},
+		{"/root/items/item-e", `{"R": 1}`},
+
+		{"/root/members/zone-a#m1", `{"R": 2, "E": true}`},
+		{"/root/members/zone-b#m2", `{"R": 2, "E": false}`},
+
+		{"/root/assign/item-a#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-b#zone-a#m1#0", `consistent`},
+		{"/root/assign/item-c#zone-b#m2#0", `consistent`},
+		{"/root/assign/item-d#zone-b#m2#0", `consistent`},
+	} {
+		var _, err = client.Put(ctx, kv[0], kv[1])
+		c.Assert(err, gc.IsNil)
+	}
+
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "zone-a", "m1"), isConsistent)
+	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+
+	c.Check(state.ShedCapacity[0], gc.Equals, 0) // m1: no excess to shed.
+	c.Check(state.ShedCapacity[1], gc.Equals, 0)
+}
+
+func (s *AllocStateSuite) TestShedCapacityNoExiting(c *gc.C) {
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
+	buildAllocKeySpaceFixture(c, ctx, client)
+
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"), isConsistent)
+	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
+
+	for i := range state.ShedCapacity {
+		c.Check(state.ShedCapacity[i], gc.Equals, 0)
 	}
 }
 

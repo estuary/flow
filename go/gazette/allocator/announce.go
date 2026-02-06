@@ -8,7 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.gazette.dev/core/task"
 )
@@ -88,7 +88,7 @@ type SessionArgs struct {
 	Tasks *task.Group
 	Spec  interface {
 		Validate() error
-		ZeroLimit()
+		SetExiting()
 		MarshalString() string
 	}
 	State    *State
@@ -104,7 +104,7 @@ type SessionArgs struct {
 //   - Loads the KeySpace as-of the announcement revision.
 //   - Queues tasks to the *task.Group which:
 //   - Closes the Etcd lease on task.Group cancellation.
-//   - Monitors SignalCh and zeros the MemberSpec ItemLimit on its signal.
+//   - Monitors SignalCh and marks the MemberSpec as exiting on its signal.
 //   - Runs the Allocate loop, cancelling the *task.Group on completion.
 func StartSession(args SessionArgs) error {
 	if err := args.Spec.Validate(); err != nil {
@@ -133,8 +133,8 @@ func StartSession(args SessionArgs) error {
 		return errors.WithMessage(err, "loading KeySpace")
 	}
 
-	// Monitor |SignalCh|, and re-announce a member limit of zero if it triggers.
-	args.Tasks.Queue("zero member limit on signal", func() error {
+	// Monitor |SignalCh|, and mark member as exiting if it triggers.
+	args.Tasks.Queue("mark member exiting on signal", func() error {
 		select {
 		case sig := <-args.SignalCh:
 			log.WithField("signal", sig).Info("caught signal")
@@ -142,10 +142,10 @@ func StartSession(args SessionArgs) error {
 			return nil
 		}
 
-		// Zero our advertised limit in Etcd. Upon seeing this, Allocator will
-		// work to discharge all of our assigned items, and Allocate will exit
-		// gracefully when none remain.
-		args.Spec.ZeroLimit()
+		// Mark as exiting in Etcd. Upon seeing this, Allocator will work to
+		// discharge our assigned items based on available capacity, and
+		// Allocate will exit gracefully when none remain.
+		args.Spec.SetExiting()
 		return ann.Update(args.Spec.MarshalString())
 	})
 

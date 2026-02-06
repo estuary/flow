@@ -241,6 +241,8 @@ message ConsumerSpec {
   ];
   // Maximum number of assigned Shards.
   uint32 shard_limit = 2;
+  // When true, this consumer has been signaled to exit.
+  bool exiting = 3;
 }
 
 // ReplicaStatus is the status of a ShardSpec assigned to a ConsumerSpec.

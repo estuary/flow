@@ -162,8 +162,8 @@ func (s *itemState) constrainAdds() {
 			panic("member not found")
 		}
 
-		if memberAt(s.global.Members, ind).ItemLimit() <= s.global.MemberTotalCount[ind] {
-			// Addition would violate member's ItemLimit. Remove this Assignment.
+		if s.global.memberEffectiveLimit(ind) <= s.global.MemberTotalCount[ind] {
+			// Addition would violate member's effective limit. Remove this Assignment.
 			copy(s.add[i:], s.add[i+1:])
 			s.add = s.add[:len(s.add)-1]
 		} else {

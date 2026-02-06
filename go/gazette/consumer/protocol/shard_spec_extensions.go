@@ -282,11 +282,14 @@ func (m *ConsumerSpec) MarshalString() string {
 	return string(d)
 }
 
-// ZeroLimit zeros the ConsumerSpec ShardLimit.
-func (m *ConsumerSpec) ZeroLimit() { m.ShardLimit = 0 }
-
 // ItemLimit is the maximum number of shards this consumer may process. allocator.MemberValue implementation.
 func (m *ConsumerSpec) ItemLimit() int { return int(m.ShardLimit) }
+
+// IsExiting returns true if this consumer has been signaled to exit.
+func (m *ConsumerSpec) IsExiting() bool { return m.Exiting }
+
+// SetExiting marks this ConsumerSpec as exiting.
+func (m *ConsumerSpec) SetExiting() { m.Exiting = true }
 
 // Reduce folds another ReplicaStatus into this one.
 func (m *ReplicaStatus) Reduce(other *ReplicaStatus) {

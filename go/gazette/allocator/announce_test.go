@@ -111,7 +111,7 @@ func (s *AnnounceSuite) TestBasicSessionStart(c *gc.C) {
 	// Expect our MemberSpec was announced and loaded by the KeySpace.
 	c.Assert(state.Members, gc.HasLen, 1)
 	c.Check(string(state.Members[0].Raw.Key), gc.Equals, "/root/members/a#member")
-	c.Check(string(state.Members[0].Raw.Value), gc.Equals, `{"R":10}`)
+	c.Check(string(state.Members[0].Raw.Value), gc.Equals, `{"R":10,"E":false}`)
 	c.Check(state.Members[0].Raw.Lease, gc.Not(gc.Equals), 0)
 
 	args.Tasks.Queue("Watch", func() error {
@@ -122,12 +122,12 @@ func (s *AnnounceSuite) TestBasicSessionStart(c *gc.C) {
 	})
 	args.Tasks.GoRun()
 
-	// By signaling, expect that our limit R is zero'd, Allocate exits and
+	// By signaling, expect that the member is marked as exiting, Allocate exits and
 	// cancels the task.Group, and the lease is cancelled.
 	close(sigCh)
 
 	c.Check(args.Tasks.Wait(), gc.IsNil) // All tasks have exited.
-	c.Check(spec.R, gc.Equals, 0)        // Our limit was zero'd.
+	c.Check(spec.E, gc.Equals, true)     // Member was marked as exiting.
 
 	leasesResp, err := etcd.Leases(context.Background())
 	c.Check(err, gc.IsNil)
