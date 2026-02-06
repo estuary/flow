@@ -234,6 +234,15 @@ impl Store {
             Store::Custom(c) => c.prefix_mut(),
         }
     }
+
+    pub fn clear_prefix(&mut self) {
+        match self {
+            Store::S3(c) => c.prefix = None,
+            Store::Gcs(c) => c.prefix = None,
+            Store::Azure(c) => c.prefix = None,
+            Store::Custom(c) => c.prefix = None,
+        }
+    }
 }
 
 macro_rules! impl_prefix_mut {
