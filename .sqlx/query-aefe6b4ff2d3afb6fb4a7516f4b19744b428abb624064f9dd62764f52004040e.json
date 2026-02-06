@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT catalog_prefix\n            FROM storage_mappings\n            WHERE catalog_prefix ^@ $1\n            AND catalog_prefix != $1\n            AND NOT catalog_prefix ^@ 'recovery/'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aefe6b4ff2d3afb6fb4a7516f4b19744b428abb624064f9dd62764f52004040e"
+}
