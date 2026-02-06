@@ -289,7 +289,9 @@ func (m *ConsumerSpec) ItemLimit() int { return int(m.ShardLimit) }
 func (m *ConsumerSpec) IsExiting() bool { return m.Exiting }
 
 // SetExiting marks this ConsumerSpec as exiting.
-func (m *ConsumerSpec) SetExiting() { m.Exiting = true }
+// TODO(whb): Zero'ing ShardLimit is for backward compatibility; remove once
+// deployment is complete.
+func (m *ConsumerSpec) SetExiting() { m.Exiting = true; m.ShardLimit = 0 }
 
 // Reduce folds another ReplicaStatus into this one.
 func (m *ReplicaStatus) Reduce(other *ReplicaStatus) {
