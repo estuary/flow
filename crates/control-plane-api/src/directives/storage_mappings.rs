@@ -159,6 +159,9 @@ pub fn strip_collection_data_suffix(storage: models::StorageDef) -> models::Stor
                 if let Some(base) = prefix.as_str().strip_suffix(COLLECTION_DATA_SUFFIX) {
                     *prefix = models::Prefix::new(base);
                 }
+                if prefix.as_str().is_empty() {
+                    store.clear_prefix();
+                }
                 store
             })
             .collect(),
