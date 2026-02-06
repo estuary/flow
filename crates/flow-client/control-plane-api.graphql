@@ -766,6 +766,7 @@ type PublicationStatus {
 	A limited history of publications performed by this controller
 	"""
 	history: [PublicationInfo!]!
+	pendingRepublish: RepublishRequested
 }
 
 type QueryRoot {
@@ -797,6 +798,24 @@ type QueryRoot {
 	Results are paginated and sorted by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+}
+
+type RepublishRequested {
+	"""
+	Informational only, timestamp of when the controller observed the `Republish` request.
+	"""
+	receivedAt: DateTime!
+	"""
+	The `reason` from the `Republish` message
+	"""
+	reason: String!
+	"""
+	The `last_build_id` of the live spec as of when the `Republish` message
+	is received. If the live spec is observed with a `last_build_id` that is
+	greater than this, then the republication will be considered successful
+	and complete.
+	"""
+	lastBuildId: Id!
 }
 
 """

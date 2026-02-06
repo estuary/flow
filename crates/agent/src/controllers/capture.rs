@@ -3,7 +3,7 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
     coalesce_results, dependencies::Dependencies,
 };
-use crate::controllers::{activation, config_update, periodic, publication_status};
+use crate::controllers::{activation, config_update, periodic, publication_status, republish};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
@@ -130,6 +130,13 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
     let dependencies_result = dependencies_published.map(|_| None);
+
+    let republish_result =
+        republish::update_republish(events, state, publications, alerts, control_plane).await;
+    if republish_result.as_ref().is_ok_and(|r| r.is_some()) {
+        return Ok(Some(NextRun::immediately()));
+    }
+
     let periodic_published =
         periodic::update_periodic_publish(state, publications, alerts, control_plane).await;
     if periodic_published.as_ref().is_ok_and(|r| r.is_some()) {
@@ -165,6 +172,7 @@ pub async fn update<C: ControlPlane>(
             updated_config_result,
             dependencies_result,
             periodic_result,
+            republish_result.map(|_| None),
             activate_result,
             notify_result,
         ],

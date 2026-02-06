@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with ids as (\n          select controller_task_id\n          from live_specs\n          where catalog_name::text ^@ $1\n          and coalesce(spec->'shards'->>'disable', 'false') = 'false'\n        ),\n        sends as (\n          select 1 as sent, internal.send_to_task(controller_task_id::flowid, '0000000000000000'::flowid, $2::json)\n          from ids\n        )\n        select count(sent) from sends\n          ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Json"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c3a2842f9a8b9fce4ccd0303fadad31e1cafd5b9756c59b047467e1b4f5f604f"
+}
