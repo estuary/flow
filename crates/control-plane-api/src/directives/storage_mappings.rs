@@ -118,9 +118,31 @@ pub async fn fetch_storage_mappings(
 
 const COLLECTION_DATA_SUFFIX: &str = "collection-data/";
 
+/// Append "collection-data/" to each store's prefix in a StorageDef, if not already present.
+pub fn append_collection_data_suffix(storage: models::StorageDef) -> models::StorageDef {
+    let models::StorageDef {
+        data_planes,
+        stores,
+    } = storage;
+
+    models::StorageDef {
+        data_planes,
+        stores: stores
+            .into_iter()
+            .map(|mut store| {
+                let prefix = store.prefix_mut();
+                if !prefix.as_str().ends_with(COLLECTION_DATA_SUFFIX) {
+                    *prefix = models::Prefix::new(format!("{prefix}{COLLECTION_DATA_SUFFIX}"));
+                }
+                store
+            })
+            .collect(),
+    }
+}
+
 /// Strip the "collection-data/" suffix from each store's prefix in a StorageDef.
 ///
-/// This is the inverse of what `split_collection_and_recovery_storage` does when storing.
+/// This is the inverse of `append_collection_data_suffix`.
 /// Used when returning storage mappings to users via the API.
 pub fn strip_collection_data_suffix(storage: models::StorageDef) -> models::StorageDef {
     let models::StorageDef {
@@ -148,7 +170,7 @@ pub fn strip_collection_data_suffix(storage: models::StorageDef) -> models::Stor
 /// The collection storage gets `collection-data/` appended to each store's prefix (if not already
 /// present) and retains the data plane assignments. The recovery storage uses the base prefixes
 /// (with `collection-data/` stripped if present) and has no data plane assignments.
-pub fn split_collection_and_recovery_storage(
+pub fn collection_and_recovery_storage_from(
     storage: models::StorageDef,
 ) -> (models::StorageDef, models::StorageDef) {
     let models::StorageDef {
@@ -156,34 +178,15 @@ pub fn split_collection_and_recovery_storage(
         stores,
     } = storage;
 
-    let collection_storage = models::StorageDef {
+    let collection_storage = append_collection_data_suffix(models::StorageDef {
         data_planes,
-        stores: stores
-            .iter()
-            .cloned()
-            .map(|mut store| {
-                let prefix = store.prefix_mut();
-                if !prefix.as_str().ends_with(COLLECTION_DATA_SUFFIX) {
-                    *prefix = models::Prefix::new(format!("{prefix}{COLLECTION_DATA_SUFFIX}"));
-                }
-                store
-            })
-            .collect(),
-    };
+        stores: stores.clone(),
+    });
 
-    let recovery_storage = models::StorageDef {
+    let recovery_storage = strip_collection_data_suffix(models::StorageDef {
         data_planes: Vec::new(),
-        stores: stores
-            .into_iter()
-            .map(|mut store| {
-                let prefix = store.prefix_mut();
-                if let Some(base) = prefix.as_str().strip_suffix(COLLECTION_DATA_SUFFIX) {
-                    *prefix = models::Prefix::new(base);
-                }
-                store
-            })
-            .collect(),
-    };
+        stores,
+    });
 
     (collection_storage, recovery_storage)
 }
@@ -213,7 +216,7 @@ mod tests {
             stores: vec![gcs_store("my-bucket", "tenant/")],
         };
 
-        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+        let (collection, recovery) = collection_and_recovery_storage_from(storage);
 
         assert_eq!(get_prefix(&collection.stores[0]), "tenant/collection-data/");
         assert_eq!(get_prefix(&recovery.stores[0]), "tenant/");
@@ -226,7 +229,7 @@ mod tests {
             stores: vec![gcs_store("my-bucket", "tenant/collection-data/")],
         };
 
-        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+        let (collection, recovery) = collection_and_recovery_storage_from(storage);
 
         assert_eq!(get_prefix(&collection.stores[0]), "tenant/collection-data/");
         assert_eq!(get_prefix(&recovery.stores[0]), "tenant/");
@@ -242,7 +245,7 @@ mod tests {
             stores: vec![gcs_store("my-bucket", "tenant/")],
         };
 
-        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+        let (collection, recovery) = collection_and_recovery_storage_from(storage);
 
         assert_eq!(collection.data_planes.len(), 2);
         assert_eq!(collection.data_planes[0], "ops/dp/public/gcp-us-central1");
@@ -260,7 +263,7 @@ mod tests {
             ],
         };
 
-        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+        let (collection, recovery) = collection_and_recovery_storage_from(storage);
 
         assert_eq!(collection.stores.len(), 2);
         assert_eq!(
@@ -284,7 +287,7 @@ mod tests {
             stores: vec![gcs_store("my-bucket", "")],
         };
 
-        let (collection, recovery) = split_collection_and_recovery_storage(storage);
+        let (collection, recovery) = collection_and_recovery_storage_from(storage);
 
         assert_eq!(get_prefix(&collection.stores[0]), "collection-data/");
         assert_eq!(get_prefix(&recovery.stores[0]), "");

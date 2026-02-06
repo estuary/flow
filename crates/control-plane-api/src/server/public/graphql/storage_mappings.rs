@@ -1,5 +1,5 @@
 use crate::directives::storage_mappings::{
-    insert_storage_mapping, split_collection_and_recovery_storage, strip_collection_data_suffix,
+    collection_and_recovery_storage_from, insert_storage_mapping, strip_collection_data_suffix,
     update_storage_mapping, upsert_storage_mapping,
 };
 use async_graphql::{
@@ -236,7 +236,7 @@ impl StorageMappingsMutation {
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
-        let (collection_storage, recovery_storage) = split_collection_and_recovery_storage(storage);
+        let (collection_storage, recovery_storage) = collection_and_recovery_storage_from(storage);
 
         // Insert collection storage mapping (fails if already exists).
         let inserted = insert_storage_mapping(
@@ -359,7 +359,7 @@ impl StorageMappingsMutation {
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
-        let (collection_storage, recovery_storage) = split_collection_and_recovery_storage(storage);
+        let (collection_storage, recovery_storage) = collection_and_recovery_storage_from(storage);
 
         let updated = update_storage_mapping(
             detail.as_deref(),
