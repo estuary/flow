@@ -195,6 +195,20 @@ impl StorageMappingsMutation {
 
         let mut txn = env.pg_pool.begin().await?;
 
+        // Check if a more-specific storage mapping already exists under this prefix.
+        let child_mappings = sqlx::query_scalar!(
+            r#"
+            SELECT catalog_prefix
+            FROM storage_mappings
+            WHERE catalog_prefix ^@ $1
+            AND catalog_prefix != $1
+            AND NOT catalog_prefix ^@ 'recovery/'
+            "#,
+            &catalog_prefix,
+        )
+        .fetch_all(&mut *txn)
+        .await?;
+
         // Check if any existing tasks or collections would be affected by this new storage mapping.
         // We disallow creating storage mappings that would change the storage for existing specs.
         let sampled_specs = sqlx::query_scalar!(
@@ -203,9 +217,11 @@ impl StorageMappingsMutation {
             FROM live_specs
             WHERE catalog_name ^@ $1
             AND spec IS NOT NULL
+            AND NOT catalog_name ^@ ANY($2::text[])
             LIMIT 5
             "#,
             &catalog_prefix,
+            &child_mappings,
         )
         .fetch_all(&mut *txn)
         .await?;
