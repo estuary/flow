@@ -1,4 +1,4 @@
-use data_plane_controller::{
+use data_plane_controller::shared::{
     commands,
     controller::{EmitLogFn, RunCmdFn},
     stack,
@@ -45,13 +45,13 @@ pub fn mock_run_cmd_fn(trace: Arc<Mutex<Vec<TraceEntry>>>) -> RunCmdFn {
 
             // Return a fixture which models a typical Pulumi stack output.
             if commands::starts_with(&cmd, &["pulumi", "stack", "output"]) {
-                output = include_bytes!("../src/dry_run_fixture.json").to_vec();
+                output = include_bytes!("../src/shared/dry_run_fixture.json").to_vec();
             }
 
             // Return a fixture which models a typical Pulumi stack history output with a change.
             if commands::starts_with(&cmd, &["pulumi", "stack", "history"]) {
-                output = serde_json::to_vec(&[crate::stack::PulumiStackHistory {
-                    resource_changes: crate::stack::PulumiStackResourceChanges {
+                output = serde_json::to_vec(&[stack::PulumiStackHistory {
+                    resource_changes: stack::PulumiStackResourceChanges {
                         create: 1,
                         delete: 0,
                         same: 0,

@@ -215,6 +215,9 @@ pub struct Release {
     /// - When negative, a "replace" rollout is performed which first removes
     ///   `prev_image` capacity and then replaces with `next_image` capacity.
     pub step: i32,
+    /// Maximum tier of deployments this release applies to.
+    /// Only deployments with tier <= max_tier will use this release.
+    pub max_tier: i16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -228,6 +231,14 @@ pub struct Deployment {
     pub current: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rollout: Option<Rollout>,
+    #[serde(default = "default_tier")]
+    pub tier: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+}
+
+fn default_tier() -> u8 {
+    50
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -405,6 +416,8 @@ impl DataPlane {
                         desired: _,            // Allowed to change.
                         oci_image_override: _, // Allowed to change.
                         rollout: _,            // Allowed to change.
+                        tier: _,               // Allowed to change.
+                        tag: _,                // Allowed to change.
                     },
                     next @ Deployment {
                         current: next_current,
@@ -414,6 +427,8 @@ impl DataPlane {
                         desired: _,            // Allowed to change.
                         oci_image_override: _, // Allowed to change.
                         rollout: _,            // Allowed to change.
+                        tier: _,               // Allowed to change.
+                        tag: _,                // Allowed to change.
                     },
                 ) => {
                     if cur_current != next_current
@@ -473,11 +488,14 @@ impl DataPlane {
                 continue;
             }
 
-            roles_in_rollout.insert(last.role.clone());
-
-            let Some(release) = releases.iter().find(|r| r.prev_image == last.oci_image) else {
+            let Some(release) = releases
+                .iter()
+                .find(|r| r.prev_image == last.oci_image && r.max_tier >= last.tier as i16)
+            else {
                 continue;
             };
+
+            roles_in_rollout.insert(last.role.clone());
 
             let mut next = Deployment {
                 current: 0,
@@ -490,6 +508,8 @@ impl DataPlane {
                     target: last.desired,
                 }),
                 template: last.template.clone(),
+                tier: last.tier,
+                tag: last.tag.clone(),
             };
 
             last.rollout = Some(Rollout {
@@ -684,7 +704,7 @@ mod test {
                 deployments,
                 ..last.clone()
             }
-        ).unwrap_err(), @r###""invalid transition of deployment at index 0 (you may only append new deployments or update `desired` or `oci_image_override` of this one): {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":3} =!=> {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":32}""###);
+        ).unwrap_err(), @r###""invalid transition of deployment at index 0 (you may only append new deployments or update `desired` or `oci_image_override` of this one): {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":3,\"tier\":50} =!=> {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":32,\"tier\":50}""###);
 
         let mut deployments = last.deployments.clone();
         deployments.pop();
@@ -695,7 +715,7 @@ mod test {
                 deployments,
                 ..last.clone()
             }
-        ).unwrap_err(), @r###""cannot remove deployment {\"role\":\"reactor\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"r5d.xlarge\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"ghcr.io/estuary/flow:v0.5.11\",\"desired\":7,\"current\":7} at index 2; scale it down with `desired` = 0 instead""###);
+        ).unwrap_err(), @r###""cannot remove deployment {\"role\":\"reactor\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"r5d.xlarge\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"ghcr.io/estuary/flow:v0.5.11\",\"desired\":7,\"current\":7,\"tier\":50} at index 2; scale it down with `desired` = 0 instead""###);
 
         let mut deployments = last.deployments.clone();
         deployments.push(Deployment {
@@ -709,7 +729,7 @@ mod test {
                 deployments,
                 ..last.clone()
             }
-        ).unwrap_err(), @r###""new deployment {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":32} at index 3 must have `current` = 0; scale up using `desired` instead""###);
+        ).unwrap_err(), @r###""new deployment {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":3,\"current\":32,\"tier\":50} at index 3 must have `current` = 0; scale up using `desired` instead""###);
 
         let mut deployments = last.deployments.clone();
         deployments.push(Deployment {
@@ -724,7 +744,7 @@ mod test {
                 deployments,
                 ..last.clone()
             }
-        ).unwrap_err(), @r###""new deployment {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":0,\"current\":0} at index 3 must have `desired` > 0""###);
+        ).unwrap_err(), @r###""new deployment {\"role\":\"etcd\",\"template\":{\"ami_image_id\":\"ami-01a8b7cc84780badb\",\"instance_type\":\"m5d.large\",\"provider\":\"aws\",\"region\":\"us-west-2\",\"zone\":\"a\"},\"oci_image\":\"quay.io/coreos/etcd:v3.5.17\",\"desired\":0,\"current\":0,\"tier\":50} at index 3 must have `desired` > 0""###);
 
         let mut deployments = last.deployments.clone();
         deployments.push(Deployment {
@@ -755,6 +775,7 @@ mod test {
             prev_image: "not/matched:v1".to_string(),
             next_image: "not/matched:v2".to_string(),
             step: 3,
+            max_tier: 100,
         }];
 
         insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
@@ -769,6 +790,7 @@ mod test {
             prev_image: "quay.io/coreos/etcd:v3.5.17".to_string(),
             next_image: "quay.io/coreos/etcd:next".to_string(),
             step: -1,
+            max_tier: 100,
         }];
 
         insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
@@ -784,16 +806,19 @@ mod test {
                 prev_image: "ghcr.io/gazette/broker:v0.100".to_string(),
                 next_image: "ghcr.io/gazette/broker:next".to_string(),
                 step: 3,
+                max_tier: 100,
             },
             Release {
                 prev_image: "ghcr.io/estuary/flow:v0.5.11".to_string(),
                 next_image: "ghcr.io/estuary/flow:next".to_string(),
                 step: 3,
+                max_tier: 100,
             },
             Release {
                 prev_image: "not/matched:v1".to_string(),
                 next_image: "not/matched:v2".to_string(),
                 step: 3,
+                max_tier: 100,
             },
         ];
 
@@ -816,16 +841,19 @@ mod test {
                 prev_image: "ghcr.io/gazette/broker:v0.100".to_string(),
                 next_image: "ghcr.io/gazette/broker:v1".to_string(),
                 step: 100,
+                max_tier: 100,
             },
             Release {
                 prev_image: "ghcr.io/gazette/broker:v1".to_string(),
                 next_image: "ghcr.io/gazette/broker:v2".to_string(),
                 step: 100,
+                max_tier: 100,
             },
             Release {
                 prev_image: "ghcr.io/gazette/broker:v2".to_string(),
                 next_image: "ghcr.io/gazette/broker:v3".to_string(),
                 step: 7,
+                max_tier: 100,
             },
         ];
 
@@ -841,6 +869,7 @@ mod test {
             prev_image: "quay.io/coreos/etcd:v3.5.17".to_string(),
             next_image: "quay.io/coreos/etcd:next".to_string(),
             step: -1,
+            max_tier: 100,
         }];
 
         insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, releases));
@@ -862,11 +891,13 @@ mod test {
                 prev_image: "quay.io/coreos/etcd:v3.5.17".to_string(),
                 next_image: "quay.io/coreos/etcd:v3.6".to_string(),
                 step: -1,
+                max_tier: 100,
             },
             Release {
                 prev_image: "quay.io/coreos/etcd:v3.6".to_string(),
                 next_image: "quay.io/coreos/etcd:v3.7".to_string(),
                 step: -1,
+                max_tier: 100,
             },
         ];
 
