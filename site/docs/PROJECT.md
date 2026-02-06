@@ -30,6 +30,13 @@ Documentation for the Estuary Flow real-time data platform.
 - [x] Fix internal links after reorganization
 - [x] Verify build passes
 
+### Phase 4: PR Review Feedback (Complete)
+- [x] Address aeluce's review comments on PR #2648
+- [x] Add cross-links between metadata-fields and related docs
+- [x] Deduplicate content (schema-inference-issues links to custom-column-types)
+- [x] Fix terminology (Estuary not Flow, materialization connectors not materializers)
+- [x] Update Snowflake capture docs for identifier() syntax
+
 ## Inbox
 
 - [2026-02-04] Update OpenMetrics API Documentation (site/docs/features/openmetrics-api.md): Add "How metrics are calculated" section explaining month-to-date counters, add Time Scope column to metrics table, add "Using with Prometheus/Grafana" subsection with increase() examples and month boundary warnings, clarify in Custom integration that API returns month-to-date totals not deltas
