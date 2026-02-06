@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            d.id AS \"control_id: models::Id\",\n            d.data_plane_name,\n            d.data_plane_fqdn,\n            d.hmac_keys,\n            d.encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            d.broker_address,\n            d.reactor_address,\n            d.dekaf_address,\n            d.dekaf_registry_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        ",
+  "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            dekaf_address,\n            dekaf_registry_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\",\n            cidr_blocks::text[] AS \"cidr_blocks!\",\n            gcp_service_account_email,\n            aws_iam_user_arn\n        FROM data_planes\n        WHERE data_plane_name = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -57,10 +57,27 @@
         "ordinal": 10,
         "name": "ops_stats_name: models::Collection",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "cidr_blocks!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 12,
+        "name": "gcp_service_account_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "aws_iam_user_arn",
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
       false,
@@ -73,8 +90,11 @@
       true,
       true,
       false,
-      false
+      false,
+      null,
+      true,
+      true
     ]
   },
-  "hash": "48396ee38802bed5dc4497a8690a4c888ef30caf3208b5e5b0033552b8210a04"
+  "hash": "a09052c4a7780dd0c745cd04ded0050fb1e8c525dff88e582d5d0aaacb669067"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        WITH\n        data_plane_ids AS (\n            SELECT id\n            FROM UNNEST($1::flowid[]) AS t(id)\n        ),\n        data_plane_names AS (\n            SELECT name\n            FROM UNNEST($2::text[]) AS t(name)\n            -- User must be read-authorized to data-plane.\n            WHERE EXISTS (\n                SELECT 1\n                FROM internal.user_roles($3, 'read') AS r\n                WHERE starts_with(t.name, r.role_prefix)\n            )\n        )\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.dekaf_address,\n            d.dekaf_registry_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE\n            d.id IN (select id from data_plane_ids) OR\n            d.data_plane_name in (select name from data_plane_names)\n        ",
+  "query": "\n        WITH\n        data_plane_ids AS (\n            SELECT id\n            FROM UNNEST($1::flowid[]) AS t(id)\n        ),\n        data_plane_names AS (\n            SELECT name\n            FROM UNNEST($2::text[]) AS t(name)\n            -- User must be read-authorized to data-plane.\n            WHERE EXISTS (\n                SELECT 1\n                FROM internal.user_roles($3, 'read') AS r\n                WHERE starts_with(t.name, r.role_prefix)\n            )\n        )\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.dekaf_address,\n            d.dekaf_registry_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\",\n            d.cidr_blocks::text[] AS \"cidr_blocks!\",\n            d.gcp_service_account_email,\n            d.aws_iam_user_arn\n        FROM data_planes d\n        WHERE\n            d.id IN (select id from data_plane_ids) OR\n            d.data_plane_name in (select name from data_plane_names)\n        ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,21 @@
         "ordinal": 10,
         "name": "ops_stats_name: models::Collection",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "cidr_blocks!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 12,
+        "name": "gcp_service_account_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "aws_iam_user_arn",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -91,8 +106,11 @@
       true,
       true,
       false,
-      false
+      false,
+      null,
+      true,
+      true
     ]
   },
-  "hash": "f9600987a85eacfb073b32786dd898386994fc0bb0ace2a0cdc4f87580eac15a"
+  "hash": "5fc71208b138746d1ccce25fb98df1d6ecd44274fc1a9547383a2b311389748e"
 }

@@ -379,7 +379,7 @@ type DataPlane {
 	"""
 	Cluster identifier within the region.
 	"""
-	cluster: String!
+	tag: String!
 	"""
 	Whether this is a private data-plane.
 	"""
@@ -883,6 +883,7 @@ type QueryRoot {
 	Results are paginated and sorted by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+	"""
 	Returns data planes accessible to the current user.
 
 	Results are paginated and sorted by data_plane_name.

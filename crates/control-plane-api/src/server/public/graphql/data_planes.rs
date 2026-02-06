@@ -37,9 +37,9 @@ pub struct DataPlane {
     /// For example: "us-east-1" (AWS), "us-central1" (GCP), "eastus" (Azure).
     pub region: String,
     /// Cluster identifier within the region.
-    pub cluster: String,
-    /// Whether this is a private data-plane.
-    pub is_private: bool,
+    pub tag: String,
+    /// Whether this is a public data-plane.
+    pub is_public: bool,
 }
 
 /// Parses a data plane name into its component parts.
@@ -84,12 +84,12 @@ fn parse_data_plane_name(name: &str) -> Option<(CloudProvider, String, String, b
                 _ => unreachable!(),
             };
 
-            let is_private = name.contains("ops/dp/private/");
+            let is_public = name.contains("ops/dp/public/");
             Some((
                 cloud_provider,
                 region.to_string(),
                 cluster.to_string(),
-                is_private,
+                is_public,
             ))
         }
         _ => None,
@@ -211,7 +211,7 @@ impl DataPlanesQuery {
             row_data.keys().cloned(),
             |data_plane_name, user_capability| {
                 let dp = row_data.get(&data_plane_name)?;
-                let (cloud_provider, region, cluster, is_private) =
+                let (cloud_provider, region, tag, is_public) =
                     parse_data_plane_name(&data_plane_name).expect("name validated by pre-filter");
                 Some(connection::Edge::new(
                     data_plane_name.clone(),
@@ -226,8 +226,8 @@ impl DataPlanesQuery {
                             .expect("capability guaranteed by pre-filter"),
                         cloud_provider,
                         region,
-                        cluster,
-                        is_private,
+                        tag,
+                        is_public,
                     },
                 ))
             },
@@ -245,49 +245,49 @@ mod tests {
 
     #[test]
     fn parses_aws_public() {
-        let (provider, region, cluster, is_private) =
+        let (provider, region, tag, is_public) =
             parse_data_plane_name("ops/dp/public/aws-us-east-1-c1").unwrap();
         assert_eq!(provider, CloudProvider::Aws);
         assert_eq!(region, "us-east-1");
-        assert_eq!(cluster, "1");
-        assert!(!is_private);
+        assert_eq!(tag, "1");
+        assert!(is_public);
     }
 
     #[test]
     fn parses_gcp_private() {
-        let (provider, region, cluster, is_private) =
+        let (provider, region, tag, is_public) =
             parse_data_plane_name("ops/dp/private/estuary/gcp-us-central1-c5").unwrap();
         assert_eq!(provider, CloudProvider::Gcp);
         assert_eq!(region, "us-central1");
-        assert_eq!(cluster, "5");
-        assert!(is_private);
+        assert_eq!(tag, "5");
+        assert!(!is_public);
     }
 
     #[test]
     fn parses_azure_variants() {
         // "az" prefix
-        let (provider, region, cluster, _) =
+        let (provider, region, tag, _) =
             parse_data_plane_name("ops/dp/private/EastPack/az-australiaeast-c1").unwrap();
         assert_eq!(provider, CloudProvider::Azure);
         assert_eq!(region, "australiaeast");
-        assert_eq!(cluster, "1");
+        assert_eq!(tag, "1");
 
         // "azure" prefix
-        let (provider, region, cluster, _) =
+        let (provider, region, tag, _) =
             parse_data_plane_name("ops/dp/private/AccumTech/azure-eastus-c1").unwrap();
         assert_eq!(provider, CloudProvider::Azure);
         assert_eq!(region, "eastus");
-        assert_eq!(cluster, "1");
+        assert_eq!(tag, "1");
     }
 
     #[test]
     fn parses_local() {
-        let (provider, region, cluster, is_private) =
+        let (provider, region, tag, is_public) =
             parse_data_plane_name("ops/dp/local/local-foo").unwrap();
         assert_eq!(provider, CloudProvider::Local);
         assert_eq!(region, "local");
-        assert_eq!(cluster, "1");
-        assert!(is_private);
+        assert_eq!(tag, "1");
+        assert!(is_public);
     }
 
     #[test]
