@@ -167,7 +167,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "validation",
  "validator",
  "xxhash-rust",
@@ -355,7 +355,7 @@ dependencies = [
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "thiserror 2.0.17",
- "uuid 1.18.1",
+ "uuid",
  "zstd",
 ]
 
@@ -595,7 +595,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -694,10 +694,7 @@ version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cecbddf002ad7a13d2041eadf1b234cb3f57653ffdd901a01bc3f1c65aa77440"
 dependencies = [
- "chrono",
  "futures-util",
- "hex",
- "hmac",
  "http-types",
  "hyper 0.14.32",
  "hyper-tls 0.5.0",
@@ -705,12 +702,10 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_qs 0.10.1",
- "sha2",
  "smart-default",
  "smol_str",
  "thiserror 1.0.69",
  "tokio",
- "uuid 0.8.2",
 ]
 
 [[package]]
@@ -897,7 +892,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -2098,7 +2093,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "validation",
  "validator",
  "xxhash-rust",
@@ -2626,7 +2621,7 @@ dependencies = [
  "tuple",
  "unseal",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "webpki",
 ]
 
@@ -2720,7 +2715,7 @@ dependencies = [
  "tracing",
  "tuple",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -2945,7 +2940,7 @@ dependencies = [
  "tracing",
  "tuple",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -3346,7 +3341,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "validation",
 ]
 
@@ -3590,7 +3585,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -4589,7 +4584,7 @@ dependencies = [
  "thiserror 2.0.17",
  "time",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -4665,7 +4660,7 @@ dependencies = [
  "lz4",
  "paste",
  "snap",
- "uuid 1.18.1",
+ "uuid",
  "zstd",
 ]
 
@@ -5157,7 +5152,7 @@ dependencies = [
  "time",
  "unicode-normalization",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "validator",
 ]
 
@@ -5273,7 +5268,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -5682,7 +5677,7 @@ dependencies = [
  "unicode-bom",
  "unicode-normalization",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "zip",
  "zstd",
 ]
@@ -6191,7 +6186,7 @@ dependencies = [
  "proto-build",
  "serde",
  "thiserror 2.0.17",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -6886,7 +6881,7 @@ dependencies = [
  "rend",
  "rkyv_derive",
  "tinyvec",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -6999,7 +6994,7 @@ dependencies = [
  "tracing-subscriber",
  "tuple",
  "unseal",
- "uuid 1.18.1",
+ "uuid",
  "xxhash-rust",
  "zeroize",
 ]
@@ -7021,7 +7016,7 @@ dependencies = [
  "smallvec",
  "time",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -7859,7 +7854,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -7940,7 +7935,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.17",
  "tracing",
- "uuid 1.18.1",
+ "uuid",
  "whoami",
 ]
 
@@ -7980,7 +7975,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.17",
  "tracing",
- "uuid 1.18.1",
+ "uuid",
  "whoami",
 ]
 
@@ -8007,7 +8002,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tracing",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
@@ -8183,7 +8178,7 @@ dependencies = [
  "serde_json",
  "superslice",
  "url",
- "uuid 1.18.1",
+ "uuid",
  "xxhash-rust",
 ]
 
@@ -8971,15 +8966,6 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.16",
-]
-
-[[package]]
-name = "uuid"
 version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
@@ -9011,7 +8997,7 @@ dependencies = [
  "serde_json",
  "uritemplate-next",
  "url",
- "uuid 1.18.1",
+ "uuid",
 ]
 
 [[package]]
