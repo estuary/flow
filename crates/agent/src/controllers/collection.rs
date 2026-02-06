@@ -6,6 +6,7 @@ use super::{
     dependencies::Dependencies,
     periodic,
     publication_status::{self, PendingPublication},
+    republish,
 };
 use anyhow::Context;
 use control_plane_api::publications::PublicationResult;
@@ -74,6 +75,7 @@ pub async fn update<C: ControlPlane>(
 /// - Update the inferred schema
 /// - Update inlined spec dependencies
 /// - Periodically rebuild the spec
+/// - In response to a Republish request
 ///
 /// Returns a boolean indicating whether a publication was performed.
 /// Note that unlike captures and materializations, all collection publications
@@ -83,6 +85,7 @@ pub async fn update<C: ControlPlane>(
 /// why we might publish. This is why we can have a single `maybe_publish` function
 /// instead of needing separate results like captures and materializations.
 async fn maybe_publish<C: ControlPlane>(
+    events: &Inbox,
     status: &mut CollectionStatus,
     state: &ControllerState,
     control_plane: &C,
@@ -104,6 +107,19 @@ async fn maybe_publish<C: ControlPlane>(
         .await?;
 
     if let Some(success_result) = dep_update_pub {
+        collection_published_successfully(status, state, &success_result);
+        return Ok(true);
+    }
+
+    let republish_result = republish::update_republish(
+        events,
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await?;
+    if let Some(success_result) = republish_result {
         collection_published_successfully(status, state, &success_result);
         return Ok(true);
     }

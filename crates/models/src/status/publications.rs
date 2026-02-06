@@ -108,9 +108,24 @@ impl PublicationInfo {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
+pub struct RepublishRequested {
+    /// Informational only, timestamp of when the controller observed the `Republish` request.
+    #[schemars(schema_with = "crate::datetime_schema")]
+    pub received_at: DateTime<Utc>,
+    /// The `reason` from the `Republish` message
+    pub reason: String,
+    /// The `last_build_id` of the live spec as of when the `Republish` message
+    /// is received. If the live spec is observed with a `last_build_id` that is
+    /// greater than this, then the republication will be considered successful
+    /// and complete.
+    pub last_build_id: Id,
+}
+
 /// Information on the publications performed by the controller.
 /// This does not include any information on user-initiated publications.
-#[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[cfg_attr(feature = "async-graphql", derive(async_graphql::SimpleObject))]
 pub struct PublicationStatus {
     /// If we are awaiting a cooldown before publishing this spec, this field will be set
@@ -127,21 +142,13 @@ pub struct PublicationStatus {
     pub max_observed_pub_id: Id,
     /// A limited history of publications performed by this controller
     pub history: VecDeque<PublicationInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_republish: Option<RepublishRequested>,
 }
 
 impl PublicationStatus {
     pub fn last_attempt(&self) -> Option<DateTime<Utc>> {
         self.history.front().and_then(|p| p.completed.or(p.created))
-    }
-}
-
-impl Clone for PublicationStatus {
-    fn clone(&self) -> Self {
-        PublicationStatus {
-            max_observed_pub_id: self.max_observed_pub_id,
-            history: self.history.clone(),
-            next_after: self.next_after.clone(),
-        }
     }
 }
 
@@ -151,6 +158,7 @@ impl Default for PublicationStatus {
             max_observed_pub_id: Id::zero(),
             history: VecDeque::new(),
             next_after: None,
+            pending_republish: None,
         }
     }
 }

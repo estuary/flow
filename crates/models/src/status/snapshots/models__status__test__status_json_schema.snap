@@ -630,10 +630,45 @@ expression: schema
           "type": [
             "string"
           ]
+        },
+        "pending_republish": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepublishRequested"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "history"
+      ],
+      "type": "object"
+    },
+    "RepublishRequested": {
+      "properties": {
+        "last_build_id": {
+          "$ref": "#/$defs/Id",
+          "description": "The `last_build_id` of the live spec as of when the `Republish` message\nis received. If the live spec is observed with a `last_build_id` that is\ngreater than this, then the republication will be considered successful\nand complete."
+        },
+        "reason": {
+          "description": "The `reason` from the `Republish` message",
+          "type": "string"
+        },
+        "received_at": {
+          "description": "Informational only, timestamp of when the controller observed the `Republish` request.",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "received_at",
+        "reason",
+        "last_build_id"
       ],
       "type": "object"
     },

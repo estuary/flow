@@ -387,6 +387,11 @@ mod test {
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 history,
                 next_after: Some("2024-01-02T03:04:05.06Z".parse().unwrap()),
+                pending_republish: Some(publications::RepublishRequested {
+                    received_at: "2024-01-02T03:03:03.03Z".parse().unwrap(),
+                    last_build_id: Id::new([4; 8]),
+                    reason: String::from("so we don't starve"),
+                }),
             },
             alerts: Default::default(),
         });

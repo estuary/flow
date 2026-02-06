@@ -4,6 +4,7 @@ use crate::controllers::{
     dependencies::Dependencies,
     periodic,
     publication_status::{self, PendingPublication},
+    republish,
 };
 use anyhow::Context;
 use itertools::Itertools;
@@ -101,6 +102,17 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
+    let republish_result = republish::update_republish(
+        events,
+        state,
+        &mut status.publications,
+        &mut status.alerts,
+        control_plane,
+    )
+    .await;
+    if republish_result.as_ref().is_ok_and(|r| r.is_some()) {
+        return Ok(Some(NextRun::immediately()));
+    }
 
     let periodic_published = periodic::update_periodic_publish(
         state,
@@ -148,6 +160,7 @@ pub async fn update<C: ControlPlane>(
             source_capture_published.map(|_| None),
             updated_config_published.map(|_| None),
             dep_result.map(|_| None),
+            republish_result.map(|_| None),
         ],
     )
 }
