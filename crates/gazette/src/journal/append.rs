@@ -57,7 +57,7 @@ impl Client {
     {
         let mut client = self
             .subclient(
-                req.header.as_mut(),
+                &mut req.header,
                 if req.do_not_proxy {
                     router::Mode::Primary
                 } else {

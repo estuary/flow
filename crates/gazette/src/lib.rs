@@ -33,6 +33,8 @@ pub enum Error {
     },
     #[error("{0}")]
     Protocol(&'static str),
+    #[error("reading lines: {message} (at offset {offset})")]
+    ReadLines { message: &'static str, offset: i64 },
     #[error("failed to read from input stream")]
     AppendRead(#[source] std::io::Error),
     #[error(transparent)]
@@ -64,9 +66,16 @@ impl Error {
         match self {
             // These errors are generally failure of a transport, and can be retried.
             Error::Transport(_) => true,
-            Error::FetchFragment(_) => true,
             Error::ReadFragment(_) => true,
             Error::UnexpectedEof => true,
+
+            // When no HTTP status is available (e.g. connection refused, DNS failure,
+            // timeout) the error is assumed transient — these are network-level
+            // failures that are generally worth retrying.
+            Error::FetchFragment(inner) => inner
+                .status()
+                .map(|status| !status.is_client_error())
+                .unwrap_or(true),
 
             // Some gRPC codes are transient failures.
             Error::Grpc(status) => match status.code() {
@@ -99,6 +108,7 @@ impl Error {
             Error::JWT(_) => false,
             Error::Parsing { .. } => false,
             Error::Protocol(_) => false,
+            Error::ReadLines { .. } => false,
             Error::UUID(_) => false,
         }
     }

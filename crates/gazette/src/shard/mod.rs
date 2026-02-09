@@ -70,7 +70,7 @@ impl Client {
     ) -> Result<consumer::ListResponse, crate::Error> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can answer).
+                &mut None, // No route header (any member can answer).
                 router::Mode::Default,
             )
             .await?;
@@ -91,7 +91,7 @@ impl Client {
     ) -> Result<consumer::ApplyResponse, crate::Error> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can apply).
+                &mut None, // No route header (any member can apply).
                 router::Mode::Default,
             )
             .await?;
@@ -112,7 +112,7 @@ impl Client {
     ) -> Result<consumer::UnassignResponse, crate::Error> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can unassign).
+                &mut None, // No route header (any member can unassign).
                 router::Mode::Default,
             )
             .await?;
@@ -141,7 +141,7 @@ impl Client {
     ) -> Result<consumer::GetHintsResponse, crate::Error> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can get hints).
+                &mut None, // No route header (any member can get hints).
                 router::Mode::Default,
             )
             .await?;
@@ -157,7 +157,7 @@ impl Client {
 
     async fn subclient(
         &self,
-        route_header: Option<&mut broker::Header>,
+        route_header: &mut Option<broker::Header>,
         route_mode: router::Mode,
     ) -> crate::Result<SubClient> {
         let token = self.tokens.ready().await.token();
