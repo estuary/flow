@@ -4,10 +4,10 @@ use tonic::transport::Channel;
 
 mod append;
 pub mod list;
-mod read;
+pub mod read;
 
-mod read_json_lines;
-pub use read_json_lines::{ReadJsonLine, ReadJsonLines};
+// TODO(johnny): Update usages to gazette::journal::read::ReadJsonLines;
+pub use read::{ReadJsonLine, ReadJsonLines};
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::broker::journal_client::JournalClient<
@@ -95,7 +95,7 @@ impl Client {
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can apply).
+                &mut None, // No route header (any member can apply).
                 router::Mode::Default,
             )
             .await?;
@@ -116,7 +116,7 @@ impl Client {
     ) -> crate::Result<broker::FragmentsResponse> {
         let mut client = self
             .subclient(
-                req.header.as_mut(),
+                &mut req.header,
                 if req.do_not_proxy {
                     router::Mode::Replica
                 } else {
@@ -140,7 +140,7 @@ impl Client {
     ) -> crate::Result<broker::FragmentStoreHealthResponse> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can check health).
+                &mut None, // No route header (any member can check health).
                 router::Mode::Default,
             )
             .await?;
@@ -156,7 +156,7 @@ impl Client {
 
     async fn subclient(
         &self,
-        route_header: Option<&mut broker::Header>,
+        route_header: &mut Option<broker::Header>,
         route_mode: router::Mode,
     ) -> crate::Result<SubClient> {
         let token = self.tokens.ready().await.token();

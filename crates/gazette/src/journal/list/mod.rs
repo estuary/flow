@@ -122,7 +122,7 @@ impl Client {
     ) -> crate::Result<tonic::Streaming<broker::ListResponse>> {
         let mut client = self
             .subclient(
-                None, // No route header (any member can answer).
+                &mut None, // No route header (any member can answer).
                 router::Mode::Default,
             )
             .await?;

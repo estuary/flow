@@ -3,6 +3,13 @@ use crate::{Error, router};
 use futures::TryStreamExt;
 use proto_gazette::broker;
 
+mod lines;
+pub use lines::{LinesBatch, ReadLines};
+
+// TODO(johnny): Replace usages of ReadJsonLines with ReadLines.
+mod json_lines;
+pub use json_lines::{ReadJsonLine, ReadJsonLines};
+
 impl Client {
     /// Invoke the Gazette journal Read API.
     /// This routine directly fetches journal fragments from cloud storage where possible,
@@ -60,7 +67,7 @@ impl Client {
     ) -> crate::Result<()> {
         let mut client = self
             .subclient(
-                req.header.as_mut(),
+                &mut req.header,
                 if req.do_not_proxy {
                     router::Mode::Replica
                 } else {
@@ -78,6 +85,22 @@ impl Client {
         std::mem::drop(stream);
 
         tracing::trace!(req=?ops::DebugJson(&req), meta=?ops::DebugJson(&metadata), "fetched read metadata");
+
+        // OFFSET_NOT_YET_AVAILABLE means the requested offset has no content.
+        // When the request was for offset -1 (resolved to write head) or
+        // exactly at the write head, this is a normal "caught up" condition:
+        // yield the metadata so the caller sees write_head, then return.
+        // Setting both `*write_head` and `req.offset` to the same value
+        // causes the outer read() loop to exit for non-blocking reads.
+        if metadata.status() == broker::Status::OffsetNotYetAvailable
+            && (req.offset == -1 || req.offset == metadata.write_head)
+        {
+            *write_head = metadata.write_head;
+            req.offset = metadata.write_head;
+            req.header = metadata.header.take();
+            () = co.yield_(Ok(metadata)).await;
+            return Ok(());
+        }
 
         // Can we directly read the fragment from cloud storage?
         if let (broker::Status::Ok, false, Some(fragment)) = (

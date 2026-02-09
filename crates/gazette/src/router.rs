@@ -43,9 +43,9 @@ impl Router {
         }
     }
 
-    /// Map an Option<&mut Header>, Mode, and `default` service address into a
-    /// Channel for use in the dispatch of an RPC, and a boolean which is set
-    /// if and only if the Channel is in our local zone.
+    /// Map a Header, Mode, and `default` service address into a Channel for
+    /// use in the dispatch of an RPC, and a boolean which is set if and only
+    /// if the Channel is in our local zone.
     ///
     /// `default.suffix` must be the dial-able endpoint of the service,
     /// while `default.zone` should be its zone (if known).
@@ -53,30 +53,24 @@ impl Router {
     /// route() dials Channels as required, and users MUST call sweep()
     /// to periodically clean up Channels which are no longer in use.
     ///
-    /// route() mutates `header` by clearing its `process_id` if set.
-    /// This facilitates passing forward the Header of an RPC response into
-    /// a next RPC request, in order to leverage route topology and Etcd
-    /// metadata of that response. `process_id` must be cleared because it
-    /// represents the handling server in a response context, but in a
-    /// request context it denotes the server to which the request is directed,
-    /// which is not our intention here. Rather, we wish to use a prior response
-    /// Header to pick a *better* member to which we'll route the next request.
+    /// `header` is the field of a Request message type, where applicable.
+    /// In some request contexts it's copied from a prior RPC Response
+    /// to facilitate route discovery. route() uses the header client-side
+    /// to inform member selection and then clears it to `None`, as
+    /// Request headers are a server-to-server proxy mechanism and are
+    /// not intended for client-to-server requests.
     pub fn route(
         &self,
-        header: Option<&mut broker::Header>,
+        header: &mut Option<broker::Header>,
         mode: Mode,
         default: &MemberId,
     ) -> Result<(Channel, bool), Error> {
-        let (route, primary) = match header {
-            Some(header) => {
-                header.process_id = None;
-
-                match mode {
-                    Mode::Primary => (header.route.as_ref(), true),
-                    Mode::Replica => (header.route.as_ref(), false),
-                    Mode::Default => (None, false),
-                }
-            }
+        let (route, primary) = match header.as_ref() {
+            Some(header) => match mode {
+                Mode::Primary => (header.route.as_ref(), true),
+                Mode::Replica => (header.route.as_ref(), false),
+                Mode::Default => (None, false),
+            },
             None => (None, false),
         };
         let index = pick(route, primary, &self.inner.zone);
@@ -90,18 +84,25 @@ impl Router {
 
         let mut states = self.inner.states.lock().unwrap();
 
-        // Is the channel already started?
-        if let Some((channel, mark)) = states.get_mut(id) {
-            *mark = true;
-            return Ok((channel.clone(), id.zone == self.inner.zone));
-        }
+        let channel = match states.get_mut(id) {
+            // Channel already started.
+            Some((ch, mark)) => {
+                *mark = true;
+                ch.clone()
+            }
+            // Start dialing the endpoint.
+            None => {
+                let ch = super::dial_channel(match index {
+                    Some(index) => &route.unwrap().endpoints[index],
+                    None => &default.suffix,
+                })?;
+                states.insert(id.clone(), (ch.clone(), true));
+                ch
+            }
+        };
 
-        // Start dialing the endpoint.
-        let channel = super::dial_channel(match index {
-            Some(index) => &route.unwrap().endpoints[index],
-            None => &default.suffix,
-        })?;
-        states.insert(id.clone(), (channel.clone(), true));
+        // Clear the header after routing so it is not sent on the wire.
+        *header = None;
 
         Ok((channel, local))
     }
