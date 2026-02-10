@@ -140,7 +140,7 @@ async fn run_all_health_checks(
             let handle = tokio::spawn(async move {
                 if let Some(rate) = success_rate {
                     // Simulate health check with provided success rate.
-                    let sleep_ms = rand::random::<u64>() % 500 + 100; // 100-600ms
+                    let sleep_ms = rand::random::<u64>() % 1000 + 500; // 1000-1500ms
                     tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
 
                     if rand::random::<f64>() < rate {
