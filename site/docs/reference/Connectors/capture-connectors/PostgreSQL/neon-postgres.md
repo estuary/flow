@@ -6,6 +6,7 @@ Neon's logical replication feature allows you to replicate data from your Neon P
 
 - An [Estuary account](https://dashboard.estuary.dev/register) (start free, no credit card required)
 - A [Neon account](https://console.neon.tech/)
+- A **direct connection string** to your Neon database (not a pooled connection). See [Connection Pooling](#connection-pooling) below.
 
 ## Setup
 
@@ -92,6 +93,24 @@ Upon start-up, the Estuary connector for Postgres will automatically create the 
 
 To prevent storage bloat, **Neon automatically removes _inactive_ replication slots after a period of time if there are other _active_ replication slots**. If you have or intend on having more than one replication slot, please see [Unused replication slots](https://docs.neon.tech/docs/logical-replication-neon#unused-replication-slots) to learn more.
 
+## Connection Pooling
+
+:::caution
+You **must** use a direct connection to your Neon database. Neon's connection pooler does not support the PostgreSQL replication protocol required for CDC captures.
+:::
+
+Neon provides two types of connection strings:
+- **Pooled** (hostname contains `-pooler`): e.g., `ep-cool-darkness-123456-pooler.us-east-2.aws.neon.tech` — **will not work**
+- **Direct** (no `-pooler`): e.g., `ep-cool-darkness-123456.us-east-2.aws.neon.tech` — **use this one**
+
+To get your direct connection string:
+1. Go to your Neon project **Dashboard**
+2. Open the **Connection Details** widget
+3. Ensure **Connection pooling** is toggled **off**
+4. Copy the connection string
+
+If you use a pooled connection, the capture will fail with errors like `syntax error at or near "IDENTIFY_SYSTEM"` because the pooler does not pass through replication commands.
+
 ## Allow Inbound Traffic
 
 If you are using Neon's **IP Allow** feature to limit the IP addresses that can connect to Neon, you will need to allow inbound traffic from Estuary's IP addresses.
@@ -102,11 +121,16 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
 
 1. In the Estuary web UI, select **Sources** from the left navigation bar and click **New Capture**.
 2. In the connector catalog, choose **Neon PostgreSQL** and click **Connect**.
-3. Enter the connection details for your Neon database. You can get these details from your Neon connection string, which you'll find in the **Connection Details** widget on the **Dashboard** of your Neon project. Your connection string will look like this:
+3. Enter the connection details for your Neon database. You can get these details from your Neon connection string, which you'll find in the **Connection Details** widget on the **Dashboard** of your Neon project. **Make sure connection pooling is toggled off** so you get a direct connection string. It will look like this:
 
    ```bash
    postgres://cdc_role:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
+
+   :::warning
+   Do not use a pooled connection string (hostname containing `-pooler`). See [Connection Pooling](#connection-pooling).
+   :::
+
    Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
 
    - Name: Name of the Capture connector
