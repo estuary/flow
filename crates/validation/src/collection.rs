@@ -180,6 +180,17 @@ fn walk_collection(
         errors,
     )?;
 
+    // Check that /_meta and /_meta/uuid are not redacted, as redaction would
+    // destroy the UUID placeholder that the runtime depends on.
+    if read_model.is_some() {
+        check_uuid_ptr_not_redacted(scope.push_prop("writeSchema"), &write_spec.spec, errors);
+        if let Some(read) = &read_spec {
+            check_uuid_ptr_not_redacted(scope.push_prop("readSchema"), &read.spec, errors);
+        }
+    } else {
+        check_uuid_ptr_not_redacted(scope.push_prop("schema"), &write_spec.spec, errors);
+    }
+
     let effective_read_spec = read_spec
         .as_ref()
         .map(|Schema { spec, .. }| spec)
@@ -775,6 +786,25 @@ pub fn skim_projections(
     );
 
     projection_specs
+}
+
+fn check_uuid_ptr_not_redacted(scope: Scope, spec: &schema::Schema, errors: &mut tables::Errors) {
+    for ptr_str in [UUID_PTR, "/_meta"] {
+        let ptr = json::Pointer::from(ptr_str);
+        let (shape, exists) = spec.shape.locate(&ptr);
+
+        if matches!(exists, doc::shape::location::Exists::Cannot) {
+            continue;
+        }
+        if !matches!(shape.redact, doc::shape::Redact::Unset) {
+            Error::UuidPtrHasRedact {
+                ptr: ptr_str.to_string(),
+                schema: spec.curi.clone(),
+                strategy: shape.redact.clone(),
+            }
+            .push(scope, errors);
+        }
+    }
 }
 
 struct Schema {

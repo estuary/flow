@@ -145,6 +145,15 @@ pub enum Error {
         schema: Url,
         strategy: doc::shape::Redact,
     },
+    #[error(
+        "location {ptr} has a `redact` strategy, which is disallowed because /_meta/uuid \
+         holds the runtime document UUID"
+    )]
+    UuidPtrHasRedact {
+        ptr: String,
+        schema: Url,
+        strategy: doc::shape::Redact,
+    },
     #[error("{category} projection {field} does not exist in collection {collection}")]
     NoSuchProjection {
         category: String,
