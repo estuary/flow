@@ -32,9 +32,9 @@ ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
 
 ENV RUST_LOG=info
 
-CMD ["/usr/local/bin/data-plane-controller-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/data-plane-controller-entrypoint.sh"]
 
-# Example of running this container locally:
+# Example of running this container locally (service mode):
 # docker run --rm --net=host -it \
 #   -e CONTROL_PLANE_DB_CA_CERT="$(</home/johnny/Downloads/prod-ca-2021.crt)" \
 #   -e DPC_DATABASE_URL="${DATABASE_URL}" \
@@ -43,4 +43,12 @@ CMD ["/usr/local/bin/data-plane-controller-entrypoint.sh"]
 #   -e DPC_SERVICE_ACCOUNT="$(</etc/data_plane_controller.json)" \
 #   -e VULTR_API_KEY="${VULTR_API_KEY}" \
 #   -e PGPASSWORD=${PGPASSWORD} \
-#   foobar:latest
+#   foobar:latest service
+#
+# Example of running this container locally (job mode):
+# docker run --rm --net=host -it \
+#   -e CONTROL_PLANE_DB_CA_CERT="$(</home/johnny/Downloads/prod-ca-2021.crt)" \
+#   -e DPC_DATABASE_URL="${DATABASE_URL}" \
+#   -e DPC_SERVICE_URL="http://localhost:8080" \
+#   -e PGPASSWORD=${PGPASSWORD} \
+#   foobar:latest job

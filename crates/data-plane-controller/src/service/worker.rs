@@ -1,5 +1,5 @@
 use crate::protocol::{Action, ControllerConfig, ExecuteRequest, ExecuteResponse};
-use crate::shared::{commands, logs, stack};
+use crate::shared::{commands, controller, logs, stack};
 use anyhow::Context;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -25,16 +25,7 @@ pub async fn execute_action(
 
     // Build a type-erased RunCmdFn which dispatches to commands::dry_run()
     // when running in dry-run mode, or commands::run() otherwise.
-    let run_cmd_fn: Box<
-        dyn Fn(
-                async_process::Command,
-                bool,
-                &'static str,
-                sqlx::types::Uuid,
-            ) -> futures::future::BoxFuture<'static, anyhow::Result<Vec<u8>>>
-            + Send
-            + Sync,
-    > = if config.dry_run {
+    let run_cmd_fn: controller::RunCmdFn = if config.dry_run {
         let logs_tx_clone = logs_tx.clone();
         Box::new(move |cmd, capture_stdout, stream, logs_token| {
             Box::pin(commands::dry_run(
@@ -58,15 +49,7 @@ pub async fn execute_action(
         })
     };
 
-    let emit_log_fn: Box<
-        dyn Fn(
-                sqlx::types::Uuid,
-                &'static str,
-                String,
-            ) -> futures::future::BoxFuture<'static, anyhow::Result<()>>
-            + Send
-            + Sync,
-    > = {
+    let emit_log_fn: controller::EmitLogFn = {
         let logs_tx_clone = logs_tx.clone();
         Box::new(move |token, stream, line| {
             let logs_tx = logs_tx_clone.clone();
@@ -111,25 +94,8 @@ pub async fn execute_action(
 
 struct Worker {
     config: ControllerConfig,
-    run_cmd_fn: Box<
-        dyn Fn(
-                async_process::Command,
-                bool,
-                &'static str,
-                sqlx::types::Uuid,
-            ) -> futures::future::BoxFuture<'static, anyhow::Result<Vec<u8>>>
-            + Send
-            + Sync,
-    >,
-    emit_log_fn: Box<
-        dyn Fn(
-                sqlx::types::Uuid,
-                &'static str,
-                String,
-            ) -> futures::future::BoxFuture<'static, anyhow::Result<()>>
-            + Send
-            + Sync,
-    >,
+    run_cmd_fn: controller::RunCmdFn,
+    emit_log_fn: controller::EmitLogFn,
 }
 
 // Implementation note: These methods are extracted from the original Controller

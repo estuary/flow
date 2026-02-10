@@ -9,8 +9,73 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  deploy:
+  deploy-service:
     runs-on: ubuntu-24.04
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    outputs:
+      service-url: ${{ steps.deploy-service.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0  # Required for git describe to find tags
+
+      - name: Get image tag
+        id: image-tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="dev-next"
+          else
+            TAG=$(git describe --tags --always)
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/data-plane-controller:${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Authenticate with GCP Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          service_account: cd-github-actions@estuary-control.iam.gserviceaccount.com
+          workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
+
+      - name: Deploy Cloud Run service `data-plane-controller-service`
+        id: deploy-service
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: data-plane-controller-service
+          project_id: estuary-control
+          region: us-central1
+          image: ${{ steps.image-tag.outputs.image }}
+          timeout: 3600s
+          flags: '--args=service --no-allow-unauthenticated'
+
+          env_vars: |-
+            DPC_DATABASE_CA=/etc/db-ca.crt
+            DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
+            NO_COLOR=1
+
+          secrets: |-
+            CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
+            DPC_ARM_CLIENT_ID=DPC_ARM_CLIENT_ID:latest
+            DPC_ARM_CLIENT_SECRET=DPC_ARM_CLIENT_SECRET:latest
+            DPC_ARM_SUBSCRIPTION_ID=DPC_ARM_SUBSCRIPTION_ID:latest
+            DPC_ARM_TENANT_ID=DPC_ARM_TENANT_ID:latest
+            DPC_GITHUB_SSH_KEY=DPC_GITHUB_SSH_KEY:latest
+            DPC_IAM_CREDENTIALS=DPC_IAM_CREDENTIALS:latest
+            DPC_SERVICE_ACCOUNT=DPC_SERVICE_ACCOUNT:latest
+            DPC_VULTR_API_KEY=DPC_VULTR_API_KEY:latest
+            PGPASSWORD=POSTGRES_PASSWORD:latest
+
+          env_vars_update_strategy: overwrite
+          secrets_update_strategy: overwrite
+
+  deploy-job:
+    runs-on: ubuntu-24.04
+    needs: deploy-service
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
       contents: read
@@ -48,22 +113,16 @@ jobs:
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 2h # Self-cancels after 1 hour, with 1 hour grace period.
+          flags: '--args=job'
 
           env_vars: |-
             DPC_DATABASE_CA=/etc/db-ca.crt
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
+            DPC_SERVICE_URL=${{ needs.deploy-service.outputs.service-url }}
             NO_COLOR=1
 
           secrets: |-
             CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
-            DPC_ARM_CLIENT_ID=DPC_ARM_CLIENT_ID:latest
-            DPC_ARM_CLIENT_SECRET=DPC_ARM_CLIENT_SECRET:latest
-            DPC_ARM_SUBSCRIPTION_ID=DPC_ARM_SUBSCRIPTION_ID:latest
-            DPC_ARM_TENANT_ID=DPC_ARM_TENANT_ID:latest
-            DPC_GITHUB_SSH_KEY=DPC_GITHUB_SSH_KEY:latest
-            DPC_IAM_CREDENTIALS=DPC_IAM_CREDENTIALS:latest
-            DPC_SERVICE_ACCOUNT=DPC_SERVICE_ACCOUNT:latest
-            DPC_VULTR_API_KEY=DPC_VULTR_API_KEY:latest
             PGPASSWORD=POSTGRES_PASSWORD:latest
 
           env_vars_update_strategy: overwrite

@@ -1,3 +1,24 @@
+pub type RunCmdFn = Box<
+    dyn Fn(
+            async_process::Command,
+            bool,
+            &'static str,
+            sqlx::types::Uuid,
+        ) -> futures::future::BoxFuture<'static, anyhow::Result<Vec<u8>>>
+        + Send
+        + Sync,
+>;
+
+pub type EmitLogFn = Box<
+    dyn Fn(
+            sqlx::types::Uuid,
+            &'static str,
+            String,
+        ) -> futures::future::BoxFuture<'static, anyhow::Result<()>>
+        + Send
+        + Sync,
+>;
+
 /// ControllerConfig contains all configuration needed to execute data-plane controller work.
 #[derive(Clone)]
 pub struct ControllerConfig {
