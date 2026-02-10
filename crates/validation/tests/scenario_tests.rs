@@ -1704,6 +1704,39 @@ test://example/int-reverse:
 }
 
 #[test]
+fn test_uuid_ptr_has_redact_block() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/int-string.schema:
+  properties:
+    _meta:
+      type: object
+      properties:
+        uuid:
+          type: string
+          redact: { strategy: block }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_meta_has_redact() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/int-string.schema:
+  properties:
+    _meta:
+      type: object
+      redact: { strategy: sha256 }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_materialization_too_many_bindings() {
     let bindings_count = validation::MAX_BINDINGS + 1;
 

@@ -1,0 +1,55 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+assertion_line: 1736
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/schema,
+        error: /_meta has 'sha256' redact strategy but cannot be a string (types are "object"),
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/schema,
+        error: location /_meta has a `redact` strategy, which is disallowed because /_meta/uuid holds the runtime document UUID,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/schema,
+        error: /_meta has 'sha256' redact strategy but cannot be a string (types are "object"),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/schema,
+        error: location /_meta has a `redact` strategy, which is disallowed because /_meta/uuid holds the runtime document UUID,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/readSchema,
+        error: /_meta has 'sha256' redact strategy but cannot be a string (types are "object"),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/writeSchema,
+        error: /_meta has 'sha256' redact strategy but cannot be a string (types are "object"),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/writeSchema,
+        error: location /_meta has a `redact` strategy, which is disallowed because /_meta/uuid holds the runtime document UUID,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/readSchema,
+        error: location /_meta has a `redact` strategy, which is disallowed because /_meta/uuid holds the runtime document UUID,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
+        error: /_meta has 'sha256' redact strategy but cannot be a string (types are "object"),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
+        error: location /_meta has a `redact` strategy, which is disallowed because /_meta/uuid holds the runtime document UUID,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
+        error: /_meta has 'sha256' redact strategy but cannot be a string (types are "object"),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
+        error: location /_meta has a `redact` strategy, which is disallowed because /_meta/uuid holds the runtime document UUID,
+    },
+]
