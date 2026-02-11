@@ -1,3 +1,6 @@
+use data_plane_controller::job::executor;
+use data_plane_controller::protocol::ExecuteRequest;
+use data_plane_controller::service::worker::Worker;
 use data_plane_controller::shared::{
     commands,
     controller::{EmitLogFn, RunCmdFn},
@@ -64,6 +67,19 @@ pub fn mock_run_cmd_fn(trace: Arc<Mutex<Vec<TraceEntry>>>) -> RunCmdFn {
             futures::future::ready(Ok(output)).boxed()
         },
     )
+}
+
+pub fn mock_dispatch_fn(trace: Arc<Mutex<Vec<TraceEntry>>>) -> executor::DispatchFn {
+    Box::new(move |request: ExecuteRequest| {
+        let run_cmd_fn = mock_run_cmd_fn(trace.clone());
+        let emit_log_fn = mock_emit_log_fn(trace.clone());
+        Box::pin(async move {
+            let config = request.controller_config.into();
+            Worker::new(config, run_cmd_fn, emit_log_fn)
+                .execute(request.state, request.action)
+                .await
+        })
+    })
 }
 
 pub fn initial_state() -> stack::State {

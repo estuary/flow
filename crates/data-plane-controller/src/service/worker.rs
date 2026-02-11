@@ -16,7 +16,7 @@ pub async fn execute_action(
         task_id: _,
         data_plane_id: _,
         logs_token: _,
-        mut state,
+        state,
         action,
         controller_config,
     } = request;
@@ -66,36 +66,59 @@ pub async fn execute_action(
         })
     };
 
-    let worker = Worker {
-        config,
-        run_cmd_fn,
-        emit_log_fn,
-    };
-
-    let mut checkouts = HashMap::new();
-    let sleep = match action {
-        Action::SetEncryption => worker.on_set_encryption(&mut state, &mut checkouts).await?,
-        Action::PulumiPreview => worker.on_pulumi_preview(&mut state, &mut checkouts).await?,
-        Action::PulumiRefresh => worker.on_pulumi_refresh(&mut state, &mut checkouts).await?,
-        Action::PulumiUp1 => {
-            let private_links = state.stack.config.model.private_links.clone();
-            worker
-                .on_pulumi_up_1(&mut state, &mut checkouts, private_links)
-                .await?
-        }
-        Action::AwaitDNS1 => worker.on_await_dns_1(&mut state).await?,
-        Action::Ansible => worker.on_ansible(&mut state, &mut checkouts).await?,
-        Action::PulumiUp2 => worker.on_pulumi_up_2(&mut state, &mut checkouts).await?,
-        Action::AwaitDNS2 => worker.on_await_dns_2(&mut state).await?,
-    };
-
-    Ok(ExecuteResponse::success(state, sleep))
+    Worker::new(config, run_cmd_fn, emit_log_fn)
+        .execute(state, action)
+        .await
 }
 
-struct Worker {
+pub struct Worker {
     config: ControllerConfig,
     run_cmd_fn: controller::RunCmdFn,
     emit_log_fn: controller::EmitLogFn,
+}
+
+impl Worker {
+    pub fn new(
+        config: ControllerConfig,
+        run_cmd_fn: controller::RunCmdFn,
+        emit_log_fn: controller::EmitLogFn,
+    ) -> Self {
+        Self {
+            config,
+            run_cmd_fn,
+            emit_log_fn,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        mut state: stack::State,
+        action: Action,
+    ) -> anyhow::Result<ExecuteResponse> {
+        let mut checkouts = HashMap::new();
+        let sleep = match action {
+            Action::SetEncryption => {
+                self.on_set_encryption(&mut state, &mut checkouts).await?
+            }
+            Action::PulumiPreview => {
+                self.on_pulumi_preview(&mut state, &mut checkouts).await?
+            }
+            Action::PulumiRefresh => {
+                self.on_pulumi_refresh(&mut state, &mut checkouts).await?
+            }
+            Action::PulumiUp1 => {
+                let private_links = state.stack.config.model.private_links.clone();
+                self.on_pulumi_up_1(&mut state, &mut checkouts, private_links)
+                    .await?
+            }
+            Action::AwaitDNS1 => self.on_await_dns_1(&mut state).await?,
+            Action::Ansible => self.on_ansible(&mut state, &mut checkouts).await?,
+            Action::PulumiUp2 => self.on_pulumi_up_2(&mut state, &mut checkouts).await?,
+            Action::AwaitDNS2 => self.on_await_dns_2(&mut state).await?,
+        };
+
+        Ok(ExecuteResponse::success(state, sleep))
+    }
 }
 
 // Implementation note: These methods are extracted from the original Controller
