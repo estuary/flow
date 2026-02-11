@@ -107,13 +107,7 @@ To get your direct connection string:
 3. Ensure **Connection pooling** is toggled **off**
 4. Copy the connection string
 
-If you use a pooled connection, the capture will fail because the pooler does not pass through replication commands. You will see an error like:
-
-```
-pq: syntax error at or near "IDENTIFY_SYSTEM"
-```
-
-If you see this error, check that your configured server address does not contain `-pooler` in the hostname, and follow the steps above to get a direct connection string.
+If you use a pooled connection, the capture will fail because the pooler does not pass through replication commands.
 
 ## Allow Inbound Traffic
 
