@@ -95,9 +95,7 @@ To prevent storage bloat, **Neon automatically removes _inactive_ replication sl
 
 ## Connection Pooling
 
-:::caution
-You **must** use a direct connection to your Neon database. Neon's connection pooler does not support the PostgreSQL replication protocol required for CDC captures.
-:::
+This capture connector requires a direct connection to your Neon database. Neon's connection pooler does not support the PostgreSQL replication protocol required for CDC captures.
 
 Neon provides two types of connection strings:
 - **Pooled** (hostname contains `-pooler`): e.g., `ep-cool-darkness-123456-pooler.us-east-2.aws.neon.tech` — **will not work**
@@ -109,7 +107,13 @@ To get your direct connection string:
 3. Ensure **Connection pooling** is toggled **off**
 4. Copy the connection string
 
-If you use a pooled connection, the capture will fail with errors like `syntax error at or near "IDENTIFY_SYSTEM"` because the pooler does not pass through replication commands.
+If you use a pooled connection, the capture will fail because the pooler does not pass through replication commands. You will see an error like:
+
+```
+pq: syntax error at or near "IDENTIFY_SYSTEM"
+```
+
+If you see this error, check that your configured server address does not contain `-pooler` in the hostname, and follow the steps above to get a direct connection string.
 
 ## Allow Inbound Traffic
 
