@@ -97,15 +97,9 @@ impl Worker {
     ) -> anyhow::Result<ExecuteResponse> {
         let mut checkouts = HashMap::new();
         let sleep = match action {
-            Action::SetEncryption => {
-                self.on_set_encryption(&mut state, &mut checkouts).await?
-            }
-            Action::PulumiPreview => {
-                self.on_pulumi_preview(&mut state, &mut checkouts).await?
-            }
-            Action::PulumiRefresh => {
-                self.on_pulumi_refresh(&mut state, &mut checkouts).await?
-            }
+            Action::SetEncryption => self.on_set_encryption(&mut state, &mut checkouts).await?,
+            Action::PulumiPreview => self.on_pulumi_preview(&mut state, &mut checkouts).await?,
+            Action::PulumiRefresh => self.on_pulumi_refresh(&mut state, &mut checkouts).await?,
             Action::PulumiUp1 => {
                 let private_links = state.stack.config.model.private_links.clone();
                 self.on_pulumi_up_1(&mut state, &mut checkouts, private_links)

@@ -21,10 +21,7 @@ async fn test() {
         dry_run: false,
     };
 
-    let executor = Executor::new_with_dispatch(
-        controller_config,
-        mock_dispatch_fn(trace.clone()),
-    );
+    let executor = Executor::new_with_dispatch(controller_config, mock_dispatch_fn(trace.clone()));
 
     let mut state: Option<stack::State> = None;
     let mut inbox: VecDeque<(models::Id, Option<Message>)> = VecDeque::new();
