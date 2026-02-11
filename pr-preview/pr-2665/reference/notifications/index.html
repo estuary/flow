@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/pr-preview/pr-2665/assets/css/styles.7c6c0a48.css">
-<script src="/pr-preview/pr-2665/assets/js/runtime~main.61c3ff47.js" defer="defer"></script>
-<script src="/pr-preview/pr-2665/assets/js/main.4337e2f7.js" defer="defer"></script>
+<script src="/pr-preview/pr-2665/assets/js/runtime~main.b443c76d.js" defer="defer"></script>
+<script src="/pr-preview/pr-2665/assets/js/main.3601d75c.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -38,7 +38,14 @@ While this helps reduce noise for task failures, you may still encounter false p
 You can check the current status of the connector in your dashboard.</p>
 <p>Additional details about the failure will be available in the connector&#x27;s <code>Alerts</code> tab.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="background-publication-failed-alerts">Background Publication Failed Alerts<a href="#background-publication-failed-alerts" class="hash-link" aria-label="Direct link to Background Publication Failed Alerts" title="Direct link to Background Publication Failed Alerts" translate="no">​</a></h2>
-<p>Triggers when an automated background process needs to publish a spec, but is unable to because of publication errors. Background publications are peformed on all specs for a variety of reasons. For example, updating inferred schemas, or updating materialization bindings to match the source capture. When these publications fail, tasks are likely to stop functioning correctly until the issue can be addressed.</p>
+<p>Triggers when an automated background process needs to publish a spec, but is unable to because of publication errors. Background publications are performed on all specs for a variety of reasons. For example, updating inferred schemas, or updating materialization bindings to match the source capture. When these publications fail, tasks are likely to stop functioning correctly until the issue can be addressed.</p>
+<p>There are many different reasons why publications might fail, but some common scenarios are:</p>
+<ul>
+<li class="">A network error or misconfiguration between the connector and your source or destination system</li>
+<li class="">The credentials for connecting to a source or destination system have been changed or revoked</li>
+<li class="">A materialization requires a specific column, which no longer appears in the source collection schema</li>
+<li class="">There was an incompatible change to the data type of a particular field (like <code>string -&gt; boolean</code>) and the materialization has <code>onIncompatibleSchemaChange: abort</code></li>
+</ul>
 <p>A recommended troubleshooting step is to try to publish the spec yourself, resolving any validation errors you encounter along the way. Once you&#x27;re able to publish the spec, our background automation should be able to as well.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="billing-alerts">Billing Alerts<a href="#billing-alerts" class="hash-link" aria-label="Direct link to Billing Alerts" title="Direct link to Billing Alerts" translate="no">​</a></h2>
 <p>Billing alerts are automatically subscribed to when a user inputs their email into the <code>Organization Notifications</code> table. Alerts will be sent out for the following events:</p>
