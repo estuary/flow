@@ -237,15 +237,17 @@ mise tasks
 
 ### Local Stack Tasks
 
-| Task                             | Description                           |
-| -------------------------------- | ------------------------------------- |
-| `local:stack`                    | Start full control plane + data plane |
-| `local:control-plane`            | Start control plane only              |
-| `local:data-plane <name> <port>` | Start a data plane                    |
-| `local:supabase`                 | Start Supabase only                   |
-| `local:stop`                     | Stop all services and clean up        |
-| `local:dekaf`                    | Start Dekaf against local stack       |
-| `local:dekaf-kafka`              | Start local Kafka for Dekaf testing   |
+| Task                             | Description                                         |
+| -------------------------------- | --------------------------------------------------- |
+| `local:stack`                    | Start full control plane + data plane               |
+| `local:control-plane`            | Start control plane only                            |
+| `local:data-plane <name> <port>` | Start a data plane                                  |
+| `local:data-plane-controller`    | Start data-plane-controller (service + job) in dry-run mode |
+| `local:seed-controller-job`      | Seed a controller job to trigger data plane converge |
+| `local:supabase`                 | Start Supabase only                                 |
+| `local:stop`                     | Stop all services and clean up                      |
+| `local:dekaf`                    | Start Dekaf against local stack                     |
+| `local:dekaf-kafka`              | Start local Kafka for Dekaf testing                 |
 
 ### CI Tasks
 | Task | Description |
@@ -263,4 +265,6 @@ mise tasks
 | `vm:create-lima <name> <share_dir>` | Create a Lima VM |
 | `vm:create-gcp <project>` | Create a GCP VM |
 | `vm:port-forward <hostname>` | Forward ports from VM to host |
-| `vm:claude` | Copy Claude Code token into VM |
+| `vm:claude <vm_name>` | Copy Claude Code token into VM |
+| `vm:copy-gcloud-credentials <vm_name>` | Copy gcloud CLI and credentials for sops/KMS encryption |
+| `vm:copy-ssh-credentials <vm_name>` | Copy SSH credentials for git repository access |
