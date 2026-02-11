@@ -1,29 +1,33 @@
-use data_plane_controller::shared::{controller, stack};
+use data_plane_controller::job::executor::{Executor, Message};
+use data_plane_controller::shared::{controller::ControllerConfig, stack};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     sync::{Arc, Mutex},
 };
 
 mod util;
-use util::{TraceEntry, initial_state, mock_emit_log_fn, mock_run_cmd_fn};
+use util::{TraceEntry, initial_state, mock_dispatch_fn};
 
 #[tokio::test]
 async fn test_private_links() {
     let trace = Arc::new(Mutex::new(Vec::new()));
 
-    let controller = data_plane_controller::Controller {
+    let controller_config = ControllerConfig {
         dns_ttl: std::time::Duration::ZERO,
         dry_dock_remote: "git@github.com:estuary/est-dry-dock.git".to_string(),
         ops_remote: "git@github.com:estuary/ops.git".to_string(),
         secrets_provider: "testing".to_string(),
         state_backend: "file:///tmp/pulumi-test-state".parse().unwrap(),
-        emit_log_fn: mock_emit_log_fn(trace.clone()),
-        run_cmd_fn: mock_run_cmd_fn(trace.clone()),
+        dry_run: false,
     };
 
+    let executor = Executor::new_with_dispatch(
+        controller_config,
+        mock_dispatch_fn(trace.clone()),
+    );
+
     let mut state: Option<stack::State> = None;
-    let mut inbox: VecDeque<(models::Id, Option<controller::Message>)> = VecDeque::new();
-    let mut checkouts: HashMap<String, tempfile::TempDir> = HashMap::new();
+    let mut inbox: VecDeque<(models::Id, Option<Message>)> = VecDeque::new();
     let mut row_state = initial_state();
     row_state.stack.config.model.private_links =
         vec![stack::PrivateLink::AWS(stack::AWSPrivateLink {
@@ -34,17 +38,16 @@ async fn test_private_links() {
 
     inbox.push_back((
         models::Id::zero(),
-        Some(controller::Message::Start(row_state.data_plane_id)),
+        Some(Message::Start(row_state.data_plane_id)),
     ));
-    inbox.push_back((models::Id::zero(), Some(controller::Message::Enable)));
+    inbox.push_back((models::Id::zero(), Some(Message::Enable)));
 
     for _ in 0..50 {
-        let outcome = controller
+        let outcome = executor
             .on_poll(
                 models::Id::new([42; 8]), // Task ID.
                 &mut state,
                 &mut inbox,
-                &mut checkouts,
                 Vec::new(),
                 row_state.clone(),
             )
@@ -78,15 +81,14 @@ async fn test_private_links() {
             service_name: "service-2".to_string(),
         }));
 
-    inbox.push_back((models::Id::zero(), Some(controller::Message::Converge)));
+    inbox.push_back((models::Id::zero(), Some(Message::Converge)));
 
     for _ in 0..50 {
-        let outcome = controller
+        let outcome = executor
             .on_poll(
                 models::Id::new([42; 8]), // Task ID.
                 &mut state,
                 &mut inbox,
-                &mut checkouts,
                 Vec::new(),
                 row_state.clone(),
             )

@@ -2,6 +2,7 @@ use crate::protocol::{Action, ExecuteRequest, ExecuteResponse};
 use crate::shared::controller::ControllerConfig;
 use crate::shared::stack::{self, State, Status};
 use anyhow::Context;
+use futures::future::BoxFuture;
 use std::collections::VecDeque;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -36,10 +37,20 @@ pub struct Outcome {
     pub kms_key: String,
 }
 
+/// Type-erased function for dispatching work execution.
+/// In production this sends an HTTP request to the service; in tests
+/// it can call the worker directly with mock functions.
+pub type DispatchFn = Box<
+    dyn Fn(
+            ExecuteRequest,
+        ) -> BoxFuture<'static, anyhow::Result<ExecuteResponse>>
+        + Send
+        + Sync,
+>;
+
 pub struct Executor {
     controller_config: ControllerConfig,
-    service_url: url::Url,
-    http_client: reqwest::Client,
+    dispatch_fn: DispatchFn,
 }
 
 impl Executor {
@@ -49,10 +60,48 @@ impl Executor {
             .build()
             .expect("failed to build HTTP client");
 
+        let execute_url = service_url
+            .join("/execute")
+            .expect("failed to build execute URL");
+
+        let dispatch_fn: DispatchFn = Box::new(move |request: ExecuteRequest| {
+            let client = http_client.clone();
+            let url = execute_url.clone();
+            Box::pin(async move {
+                let response = client
+                    .post(url)
+                    .json(&request)
+                    .send()
+                    .await
+                    .context("HTTP request to service failed")?;
+
+                if !response.status().is_success() {
+                    anyhow::bail!(
+                        "service returned non-success status: {}",
+                        response.status()
+                    );
+                }
+
+                response
+                    .json::<ExecuteResponse>()
+                    .await
+                    .context("failed to parse service response")
+            })
+        });
+
         Self {
             controller_config,
-            service_url,
-            http_client,
+            dispatch_fn,
+        }
+    }
+
+    pub fn new_with_dispatch(
+        controller_config: ControllerConfig,
+        dispatch_fn: DispatchFn,
+    ) -> Self {
+        Self {
+            controller_config,
+            dispatch_fn,
         }
     }
 }
@@ -88,7 +137,7 @@ impl automations::Executor for Executor {
 }
 
 impl Executor {
-    async fn on_poll(
+    pub async fn on_poll(
         &self,
         task_id: models::Id,
         state: &mut Option<State>,
@@ -240,7 +289,7 @@ impl Executor {
         }
     }
 
-    /// Dispatch an action to the service worker via HTTP.
+    /// Dispatch an action to the service worker.
     #[tracing::instrument(
         skip_all,
         fields(
@@ -266,27 +315,7 @@ impl Executor {
 
         tracing::info!("dispatching to service");
 
-        let execute_url = self
-            .service_url
-            .join("/execute")
-            .context("failed to build execute URL")?;
-
-        let response = self
-            .http_client
-            .post(execute_url)
-            .json(&request)
-            .send()
-            .await
-            .context("HTTP request to service failed")?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("service returned non-success status: {}", response.status());
-        }
-
-        let execute_response: ExecuteResponse = response
-            .json()
-            .await
-            .context("failed to parse service response")?;
+        let execute_response = (self.dispatch_fn)(request).await?;
 
         if !execute_response.success {
             anyhow::bail!(

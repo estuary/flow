@@ -133,8 +133,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -175,8 +175,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -229,8 +229,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -335,8 +335,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -582,8 +582,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -636,8 +636,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -742,8 +742,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -1010,8 +1010,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -1064,8 +1064,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -1170,8 +1170,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -1430,8 +1430,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -1484,8 +1484,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
@@ -1590,8 +1590,8 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
-      "git-clean",
-      "git clean --force"
+      "git-clone",
+      "git clone git@github.com:estuary/est-dry-dock.git ."
     ]
   },
   {
