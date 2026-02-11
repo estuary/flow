@@ -6,7 +6,7 @@ use std::{
 };
 
 mod util;
-use util::{initial_state, mock_dispatch_fn, TraceEntry};
+use util::{TraceEntry, initial_state, mock_dispatch_fn};
 
 #[tokio::test]
 async fn test() {

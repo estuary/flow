@@ -41,11 +41,7 @@ pub struct Outcome {
 /// In production this sends an HTTP request to the service; in tests
 /// it can call the worker directly with mock functions.
 pub type DispatchFn = Box<
-    dyn Fn(
-            ExecuteRequest,
-        ) -> BoxFuture<'static, anyhow::Result<ExecuteResponse>>
-        + Send
-        + Sync,
+    dyn Fn(ExecuteRequest) -> BoxFuture<'static, anyhow::Result<ExecuteResponse>> + Send + Sync,
 >;
 
 pub struct Executor {
@@ -76,10 +72,7 @@ impl Executor {
                     .context("HTTP request to service failed")?;
 
                 if !response.status().is_success() {
-                    anyhow::bail!(
-                        "service returned non-success status: {}",
-                        response.status()
-                    );
+                    anyhow::bail!("service returned non-success status: {}", response.status());
                 }
 
                 response
@@ -95,10 +88,7 @@ impl Executor {
         }
     }
 
-    pub fn new_with_dispatch(
-        controller_config: ControllerConfig,
-        dispatch_fn: DispatchFn,
-    ) -> Self {
+    pub fn new_with_dispatch(controller_config: ControllerConfig, dispatch_fn: DispatchFn) -> Self {
         Self {
             controller_config,
             dispatch_fn,
