@@ -31,8 +31,7 @@ pub async fn do_test(ctx: &mut CliContext, args: &TestArgs) -> anyhow::Result<()
     println!("Starting tests...");
 
     // Technically, test is just a publish with the dry-run flag set to true.
-    let publish_result =
-        draft::publish(&ctx.client, args.init_data_plane.as_deref(), draft.id, true).await;
+    let publish_result = draft::publish(ctx, args.init_data_plane.as_deref(), draft.id, true).await;
 
     if let Err(del_err) = draft::delete_draft(&ctx.client, draft.id).await {
         tracing::error!(draft_id = %draft.id, error = %del_err, "failed to delete draft");
