@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            prev_image,\n            next_image,\n            step\n        FROM data_plane_releases\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        ",
+  "query": "\n        SELECT\n            prev_image,\n            next_image,\n            step,\n            max_tier\n        FROM data_plane_releases\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        ",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "step",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "max_tier",
+        "type_info": "Int2"
       }
     ],
     "parameters": {
@@ -27,8 +32,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "41232aed736b93417ab6d306d49e3eddd20e1e4d33977183f4f4a85509b787af"
+  "hash": "68b97eb4cd2d8afa08baae652139b11686109d605754fb02e0410d606382ddb6"
 }
