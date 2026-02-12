@@ -86,17 +86,12 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
         .as_ref()
         .context("the specification to be discovered is marked for deletion")?;
 
-    let endpoint_config = match &draft_model.endpoint {
+    let (connector_tag_id, endpoint_config) = match &draft_model.endpoint {
         models::CaptureEndpoint::Connector(config) => {
-            serde_json::to_value(&config.config).context("serializing endpoint config")?
-        }
-        models::CaptureEndpoint::Local(_) => unreachable!(), // Already checked above
-    };
-    let connector_tag_id = match &draft_model.endpoint {
-        models::CaptureEndpoint::Connector(config) => {
-            extract_connector_tag_id(&ctx.client, &config.image)
+            let tag = extract_connector_tag_id(&ctx.client, &config.image)
                 .await
-                .context("extracting connector tag ID from capture endpoint")?
+                .context("extracting connector tag ID from capture endpoint")?;
+            (tag, &config.config)
         }
         models::CaptureEndpoint::Local(_) => {
             anyhow::bail!("You must use `raw discover` for local connectors");
@@ -116,11 +111,15 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     tracing::info!(draft_id = %draft.id, "created draft for discovery");
 
     // Submit the discovery job and poll until completion.
-    #[derive(Deserialize)]
-    struct DiscoverResponse {
-        id: models::Id,
-        logs_token: String,
-    }
+    let create = CreateDiscoverRow {
+        capture_name: &draft_capture.capture,
+        connector_tag_id,
+        data_plane_name,
+        draft_id: draft.id,
+        endpoint_config,
+        update_only,
+    };
+    let body = serde_json::to_string(&create)?;
 
     let DiscoverResponse {
         id: discover_id,
@@ -129,17 +128,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
         ctx.client
             .from("discovers")
             .select("id,logs_token")
-            .insert(
-                serde_json::json!({
-                    "capture_name": &draft_capture.capture,
-                    "connector_tag_id": connector_tag_id,
-                    "data_plane_name": data_plane_name,
-                    "draft_id": draft.id,
-                    "endpoint_config": endpoint_config,
-                    "update_only": update_only,
-                })
-                .to_string(),
-            )
+            .insert(body)
             .single(),
     )
     .await
@@ -169,6 +158,25 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     _ = draft::delete_draft(&ctx.client, draft.id).await; // Best effort.
 
     Ok(())
+}
+
+/// Represents the body of a postgresT request to insert a `discovers` row. It's
+/// critical that we _don't_ use a `serde_json::Value` for this, so that we can
+/// ensure the field ordering in the endpoint config is preserved.
+#[derive(serde::Serialize)]
+struct CreateDiscoverRow<'a> {
+    capture_name: &'a str,
+    connector_tag_id: models::Id,
+    data_plane_name: &'a str,
+    draft_id: models::Id,
+    endpoint_config: &'a models::RawValue,
+    update_only: bool,
+}
+
+#[derive(Deserialize)]
+struct DiscoverResponse {
+    id: models::Id,
+    logs_token: String,
 }
 
 async fn extract_connector_tag_id(client: &Client, image: &str) -> anyhow::Result<models::Id> {
