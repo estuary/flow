@@ -1,6 +1,6 @@
 ---
 source: crates/data-plane-controller/src/stack.rs
-expression: "&outcomes"
+expression: "&simulate_rollout(&mut stack.config.model, releases)"
 ---
 [
   [
@@ -15,7 +15,8 @@ expression: "&outcomes"
       },
       "oci_image": "quay.io/coreos/etcd:v3.5.17",
       "desired": 3,
-      "current": 3
+      "current": 3,
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -28,7 +29,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     },
     {
       "role": "reactor",
@@ -41,7 +43,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/estuary/flow:v0.5.11",
       "desired": 7,
-      "current": 7
+      "current": 7,
+      "tier": 50
     }
   ],
   [
@@ -60,7 +63,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -73,7 +77,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     },
     {
       "role": "reactor",
@@ -86,7 +91,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/estuary/flow:v0.5.11",
       "desired": 7,
-      "current": 7
+      "current": 7,
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -103,7 +109,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -122,7 +129,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -135,7 +143,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     },
     {
       "role": "reactor",
@@ -148,7 +157,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/estuary/flow:v0.5.11",
       "desired": 7,
-      "current": 7
+      "current": 7,
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -165,7 +175,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -184,7 +195,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -197,7 +209,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     },
     {
       "role": "reactor",
@@ -210,7 +223,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/estuary/flow:v0.5.11",
       "desired": 7,
-      "current": 7
+      "current": 7,
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -227,7 +241,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -242,7 +257,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     },
     {
       "role": "reactor",
@@ -255,7 +271,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/estuary/flow:v0.5.11",
       "desired": 7,
-      "current": 7
+      "current": 7,
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -272,7 +289,8 @@ expression: "&outcomes"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -287,7 +305,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     },
     {
       "role": "reactor",
@@ -300,7 +319,8 @@ expression: "&outcomes"
       },
       "oci_image": "ghcr.io/estuary/flow:v0.5.11",
       "desired": 7,
-      "current": 7
+      "current": 7,
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -313,7 +333,8 @@ expression: "&outcomes"
       },
       "oci_image": "quay.io/coreos/etcd:next",
       "desired": 3,
-      "current": 3
+      "current": 3,
+      "tier": 50
     }
   ]
 ]

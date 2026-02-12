@@ -15,7 +15,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "ghcr.io/gazette/broker:v0.100",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     }
   ],
   [
@@ -34,7 +35,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 100
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -51,7 +53,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 9,
         "step": 100
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -70,7 +73,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 100
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -83,7 +87,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "ghcr.io/gazette/broker:v1",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     }
   ],
   [
@@ -102,7 +107,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 100
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -119,7 +125,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 9,
         "step": 100
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -138,7 +145,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 100
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -151,7 +159,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "ghcr.io/gazette/broker:v2",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     }
   ],
   [
@@ -170,7 +179,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 7
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -187,7 +197,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 9,
         "step": 7
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -206,7 +217,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 7
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -223,7 +235,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 9,
         "step": 7
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -242,7 +255,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 7
-      }
+      },
+      "tier": 50
     },
     {
       "role": "gazette",
@@ -255,7 +269,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "ghcr.io/gazette/broker:v3",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     }
   ],
   [
@@ -270,7 +285,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "ghcr.io/gazette/broker:v3",
       "desired": 9,
-      "current": 9
+      "current": 9,
+      "tier": 50
     }
   ]
 ]

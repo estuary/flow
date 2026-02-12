@@ -74,7 +74,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "quay.io/coreos/etcd:v3.5",
               "desired": 3,
-              "current": 0
+              "current": 0,
+              "tier": 50
             },
             {
               "role": "reactor",
@@ -86,7 +87,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/estuary/flow:v2.3.4",
               "desired": 1,
-              "current": 0
+              "current": 0,
+              "tier": 50
             },
             {
               "role": "gazette",
@@ -98,7 +100,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/gazette/broker:v1.2.3",
               "desired": 4,
-              "current": 0
+              "current": 0,
+              "tier": 50
             },
             {
               "role": "dekaf",
@@ -110,7 +113,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/estuary/dekaf:v1.0.0",
               "desired": 1,
-              "current": 0
+              "current": 0,
+              "tier": 50
             }
           ],
           "connector_limits": {
@@ -454,7 +458,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "quay.io/coreos/etcd:v3.5",
               "desired": 3,
-              "current": 3
+              "current": 3,
+              "tier": 50
             },
             {
               "role": "reactor",
@@ -466,7 +471,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/estuary/flow:v2.3.4",
               "desired": 1,
-              "current": 1
+              "current": 1,
+              "tier": 50
             },
             {
               "role": "gazette",
@@ -478,7 +484,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/gazette/broker:v1.2.3",
               "desired": 4,
-              "current": 4
+              "current": 4,
+              "tier": 50
             },
             {
               "role": "dekaf",
@@ -490,7 +497,8 @@ expression: trace.lock().unwrap().as_slice()
               },
               "oci_image": "ghcr.io/estuary/dekaf:v1.0.0",
               "desired": 1,
-              "current": 1
+              "current": 1,
+              "tier": 50
             }
           ],
           "connector_limits": {

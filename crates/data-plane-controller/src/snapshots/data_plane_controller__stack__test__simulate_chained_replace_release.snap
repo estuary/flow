@@ -15,7 +15,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:v3.5.17",
       "desired": 3,
-      "current": 3
+      "current": 3,
+      "tier": 50
     }
   ],
   [
@@ -34,7 +35,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -51,7 +53,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -70,7 +73,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -87,7 +91,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -106,7 +111,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -123,7 +129,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -142,7 +149,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -161,7 +169,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -178,7 +187,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -197,7 +207,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -214,7 +225,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -233,7 +245,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 0,
         "step": 1
-      }
+      },
+      "tier": 50
     },
     {
       "role": "etcd",
@@ -250,7 +263,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -269,7 +283,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "rollout": {
         "target": 3,
         "step": 1
-      }
+      },
+      "tier": 50
     }
   ],
   [
@@ -284,7 +299,8 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:v3.7",
       "desired": 3,
-      "current": 3
+      "current": 3,
+      "tier": 50
     }
   ]
 ]

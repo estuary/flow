@@ -37,6 +37,7 @@ async fn test() {
         prev_image: "ghcr.io/gazette/broker:v1.2.3".to_string(),
         next_image: "ghcr.io/gazette/broker:v5.6.7".to_string(),
         step: 3,
+        max_tier: 100,
     }];
 
     for _ in 0..50 {
