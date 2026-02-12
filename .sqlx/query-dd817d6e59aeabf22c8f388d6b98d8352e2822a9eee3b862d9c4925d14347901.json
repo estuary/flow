@@ -32,8 +32,7 @@
                       "data_movement_stalled",
                       "data_not_processed_in_interval",
                       "shard_failed",
-                      "auto_discover_failed",
-                      "background_publication_failed"
+                      "auto_discover_failed"
                     ]
                   }
                 }
@@ -85,8 +84,7 @@
                       "data_movement_stalled",
                       "data_not_processed_in_interval",
                       "shard_failed",
-                      "auto_discover_failed",
-                      "background_publication_failed"
+                      "auto_discover_failed"
                     ]
                   }
                 }
