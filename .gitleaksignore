@@ -1,0 +1,3 @@
+# Example private key placeholders in documentation
+site/docs/reference/Connectors/materialization-connectors/Snowflake.md:private-key:177
+site/docs/reference/Connectors/capture-connectors/snowflake.md:private-key:184

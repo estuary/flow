@@ -76,6 +76,8 @@ into the collection.
 - If the collection is reduced with a strategy like `lastWriteWins` or `merge` on the
 capture side, `flow_published_at` becomes the timestamp for the last event that updated the document.
 
+See [Document Metadata Fields](/guides/advanced-usage/metadata-fields) for a reference of `_meta` fields by connector.
+
 ## Viewing collection documents
 
 In many cases, it's not necessary to view your collection data — you're able to materialize it directly to a destination in the correct shape using a [connector](../concepts/README.md#connectors).

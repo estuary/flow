@@ -94,12 +94,12 @@ MIIBIj...
 
 Then assign the public key with your Snowflake user using these SQL commands:
 ```sql
-ALTER USER $estuary_user SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...'
+ALTER USER identifier($estuary_user) SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...'
 ```
 
 Verify the public key fingerprint in Snowflake matches the one you have locally:
 ```sql
-DESC USER $estuary_user;
+DESC USER identifier($estuary_user);
 SELECT TRIM((SELECT "value" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
   WHERE "property" = 'RSA_PUBLIC_KEY_FP'), 'SHA256:');
 ```
