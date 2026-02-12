@@ -947,7 +947,8 @@ async fn fetch_releases(
         SELECT
             prev_image,
             next_image,
-            step
+            step,
+            max_tier
         FROM data_plane_releases
         WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')
         "#,
