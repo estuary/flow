@@ -126,7 +126,7 @@ pub async fn do_delete(
     .await?;
     tracing::debug!("added deletions to draft");
 
-    draft::publish(&ctx.client, None, draft.id, false).await?;
+    draft::publish(ctx, None, draft.id, false).await?;
 
     // extra newline before, since `publish` will output a bunch of logs
     println!("\nsuccessfully deleted {} spec(s)", draft_specs.len());

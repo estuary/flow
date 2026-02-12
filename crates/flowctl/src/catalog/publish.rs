@@ -70,13 +70,8 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     }
     println!("Proceeding to publish...");
 
-    let publish_result = draft::publish(
-        &ctx.client,
-        args.init_data_plane.as_deref(),
-        draft.id,
-        false,
-    )
-    .await;
+    let publish_result =
+        draft::publish(ctx, args.init_data_plane.as_deref(), draft.id, false).await;
     // The draft will have been deleted automatically if the publish was successful.
     if let Err(err) = publish_result.as_ref() {
         tracing::error!(draft_id = %draft.id, error = ?err, "publication error");

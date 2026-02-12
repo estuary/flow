@@ -164,6 +164,26 @@ pub async fn delete_draft(
     Ok(row)
 }
 
+/// Prints any errors that were found for the given draft id
+pub async fn print_draft_errors(
+    ctx: &mut crate::CliContext,
+    draft_id: models::Id,
+) -> anyhow::Result<()> {
+    let errors: Vec<DraftError> = api_exec_paginated(
+        ctx.client
+            .from("draft_errors")
+            .select("scope,detail")
+            .eq("draft_id", draft_id.to_string()),
+    )
+    .await?;
+
+    // TODO(phil): respect the output format when printing errors
+    for DraftError { scope, detail } in errors {
+        tracing::error!(%scope, %detail);
+    }
+    Ok(())
+}
+
 async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     let row = create_draft(&ctx.client).await?;
 
@@ -331,7 +351,7 @@ async fn do_publish(
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
 
-    publish(&ctx.client, init_data_plane, draft_id, dry_run).await?;
+    publish(ctx, init_data_plane, draft_id, dry_run).await?;
 
     if !dry_run {
         ctx.config.draft.take();
@@ -339,8 +359,14 @@ async fn do_publish(
     Ok(())
 }
 
+#[derive(Deserialize, Debug)]
+struct DraftError {
+    scope: String,
+    detail: String,
+}
+
 pub async fn publish(
-    client: &crate::Client,
+    ctx: &mut crate::CliContext,
     init_data_plane: Option<&str>,
     draft_id: models::Id,
     dry_run: bool,
@@ -351,7 +377,7 @@ pub async fn publish(
         logs_token: String,
     }
     let Row { id, logs_token } = api_exec(
-        client
+        ctx.client
             .from("publications")
             .select("id,logs_token")
             .insert(
@@ -367,23 +393,9 @@ pub async fn publish(
     )
     .await?;
     tracing::info!(%id, %logs_token, %dry_run, "created publication");
-    let outcome = crate::poll_while_queued(&client, "publications", id, &logs_token).await?;
+    let outcome = crate::poll_while_queued(&ctx.client, "publications", id, &logs_token).await?;
 
-    #[derive(Deserialize, Debug)]
-    struct DraftError {
-        scope: String,
-        detail: String,
-    }
-    let errors: Vec<DraftError> = api_exec_paginated(
-        client
-            .from("draft_errors")
-            .select("scope,detail")
-            .eq("draft_id", draft_id.to_string()),
-    )
-    .await?;
-    for DraftError { scope, detail } in errors {
-        tracing::error!(%scope, %detail);
-    }
+    print_draft_errors(ctx, draft_id).await?;
     if outcome != "success" {
         anyhow::bail!("failed with status: {outcome}");
     }

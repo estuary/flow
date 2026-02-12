@@ -150,6 +150,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
         crate::poll_while_queued(&ctx.client, "discovers", discover_id, &logs_token).await?;
 
     if outcome != "success" {
+        draft::print_draft_errors(ctx, draft.id).await?;
         _ = draft::delete_draft(&ctx.client, draft.id).await; // Best effort.
         anyhow::bail!("discovery failed with status: {outcome}");
     }
