@@ -57,7 +57,7 @@ jobs:
         id: cache-sqlx
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/bin/sqlx
+          path: ~/.cargo/bin/cargo-sqlx
           key: sqlx-cli-${{ runner.os }}-${{ runner.arch }}-0.8.6
 
       - name: Install sqlx-cli
