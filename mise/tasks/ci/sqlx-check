@@ -4,6 +4,6 @@
 set -euo pipefail
 
 # In CI, sqlx-cli is pre-installed and cached by the workflow.
-command -v sqlx || cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
+command -v cargo-sqlx || cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
 
 cargo sqlx prepare --workspace --check
