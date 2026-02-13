@@ -125,11 +125,11 @@ struct StatsSummary {
 #[serde(rename_all = "camelCase")]
 struct TaskStats {
     #[serde(default)]
-    capture: BTreeMap<String, ops::stats::Binding>,
+    capture: BTreeMap<String, ops::stats::CaptureBinding>,
     #[serde(default)]
     derive: Option<ops::stats::Derive>,
     #[serde(default)]
-    materialize: BTreeMap<String, ops::stats::Binding>,
+    materialize: BTreeMap<String, ops::stats::MaterializeBinding>,
 }
 
 fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
@@ -177,9 +177,21 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
     WRITTEN_TO_ME_BYTES.counter(buf, &l_collection, written_to_me.bytes_total);
     WRITTEN_TO_ME_DOCS.counter(buf, &l_collection, written_to_me.docs_total);
 
-    for (collection, ops::stats::Binding { out, right, .. }) in capture {
+    for (
+        collection,
+        ops::stats::CaptureBinding {
+            out,
+            right,
+            last_published_at,
+        },
+    ) in capture
+    {
         let l_task_collection = format!("task={catalog_name:?},collection={collection:?}");
 
+        if let Some(m) = last_published_at {
+            let ts = to_time_seconds(m);
+            CAPTURED_LAST_PUBLISHED_AT.gauge(buf, &l_task_collection, ts, false);
+        }
         if let Some(m) = right {
             CAPTURED_IN_BYTES.counter(buf, &l_task_collection, m.bytes_total);
             CAPTURED_IN_DOCS.counter(buf, &l_task_collection, m.docs_total);
@@ -194,14 +206,20 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
         out,
         published,
         transforms,
+        last_published_at,
     }) = derive
     {
+        if let Some(m) = last_published_at {
+            let ts = to_time_seconds(m);
+            DERIVED_LAST_PUBLISHED_AT.gauge(buf, &l_task, ts, false);
+        }
         for (
             transform,
             ops::stats::derive::Transform {
                 last_source_published_at,
                 source: collection,
                 input,
+                bytes_behind,
             },
         ) in transforms
         {
@@ -210,8 +228,24 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
 
             if let Some(m) = last_source_published_at {
                 let ts = to_time_seconds(m);
-                DERIVED_LAST_SOURCE_PUBLISHED_AT.gauge(buf, &l_task_collection_transform, ts);
+                DERIVED_LAST_SOURCE_PUBLISHED_AT.gauge(
+                    buf,
+                    &l_task_collection_transform,
+                    ts,
+                    false,
+                );
             }
+            DERIVED_BYTES_BEHIND.gauge(
+                buf,
+                &l_task_collection_transform,
+                bytes_behind as f64,
+                // TODO(whb): Emit explicit zero values at some point in the
+                // future when stats have been widely populated with
+                // bytesBehind. For now, suppress zero values to avoid
+                // presenting a false 0 for historical stats where bytesBehind
+                // is absent.
+                false,
+            );
             if let Some(m) = input {
                 DERIVED_IN_BYTES.counter(buf, &l_task_collection_transform, m.bytes_total);
                 DERIVED_IN_DOCS.counter(buf, &l_task_collection_transform, m.docs_total);
@@ -229,8 +263,9 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
 
     for (
         collection,
-        ops::stats::Binding {
+        ops::stats::MaterializeBinding {
             last_source_published_at,
+            bytes_behind,
             left,
             right,
             out,
@@ -241,8 +276,13 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
 
         if let Some(m) = last_source_published_at {
             let ts = to_time_seconds(m);
-            MATERIALIZED_LAST_SOURCE_PUBLISHED_AT.gauge(buf, &l_task_collection, ts);
+            MATERIALIZED_LAST_SOURCE_PUBLISHED_AT.gauge(buf, &l_task_collection, ts, false);
         }
+        // TODO(whb): Emit explicit zero values at some point in the future when
+        // stats have been widely populated with bytesBehind. For now, suppress
+        // zero values to avoid presenting a false 0 for historical stats where
+        // bytesBehind is absent.
+        MATERIALIZED_BYTES_BEHIND.gauge(buf, &l_task_collection, bytes_behind as f64, false);
         if let Some(m) = right {
             MATERIALIZED_IN_BYTES.counter(buf, &l_task_collection, m.bytes_total);
             MATERIALIZED_IN_DOCS.counter(buf, &l_task_collection, m.docs_total);
@@ -291,11 +331,10 @@ impl Metric {
         }
     }
 
-    #[allow(dead_code)] // TODO(johnny): Will be used for timestamps and ages.
-    fn gauge(&self, buf: &mut BufferParts, labels: &str, value: f64) {
+    fn gauge(&self, buf: &mut BufferParts, labels: &str, value: f64, emit_zero: bool) {
         let Self { name, .. } = self;
 
-        if value != 0.0 {
+        if value != 0.0 || emit_zero {
             writeln!(buf.get(self), "{name}{{{labels}}} {value}").unwrap();
         }
     }
@@ -431,6 +470,11 @@ define_metrics! {
         type_: COUNTER,
         help: "Total number of collection documents written to this target, by collection",
     },
+    CAPTURED_LAST_PUBLISHED_AT= Metric {
+        name: "captured_last_published_at_time_seconds",
+        help: "Publication timestamp of the most recently captured document, given as seconds since the unix epoch, by task and target collection",
+        type_: GAUGE,
+    },
     CAPTURED_IN_BYTES= Metric {
         name: "captured_in_bytes_total",
         type_: COUNTER,
@@ -452,9 +496,19 @@ define_metrics! {
         help: "Total number of post-combine documents captured by the connector, by task and target collection",
         type_: COUNTER,
     },
+    DERIVED_LAST_PUBLISHED_AT= Metric {
+        name: "derived_last_published_at_time_seconds",
+        help: "Publication timestamp of the most recently derived document, given as seconds since the unix epoch, by task",
+        type_: GAUGE,
+    },
     DERIVED_LAST_SOURCE_PUBLISHED_AT= Metric {
         name: "derived_last_source_published_at_time_seconds",
         help: "Publication timestamp of the most recent source collection document that was processed by the derivation, given as seconds since the unix epoch",
+        type_: GAUGE,
+    },
+    DERIVED_BYTES_BEHIND= Metric {
+        name: "derived_bytes_behind",
+        help: "Bytes behind of the source journals for this transform, by task, source collection, and transform",
         type_: GAUGE,
     },
     DERIVED_IN_BYTES= Metric {
@@ -490,6 +544,11 @@ define_metrics! {
     MATERIALIZED_LAST_SOURCE_PUBLISHED_AT= Metric {
         name: "materialized_last_source_published_at_time_seconds",
         help: "Publication timestamp of the most recent source collection document that was materialized, given as seconds since the unix epoch",
+        type_: GAUGE,
+    },
+    MATERIALIZED_BYTES_BEHIND= Metric {
+        name: "materialized_bytes_behind",
+        help: "Bytes behind of the source journals for this binding, by task and source collection",
         type_: GAUGE,
     },
     MATERIALIZED_IN_BYTES= Metric {
