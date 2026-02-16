@@ -125,7 +125,7 @@ Salesforce objects can contain [formula fields](https://help.salesforce.com/s/ar
 
 To address this challenge, the Salesforce connector is able to refresh the values of formula fields on a schedule after the initial backfill completes. This is controlled at a binding level by the cron expression in the [`schedule` property](#bindings). When a scheduled formula field refresh occurs, the connector fetches every record's current formula field values and merges them into the associated collection with a top-level [`merge` reduction strategy](/reference/reduction-strategies/merge).
 
-Note that formula field refreshes emit partial documents containing only the record's key and formula field values. By default, these are combined with previously captured complete documents, and this works well for standard [updates materializations](/concepts/materialization/#updates-materializations). However, [delta updates materializations](/concepts/materialization/#delta-updates) do not reduce against existing destination state, so partial documents from formula field refreshes are materialized as-is with all non-formula fields as `null`.
+Note that formula field refreshes emit partial documents containing only the record's key and formula field values. By default, these are combined with previously captured complete documents, and this works well for [standard updates materializations](/concepts/materialization/#how-continuous-materialization-works). However, [delta updates materializations](/concepts/materialization/#delta-updates) do not fully reduce documents, so partial documents from formula field refreshes are materialized as-is with all non-formula fields as `null`.
 
 ## Troubleshooting
 
