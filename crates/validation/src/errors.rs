@@ -267,7 +267,7 @@ pub enum Error {
         larger_id: models::Id,
     },
     #[error(
-        "expected publication ID {expect_id} was not matched (it's actually {actual_id}): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec."
+        "This task was updated while you were editing — please refresh the spec and re-apply your changes.\nThis may have been an automated system update. (expected publication ID {expect_id}, actual {actual_id})"
     )]
     ExpectPubIdNotMatched {
         expect_id: models::Id,
