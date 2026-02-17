@@ -2,6 +2,7 @@ do $$
 declare
   data_plane_one_id flowid := '111111111111';
   data_plane_two_id flowid := '222222222222';
+  defunct_data_plane_id flowid := '333333333333';
 
   -- SOPS-encrypted HMAC keys (see .cargo/config.toml for key & secret)
   -- Decrypts to: {"hmac_keys": ["c2VjcmV0", "b3RoZXI="]} (base64 for "secret" and "other")
@@ -60,24 +61,42 @@ begin
     'from.dp.one',
     'from.dp.one',
     true
-  ), (
-    data_plane_two_id,
-    'ops/dp/public/two',
-    'dp.two',
-    '{}',
-    encrypted_keys,
-    'broker.dp.two',
-    'reactor.dp.two',
-    'ops/tasks/public/two/logs',
-    'ops/tasks/public/two/stats',
-    'ops/rollups/L1/public/two/events',
-    'ops/rollups/L1/public/two/inferred',
-    'ops/rollups/L1/public/two/stats',
-    'from.dp.two',
-    'from.dp.two',
-    'from.dp.two',
-    true
-  );
+    ), (
+      data_plane_two_id,
+      'ops/dp/public/two',
+      'dp.two',
+      '{}',
+      encrypted_keys,
+      'broker.dp.two',
+      'reactor.dp.two',
+      'ops/tasks/public/two/logs',
+      'ops/tasks/public/two/stats',
+      'ops/rollups/L1/public/two/events',
+      'ops/rollups/L1/public/two/inferred',
+      'ops/rollups/L1/public/two/stats',
+      'from.dp.two',
+      'from.dp.two',
+      'from.dp.two',
+      true
+    ), (
+    -- Here so we can assert that this gets filtered out during Snapshot refreshes
+      defunct_data_plane_id,
+      'ops/dp/private/defunct',
+      'dp.defunct',
+      '{}',
+      '{}',
+      'broker.dp.defunct',
+      'reactor.dp.defunct',
+      'ops/tasks/private/defunct/logs',
+      'ops/tasks/private/defunct/stats',
+      'ops/rollups/L1/private/defunct/events',
+      'ops/rollups/L1/private/defunct/inferred',
+      'ops/rollups/L1/private/defunct/stats',
+      'from.dp.defunct',
+      'from.dp.defunct',
+      'from.dp.defunct',
+      false
+    );
 
 end
 $$;
