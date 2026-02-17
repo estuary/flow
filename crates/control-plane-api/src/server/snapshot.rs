@@ -451,6 +451,7 @@ pub async fn try_fetch(
             d.ops_logs_name AS "ops_logs_name: models::Collection",
             d.ops_stats_name AS "ops_stats_name: models::Collection"
         FROM data_planes d
+        WHERE d.hmac_keys::text <> '{}' or d.encrypted_hmac_keys::text <> '{}'
         "#,
     )
     .fetch_all(pg_pool)
@@ -581,6 +582,26 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_snapshot_fetch(pool: sqlx::PgPool) {
+        let mut decrypted_keys = HashMap::new();
+        let result = try_fetch(&pool, &mut decrypted_keys)
+            .await
+            .expect("snapshot refresh should succeed");
+        assert_eq!(2, result.data_planes.len());
+        assert!(
+            result
+                .data_planes
+                .iter()
+                .find(|dp| dp.data_plane_name.contains("defunct"))
+                .is_none(),
+            "expected the defunct data plane to be excluded"
+        );
+    }
 
     #[test]
     fn test_task_lookups() {

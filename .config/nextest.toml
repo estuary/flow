@@ -19,3 +19,11 @@ test-group = 'serial-db-tests'
 [[profile.default.overrides]]
 filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
+
+# This `server::` filter is overly broad, as not all the tests there actually
+# need the database. But I gave up on listing all the tests individually, as
+# that seems pretty fragile. Probably best to find a different way of grouping
+# tests that need the database.
+[[profile.default.overrides]]
+filter = 'package(control-plane-api) and test(server::)'
+test-group = 'serial-db-tests'
