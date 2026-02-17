@@ -2302,7 +2302,7 @@ impl Session {
             ApiVersion::default()
                 .with_api_key(ApiKey::ListOffsets as i16)
                 .with_min_version(4)
-                .with_max_version(10),
+                .with_max_version(9),
             ApiVersion::default()
                 .with_api_key(ApiKey::Fetch as i16)
                 // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
