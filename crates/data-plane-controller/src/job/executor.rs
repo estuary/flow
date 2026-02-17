@@ -60,13 +60,39 @@ impl Executor {
             .join("/execute")
             .expect("failed to build execute URL");
 
+        let service_url_for_auth = service_url.clone();
+
         let dispatch_fn: DispatchFn = Box::new(move |request: ExecuteRequest| {
             let client = http_client.clone();
             let url = execute_url.clone();
+            let audience = service_url_for_auth.clone();
+
             Box::pin(async move {
-                let response = client
-                    .post(url)
-                    .json(&request)
+                let mut req_builder = client.post(url).json(&request);
+
+                // Attempt to add Google Cloud ID token for Cloud Run service-to-service authentication.
+                // The audience is the base URL of the target service.
+                match gcp_auth::provider().await {
+                    Ok(provider) => match provider.token(&[audience.as_str()]).await {
+                        Ok(token) => {
+                            req_builder = req_builder.bearer_auth(token.as_str());
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                ?err,
+                                "failed to obtain GCP token, proceeding without auth"
+                            );
+                        }
+                    },
+                    Err(err) => {
+                        tracing::warn!(
+                            ?err,
+                            "failed to initialize GCP auth provider, proceeding without auth"
+                        );
+                    }
+                }
+
+                let response = req_builder
                     .send()
                     .await
                     .context("HTTP request to service failed")?;

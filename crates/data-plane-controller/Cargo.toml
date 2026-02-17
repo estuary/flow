@@ -20,6 +20,7 @@ axum = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { workspace = true }
 futures = { workspace = true }
+gcp_auth = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
