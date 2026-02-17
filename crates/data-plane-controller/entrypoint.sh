@@ -12,17 +12,17 @@ printf '%s\n' "${CONTROL_PLANE_DB_CA_CERT}" > /etc/db-ca.crt
 # The service mode requires infrastructure credentials for running
 # Pulumi, Ansible, git operations, and cloud provider interactions.
 if [[ "${MODE}" == "service" ]]; then
-    mkdir -p /root/.aws
-    printf '%s\n' "${DPC_GITHUB_SSH_KEY}" > /root/ssh_key
-    printf '%s\n' "${DPC_IAM_CREDENTIALS}" > /root/.aws/credentials
-    printf '%s\n' "${DPC_SERVICE_ACCOUNT}" > ${GOOGLE_APPLICATION_CREDENTIALS}
-
     # AWS profile to expect in ~/.aws/credentials
     export AWS_PROFILE=data-plane-ops
     # GCP Service Account JSON credentials path.
     export GOOGLE_APPLICATION_CREDENTIALS=/etc/data_plane_controller.json
     # Disable host-key checks when cloning our git repo.
     export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+
+    mkdir -p /root/.aws
+    printf '%s\n' "${DPC_GITHUB_SSH_KEY}" > /root/ssh_key
+    printf '%s\n' "${DPC_IAM_CREDENTIALS}" > /root/.aws/credentials
+    printf '%s\n' "${DPC_SERVICE_ACCOUNT}" > ${GOOGLE_APPLICATION_CREDENTIALS}
 
     chmod 0400 /root/ssh_key
     eval "$(ssh-agent -s)"
