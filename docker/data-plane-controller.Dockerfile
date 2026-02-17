@@ -23,13 +23,6 @@ COPY ${TARGETARCH}/data-plane-controller /usr/local/bin/
 COPY ${TARGETARCH}/data-plane-controller-entrypoint.sh /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
 
-# AWS profile to expect in ~/.aws/credentials
-ENV AWS_PROFILE=data-plane-ops
-# GCP Service Account JSON credentials path.
-ENV GOOGLE_APPLICATION_CREDENTIALS=/etc/data_plane_controller.json
-# Disable host-key checks when cloning our git repo.
-ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
-
 ENV RUST_LOG=info
 
 ENTRYPOINT ["/usr/local/bin/data-plane-controller-entrypoint.sh"]
