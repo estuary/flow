@@ -51,7 +51,7 @@ jobs:
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 3600s
-          flags: '--args=service --no-allow-unauthenticated'
+          flags: '--args=service --no-allow-unauthenticated --service-account=data-plane-controller@estuary-control.iam.gserviceaccount.com'
 
           env_vars: |-
             DPC_DATABASE_CA=/etc/db-ca.crt
@@ -113,7 +113,7 @@ jobs:
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 2h # Self-cancels after 1 hour, with 1 hour grace period.
-          flags: '--args=job'
+          flags: '--args=job --service-account=data-plane-controller@estuary-control.iam.gserviceaccount.com'
 
           env_vars: |-
             DPC_DATABASE_CA=/etc/db-ca.crt
