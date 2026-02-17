@@ -71,23 +71,40 @@ impl Executor {
                 let mut req_builder = client.post(url).json(&request);
 
                 // Attempt to add Google Cloud ID token for Cloud Run service-to-service authentication.
-                // The audience is the base URL of the target service.
-                match gcp_auth::provider().await {
-                    Ok(provider) => match provider.token(&[audience.as_str()]).await {
+                // Fetch token directly from GCP metadata server.
+                let metadata_url = format!(
+                    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience={}",
+                    audience
+                );
+
+                match client
+                    .get(&metadata_url)
+                    .header("Metadata-Flavor", "Google")
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await
+                {
+                    Ok(response) if response.status().is_success() => match response.text().await {
                         Ok(token) => {
-                            req_builder = req_builder.bearer_auth(token.as_str());
+                            req_builder = req_builder.bearer_auth(token.trim());
                         }
                         Err(err) => {
                             tracing::warn!(
                                 ?err,
-                                "failed to obtain GCP token, proceeding without auth"
+                                "failed to read GCP token from metadata server, proceeding without auth"
                             );
                         }
                     },
+                    Ok(response) => {
+                        tracing::warn!(
+                            status = ?response.status(),
+                            "metadata server returned non-success status, proceeding without auth"
+                        );
+                    }
                     Err(err) => {
                         tracing::warn!(
                             ?err,
-                            "failed to initialize GCP auth provider, proceeding without auth"
+                            "failed to fetch GCP token from metadata server, proceeding without auth"
                         );
                     }
                 }
