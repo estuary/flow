@@ -119,6 +119,7 @@ jobs:
             DPC_DATABASE_CA=/etc/db-ca.crt
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             DPC_SERVICE_URL=${{ needs.deploy-service.outputs.service-url }}
+            DPC_CONCURRENCY=10
             NO_COLOR=1
 
           secrets: |-
