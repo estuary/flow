@@ -72,10 +72,6 @@ The connector can optionally require each request to present an authentication t
 
 **If you don't enable authentication, then anyone who knows the URL will be able to publish data to your collection.** We recommend using authentication whenever possible.
 
-### Webhook signature verification
-
-This connector does not yet support webhook signature verification. If this is a requirement for your use case, please contact [`support@estuary.dev`](mailto://support@estuary.dev) and let us know.
-
 ## Endpoint Configuration
 
 | Property | Title | Description | Type | Required/Default |
