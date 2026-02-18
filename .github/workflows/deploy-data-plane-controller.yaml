@@ -120,6 +120,7 @@ jobs:
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             DPC_SERVICE_URL=${{ needs.deploy-service.outputs.service-url }}
             DPC_CONCURRENCY=10
+            DPC_SERVICE_ACCOUNT=DPC_SERVICE_ACCOUNT:latest
             NO_COLOR=1
 
           secrets: |-
