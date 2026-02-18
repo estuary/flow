@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	persistInterval = time.Minute
+	persistInterval       = time.Minute
+	maxConcurrentPersists = 32
 )
 
 // Persister asynchronously persists completed Fragments to their backing pb.FragmentStore.
@@ -20,6 +21,7 @@ type Persister struct {
 	qA, qB, qC []Spool
 	mu         sync.Mutex
 	doneCh     chan struct{}
+	sem        chan struct{}
 	ks         *keyspace.KeySpace
 	ticker     *time.Ticker
 	persistFn  func(context.Context, Spool, *pb.JournalSpec, bool) error
@@ -29,6 +31,7 @@ type Persister struct {
 func NewPersister(ks *keyspace.KeySpace) *Persister {
 	return &Persister{
 		doneCh:    make(chan struct{}),
+		sem:       make(chan struct{}, maxConcurrentPersists),
 		ks:        ks,
 		persistFn: Persist,
 	}
@@ -42,8 +45,11 @@ func (p *Persister) SpoolComplete(spool Spool, primary bool) {
 	}
 
 	if primary {
-		// Attempt to immediately persist the Spool.
-		go p.attemptPersist(spool, false /* not exiting */)
+		go func() {
+			p.sem <- struct{}{}
+			defer func() { <-p.sem }()
+			p.attemptPersist(spool, false /* not exiting */)
+		}()
 	} else {
 		p.queue(spool)
 	}
