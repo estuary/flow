@@ -62,7 +62,7 @@ The connector can optionally require each request to present an authentication t
 
 ### Webhook signature verification
 
-This connector does not yet support webhook signature verification. If this is a requirement for your use case, please contact [`support@estuary.dev`](mailto://support@estuary.dev) and let us know.
+Intercom webhooks use HMAC-SHA1 signatures. This verification scheme is not yet supported by this connector. If this is a requirement for your use case, please contact [`support@estuary.dev`](mailto://support@estuary.dev) and let us know.
 
 ## Endpoint Configuration
 
