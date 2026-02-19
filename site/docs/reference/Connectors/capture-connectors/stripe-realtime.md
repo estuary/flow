@@ -117,6 +117,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials/access_token` | Access Token | Stripe API key. Usually starts with `sk_live_`. | string | Required |
 | `/start_date` | Start Date | UTC date and time in the format `YYYY-MM-DDTHH:MM:SSZ`. Only data generated after this date will be replicated. | string | 30 days before the present date |
 | `/capture_connected_accounts` | Capture Connected Accounts | Whether to capture data from connected accounts. | boolean | `false` |`
+| `/advanced/incremental_window_size` | Max Incremental Window Size | Maximum time window to process in a single incremental sweep. This bounds how much catch-up work is done at once and helps prevent the connector from falling behind when there are a large number of changes in a short time frame. Uses ISO 8601 duration format (e.g. PT1H for 1 hour, PT30M for 30 minutes). | string | `P1D` |`
 
 #### Bindings
 
