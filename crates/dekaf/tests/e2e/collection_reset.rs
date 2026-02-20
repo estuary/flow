@@ -662,6 +662,99 @@ async fn test_fetch_response_includes_leader_epoch() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// This catches a bug where the RecordBatch `partition_leader_epoch` didn't match
+/// the `committed_leader_epoch` returned by OffsetFetch. librdkafka compares these
+/// two values in `rd_kafka_fetch_pos_cmp` to decide whether a commit is needed:
+/// if `stored_pos.leader_epoch < committed_pos.leader_epoch`, the commit is silently
+/// skipped. After a reset the OffsetFetch epoch advances (to `binding_backfill_counter`)
+/// but the RecordBatch epoch must also match, otherwise the second-generation consumer's
+/// commits are all silently dropped, causing offset regression on the third generation.
+#[tokio::test]
+async fn test_commits_persist_across_rebalances_after_reset() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("commits_after_reset", FIXTURE).await?;
+
+    // Inject a document so the journal exists and Dekaf can report partitions in metadata.
+    env.inject_documents("data", vec![json!({"id": "0", "value": "pre-reset"})])
+        .await?;
+
+    let initial_epoch = get_leader_epoch(&env, "test_topic", 0).await?;
+
+    // Reset the collection so binding_backfill_counter increments (epoch 1 -> 2).
+    perform_collection_reset(&env, "test_topic", 0, initial_epoch, EPOCH_CHANGE_TIMEOUT).await?;
+
+    let group_id = format!("test-group-{}", uuid::Uuid::new_v4());
+
+    // Inject 3 documents into the reset collection.
+    env.inject_documents(
+        "data",
+        vec![
+            json!({"id": "a", "value": "1"}),
+            json!({"id": "b", "value": "2"}),
+            json!({"id": "c", "value": "3"}),
+        ],
+    )
+    .await?;
+
+    // Generation 1 (post-reset): consume all 4 docs (reset-trigger + a, b, c) and commit.
+    // This succeeds even with the bug because the initial OffsetFetch returns
+    // committed_leader_epoch=-1 (no prior commits), which bypasses librdkafka's
+    // epoch comparison in rd_kafka_fetch_pos_cmp.
+    {
+        let consumer = env.kafka_consumer_with_group_id(&group_id).await?;
+        consumer.subscribe(&["test_topic"])?;
+
+        let records = consumer.fetch_n_with_state_commit(4).await?;
+        assert_eq!(records.len(), 4, "gen 1 should consume all 4 docs");
+    }
+
+    // Inject 1 more document.
+    env.inject_documents("data", vec![json!({"id": "d", "value": "4"})])
+        .await?;
+
+    // Generation 2: should resume after gen 1's commit and see only doc "d".
+    // Commits via commit_consumer_state. With the bug, this commit is silently
+    // skipped: the RecordBatch partition_leader_epoch is hardcoded to 1, so
+    // stored_pos.leader_epoch=1. But Dekaf's OffsetFetch returns
+    // committed_leader_epoch=2 (binding_backfill_counter), so
+    // committed_pos.leader_epoch=2. librdkafka sees stored(1) < committed(2)
+    // and skips the commit (returning NoOffset, which mirrors the silent skip
+    // that auto-commit consumers would experience).
+    {
+        let consumer = env.kafka_consumer_with_group_id(&group_id).await?;
+        consumer.subscribe(&["test_topic"])?;
+
+        let records = consumer.fetch_n_with_state_commit(1).await?;
+        assert_eq!(records.len(), 1, "gen 2 should see only doc d");
+        assert_eq!(records[0].value["id"], "d");
+    }
+
+    // Inject 1 more document.
+    env.inject_documents("data", vec![json!({"id": "e", "value": "5"})])
+        .await?;
+
+    // Generation 3: should resume after gen 2's commit and see only doc "e".
+    // With the bug, gen 2's commit was silently dropped, so this consumer
+    // falls back to gen 1's committed position and sees both "d" and "e".
+    {
+        let consumer = env.kafka_consumer_with_group_id(&group_id).await?;
+        consumer.subscribe(&["test_topic"])?;
+
+        let records = consumer.fetch().await?;
+        assert_eq!(
+            records.len(),
+            1,
+            "gen 3 should see only doc e (gen 2's commit must have persisted), but got {} records: {:?}",
+            records.len(),
+            records.iter().map(|r| &r.value["id"]).collect::<Vec<_>>()
+        );
+        assert_eq!(records[0].value["id"], "e");
+    }
+
+    Ok(())
+}
+
 /// Commit offset, reset collection. OffsetFetch should NOT return the old offset
 #[tokio::test]
 async fn test_offset_isolation_after_reset() -> anyhow::Result<()> {

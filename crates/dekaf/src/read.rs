@@ -51,6 +51,12 @@ pub struct Read {
     deletes: DeletionMode,
 
     pub(crate) rewrite_offsets_from: Option<i64>,
+
+    // Leader epoch for this partition, used in RecordBatch headers.
+    // Must match the epoch reported in OffsetFetch's committed_leader_epoch
+    // so that librdkafka's epoch-aware commit filtering doesn't silently
+    // skip offset commits.
+    partition_leader_epoch: i32,
 }
 
 pub enum BatchResult {
@@ -132,6 +138,7 @@ impl Read {
             rewrite_offsets_from,
             deletes: auth.deletions(),
             offset_start: offset,
+            partition_leader_epoch: collection.binding_backfill_counter as i32,
         })
     }
 
@@ -442,7 +449,7 @@ impl Read {
                 headers: Default::default(),
                 key,
                 offset: kafka_offset,
-                partition_leader_epoch: 1,
+                partition_leader_epoch: self.partition_leader_epoch,
                 producer_epoch: 1,
                 producer_id: producer.as_i64(),
                 sequence: kafka_offset as i32,

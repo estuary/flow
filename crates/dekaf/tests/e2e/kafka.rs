@@ -155,6 +155,77 @@ impl KafkaConsumer {
         Ok(records)
     }
 
+    /// Fetch exactly N records, then commit via `commit_consumer_state`.
+    ///
+    /// Unlike `fetch_n_with_commit` (which uses `commit_message`), this method
+    /// commits through librdkafka's stored-position path: `rd_kafka_commit(rk, NULL, ...)`.
+    /// That path compares the stored position's `leader_epoch` (from the RecordBatch)
+    /// against the committed position's `leader_epoch` (from OffsetFetch) via
+    /// `rd_kafka_fetch_pos_cmp`. If `stored < committed`, the commit is silently
+    /// skipped and `NoOffset` is returned.
+    pub async fn fetch_n_with_state_commit(&self, n: usize) -> anyhow::Result<Vec<DecodedRecord>> {
+        const TIMEOUT: Duration = Duration::from_secs(180);
+        let deadline = std::time::Instant::now() + TIMEOUT;
+
+        let mut records = Vec::new();
+        let mut stream = self.consumer.stream();
+
+        while records.len() < n {
+            if std::time::Instant::now() > deadline {
+                anyhow::bail!("timeout waiting for {} records, got {}", n, records.len());
+            }
+
+            match tokio::time::timeout(Duration::from_secs(30), stream.next()).await {
+                Ok(Some(Ok(msg))) => {
+                    let key = self
+                        .decoder
+                        .decode(msg.key())
+                        .await
+                        .context("failed to decode key")?;
+                    let value = self
+                        .decoder
+                        .decode(msg.payload())
+                        .await
+                        .context("failed to decode value")?;
+
+                    records.push(DecodedRecord {
+                        topic: msg.topic().to_string(),
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: apache_avro::from_value(&key.value)?,
+                        value: apache_avro::from_value(&value.value)?,
+                    });
+                }
+                Ok(Some(Err(e))) => return Err(e.into()),
+                Ok(None) => break,
+                Err(_) => continue, // per-message timeout, retry
+            }
+        }
+
+        // commit_consumer_state uses rd_kafka_commit(rk, NULL, ...) which goes
+        // through rd_kafka_fetch_pos_cmp. If the RecordBatch partition_leader_epoch
+        // doesn't match the committed_leader_epoch from OffsetFetch, the commit
+        // is silently skipped (returning NoOffset). In a real consumer using
+        // auto-commit, this skip is silent. We match that behavior here by
+        // treating NoOffset as a no-op rather than an error.
+        match self
+            .consumer
+            .commit_consumer_state(rdkafka::consumer::CommitMode::Sync)
+        {
+            Ok(()) => {}
+            Err(rdkafka::error::KafkaError::ConsumerCommit(
+                rdkafka::types::RDKafkaErrorCode::NoOffset,
+            )) => {
+                tracing::warn!(
+                    "commit_consumer_state returned NoOffset (commit silently skipped due to epoch mismatch)"
+                );
+            }
+            Err(e) => return Err(e).context("failed to commit consumer state"),
+        }
+
+        Ok(records)
+    }
+
     /// Get the inner consumer for advanced operations.
     pub fn inner(&self) -> &StreamConsumer {
         &self.consumer
