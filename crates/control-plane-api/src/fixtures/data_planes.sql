@@ -43,10 +43,15 @@ begin
     ops_l2_events_transform,
     ops_l2_inferred_transform,
     ops_l2_stats_transform,
-    enable_l2
+    enable_l2,
+    cidr_blocks,
+    aws_iam_user_arn,
+    gcp_service_account_email,
+    azure_application_name,
+    azure_application_client_id
   ) values (
     data_plane_one_id,
-    'ops/dp/public/one',
+    'ops/dp/public/aws-us-west-2-c1',
     'dp.one',
     '{}',
     encrypted_keys,
@@ -60,10 +65,15 @@ begin
     'from.dp.one',
     'from.dp.one',
     'from.dp.one',
-    true
+    true,
+    '{10.0.0.0/16,192.168.1.0/24}',
+    'arn:aws:iam::123456789:user/test',
+    'test-gcp-one@estuary-test.iam.gserviceaccount.com',
+    'estuary-test-app-one',
+    '11111111-1111-1111-1111-111111111111'
     ), (
       data_plane_two_id,
-      'ops/dp/public/two',
+      'ops/dp/public/gcp-us-central1-c2',
       'dp.two',
       '{}',
       encrypted_keys,
@@ -77,11 +87,16 @@ begin
       'from.dp.two',
       'from.dp.two',
       'from.dp.two',
-      true
+      true,
+      '{172.16.0.0/12}',
+      'arn:aws:iam::987654321:user/test',
+      'test-gcp-two@estuary-test.iam.gserviceaccount.com',
+      'estuary-test-app-two',
+      '22222222-2222-2222-2222-222222222222'
     ), (
     -- Here so we can assert that this gets filtered out during Snapshot refreshes
       defunct_data_plane_id,
-      'ops/dp/private/defunct',
+      'ops/dp/private/defunct/az-westeurope-c1',
       'dp.defunct',
       '{}',
       '{}',
@@ -95,7 +110,12 @@ begin
       'from.dp.defunct',
       'from.dp.defunct',
       'from.dp.defunct',
-      false
+      false,
+      '{192.168.0.0/16}',
+      'arn:aws:iam::111222333:user/test',
+      'test-gcp-defunct@estuary-test.iam.gserviceaccount.com',
+      'estuary-test-app-defunct',
+      '33333333-3333-3333-3333-333333333333'
     );
 
 end

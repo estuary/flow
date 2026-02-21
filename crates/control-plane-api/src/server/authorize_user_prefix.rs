@@ -601,7 +601,7 @@ mod tests {
             client: server.rest_client(),
             user_tokens: user_tokens.clone(),
             prefix: models::Prefix::new("aliceCo/"),
-            data_plane: models::Name::new("ops/dp/public/one"),
+            data_plane: models::Name::new("ops/dp/public/aws-us-west-2-c1"),
             capability: models::Capability::Write,
         };
         let refresh = tokens::watch(source).ready_owned().await;
@@ -643,7 +643,7 @@ mod tests {
             client: server.rest_client(),
             user_tokens: user_tokens.clone(),
             prefix: models::Prefix::new("Some/Other/Prefix/"),
-            data_plane: models::Name::new("ops/dp/public/one"),
+            data_plane: models::Name::new("ops/dp/public/aws-us-west-2-c1"),
             capability: models::Capability::Write,
         };
         let refresh = tokens::watch(source).ready_owned().await;
