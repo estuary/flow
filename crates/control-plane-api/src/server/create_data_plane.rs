@@ -102,6 +102,14 @@ pub async fn create_data_plane(
     std::mem::drop(name); // Use `base_name` only.
 
     let data_plane_name = format!("ops/dp/{base_name}");
+
+    if super::public::graphql::parse_data_plane_name(&data_plane_name).is_none() {
+        return Err(tonic::Status::invalid_argument(format!(
+            "data plane name '{data_plane_name}' does not match the expected format (e.g., 'ops/dp/public/aws-us-east-1-c1')",
+        ))
+        .into());
+    }
+
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
     let ops_l1_events_name = format!("ops/rollups/L1/{base_name}/events");

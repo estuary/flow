@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            dp.data_plane_name,\n            dp.cidr_blocks::text[] as \"cidr_blocks!: Vec<String>\",\n            dp.gcp_service_account_email,\n            dp.aws_iam_user_arn,\n            dp.azure_application_name,\n            dp.azure_application_client_id\n        from unnest($1::text[]) as input(name)\n        join data_planes dp on dp.data_plane_name = input.name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data_plane_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "cidr_blocks!: Vec<String>",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "gcp_service_account_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "aws_iam_user_arn",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "azure_application_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "azure_application_client_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f81979ab766a313baf27bb7b132e90e506c2b130dccd4496df39ac55dbbf0be0"
+}

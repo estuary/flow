@@ -168,7 +168,7 @@ enum AlertType {
 	are peformed on all specs for a variety of reasons. For example,
 	updating inferred schemas, or updating materialization bindings to match
 	the source capture. When these publications fail, tasks are likely to
-	stop functioning correctly until the issue can be address.
+	stop functioning correctly until the issue can be addressed.
 	"""
 	background_publication_failed
 }
@@ -361,6 +361,100 @@ type CreateStorageMappingResult {
 	The catalog prefix for which the storage mapping was created.
 	"""
 	catalogPrefix: Prefix!
+}
+
+"""
+A data plane where tasks execute and collections are stored.
+"""
+type DataPlane {
+	"""
+	Name of this data-plane under the catalog namespace.
+	"""
+	dataPlaneName: String!
+	"""
+	Fully-qualified domain name of this data-plane.
+	"""
+	dataPlaneFqdn: String!
+	"""
+	Address of reactors within the data-plane.
+	"""
+	reactorAddress: String!
+	"""
+	The current user's capability to this data plane's name prefix.
+	"""
+	userCapability: Capability!
+	"""
+	Cloud provider where this data-plane is hosted.
+	"""
+	cloudProvider: DataPlaneCloudProvider!
+	"""
+	Cloud region where this data-plane is hosted.
+	For example: "us-east-1" (AWS), "us-central1" (GCP), "eastus" (Azure).
+	"""
+	region: String!
+	"""
+	Tag (cluster) identifier within the region.
+	"""
+	tag: String!
+	"""
+	Whether this is a public data-plane.
+	"""
+	isPublic: Boolean!
+	"""
+	CIDR blocks for this data-plane.
+	"""
+	cidrBlocks: [String!]!
+	"""
+	GCP service account email for this data-plane.
+	"""
+	gcpServiceAccountEmail: String
+	"""
+	AWS IAM user ARN for this data-plane.
+	"""
+	awsIamUserArn: String
+	"""
+	Azure application name for this data-plane.
+	"""
+	azureApplicationName: String
+	"""
+	Azure application client ID for this data-plane.
+	"""
+	azureApplicationClientId: String
+}
+
+"""
+Cloud provider where the data plane is hosted.
+"""
+enum DataPlaneCloudProvider {
+	AWS
+	AZURE
+	GCP
+	LOCAL
+}
+
+type DataPlaneConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [DataPlaneEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type DataPlaneEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: DataPlane!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
 }
 
 """
@@ -836,6 +930,13 @@ type QueryRoot {
 	Results are paginated and sorted by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+	"""
+	Returns data planes accessible to the current user.
+	
+	Results are paginated and sorted by data_plane_name.
+	Only data planes the user has at least read capability to are returned.
+	"""
+	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 }
 
 type RepublishRequested {
