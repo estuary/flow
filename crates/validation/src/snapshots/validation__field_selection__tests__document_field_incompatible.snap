@@ -1,0 +1,31 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap.selection
+---
+FieldSelection {
+    keys: [
+        "an_int",
+        "a_bool",
+    ],
+    values: [
+        "ABool",
+        "ADateTime",
+        "AMap",
+        "AnArray",
+        "AnInt",
+        "NestedFoo",
+        "_meta/op",
+        "a_date_time",
+        "a_map",
+        "a_num1",
+        "an_array",
+        "an_array_redux",
+        "flow_published_at",
+        "nested",
+        "nested/bar",
+    ],
+    document: "flow_document",
+    field_config_json_map: {
+        "nested": b"{\"cfg\":42}",
+    },
+}

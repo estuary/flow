@@ -490,7 +490,7 @@ pub fn group_outcomes(
             (Some(select), Some(reject)) => EOB::Both(select, reject),
         };
 
-        if let EOB::Left(_select) = &outcome {
+        if outcome.has_left() {
             // Track selected fold and pointer for subsequent evaluations.
             if field_ptr != "" {
                 selected_ptrs.push(field_ptr);
@@ -857,6 +857,20 @@ validated:
             GroupByKey,
         )
         "###);
+    }
+
+    #[test]
+    fn test_document_field_incompatible() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+model:
+    recommended: true
+validated:
+    flow_document: { type: INCOMPATIBLE, reason: "wrong type" }
+"##,
+        );
+        insta::assert_debug_snapshot!(snap.selection);
     }
 
     #[test]
