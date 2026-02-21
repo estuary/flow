@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 
 mod alert_subscriptions;
 mod alerts;
+mod data_planes;
 pub mod id;
 mod live_spec_refs;
 mod live_specs;
@@ -31,6 +32,7 @@ pub struct QueryRoot(
     prefixes::PrefixesQuery,
     alert_subscriptions::AlertSubscriptionsQuery,
     storage_mappings::StorageMappingsQuery,
+    data_planes::DataPlanesQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.

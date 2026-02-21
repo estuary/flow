@@ -1,0 +1,33 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+assertion_line: 415
+expression: response
+---
+{
+  "data": {
+    "dataPlanes": {
+      "edges": [
+        {
+          "node": {
+            "awsIamUserArn": "arn:aws:iam::123456789:user/test",
+            "azureApplicationClientId": null,
+            "azureApplicationName": null,
+            "cidrBlocks": [
+              "10.0.0.0/16",
+              "192.168.1.0/24"
+            ],
+            "cloudProvider": "AWS",
+            "dataPlaneFqdn": "dp.test",
+            "dataPlaneName": "ops/dp/public/aws-us-east-1-c1",
+            "gcpServiceAccountEmail": null,
+            "isPublic": true,
+            "reactorAddress": "reactor.dp.test",
+            "region": "us-east-1",
+            "tag": "1",
+            "userCapability": "read"
+          }
+        }
+      ]
+    }
+  }
+}
