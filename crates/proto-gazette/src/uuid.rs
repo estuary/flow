@@ -1,19 +1,35 @@
 /// Producer is the unique node identifier portion of a v1 UUID.
 /// Gazette uses Producer to identify distinct writers of collection data,
 /// as the key of a vector clock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Ord, PartialOrd, PartialEq, Eq)]
 pub struct Producer(pub [u8; 6]);
+
+impl std::hash::Hash for Producer {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Pack the 6 bytes into a u64 so that passthrough hashers can
+        // use the already-random Producer ID directly.
+        let [a, b, c, d, e, f] = self.0;
+        let v = (a as u64) << 40
+            | (b as u64) << 32
+            | (c as u64) << 24
+            | (d as u64) << 16
+            | (e as u64) << 8
+            | (f as u64);
+        state.write_u64(v);
+    }
+}
 
 /// Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of sequence
 /// counter. Both the timestamp and counter are monotonic (will never decrease),
 /// and each Tick increments the Clock. For UUID generation, Clock provides a
 /// total ordering over UUIDs of a given Producer.
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Clock(u64);
 
 // Flags are the 10 least-significant bits of the v1 UUID clock sequence,
 // which Gazette employs for representing message transaction semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Flags(pub u16);
 
 #[derive(Debug, thiserror::Error)]
@@ -53,6 +69,11 @@ impl Producer {
 
 impl Clock {
     #[inline]
+    pub const fn zero() -> Self {
+        Self(0)
+    }
+
+    #[inline]
     pub const fn from_unix(seconds: u64, nanos: u32) -> Self {
         Self(((seconds * 10_000_000 + (nanos as u64) / 100) + G1582NS100) << 4)
     }
@@ -60,6 +81,11 @@ impl Clock {
     #[inline]
     pub fn from_u64(v: u64) -> Self {
         Clock(v)
+    }
+
+    #[inline]
+    pub fn as_u64(&self) -> u64 {
+        self.0
     }
 
     #[inline]
@@ -122,10 +148,63 @@ impl Default for Clock {
     }
 }
 
+impl std::ops::Add<Clock> for Clock {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl std::fmt::Debug for Producer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [b1, b2, b3, b4, b5, b6] = self.as_bytes();
+        write!(
+            f,
+            "Producer({b1:02x}:{b2:02x}:{b3:02x}:{b4:02x}:{b5:02x}:{b6:02x})",
+        )
+    }
+}
+
+impl std::fmt::Debug for Clock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (seconds, nanos) = self.to_unix();
+        write!(f, "Clock({}s {}ns)", seconds, nanos)
+    }
+}
+
 impl Flags {
     #[inline]
     pub fn is_ack(&self) -> bool {
         self.0 & (crate::message_flags::ACK_TXN as u16) != 0
+    }
+
+    #[inline]
+    pub fn is_continue(&self) -> bool {
+        self.0 & (crate::message_flags::CONTINUE_TXN as u16) != 0
+    }
+
+    #[inline]
+    pub fn is_outside(&self) -> bool {
+        // OUTSIDE_TXN is zero, so detect absence of CONTINUE_TXN (0x1) or ACK_TXN (0x2).
+        self.0 & 0x3 == crate::message_flags::OUTSIDE_TXN as u16
+    }
+}
+
+impl std::fmt::Debug for Flags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut flags = Vec::new();
+        if self.is_outside() {
+            flags.push("OUTSIDE_TXN");
+        }
+        if self.is_continue() {
+            flags.push("CONTINUE_TXN");
+        }
+        if self.is_ack() {
+            flags.push("ACK_TXN");
+        }
+        write!(f, "Flags({:x} ({}))", self.0, flags.join("|"))
     }
 }
 
@@ -172,6 +251,116 @@ pub fn build(p: Producer, c: Clock, f: Flags) -> uuid::Uuid {
         p1[0], p1[1], p1[2], p1[3], p2[0], p2[1], p3[0], p3[1], p4[0], p4[1], p.0[0], p.0[1],
         p.0[2], p.0[3], p.0[4], p.0[5],
     ])
+}
+
+/// The successful outcome of a message sequencing determination.
+#[derive(Debug)]
+pub enum SequenceOutcome {
+    /// This OUTSIDE_TXN message is committed.
+    OutsideCommit,
+    /// This OUTSIDE_TXN message is already acknowledged. This case is expected
+    /// under at-least-once journal semantics, as a producer may append a
+    /// chunk of one or more OUTSIDE_TXN messages in duplicate.
+    OutsideDuplicate,
+    /// This CONTINUE_TXN message begins a new producer transaction sequence.
+    ContinueBeginSpan,
+    /// This CONTINUE_TXN message extends a producer transaction sequence.
+    ContinueExtendSpan,
+    /// This CONTINUE_TXN message has a lesser Clock than a preceding CONTINUE_TXN
+    /// of this pending transaction. This case is expected under at-least-once
+    /// journal semantics, as a producer may append a chunk of one or more
+    /// CONTINUE_TXN messages in duplicate.
+    ContinueDuplicate,
+    /// This ACK_TXN rolls back a pending transaction sequence,
+    /// re-establishing the last-committed Clock for the producer.
+    AckCleanRollback,
+    /// This ACK_TXN attempts to roll back to before a preceding commit,
+    /// which is tolerated but indicates a likely loss of exactly-once semantics.
+    /// Producers are expected to store ACK_TXN in a durable write-head log before
+    /// writing them to journals, making this case impossible in normal operation
+    /// (but possible in certain disaster recovery scenarios).
+    AckDeepRollback,
+    /// This ACK_TXN commits a non-empty sequence of preceding CONTINUE_TXN messages.
+    AckCommit,
+    /// This ACK_TXN commits, but had no preceding CONTINUE_TXN messages
+    /// (they were before our read offset). This occurs during conservative
+    /// reads when a producer's transaction data predates the read start.
+    AckEmpty,
+    /// This ACK_TXN re-establishes the last-committed Clock for the producer,
+    /// and had no preceding CONTINUE_TXN messages. This case is expected under
+    /// at-least-once journal semantics, as a producer may append the ACK_TXN
+    /// message multiple times.
+    AckDuplicate,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SequenceError {
+    /// This OUTSIDE_TXN message attempts to commit a preceding span of
+    /// CONTINUE_TXN messages, but this is disallowed (ACK_TXN must be used).
+    #[error("unexpected OUTSIDE_TXN with a preceding unacknowledged CONTINUE_TXN")]
+    OutsideWithPrecedingContinue,
+    /// This ACK_TXN message attempts to only partially commit a preceding span
+    /// of CONTINUE_TXN messages, but this is disallowed (ACK_TXN must commit all or none).
+    #[error("unexpected ACK_TXN which only partially acknowledges preceding CONTINUE_TXN messages")]
+    AckPartialCommit,
+}
+
+/// Sequence a Producer message having `flags` and `clock` against the producer's
+/// `last_commit` and `max_continue` Clocks.
+///
+/// On success returns (SequenceOutcome, next `last_commit`, next `max_continue`).
+/// On failure returns a SequenceError.
+#[inline]
+pub fn sequence(
+    flags: Flags,             // Flags of this message.
+    clock: Clock,             // Clock of this message.
+    last_commit: &mut Clock,  // Last committed Clock of the producer.
+    max_continue: &mut Clock, // Max Clock of a current-transaction CONTINUE_TXN, or zero if none.
+) -> Result<SequenceOutcome, SequenceError> {
+    if flags.is_outside() {
+        if *max_continue != Clock::zero() {
+            Err(SequenceError::OutsideWithPrecedingContinue)
+        } else if clock <= *last_commit {
+            Ok(SequenceOutcome::OutsideDuplicate)
+        } else {
+            *last_commit = clock;
+            Ok(SequenceOutcome::OutsideCommit)
+        }
+    } else if flags.is_continue() {
+        if clock <= *last_commit || clock <= *max_continue {
+            Ok(SequenceOutcome::ContinueDuplicate)
+        } else if *max_continue == Clock::zero() {
+            *max_continue = clock;
+            Ok(SequenceOutcome::ContinueBeginSpan)
+        } else {
+            *max_continue = clock;
+            Ok(SequenceOutcome::ContinueExtendSpan)
+        }
+    } else if flags.is_ack() {
+        if clock == *last_commit {
+            if *max_continue == Clock::zero() {
+                Ok(SequenceOutcome::AckDuplicate)
+            } else {
+                *max_continue = Clock::zero();
+                Ok(SequenceOutcome::AckCleanRollback)
+            }
+        } else if clock < *last_commit {
+            *last_commit = clock;
+            *max_continue = Clock::zero();
+            Ok(SequenceOutcome::AckDeepRollback)
+        } else if *max_continue == Clock::zero() {
+            *last_commit = clock;
+            Ok(SequenceOutcome::AckEmpty)
+        } else if *max_continue <= clock {
+            *last_commit = clock;
+            *max_continue = Clock::zero();
+            Ok(SequenceOutcome::AckCommit)
+        } else {
+            Err(SequenceError::AckPartialCommit)
+        }
+    } else {
+        unreachable!("Flags is always one of OUTSIDE_TXN, CONTINUE_TXN, or ACK_TXN")
+    }
 }
 
 #[cfg(test)]
@@ -256,6 +445,127 @@ mod test {
         assert_eq!(p_in, p_out);
         assert_eq!(c_in, c_out);
         assert_eq!(Flags(FLAGS), f_out);
+    }
+
+    const O: Flags = Flags(crate::message_flags::OUTSIDE_TXN as u16);
+    const C: Flags = Flags(crate::message_flags::CONTINUE_TXN as u16);
+    const A: Flags = Flags(crate::message_flags::ACK_TXN as u16);
+
+    fn clk(v: u64) -> Clock {
+        Clock::from_u64(v)
+    }
+
+    #[test]
+    fn test_sequence_outcomes() {
+        use SequenceOutcome::*;
+
+        // (flags, clock, last_commit, max_continue, expected outcome, expected (last_commit, max_continue))
+        let ok_cases: &[(Flags, u64, u64, u64, SequenceOutcome, (u64, u64))] = &[
+            // OUTSIDE
+            (O, 10, 5, 0, OutsideCommit, (10, 0)),
+            (O, 10, 10, 0, OutsideDuplicate, (10, 0)),
+            (O, 5, 10, 0, OutsideDuplicate, (10, 0)),
+            // CONTINUE
+            (C, 10, 5, 0, ContinueBeginSpan, (5, 10)),
+            (C, 20, 5, 10, ContinueExtendSpan, (5, 20)),
+            (C, 10, 5, 10, ContinueDuplicate, (5, 10)),
+            (C, 8, 5, 10, ContinueDuplicate, (5, 10)),
+            (C, 5, 10, 0, ContinueDuplicate, (10, 0)), // clock <= last_commit
+            (C, 10, 10, 0, ContinueDuplicate, (10, 0)), // clock == last_commit
+            // ACK
+            (A, 20, 5, 20, AckCommit, (20, 0)),
+            (A, 30, 5, 20, AckCommit, (30, 0)),
+            (A, 20, 10, 0, AckEmpty, (20, 0)),
+            (A, 10, 10, 0, AckDuplicate, (10, 0)),
+            (A, 10, 10, 20, AckCleanRollback, (10, 0)),
+            (A, 3, 10, 0, AckDeepRollback, (3, 0)),
+            (A, 3, 10, 20, AckDeepRollback, (3, 0)),
+        ];
+        for (flags, clock, lc_in, mc_in, expected, (lc_out, mc_out)) in ok_cases {
+            let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
+            let outcome = sequence(*flags, clk(*clock), &mut lc, &mut mc).unwrap();
+            assert_eq!(
+                std::mem::discriminant(&outcome),
+                std::mem::discriminant(expected),
+                "flags={flags:?} clock={clock} lc={lc_in} mc={mc_in}: expected {expected:?}, got {outcome:?}"
+            );
+            assert_eq!((lc.as_u64(), mc.as_u64()), (*lc_out, *mc_out));
+        }
+    }
+
+    #[test]
+    fn test_sequence_errors() {
+        use SequenceError::*;
+
+        let err_cases: &[(Flags, u64, u64, u64, SequenceError)] = &[
+            (O, 20, 5, 15, OutsideWithPrecedingContinue),
+            (A, 15, 5, 20, AckPartialCommit),
+        ];
+        for (flags, clock, lc_in, mc_in, expected) in err_cases {
+            let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
+            let err = sequence(*flags, clk(*clock), &mut lc, &mut mc).unwrap_err();
+            assert_eq!(
+                std::mem::discriminant(&err),
+                std::mem::discriminant(expected),
+                "flags={flags:?} clock={clock} lc={lc_in} mc={mc_in}: expected {expected:?}, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sequence_lifecycle() {
+        use SequenceOutcome::*;
+
+        fn run(lc: u64, mc: u64, steps: &[(Flags, u64, SequenceOutcome)]) {
+            let (mut lc, mut mc) = (clk(lc), clk(mc));
+            for &(f, c, ref expect) in steps {
+                let outcome = sequence(f, clk(c), &mut lc, &mut mc).unwrap();
+                assert_eq!(
+                    std::mem::discriminant(&outcome),
+                    std::mem::discriminant(expect),
+                    "at clock={c}: expected {expect:?}, got {outcome:?}"
+                );
+            }
+        }
+
+        // CONTINUE x2, duplicate, ACK commit, OUTSIDE, dup OUTSIDE, stale ACK.
+        run(
+            0,
+            0,
+            &[
+                (C, 10, ContinueBeginSpan),
+                (C, 20, ContinueExtendSpan),
+                (C, 15, ContinueDuplicate),
+                (A, 20, AckCommit),
+                (O, 30, OutsideCommit),
+                (O, 30, OutsideDuplicate),
+                (A, 20, AckDeepRollback),
+            ],
+        );
+
+        // CONTINUE x2, clean rollback, new transaction after rollback.
+        run(
+            10,
+            0,
+            &[
+                (C, 20, ContinueBeginSpan),
+                (C, 30, ContinueExtendSpan),
+                (A, 10, AckCleanRollback),
+                (C, 40, ContinueBeginSpan),
+                (A, 40, AckCommit),
+            ],
+        );
+
+        // Empty ACK (missed CONTINUEs), then normal transaction.
+        run(
+            0,
+            0,
+            &[
+                (A, 10, AckEmpty),
+                (C, 20, ContinueBeginSpan),
+                (A, 20, AckCommit),
+            ],
+        );
     }
 
     #[test]
