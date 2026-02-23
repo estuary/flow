@@ -1,5 +1,5 @@
 use crate::directives::storage_mappings::{
-    collection_and_recovery_storage_from, insert_storage_mapping, strip_collection_data_suffix,
+    collection_and_recovery_spec_from, insert_storage_mapping, strip_collection_data_suffix,
     update_storage_mapping, upsert_storage_mapping,
 };
 use async_graphql::{
@@ -55,7 +55,7 @@ pub struct UpdateStorageMappingResult {
 
 fn validate_inputs(
     catalog_prefix: &models::Prefix,
-    storage: &models::StorageDef,
+    spec: &models::StorageDef,
 ) -> async_graphql::Result<()> {
     if let Err(err) = catalog_prefix.validate() {
         return Err(async_graphql::Error::new(format!(
@@ -63,20 +63,18 @@ fn validate_inputs(
         )));
     }
 
-    if let Err(err) = storage.validate() {
+    if let Err(err) = spec.validate() {
         return Err(async_graphql::Error::new(format!(
             "invalid storage definition: {err}"
         )));
     }
-    if storage.data_planes.is_empty() {
+    if spec.data_planes.is_empty() {
         return Err(async_graphql::Error::new(
-            "storage.data_planes must not be empty",
+            "spec.data_planes must not be empty",
         ));
     }
-    if storage.stores.is_empty() {
-        return Err(async_graphql::Error::new(
-            "storage.stores must not be empty",
-        ));
+    if spec.stores.is_empty() {
+        return Err(async_graphql::Error::new("spec.stores must not be empty"));
     }
     Ok(())
 }
@@ -169,24 +167,24 @@ impl StorageMappingsMutation {
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
         detail: Option<String>,
-        storage: async_graphql::Json<models::StorageDef>,
+        spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
-        let async_graphql::Json(storage) = storage;
+        let async_graphql::Json(spec) = spec;
 
         // Do basic input validation checks first.
-        validate_inputs(&catalog_prefix, &storage)?;
+        validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &storage.data_planes).await?;
+        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
 
-        let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
+        let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
         // Run health checks.
         let health_checks =
-            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
+            run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
         let all_passed = health_checks.iter().all(|c| c.error.is_none());
 
         if !all_passed {
@@ -236,13 +234,13 @@ impl StorageMappingsMutation {
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
-        let (collection_storage, recovery_storage) = collection_and_recovery_storage_from(storage);
+        let (collection_spec, recovery_spec) = collection_and_recovery_spec_from(spec);
 
         // Insert collection storage mapping (fails if already exists).
         let inserted = insert_storage_mapping(
             detail.as_deref(),
             catalog_prefix.as_str(),
-            &collection_storage,
+            &collection_spec,
             &mut *txn,
         )
         .await?;
@@ -258,7 +256,7 @@ impl StorageMappingsMutation {
         upsert_storage_mapping(
             detail.as_deref(),
             &format!("recovery/{catalog_prefix}"),
-            &recovery_storage,
+            &recovery_spec,
             &mut txn,
         )
         .await?;
@@ -267,8 +265,8 @@ impl StorageMappingsMutation {
 
         tracing::info!(
             %catalog_prefix,
-            data_planes = ?collection_storage.data_planes,
-            stores_count = ?collection_storage.stores.len(),
+            data_planes = ?collection_spec.data_planes,
+            stores_count = ?collection_spec.stores.len(),
             "created storage mapping"
         );
 
@@ -289,24 +287,24 @@ impl StorageMappingsMutation {
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
         detail: Option<String>,
-        storage: async_graphql::Json<models::StorageDef>,
+        spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<UpdateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
-        let async_graphql::Json(storage) = storage;
+        let async_graphql::Json(spec) = spec;
 
         // Do basic input validation checks first.
-        validate_inputs(&catalog_prefix, &storage)?;
+        validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &storage.data_planes).await?;
+        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
 
-        let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
+        let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
         // Run health checks outside of transaction so as not to keep rows locked too long.
         let health_checks =
-            run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
+            run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
 
         // Begin a transaction to fetch existing mapping and update.
         let mut txn = env.pg_pool.begin().await?;
@@ -334,7 +332,7 @@ impl StorageMappingsMutation {
         };
 
         // Determine if republish is needed: stores added or removed.
-        let republish = storage.stores != current.0.stores;
+        let republish = spec.stores != current.0.stores;
 
         // Check if any health check failed for a newly added store or data plane.
         let has_new_failures = health_checks.iter().any(|c| {
@@ -359,12 +357,12 @@ impl StorageMappingsMutation {
         // A single conceptual "storage mapping" is (today) stored as two
         // distinct rows. They must align, and this alignment is enforced
         // by the `validations` crate.
-        let (collection_storage, recovery_storage) = collection_and_recovery_storage_from(storage);
+        let (collection_spec, recovery_spec) = collection_and_recovery_spec_from(spec);
 
         let updated = update_storage_mapping(
             detail.as_deref(),
             catalog_prefix.as_str(),
-            &collection_storage,
+            &collection_spec,
             &mut *txn,
         )
         .await?;
@@ -380,7 +378,7 @@ impl StorageMappingsMutation {
         upsert_storage_mapping(
             detail.as_deref(),
             &format!("recovery/{catalog_prefix}"),
-            &recovery_storage,
+            &recovery_spec,
             &mut txn,
         )
         .await?;
@@ -401,8 +399,8 @@ impl StorageMappingsMutation {
 
         tracing::info!(
             %catalog_prefix,
-            data_planes = ?collection_storage.data_planes,
-            stores_count = ?collection_storage.stores.len(),
+            data_planes = ?collection_spec.data_planes,
+            stores_count = ?collection_spec.stores.len(),
             republish,
             "updated storage mapping"
         );
@@ -424,23 +422,23 @@ impl StorageMappingsMutation {
         &self,
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
-        storage: async_graphql::Json<models::StorageDef>,
+        spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<ConnectionHealthTestResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
-        let async_graphql::Json(storage) = storage;
+        let async_graphql::Json(spec) = spec;
 
         // Do basic input validation checks first.
-        validate_inputs(&catalog_prefix, &storage)?;
+        validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &storage.data_planes).await?;
+        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
 
-        let data_planes = resolve_data_planes(&snapshot, &storage.data_planes)?;
+        let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
         // Run health checks and collect results.
-        let results = run_all_health_checks(&catalog_prefix, &data_planes, &storage.stores).await;
+        let results = run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
 
         Ok(ConnectionHealthTestResult {
             catalog_prefix,
@@ -542,7 +540,7 @@ pub struct StorageMapping {
     /// Optional description of this storage mapping.
     pub detail: Option<String>,
     /// The storage definition containing stores and data plane assignments.
-    pub storage: async_graphql::Json<models::StorageDef>,
+    pub spec: async_graphql::Json<models::StorageDef>,
     /// The current user's capability to this storage mapping's prefix.
     pub user_capability: models::Capability,
 }
@@ -676,14 +674,14 @@ impl StorageMappingsQuery {
                 })?;
 
                 // Strip "collection-data/" suffix from store prefixes before returning to user.
-                let user_facing_storage = strip_collection_data_suffix(row.spec);
+                let user_facing_spec = strip_collection_data_suffix(row.spec);
 
                 Ok(connection::Edge::new(
                     row.catalog_prefix.clone(),
                     StorageMapping {
                         catalog_prefix: models::Prefix::new(row.catalog_prefix),
                         detail: row.detail,
-                        storage: async_graphql::Json(user_facing_storage),
+                        spec: async_graphql::Json(user_facing_spec),
                         user_capability,
                     },
                 ))
