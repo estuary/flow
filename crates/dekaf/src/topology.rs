@@ -603,10 +603,30 @@ pub async fn extract_dekaf_config(
     }
     let config = serde_json::from_slice::<models::DekafConfig>(&spec.config_json)?;
 
-    let decrypted_endpoint_config =
-        unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
+    let raw_config = RawValue::from_str(&config.config.to_string())?;
 
-    let dekaf_config =
-        serde_json::from_str::<connector::DekafConfig>(decrypted_endpoint_config.get())?;
-    Ok(dekaf_config)
+    // SOPS decryption calls out to GCP KMS, which can transiently fail.
+    // Retry with backoff to handle these transient failures.
+    let mut last_err = None;
+    for attempt in 0..5u32 {
+        if attempt > 0 {
+            let base_ms = 1000 * 2u64.pow(attempt - 1);
+            let jitter_ms = rand::random_range(0..=base_ms / 2);
+            tokio::time::sleep(std::time::Duration::from_millis(base_ms + jitter_ms)).await;
+        }
+        match unseal::decrypt_sops(&raw_config).await {
+            Ok(decrypted) => {
+                let dekaf_config = serde_json::from_str::<connector::DekafConfig>(decrypted.get())?;
+                return Ok(dekaf_config);
+            }
+            Err(err) => {
+                tracing::warn!(attempt, error = ?err, "sops decryption failed, retrying");
+                last_err = Some(err);
+            }
+        }
+    }
+
+    // Unwrap is safe: the loop always executes at least once, and we only
+    // reach here via the Err arm which sets last_err = Some.
+    Err(last_err.unwrap())
 }
