@@ -2,8 +2,8 @@ use crate::integration_tests::harness::TestHarness;
 use serde_json::json;
 
 const CREATE_STORAGE_MAPPING_MUTATION: &str = r#"
-mutation CreateStorageMapping($catalogPrefix: Prefix!, $storage: JSON!) {
-    createStorageMapping(catalogPrefix: $catalogPrefix, storage: $storage) {
+mutation CreateStorageMapping($catalogPrefix: Prefix!, $spec: JSON!) {
+    createStorageMapping(catalogPrefix: $catalogPrefix, spec: $spec) {
         catalogPrefix
     }
 }
@@ -21,7 +21,7 @@ async fn test_create_storage_mapping_validation_errors() {
             CREATE_STORAGE_MAPPING_MUTATION,
             &json!({
                 "catalogPrefix": "aliceCo/sub/",
-                "storage": {
+                "spec": {
                     "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
                     "data_planes": []
                 },
@@ -31,7 +31,7 @@ async fn test_create_storage_mapping_validation_errors() {
     let err = result.unwrap_err().to_string();
 
     assert!(
-        err.contains("storage.data_planes must not be empty"),
+        err.contains("spec.data_planes must not be empty"),
         "expected empty data_planes error, got: {err}"
     );
 
@@ -42,7 +42,7 @@ async fn test_create_storage_mapping_validation_errors() {
             CREATE_STORAGE_MAPPING_MUTATION,
             &json!({
                 "catalogPrefix": "aliceCo/sub/",
-                "storage": {
+                "spec": {
                     "stores": [],
                     "data_planes": ["ops/dp/public/test"]
                 },
@@ -52,7 +52,7 @@ async fn test_create_storage_mapping_validation_errors() {
     let err = result.unwrap_err().to_string();
 
     assert!(
-        err.contains("storage.stores must not be empty"),
+        err.contains("spec.stores must not be empty"),
         "expected empty stores error, got: {err}"
     );
 
@@ -63,7 +63,7 @@ async fn test_create_storage_mapping_validation_errors() {
             CREATE_STORAGE_MAPPING_MUTATION,
             &json!({
                 "catalogPrefix": "aliceCo",
-                "storage": {
+                "spec": {
                     "stores": [{"provider": "GCS", "bucket": "test-bucket"}],
                     "data_planes": ["ops/dp/public/test"]
                 },
