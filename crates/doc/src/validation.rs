@@ -53,6 +53,14 @@ pub struct Validator {
     schema: Pin<Box<Schema>>,
 }
 
+impl std::fmt::Debug for Validator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Validator")
+            .field("schema", &self.schema().curi().to_string())
+            .finish()
+    }
+}
+
 impl Validator {
     pub fn new(schema: Schema) -> Result<Self, json::schema::index::Error> {
         let schema: Pin<Box<Schema>> = Box::pin(schema);
