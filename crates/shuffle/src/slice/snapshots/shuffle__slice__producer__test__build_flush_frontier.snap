@@ -1,0 +1,185 @@
+---
+source: crates/shuffle/src/slice/producer.rs
+expression: snap
+---
+[
+    (
+        "empty",
+        Frontier {
+            journals: [],
+        },
+    ),
+    (
+        "reads_only",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 16ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -500,
+                        },
+                    ],
+                },
+                JournalFrontier {
+                    journal: "journal/B",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(03:00:00:00:00:00),
+                            last_commit: Clock(0s 32ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -1000,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    (
+        "hints_only",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 0ns),
+                            hinted_commit: Clock(0s 24ns),
+                            offset: 0,
+                        },
+                    ],
+                },
+                JournalFrontier {
+                    journal: "journal/C",
+                    binding: 1,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(03:00:00:00:00:00),
+                            last_commit: Clock(0s 0ns),
+                            hinted_commit: Clock(0s 48ns),
+                            offset: 0,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    (
+        "empty_pending_skipped",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 16ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -500,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    (
+        "reads_and_hints",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 16ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -500,
+                        },
+                    ],
+                },
+                JournalFrontier {
+                    journal: "journal/B",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(03:00:00:00:00:00),
+                            last_commit: Clock(0s 32ns),
+                            hinted_commit: Clock(0s 48ns),
+                            offset: -1000,
+                        },
+                        ProducerFrontier {
+                            producer: Producer(05:00:00:00:00:00),
+                            last_commit: Clock(0s 8ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -200,
+                        },
+                    ],
+                },
+                JournalFrontier {
+                    journal: "journal/C",
+                    binding: 1,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(03:00:00:00:00:00),
+                            last_commit: Clock(0s 0ns),
+                            hinted_commit: Clock(0s 48ns),
+                            offset: 0,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    (
+        "same_journal_diff_bindings",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/X",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(03:00:00:00:00:00),
+                            last_commit: Clock(0s 8ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -200,
+                        },
+                    ],
+                },
+                JournalFrontier {
+                    journal: "journal/X",
+                    binding: 1,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(05:00:00:00:00:00),
+                            last_commit: Clock(0s 0ns),
+                            hinted_commit: Clock(0s 40ns),
+                            offset: 0,
+                        },
+                    ],
+                },
+                JournalFrontier {
+                    journal: "journal/X",
+                    binding: 2,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 16ns),
+                            hinted_commit: Clock(0s 0ns),
+                            offset: -400,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+]
