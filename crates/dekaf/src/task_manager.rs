@@ -538,18 +538,26 @@ async fn update_partition_info(
                 }
             };
 
-            let partition_result = fetch_partitions(
-                &journal_client,
-                &collection_spec.name,
-                partition_selector
+            let partition_result = match tokio::time::timeout(
+                timeout,
+                fetch_partitions(
+                    &journal_client,
+                    &collection_spec.name,
+                    partition_selector,
+                ),
             )
             .await
-            .map(|partitions| {
-                (journal_client, claims, partitions)
-            })
-            .map_err(|e| {
-                SharedError::from(e.context(format!("Partition fetch failed for collection '{}'", collection_spec.name)))
-            });
+            {
+                Ok(Ok(partitions)) => Ok((journal_client, claims, partitions)),
+                Ok(Err(e)) => Err(SharedError::from(e.context(format!(
+                    "Partition fetch failed for collection '{}'",
+                    collection_spec.name
+                )))),
+                Err(_) => Err(SharedError::from(anyhow::anyhow!(
+                    "Timed out fetching partitions for collection '{}'",
+                    collection_spec.name
+                ))),
+            };
 
             // Return the result associated with this template name
             (template_name, partition_result)
