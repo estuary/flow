@@ -1,0 +1,1138 @@
+use anyhow::Context;
+use proto_flow::shuffle;
+
+/// Immutable session configuration: topology, bindings, and the checkpoint
+/// from which reads resume. Provides journal routing and StartRead construction.
+pub struct Topology {
+    /// Unique identifier for this session, assigned by the coordinator.
+    pub session_id: u64,
+    /// Ordered member topology: each member owns a disjoint key range.
+    pub members: Vec<shuffle::Member>,
+    /// Name of the task that owns this session.
+    pub task_name: models::Name,
+    /// Per-binding shuffle configuration extracted from the task spec.
+    pub bindings: Vec<crate::Binding>,
+    /// Checkpoint frontier restored from the previous session.
+    pub resume_checkpoint: crate::Frontier,
+}
+
+/// Routing decision for a discovered journal — captures all metadata
+/// that fed into member selection, enabling high-fidelity snapshot tests.
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct RoutedRead {
+    /// Decoded key range of the journal from its partition labels.
+    pub journal_key_begin: u32,
+    pub journal_key_end: u32,
+    /// Shuffle key values extracted from partition labels.
+    /// Non-empty only for partition-field routing.
+    pub shuffle_key_values: Vec<serde_json::Value>,
+    /// Hash of the packed shuffle key values.
+    /// Some only for partition-field routing.
+    pub shuffle_key_hash: Option<u32>,
+    /// Span [start, stop) of members whose key ranges overlapped the journal.
+    pub member_start: usize,
+    pub member_stop: usize,
+    /// Index of the member this read is assigned to.
+    pub member_index: usize,
+    /// Key range of the selected member (from its RangeSpec).
+    pub member_key_begin: u32,
+    pub member_key_end: u32,
+}
+
+impl Topology {
+    pub fn route_read(
+        &self,
+        added: &shuffle::slice_response::ListingAdded,
+    ) -> anyhow::Result<RoutedRead> {
+        let binding = self
+            .bindings
+            .get(added.binding as usize)
+            .context("invalid binding index")?;
+        let spec = added.spec.as_ref().context("ListingAdded missing spec")?;
+        let labels = spec.labels.as_ref().context("JournalSpec missing labels")?;
+
+        let shuffle_key_partition_fields = binding
+            .shuffle_key_partition_fields
+            .as_deref()
+            .unwrap_or(&[]);
+
+        let ((key_begin, key_end), shuffle_key_values) =
+            labels::partition::decode_field_range(labels, shuffle_key_partition_fields)
+                .context("decoding journal field range")?;
+
+        let (shuffle_key_hash, (start, stop)) = if !shuffle_key_values.is_empty() {
+            // The shuffle key is fully covered by partitioned fields, and thus
+            // determined by the journal's static partition values.
+            // Compute the fixed key hash from its partition labels.
+            let mut buf = Vec::new();
+            for value in &shuffle_key_values {
+                tuple::TuplePack::pack(value, &mut buf, tuple::TupleDepth::new())
+                    .expect("packing Value cannot fail");
+            }
+            let key_hash = crate::packed_key_hash(&buf);
+            (
+                Some(key_hash),
+                range_span(&self.members, key_hash, key_hash),
+            )
+        } else if binding.uses_source_key {
+            // We're shuffling on the source collection key.
+            // Use the journal's assigned key range to narrow member candidates.
+            (None, range_span(&self.members, key_begin, key_end))
+        } else {
+            // To our knowledge, all members are equally likely to be routed to.
+            // (There may be key skew in practice, but we have no basis for preference).
+            (None, (0, self.members.len()))
+        };
+
+        if start == stop {
+            anyhow::bail!(
+                "no members found with key range overlapping journal (start={start} stop={stop})"
+            );
+        }
+
+        // Pick a member within [start, stop). Use a stable hash for test stability.
+        // Our intent is merely to balance read assignments across members.
+        let hash = crate::packed_key_hash(
+            format!("{};{}", spec.name, binding.journal_read_suffix).as_bytes(),
+        ) as usize;
+        let member_index = hash % (stop - start) + start;
+
+        let member_range = self.members[member_index]
+            .range
+            .as_ref()
+            .expect("member must have a RangeSpec");
+
+        Ok(RoutedRead {
+            journal_key_begin: key_begin,
+            journal_key_end: key_end,
+            shuffle_key_values,
+            shuffle_key_hash,
+            member_start: start,
+            member_stop: stop,
+            member_index,
+            member_key_begin: member_range.key_begin,
+            member_key_end: member_range.key_end,
+        })
+    }
+
+    pub fn build_start_read(
+        &self,
+        routed: &RoutedRead,
+        added: shuffle::slice_response::ListingAdded,
+    ) -> (usize, shuffle::slice_request::StartRead) {
+        let shuffle::slice_response::ListingAdded {
+            binding,
+            spec,
+            create_revision,
+            mod_revision,
+            route,
+        } = added;
+
+        let binding = &self.bindings[binding as usize];
+        let journal_name = spec.as_ref().map(|s| s.name.as_str()).unwrap_or("");
+
+        // Extract the checkpoint for this journal from `resume_checkpoint`.
+        let checkpoint = self
+            .resume_checkpoint
+            .find_journal(journal_name, binding.index as u32)
+            .map(|jf| {
+                jf.producers
+                    .iter()
+                    .map(|p| shuffle::ProducerFrontier {
+                        producer: p.producer.as_i64(),
+                        last_commit: p.last_commit.as_u64(),
+                        hinted_commit: p.hinted_commit.as_u64(),
+                        offset: p.offset,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        (
+            routed.member_index,
+            shuffle::slice_request::StartRead {
+                binding: binding.index as u32,
+                spec,
+                create_revision,
+                mod_revision,
+                route,
+                checkpoint,
+            },
+        )
+    }
+}
+
+/// Four-stage checkpoint pipeline state machine.
+///
+/// Progress flows: `on_progressed_chunk()` → `progressed` → `unresolved` → `ready` → `take_ready()`.
+///
+/// Causal hints gate the `unresolved` → `ready` promotion: progress stays in
+/// `unresolved` until all hinted journals confirm the producer committed.
+/// The `recovery_pending` flag additionally gates `progressed` → `unresolved`
+/// to protect the recovery checkpoint from contamination.
+pub struct CheckpointPipeline {
+    /// Accumulated partial Progressed frontier chunks per-member,
+    /// awaiting end-of-sequence (empty journals terminator).
+    partials: Vec<Vec<crate::JournalFrontier>>,
+    /// Raw accumulated and reduced Progressed responses.
+    /// Promoted to `unresolved` when a) non-empty and b) `unresolved` is empty,
+    /// or promoted directly to `ready` if it contains no unresolved hints.
+    progressed: crate::Frontier,
+    /// Checkpoint awaiting resolution of unresolved causal hints (hinted_commit > last_commit).
+    unresolved: crate::Frontier,
+    /// Number of journal producers in `unresolved` having `last_commit < hinted_commit`.
+    unresolved_count: usize,
+    /// Checkpoint having fully-resolved progress, ready to send to the client.
+    ready: crate::Frontier,
+    /// True if the client has requested a checkpoint.
+    requested: bool,
+    /// True while the recovery checkpoint has not yet been consumed by the client.
+    /// While set, newly accumulated `progressed` is NOT promoted into `unresolved`,
+    /// ensuring the recovery checkpoint in `ready` is not contaminated.
+    /// Cleared by `take_ready()`.
+    recovery_pending: bool,
+}
+
+impl CheckpointPipeline {
+    /// Create a new pipeline using the `recovery` Frontier,
+    /// which may contain unresolved hints.
+    pub fn new(resume_checkpoint: &crate::Frontier, member_count: usize) -> Self {
+        // Project read-through state from resume_checkpoint: producers with
+        // hinted_commit > last_commit represent transactions that were prepared
+        // but not yet committed during the previous session.
+        let unresolved = resume_checkpoint.project_unresolved_hints();
+        let unresolved_count = unresolved.count_unresolved_hints();
+
+        Self {
+            partials: vec![Vec::new(); member_count],
+            progressed: Default::default(),
+            unresolved,
+            unresolved_count,
+            ready: Default::default(),
+            requested: false,
+            recovery_pending: unresolved_count > 0,
+        }
+    }
+
+    /// Record a NextCheckpoint request from the client.
+    pub fn request(&mut self) -> anyhow::Result<()> {
+        if self.requested {
+            anyhow::bail!("received NextCheckpoint request while one is already pending");
+        }
+        self.requested = true;
+        Ok(())
+    }
+
+    /// If a checkpoint was requested and `ready` is non-empty,
+    /// take the ready frontier and clear the request flag.
+    pub fn take_ready(&mut self) -> Option<crate::Frontier> {
+        if !self.requested || self.ready.journals.is_empty() {
+            return None;
+        }
+
+        let ready = std::mem::take(&mut self.ready);
+        self.requested = false;
+
+        // Clearing recovery_pending may unblock accumulated progress that was
+        // previously held back to avoid contaminating the recovery checkpoint.
+        self.recovery_pending = false;
+        self.try_promote();
+
+        Some(ready)
+    }
+
+    /// Ingest a Progressed frontier chunk from a member. Accumulates partial
+    /// chunks until end-of-sequence (empty journals), then assembles the full
+    /// frontier, resolves causal hints, and promotes through the pipeline.
+    ///
+    /// Returns `true` when a complete sequence was ingested, signaling that
+    /// the caller should send the next ProgressRequest to this member.
+    pub fn on_progressed_chunk(
+        &mut self,
+        member_index: usize,
+        chunk: proto_flow::shuffle::FrontierChunk,
+    ) -> anyhow::Result<bool> {
+        if !chunk.journals.is_empty() {
+            self.partials[member_index].extend(crate::JournalFrontier::decode(chunk));
+            return Ok(false);
+        }
+
+        let journals = std::mem::take(&mut self.partials[member_index]);
+        let progressed =
+            crate::Frontier::new(journals).context("validating Progressed frontier delta")?;
+
+        tracing::debug!(
+            member_index,
+            journals = progressed.journals.len(),
+            "received Progressed response"
+        );
+
+        // Resolve causal hints in `unresolved` using the incoming progress.
+        // Producers in `unresolved` where hinted_commit > last_commit are resolved
+        // (have their last_commit set to their hinted_commit) if `progressed`
+        // shows the producer has since flushed through hinted_commit.
+        let resolved_count = self.unresolved.resolve_hints(&progressed);
+
+        // Promote unresolved → ready if all its hints were just resolved.
+        if resolved_count != 0 && resolved_count == self.unresolved_count {
+            let resolved = std::mem::take(&mut self.unresolved);
+            self.ready = std::mem::take(&mut self.ready).reduce(resolved);
+        }
+        self.unresolved_count -= resolved_count;
+
+        // Reduce the incoming progress into self.progressed,
+        // which is the aggregate progress since we last promoted.
+        self.progressed = std::mem::take(&mut self.progressed).reduce(progressed);
+        self.try_promote();
+
+        Ok(true)
+    }
+
+    /// Promote `progressed` → `unresolved` → `ready` when the pipeline is unblocked.
+    /// While `recovery_pending` is set, promotion is skipped so that accumulated
+    /// progress doesn't contaminate the recovery checkpoint sitting in `ready`.
+    fn try_promote(&mut self) {
+        if self.recovery_pending || !self.unresolved.journals.is_empty() {
+            return;
+        }
+        self.unresolved = std::mem::take(&mut self.progressed);
+        self.unresolved_count = self.unresolved.count_unresolved_hints();
+
+        if self.unresolved_count == 0 {
+            // No unresolved hints → promote directly to ready.
+            let resolved = std::mem::take(&mut self.unresolved);
+            self.ready = std::mem::take(&mut self.ready).reduce(resolved);
+        }
+    }
+}
+
+/// Validate that members tile the full 2D space of (key hash, r-clock).
+///
+/// Members are grouped by identical `(key_begin, key_end)`. Key groups must
+/// be contiguous across the full key space `[0, 0xFFFFFFFF]`. Within each
+/// key group, r-clock ranges must be contiguous across `[0, 0xFFFFFFFF]`.
+pub fn validate_member_ranges(members: &[shuffle::Member]) -> anyhow::Result<()> {
+    anyhow::ensure!(!members.is_empty(), "member list must not be empty");
+
+    // Both key and r-clock contiguity follow the same pattern: starts at 0,
+    // each segment's end+1 equals the next segment's begin, ends at MAX.
+    let check_contiguous = |begin: u32,
+                            prev_end: Option<u32>,
+                            dim: &str,
+                            idx: usize|
+     -> anyhow::Result<()> {
+        match prev_end {
+            None => anyhow::ensure!(
+                begin == 0,
+                "member {idx} {dim}_begin must be 0x00000000 (got {begin:#010x})",
+            ),
+            Some(prev) => anyhow::ensure!(
+                prev.checked_add(1) == Some(begin),
+                "member {idx} {dim}_begin ({begin:#010x}) must follow preceding {dim}_end ({prev:#010x})",
+            ),
+        }
+        Ok(())
+    };
+
+    let mut prev_key_end: Option<u32> = None;
+    let mut prev_r_clock_end: Option<u32> = None;
+
+    for (i, member) in members.iter().enumerate() {
+        let range = member
+            .range
+            .as_ref()
+            .with_context(|| format!("member {i} missing RangeSpec"))?;
+
+        // Per-range coherence (mirrors Go's RangeSpec.Validate).
+        anyhow::ensure!(
+            range.key_begin <= range.key_end,
+            "member {i} has inverted key range ({:#010x} > {:#010x})",
+            range.key_begin,
+            range.key_end,
+        );
+        anyhow::ensure!(
+            range.r_clock_begin <= range.r_clock_end,
+            "member {i} has inverted r-clock range ({:#010x} > {:#010x})",
+            range.r_clock_begin,
+            range.r_clock_end,
+        );
+
+        // Does this member continue the same key group as its predecessor?
+        let continues_key_group = prev_key_end.is_some_and(|_| {
+            let prev = members[i - 1].range.as_ref().unwrap();
+            prev.key_begin == range.key_begin && prev.key_end == range.key_end
+        });
+
+        if continues_key_group {
+            check_contiguous(range.r_clock_begin, prev_r_clock_end, "r_clock", i)?;
+        } else {
+            // Close out the previous key group's r-clock coverage.
+            if let Some(prev_rc) = prev_r_clock_end {
+                anyhow::ensure!(
+                    prev_rc == u32::MAX,
+                    "member {} r_clock_end ({prev_rc:#010x}) must be 0xffffffff",
+                    i - 1,
+                );
+            }
+            check_contiguous(range.key_begin, prev_key_end, "key", i)?;
+            check_contiguous(range.r_clock_begin, None, "r_clock", i)?;
+        }
+
+        prev_key_end = Some(range.key_end);
+        prev_r_clock_end = Some(range.r_clock_end);
+    }
+
+    anyhow::ensure!(
+        prev_key_end == Some(u32::MAX),
+        "last member key_end must be 0xffffffff"
+    );
+    anyhow::ensure!(
+        prev_r_clock_end == Some(u32::MAX),
+        "last member r_clock_end must be 0xffffffff"
+    );
+
+    Ok(())
+}
+
+/// Find the span of members whose key ranges overlap [begin, end].
+pub fn range_span(members: &[shuffle::Member], begin: u32, end: u32) -> (usize, usize) {
+    // Find the first member where key_end >= begin.
+    let start = members.partition_point(|m| m.range.as_ref().map_or(true, |r| r.key_end < begin));
+    // Walk forward while key_begin <= end.
+    let mut stop = start;
+    while stop < members.len()
+        && members[stop]
+            .range
+            .as_ref()
+            .map_or(false, |r| r.key_begin <= end)
+    {
+        stop += 1;
+    }
+    (start, stop)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::testing::{
+        jf, pf, test_binding, test_journal_spec, test_listing_added, test_members_3,
+    };
+    use proto_flow::flow;
+
+    /// Build a Topology with sensible defaults for testing.
+    fn test_topology(members: Vec<shuffle::Member>, bindings: Vec<crate::Binding>) -> Topology {
+        Topology {
+            session_id: 1,
+            members,
+            task_name: models::Name::new("test/task"),
+            bindings,
+            resume_checkpoint: Default::default(),
+        }
+    }
+
+    /// Build a CheckpointPipeline with no recovery state and one test member.
+    fn test_pipeline() -> CheckpointPipeline {
+        CheckpointPipeline::new(&Default::default(), 1)
+    }
+
+    /// Feed a sequence of JournalFrontiers to the pipeline as a chunked
+    /// Progressed sequence (data chunk + empty terminator) via member 0.
+    fn ingest_progressed(pipeline: &mut CheckpointPipeline, journals: Vec<crate::JournalFrontier>) {
+        let chunk = crate::JournalFrontier::encode(&journals);
+        assert!(!pipeline.on_progressed_chunk(0, chunk).unwrap());
+        assert!(
+            pipeline
+                .on_progressed_chunk(0, proto_flow::shuffle::FrontierChunk { journals: vec![] })
+                .unwrap()
+        );
+    }
+
+    // --- Tests ---
+
+    #[test]
+    fn test_range_span() {
+        // Port of TestShuffleMemberOrdering from go/shuffle/read_test.go:466.
+        let members = test_members_3();
+
+        // Exact matches of ranges.
+        assert_eq!(range_span(&members, 0x00000000, 0x55555554), (0, 1));
+        assert_eq!(range_span(&members, 0x55555555, 0xffffffff), (1, 3));
+        // Partial overlap of single entry at list begin & end.
+        assert_eq!(range_span(&members, 0x00000000, 0x40000000), (0, 1));
+        assert_eq!(range_span(&members, 0xeeeeeeee, 0xffffffff), (2, 3));
+        // Overlaps of multiple entries.
+        assert_eq!(range_span(&members, 0x30000000, 0x80000000), (0, 2));
+        assert_eq!(range_span(&members, 0x90000000, 0xd0000000), (1, 3));
+    }
+
+    #[test]
+    fn test_checkpoint_progression() {
+        struct Case {
+            name: &'static str,
+            /// Journals to feed as a Progressed frontier.
+            progressed: Vec<crate::JournalFrontier>,
+            /// Expected ready journals after this step.
+            expect_ready_len: usize,
+            /// Expected unresolved journals after this step.
+            expect_unresolved_len: usize,
+            /// Expected progressed journals after this step.
+            expect_progressed_len: usize,
+            /// Expected unresolved_count after this step.
+            expect_unresolved_count: usize,
+        }
+
+        let cases = vec![
+            Case {
+                name: "no_hints_single_member",
+                progressed: vec![jf("journal/A", 0, vec![pf(0x01, 10, 0, -500)])],
+                // No hints → promoted all the way to ready.
+                expect_ready_len: 1,
+                expect_unresolved_len: 0,
+                expect_progressed_len: 0,
+                expect_unresolved_count: 0,
+            },
+            Case {
+                name: "no_hints_two_members",
+                progressed: vec![jf("journal/B", 0, vec![pf(0x03, 20, 0, -800)])],
+                // Both reduced into ready.
+                expect_ready_len: 2,
+                expect_unresolved_len: 0,
+                expect_progressed_len: 0,
+                expect_unresolved_count: 0,
+            },
+            Case {
+                name: "unresolved_hints_block_promotion",
+                // Chunk with hinted_commit > last_commit.
+                progressed: vec![jf("journal/A", 0, vec![pf(0x01, 5, 20, -100)])],
+                // Parked in unresolved because hint is unresolved.
+                expect_ready_len: 2,
+                expect_unresolved_len: 1,
+                expect_progressed_len: 0,
+                expect_unresolved_count: 1,
+            },
+            Case {
+                name: "hint_resolved_by_later_progress",
+                // Resolves the hint (last_commit >= hinted_commit).
+                progressed: vec![jf("journal/A", 0, vec![pf(0x01, 25, 0, -800)])],
+                // Hint resolved → promoted to ready.
+                // The resolving progressed also promotes through.
+                expect_ready_len: 2,
+                expect_unresolved_len: 0,
+                expect_progressed_len: 0,
+                expect_unresolved_count: 0,
+            },
+            Case {
+                name: "second_batch_while_unresolved_blocked",
+                // Chunk with unresolved hint → parked in unresolved.
+                // Then new progress while unresolved is occupied.
+                progressed: vec![jf("journal/A", 0, vec![pf(0x01, 5, 20, -100)])],
+                // unresolved still occupied (unresolved hint).
+                // New progress sits in `progressed`.
+                // Note: we feed the second batch separately below.
+                expect_ready_len: 2,
+                expect_unresolved_len: 1,
+                expect_progressed_len: 0,
+                expect_unresolved_count: 1,
+            },
+        ];
+
+        let mut pipeline = test_pipeline();
+
+        // Run cases sequentially, feeding each progressed batch.
+        // Cases 0-3 are straightforward single-batch cases.
+        for case in &cases[..4] {
+            ingest_progressed(&mut pipeline, case.progressed.clone());
+
+            assert_eq!(
+                pipeline.ready.journals.len(),
+                case.expect_ready_len,
+                "case: {}: ready",
+                case.name,
+            );
+            assert_eq!(
+                pipeline.unresolved.journals.len(),
+                case.expect_unresolved_len,
+                "case: {}: unresolved",
+                case.name,
+            );
+            assert_eq!(
+                pipeline.progressed.journals.len(),
+                case.expect_progressed_len,
+                "case: {}: progressed",
+                case.name,
+            );
+            assert_eq!(
+                pipeline.unresolved_count, case.expect_unresolved_count,
+                "case: {}: unresolved_count",
+                case.name,
+            );
+        }
+
+        // Case 4: "second_batch_while_unresolved_blocked"
+        // First batch creates unresolved hint in unresolved.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 5, 20, -100)])],
+        );
+        // Second batch arrives while unresolved is occupied.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x03, 10, 0, -300)])],
+        );
+        assert_eq!(
+            pipeline.ready.journals.len(),
+            2,
+            "case: second_batch_while_unresolved_blocked: ready"
+        );
+        assert_eq!(
+            pipeline.unresolved.journals.len(),
+            1,
+            "case: second_batch_while_unresolved_blocked: unresolved"
+        );
+        assert_eq!(
+            pipeline.progressed.journals.len(),
+            1,
+            "case: second_batch_while_unresolved_blocked: progressed"
+        );
+        assert_eq!(
+            pipeline.unresolved_count, 1,
+            "case: second_batch_while_unresolved_blocked: unresolved_count"
+        );
+
+        // "unresolved_unblocks_then_progressed_promotes"
+        // Resolving progress: resolves the hint.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 25, 0, -800)])],
+        );
+        // Hint resolved → unresolved promoted to ready.
+        // Then progressed (journal/B) also promotes through.
+        assert_eq!(
+            pipeline.ready.journals.len(),
+            2,
+            "case: unresolved_unblocks: ready"
+        );
+        assert_eq!(
+            pipeline.unresolved.journals.len(),
+            0,
+            "case: unresolved_unblocks: unresolved"
+        );
+        assert_eq!(
+            pipeline.progressed.journals.len(),
+            0,
+            "case: unresolved_unblocks: progressed"
+        );
+        assert_eq!(
+            pipeline.unresolved_count, 0,
+            "case: unresolved_unblocks: unresolved_count"
+        );
+
+        // "resolve_and_new_hint_setup"
+        // Set up an unresolved hint.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 10, 40, -200)])],
+        );
+        assert_eq!(
+            pipeline.ready.journals.len(),
+            2,
+            "case: new_hint_setup: ready"
+        );
+        assert_eq!(
+            pipeline.unresolved.journals.len(),
+            1,
+            "case: new_hint_setup: unresolved"
+        );
+        assert_eq!(
+            pipeline.progressed.journals.len(),
+            0,
+            "case: new_hint_setup: progressed"
+        );
+        assert_eq!(
+            pipeline.unresolved_count, 1,
+            "case: new_hint_setup: unresolved_count"
+        );
+
+        // "resolve_hint_and_introduce_new_hint"
+        // Same journal: last_commit @50s resolves unresolved hint @40s,
+        // AND hinted_commit @70s introduces a new unresolved hint.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 50, 70, -1200)])],
+        );
+        // Old hint resolved → unresolved promoted to ready.
+        // Incoming progressed then promotes into the now-empty unresolved,
+        // but parks there because hinted_commit @70s > last_commit @50s.
+        assert_eq!(
+            pipeline.ready.journals.len(),
+            2,
+            "case: resolve_and_new_hint: ready"
+        );
+        assert_eq!(
+            pipeline.unresolved.journals.len(),
+            1,
+            "case: resolve_and_new_hint: unresolved"
+        );
+        assert_eq!(
+            pipeline.progressed.journals.len(),
+            0,
+            "case: resolve_and_new_hint: progressed"
+        );
+        assert_eq!(
+            pipeline.unresolved_count, 1,
+            "case: resolve_and_new_hint: unresolved_count"
+        );
+
+        insta::assert_debug_snapshot!(&pipeline.ready);
+    }
+
+    #[test]
+    fn test_checkpoint_activation() {
+        struct Case {
+            name: &'static str,
+            requested: bool,
+            ready: bool,
+            expect_taken: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "neither",
+                requested: false,
+                ready: false,
+                expect_taken: false,
+            },
+            Case {
+                name: "requested_only",
+                requested: true,
+                ready: false,
+                expect_taken: false,
+            },
+            Case {
+                name: "ready_only",
+                requested: false,
+                ready: true,
+                expect_taken: false,
+            },
+            Case {
+                name: "both",
+                requested: true,
+                ready: true,
+                expect_taken: true,
+            },
+        ];
+
+        for Case {
+            requested,
+            ready,
+            expect_taken,
+            name,
+        } in cases
+        {
+            let mut pipeline = test_pipeline();
+            if requested {
+                pipeline.request().unwrap();
+            }
+            if ready {
+                // Seed the ready frontier by ingesting progress with no hints.
+                ingest_progressed(
+                    &mut pipeline,
+                    vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)])],
+                );
+            }
+
+            let result = pipeline.take_ready();
+            assert_eq!(result.is_some(), expect_taken, "case: {name}");
+
+            if expect_taken {
+                assert!(!pipeline.requested, "case: {name}");
+                assert!(pipeline.ready.journals.is_empty(), "case: {name}");
+            } else {
+                assert_eq!(pipeline.requested, requested, "case: {name}");
+                if ready {
+                    assert!(!pipeline.ready.journals.is_empty(), "case: {name}");
+                }
+            }
+        }
+
+        // Double request is an error.
+        let mut pipeline = test_pipeline();
+        pipeline.request().unwrap();
+        let err = pipeline.request().unwrap_err();
+        assert!(format!("{err}").contains("already pending"), "{err}");
+    }
+
+    /// Snapshot-friendly view of the checkpoint pipeline state.
+    #[derive(Debug)]
+    #[allow(dead_code)]
+    struct PipelineSnapshot<'a> {
+        recovery_pending: bool,
+        ready: &'a crate::Frontier,
+        unresolved: &'a crate::Frontier,
+        unresolved_count: usize,
+        progressed: &'a crate::Frontier,
+    }
+
+    fn pipeline_snapshot(pipeline: &CheckpointPipeline) -> PipelineSnapshot<'_> {
+        PipelineSnapshot {
+            recovery_pending: pipeline.recovery_pending,
+            ready: &pipeline.ready,
+            unresolved: &pipeline.unresolved,
+            unresolved_count: pipeline.unresolved_count,
+            progressed: &pipeline.progressed,
+        }
+    }
+
+    #[test]
+    fn test_recovery_pipeline() {
+        // No recovery needed: progress flows through the normal pipeline.
+        let mut pipeline = test_pipeline();
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/X", 0, vec![pf(0x01, 100, 0, -500)])],
+        );
+        insta::assert_debug_snapshot!("no_recovery", pipeline_snapshot(&pipeline));
+
+        // Recovery with unresolved hints: unresolved has a
+        // hint for P1 in journal/A (hinted_commit=200 > last_commit=50).
+        let mut pipeline = CheckpointPipeline::new(
+            &crate::Frontier {
+                journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
+            },
+            1,
+        );
+
+        // Progressed resolves the hint AND contains extra progress (journal/B).
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, 250, 0, -800)]),
+                jf("journal/B", 0, vec![pf(0x03, 100, 0, -300)]),
+            ],
+        );
+        insta::assert_debug_snapshot!("after_hint_resolved", pipeline_snapshot(&pipeline));
+
+        // Second Progressed arrives before client polls — must not contaminate
+        // the recovery checkpoint sitting in ready.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/C", 0, vec![pf(0x05, 50, 0, -200)])],
+        );
+        insta::assert_debug_snapshot!("after_second_progressed", pipeline_snapshot(&pipeline));
+
+        // Client takes the recovery checkpoint.
+        pipeline.request().unwrap();
+        let recovery = pipeline.take_ready().expect("recovery checkpoint ready");
+        insta::assert_debug_snapshot!("taken_recovery", &recovery);
+        insta::assert_debug_snapshot!("after_take", pipeline_snapshot(&pipeline));
+
+        // Normal pipeline resumes with accumulated progress.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/D", 0, vec![pf(0x07, 30, 0, -150)])],
+        );
+        insta::assert_debug_snapshot!("after_normal_resumes", pipeline_snapshot(&pipeline));
+    }
+
+    #[test]
+    fn test_routing() {
+        let topology = test_topology(
+            test_members_3(),
+            vec![
+                test_binding(0, true, None, "/suffix"),  // 0: source key
+                test_binding(1, false, None, "/suffix"), // 1: lambda
+                test_binding(2, false, Some(vec!["region".into()]), "/suffix"), // 2: partition fields
+                test_binding(3, false, Some(vec!["count".into()]), "/suffix"),  // 3: partition int
+                test_binding(4, false, Some(vec!["region".into()]), "/suffix"), // 4: partition null
+                test_binding(5, false, Some(vec!["flag".into()]), "/suffix"),   // 5: partition bool
+            ],
+        );
+
+        let mut routed_reads = Vec::new();
+
+        // Source key routing, single member: journal key range fully inside member 0.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    0,
+                    test_journal_spec("test/journal/A", 0x10000000, 0x20000000, &[]),
+                ))
+                .unwrap(),
+        );
+
+        // Source key routing, different member: key range inside member 2.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    0,
+                    test_journal_spec("test/journal/B", 0xbbbbbbbb, 0xcccccccc, &[]),
+                ))
+                .unwrap(),
+        );
+
+        // Source key routing, multi-member span: overlapping members 0-1.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    0,
+                    test_journal_spec("test/journal/C", 0x40000000, 0x70000000, &[]),
+                ))
+                .unwrap(),
+        );
+
+        // Lambda routing: all members are candidates (no key range narrowing).
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    1,
+                    test_journal_spec("test/journal/D", 0x00000000, 0xffffffff, &[]),
+                ))
+                .unwrap(),
+        );
+
+        // Partition field routing, string value: hash determines member.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    2,
+                    test_journal_spec(
+                        "test/journal/partitioned_string",
+                        0x00000000,
+                        0xffffffff,
+                        &[("region", "%_42")],
+                    ),
+                ))
+                .unwrap(),
+        );
+
+        // Partition field routing, integer value.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    3,
+                    test_journal_spec(
+                        "test/journal/partitioned_int",
+                        0x00000000,
+                        0xffffffff,
+                        &[("count", "%_100")],
+                    ),
+                ))
+                .unwrap(),
+        );
+
+        // Partition field routing, null value.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    4,
+                    test_journal_spec(
+                        "test/journal/partitioned_null",
+                        0x00000000,
+                        0xffffffff,
+                        &[("region", "%_null")],
+                    ),
+                ))
+                .unwrap(),
+        );
+
+        // Partition field routing, boolean value.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    5,
+                    test_journal_spec(
+                        "test/journal/partitioned_bool",
+                        0x00000000,
+                        0xffffffff,
+                        &[("flag", "%_true")],
+                    ),
+                ))
+                .unwrap(),
+        );
+
+        // Source key at member boundary: journal key range exactly at member 1 start.
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    0,
+                    test_journal_spec("test/journal/boundary", 0x55555555, 0x55555555, &[]),
+                ))
+                .unwrap(),
+        );
+
+        // Source key spanning all members: full range [0, 0xffffffff].
+        routed_reads.push(
+            topology
+                .route_read(&test_listing_added(
+                    0,
+                    test_journal_spec("test/journal/full_range", 0x00000000, 0xffffffff, &[]),
+                ))
+                .unwrap(),
+        );
+
+        insta::assert_debug_snapshot!(&routed_reads);
+    }
+
+    #[test]
+    fn test_build_start_read() {
+        let mut topology = test_topology(
+            test_members_3(),
+            vec![test_binding(0, true, None, "/suffix")],
+        );
+
+        // Populate resume_checkpoint with one journal.
+        topology.resume_checkpoint = crate::Frontier {
+            journals: vec![jf("test/journal/F", 0, vec![pf(0x01, 100, 200, -500)])],
+        };
+
+        // Checkpoint found in resume_checkpoint.
+        let added_f = test_listing_added(
+            0,
+            test_journal_spec("test/journal/F", 0x10000000, 0x20000000, &[]),
+        );
+        let routed_f = topology.route_read(&added_f).unwrap();
+        let (_member_index, start_read_f) = topology.build_start_read(&routed_f, added_f);
+
+        // Checkpoint not found (empty checkpoint).
+        let added_g = test_listing_added(
+            0,
+            test_journal_spec("test/journal/G", 0x10000000, 0x20000000, &[]),
+        );
+        let routed_g = topology.route_read(&added_g).unwrap();
+        let (_member_index, start_read_g) = topology.build_start_read(&routed_g, added_g);
+
+        insta::assert_debug_snapshot!(&[start_read_f, start_read_g]);
+    }
+
+    #[test]
+    fn test_routing_no_overlap() {
+        // 1-member topology covering only [0, 0x80000000).
+        let topology = test_topology(
+            vec![shuffle::Member {
+                range: Some(flow::RangeSpec {
+                    key_begin: 0x00000000,
+                    key_end: 0x7fffffff,
+                    r_clock_begin: 0,
+                    r_clock_end: 0xffffffff,
+                }),
+                ..Default::default()
+            }],
+            vec![test_binding(0, true, None, "/suffix")],
+        );
+
+        // Journal entirely outside the member's range.
+        let result = topology.route_read(&test_listing_added(
+            0,
+            test_journal_spec("test/journal/E", 0x90000000, 0xa0000000, &[]),
+        ));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_member_ranges() {
+        // Valid 3-member topology (each covers full r-clock).
+        assert!(validate_member_ranges(&test_members_3()).is_ok());
+
+        // Valid single member covering the full 2D space.
+        let full = shuffle::Member {
+            range: Some(flow::RangeSpec {
+                key_begin: 0,
+                key_end: u32::MAX,
+                r_clock_begin: 0,
+                r_clock_end: u32::MAX,
+            }),
+            ..Default::default()
+        };
+        assert!(validate_member_ranges(&[full]).is_ok());
+
+        let member = |kb: u32, ke: u32, rb: u32, re: u32| shuffle::Member {
+            range: Some(flow::RangeSpec {
+                key_begin: kb,
+                key_end: ke,
+                r_clock_begin: rb,
+                r_clock_end: re,
+            }),
+            ..Default::default()
+        };
+
+        // Valid r-clock splitting within a single key group.
+        assert!(
+            validate_member_ranges(&[
+                member(0, u32::MAX, 0, 0x7FFFFFFF),
+                member(0, u32::MAX, 0x80000000, u32::MAX),
+            ])
+            .is_ok()
+        );
+
+        // Valid: two key groups, second has r-clock splitting.
+        assert!(
+            validate_member_ranges(&[
+                member(0, 0x7FFFFFFF, 0, u32::MAX),
+                member(0x80000000, u32::MAX, 0, 0x7FFFFFFF),
+                member(0x80000000, u32::MAX, 0x80000000, u32::MAX),
+            ])
+            .is_ok()
+        );
+
+        // Empty member list.
+        let err = validate_member_ranges(&[]).unwrap_err();
+        assert!(format!("{err}").contains("empty"), "{err}");
+
+        // Missing RangeSpec.
+        let err = validate_member_ranges(&[shuffle::Member::default()]).unwrap_err();
+        assert!(format!("{err}").contains("missing RangeSpec"), "{err}");
+
+        // Key space doesn't start at 0.
+        let err = validate_member_ranges(&[member(1, u32::MAX, 0, u32::MAX)]).unwrap_err();
+        assert!(format!("{err}").contains("key_begin"), "{err}");
+
+        // Key space doesn't end at 0xFFFFFFFF.
+        let err = validate_member_ranges(&[member(0, 100, 0, u32::MAX)]).unwrap_err();
+        assert!(format!("{err}").contains("key_end"), "{err}");
+
+        // Key gap between groups.
+        let err = validate_member_ranges(&[
+            member(0, 100, 0, u32::MAX),
+            member(200, u32::MAX, 0, u32::MAX),
+        ])
+        .unwrap_err();
+        assert!(format!("{err}").contains("key_begin"), "{err}");
+
+        // Key overlap between groups.
+        let err = validate_member_ranges(&[
+            member(0, 200, 0, u32::MAX),
+            member(100, u32::MAX, 0, u32::MAX),
+        ])
+        .unwrap_err();
+        assert!(format!("{err}").contains("key_begin"), "{err}");
+
+        // R-clock doesn't start at 0 within a key group.
+        let err = validate_member_ranges(&[member(0, u32::MAX, 1, u32::MAX)]).unwrap_err();
+        assert!(format!("{err}").contains("r_clock_begin"), "{err}");
+
+        // R-clock gap within a key group.
+        let err = validate_member_ranges(&[
+            member(0, u32::MAX, 0, 0x7FFFFFFF),
+            member(0, u32::MAX, 0x90000000, u32::MAX),
+        ])
+        .unwrap_err();
+        assert!(format!("{err}").contains("r_clock_begin"), "{err}");
+
+        // R-clock doesn't reach 0xFFFFFFFF before next key group.
+        let err = validate_member_ranges(&[
+            member(0, 0x7FFFFFFF, 0, 0x7FFFFFFF),
+            member(0x80000000, u32::MAX, 0, u32::MAX),
+        ])
+        .unwrap_err();
+        assert!(format!("{err}").contains("r_clock_end"), "{err}");
+
+        // Inverted key range (key_begin > key_end).
+        let err = validate_member_ranges(&[member(100, 0, 0, u32::MAX)]).unwrap_err();
+        assert!(format!("{err}").contains("inverted key range"), "{err}");
+
+        // Inverted r-clock range (r_clock_begin > r_clock_end).
+        let err = validate_member_ranges(&[member(0, u32::MAX, u32::MAX, 0)]).unwrap_err();
+        assert!(format!("{err}").contains("inverted r-clock range"), "{err}");
+    }
+}

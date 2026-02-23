@@ -1,0 +1,30 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: pipeline_snapshot(&pipeline)
+---
+PipelineSnapshot {
+    recovery_pending: false,
+    ready: Frontier {
+        journals: [
+            JournalFrontier {
+                journal: "journal/X",
+                binding: 0,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(01:00:00:00:00:00),
+                        last_commit: Clock(100s 0ns),
+                        hinted_commit: Clock(0s 0ns),
+                        offset: -500,
+                    },
+                ],
+            },
+        ],
+    },
+    unresolved: Frontier {
+        journals: [],
+    },
+    unresolved_count: 0,
+    progressed: Frontier {
+        journals: [],
+    },
+}
