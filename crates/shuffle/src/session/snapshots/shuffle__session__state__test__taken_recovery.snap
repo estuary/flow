@@ -1,0 +1,20 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: "&recovery"
+---
+Frontier {
+    journals: [
+        JournalFrontier {
+            journal: "journal/A",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:00:00:00:00:00),
+                    last_commit: Clock(200s 0ns),
+                    hinted_commit: Clock(200s 0ns),
+                    offset: -100,
+                },
+            ],
+        },
+    ],
+}
