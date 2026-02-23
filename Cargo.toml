@@ -73,6 +73,7 @@ humantime = "2"
 humantime-serde = "1"
 itertools = "0"
 indexmap = { version = "1", features = ["serde"] }
+highway = "1"
 iri-string = "0"
 jemallocator = { version = "0", features = [
     "profiling",
