@@ -1,0 +1,32 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: "&pipeline.ready"
+---
+Frontier {
+    journals: [
+        JournalFrontier {
+            journal: "journal/A",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:00:00:00:00:00),
+                    last_commit: Clock(40s 0ns),
+                    hinted_commit: Clock(40s 0ns),
+                    offset: -200,
+                },
+            ],
+        },
+        JournalFrontier {
+            journal: "journal/B",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(03:00:00:00:00:00),
+                    last_commit: Clock(20s 0ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -800,
+                },
+            ],
+        },
+    ],
+}
