@@ -56,6 +56,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Asana
   - [Configuration](./asana.md)
   - Package - ghcr.io/estuary/source-asana:v1
+- Ashby
+  - [Configuration](./ashby.md)
+  - Package - ghcr.io/estuary/source-ashby:v1
 - Azure Blob Storage
   - [Configuration](./azure-blob-storage.md)
   - Package — ghcr.io/estuary/azure-blob-storage:v1
@@ -237,7 +240,7 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - [Configuration](./quickbooks.md)
   - Package - ghcr.io/estuary/source-quickbooks:v1
 - RingCentral
-  -  [Configuration](./ringcentral.md)
+  - [Configuration](./ringcentral.md)
   - Package - ghcr.io/estuary/source-ringcentral:v1
 - Sage Intacct
   - [Configuration](./sage-intacct.md)
