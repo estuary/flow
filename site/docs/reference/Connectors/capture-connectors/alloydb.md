@@ -7,8 +7,6 @@ AlloyDB is a fully managed, PostgreSQL-compatible database available in the Goog
 This connector is derived from the [PostgreSQL capture connector](/reference/Connectors/capture-connectors/PostgreSQL/),
 so the same configuration applies, but the setup steps look somewhat different.
 
-It's available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-alloydb:dev`](https://github.com/estuary/connectors/pkgs/container/source-alloydb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 You'll need an AlloyDB database setup with the following:
@@ -105,7 +103,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-alloydb:dev"
+        image: "ghcr.io/estuary/source-alloydb:v3"
         config:
           address: "127.0.0.1:5432"
           database: "postgres"

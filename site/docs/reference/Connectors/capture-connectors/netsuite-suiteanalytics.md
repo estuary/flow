@@ -4,9 +4,6 @@ import ReactPlayer from "react-player";
 
 This connector captures data from Oracle NetSuite into Estuary collections. It uses the SuiteAnalytics Connect feature in order to both load large amounts of data quickly, as well as introspect the available tables, their schemas, keys, and cursor fields.
 
-[`ghcr.io/estuary/source-netsuite-v2:dev`](https://ghcr.io/estuary/source-netsuite-v2:dev) provides the
-latest connector image. You can also follow the link in your browser to see past image versions.
-
 In general, SuiteAnalytics Connect is the preferred method to retrieve data from NetSuite.
 However, if you don't have SuiteAnalytics, see the [SuiteQL connector](./netsuite-suiteql.md) instead.
 
@@ -219,7 +216,7 @@ captures:
    ${PREFIX}/${CAPTURE_NAME}:
       endpoint:
          connector:
-            image: ghcr.io/estuary/source-netsuite-v2:v3
+            image: ghcr.io/estuary/source-netsuite-v2:v4
                config:
                   account: "12345678"
                   authentication:

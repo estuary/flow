@@ -2,12 +2,6 @@
 
 This connector captures data from Sage Intacct into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or
-open-source workflows,
-[`ghcr.io/estuary/source-sage-intacct:dev`](https://ghcr.io/estuary/source-sage-intacct:dev)
-provides the latest version of the connector as a Docker image. You can also
-follow the link in your browser to see past image versions.
-
 ## Supported objects
 
 The following objects support an incremental strategy for capturing new and
@@ -74,7 +68,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-sage-intacct:dev
+        image: ghcr.io/estuary/source-sage-intacct:v1
         config:
           sender_id: my_sender_id
           sender_password: secret_sender_password

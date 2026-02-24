@@ -3,8 +3,6 @@
 
 This connector captures data from Jira into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-jira:dev`](https://ghcr.io/estuary/source-jira:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 :::warning
 This connector is deprecated. See the new [Jira connector](./jira-native.md) for the latest integration.
 :::
@@ -103,7 +101,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-jira:dev
+        image: ghcr.io/estuary/source-jira:v1
         config:
           api_token: <token>
           domain: <domain>

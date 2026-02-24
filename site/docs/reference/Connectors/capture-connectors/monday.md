@@ -2,8 +2,6 @@
 
 This connector captures data from Monday.com into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-monday:dev`](https://ghcr.io/estuary/source-monday:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported through the Monday.com API:
@@ -58,7 +56,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-monday:dev
+        image: ghcr.io/estuary/source-monday:v1
         config:
           credentials:
             credentials_title: Default Monday Credentials

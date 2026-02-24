@@ -2,8 +2,6 @@
 
 This connector captures streaming data from Apache Kafka topics.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported message formats
 
 This connectors supports Kafka messages encoded in Avro or JSON format.
@@ -132,7 +130,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-kafka:dev
+        image: ghcr.io/estuary/source-kafka:v1
         config:
           bootstrap_servers: server1:9092,server2:9092
           tls: system_certificates
@@ -159,7 +157,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-kafka:dev
+        image: ghcr.io/estuary/source-kafka:v1
         config:
           bootstrap_servers: server1:9092,server2:9092
           tls: system_certificates

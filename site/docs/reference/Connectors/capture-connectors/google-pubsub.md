@@ -9,8 +9,6 @@ During setup, this connector will discover all topics it has access to. Each
 enabled for a topic will automatically create a new subscription, and the
 connector will read messages from that subscription.
 
-[`ghcr.io/estuary/source-google-pubsub:dev`](https://ghcr.io/estuary/source-google-pubsub:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you will need the following prerequisites:

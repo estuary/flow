@@ -5,8 +5,6 @@ This connector captures data from the [Exchange Rates API](https://exchangerates
 It creates an Estuary collection with daily exchange rate data for a variety of supported currencies.
 This simple connector is useful for educational and demonstration purposes.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-exchange-rates:dev`](https://ghcr.io/estuary/source-exchange-rates:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Prerequisites

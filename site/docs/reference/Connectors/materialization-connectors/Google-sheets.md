@@ -4,8 +4,6 @@
 
 This connector materializes Estuary collections into sheets in a Google Sheets spreadsheet.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-google-sheets:dev`](https://ghcr.io/estuary/materialize-google-sheets:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -107,7 +105,7 @@ materializations:
               auth_type: Service
               credentials_json: <secret>
             spreadsheetURL: `https://docs.google.com/spreadsheets/d/<your_spreadsheet_ID>/edit
-          image: ghcr.io/estuary/materialize-google-sheets:dev
+          image: ghcr.io/estuary/materialize-google-sheets:v2
 	# If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:

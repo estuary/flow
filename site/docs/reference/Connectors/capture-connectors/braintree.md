@@ -2,8 +2,6 @@
 
 This connector captures data from Braintree into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-braintree-native:dev`](https://ghcr.io/estuary/source-braintree-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The connector automatically discovers bindings for the Braintree resources listed below. By default, each resource is mapped to an Estuary collection through a separate binding.
@@ -68,7 +66,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-braintree-native:dev
+        image: ghcr.io/estuary/source-braintree-native:v1
         config:
           merchant_id: my_merchant_id
           start_date: "2024-12-04T00:00:00Z"

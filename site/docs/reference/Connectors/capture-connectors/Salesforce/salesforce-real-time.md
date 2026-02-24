@@ -5,8 +5,6 @@ This connector captures data from Salesforce objects into Estuary collections in
 [A separate connector is available for syncing historical Salesforce data](./salesforce-historical-data.md).
 For help using both connectors in parallel, [contact your Estuary account manager](mailto:info@estuary.dev).
 
-This connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce-next:dev`](https://ghcr.io/estuary/source-salesforce-next:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 :::warning
 This connector is deprecated. Consider using the new [native Salesforce connector](./salesforce-native.md) instead.
 :::
@@ -127,7 +125,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-salesforce-next:dev
+        image: ghcr.io/estuary/source-salesforce-next:v1
         config:
           credentials:
             client_id: {your_client_id}

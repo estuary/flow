@@ -13,10 +13,6 @@ The delta updates are batched within Estuary, converted to CSV files, and then p
 at a time interval that you set. Files are limited to a configurable maximum size. Each materialized
 Estuary collection will produce many separate files.
 
-[`ghcr.io/estuary/materialize-gcs-csv:dev`](https://ghcr.io/estuary/materialize-gcs-csv:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -60,7 +56,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-gcs-csv:dev"
+        image: "ghcr.io/estuary/materialize-gcs-csv:v1"
         config:
           bucket: bucket
           credentialsJson: <credentialsJson>

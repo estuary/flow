@@ -4,8 +4,6 @@
 This connector captures data from Google Analytics 4 properties into Estuary collections via the
 [Google Analytics Data API](https://developers.google.com/analytics/devguides/reporting/data/v1).
 
-It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-data-api-native:dev`](https://ghcr.io/estuary/source-google-analytics-data-api-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported:
@@ -104,7 +102,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-google-analytics-data-api-native:dev
+        image: ghcr.io/estuary/source-google-analytics-data-api-native:v1
           config:
             custom_reports: '[{"name": "my_custom_report_with_a_filter_and_aggregate", "dimensions": ["browser"], "metrics": ["totalUsers"], "dimensionFilter": {"filter": {"fieldName": "browser", "stringFilter": {"value": "Chrome"}}}, "metricAggregates": ["TOTAL"]}]'
             credentials:

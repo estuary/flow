@@ -2,8 +2,6 @@
 
 This connector captures data from [Gainsight NXT](https://www.gainsight.com/), a customer success platform. It uses Gainsight's REST API to capture data in real-time.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gainsight-nxt:dev`](https://github.com/estuary/estuary/pkgs/container/source-gainsight-nxt) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past images.
-
 ## Supported Streams
 
 The connector supports the following Gainsight NXT resources. Most streams use the `/v1/data/objects/query/{object_name}` endpoint with predetermined object names that were discovered using the [Get Lite API Call OMD](https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Data_Management_APIs/Data_Management_APIs#Get_Lite_API_Call_OMD).
@@ -56,7 +54,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-gainsight-nxt:dev
+        image: ghcr.io/estuary/source-gainsight-nxt:v1
         config:
           credentials:
             credentials_title: Private App Credentials

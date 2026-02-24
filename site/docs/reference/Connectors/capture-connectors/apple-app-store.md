@@ -3,8 +3,6 @@
 
 This connector captures data from [Apple App Store Connect API](https://developer.apple.com/documentation/appstoreconnectapi) into Estuary collections.
 
-It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-apple-app-store:dev`](https://ghcr.io/estuary/source-apple-app-store:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported:
@@ -75,7 +73,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-apple-app-store:dev
+        image: ghcr.io/estuary/source-apple-app-store:v1
         config:
           credentials:
             credentials_title: "Private App Credentials"

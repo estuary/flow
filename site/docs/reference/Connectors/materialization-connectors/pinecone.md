@@ -6,10 +6,6 @@ The connector uses the [OpenAI Embedding API](https://platform.openai.com/docs/g
 create vector embeddings based on the documents in your collections and inserts these vector
 embeddings and associated metadata into Pinecone for storage and retrieval.
 
-[`ghcr.io/estuary/materialize-pinecone:dev`](https://ghcr.io/estuary/materialize-pinecone:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -79,7 +75,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-pinecone:dev"
+        image: "ghcr.io/estuary/materialize-pinecone:v1"
         config:
           index: your-index
           environment: us-central1-gcp

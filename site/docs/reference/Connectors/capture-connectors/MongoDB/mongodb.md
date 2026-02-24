@@ -2,9 +2,6 @@
 
 This connector captures data from your MongoDB collections into Estuary collections.
 
-[`ghcr.io/estuary/source-mongodb:dev`](https://ghcr.io/estuary/source-mongodb:dev) provides the
-latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported platforms
 
 The MongoDB connector has a couple variants to support additional document-based database options. Continue reading this page for standard MongoDB setup or see one of the following:
@@ -123,7 +120,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-mongodb:dev
+        image: ghcr.io/estuary/source-mongodb:v3
         config:
           address: "mongo:27017"
           password: "flow"

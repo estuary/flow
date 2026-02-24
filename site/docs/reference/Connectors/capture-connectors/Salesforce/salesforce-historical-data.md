@@ -6,9 +6,6 @@ It uses batch processing and is ideal for syncing your historical Salesforce dat
 [A separate connector is available for real-time Salesforce data capture](./salesforce-real-time.md).
 For help using both connectors in parallel, [contact your Estuary account manager](mailto:info@estuary.dev).
 
-This connector is available for use in the Estuary web application.
-For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce:dev`](https://ghcr.io/estuary/source-salesforce:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 :::warning
 This connector is deprecated. Consider using the new [native Salesforce connector](./salesforce-native.md) instead.
 :::
@@ -194,7 +191,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-salesforce:dev
+        image: ghcr.io/estuary/source-salesforce:v1
         config:
           credentials:
             auth_type: Client

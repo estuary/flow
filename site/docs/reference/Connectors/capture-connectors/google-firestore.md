@@ -3,8 +3,6 @@
 
 This connector captures data from your Google Firestore collections into Estuary collections.
 
-[`ghcr.io/estuary/source-firestore:dev`](https://ghcr.io/estuary/source-firestore:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Data model
 
 Firestore is a NoSQL database. Its [data model](https://firebase.google.com/docs/firestore/data-model) consists of **documents** (lightweight records that contain mappings of fields and values) organized in **collections**.
@@ -73,7 +71,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-firestore:dev
+        image: ghcr.io/estuary/source-firestore:v3
         config:
           googleCredentials:
             "type": "service_account",

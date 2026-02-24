@@ -3,8 +3,6 @@
 
 This connector captures data from [resources](https://developers.google.com/google-ads/api/fields/v11/overview) in one or more Google Ads accounts into Estuary collections via the Google Ads API.
 
-[`ghcr.io/estuary/source-google-ads:dev`](https://ghcr.io/estuary/source-google-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported.
@@ -153,7 +151,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-google-ads:dev
+        image: ghcr.io/estuary/source-google-ads:v2
         config:
           conversion_window_days: 7
           credentials:

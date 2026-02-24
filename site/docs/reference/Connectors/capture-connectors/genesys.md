@@ -2,8 +2,6 @@
 
 This connector captures data from Genesys into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-genesys:dev`](https://ghcr.io/estuary/source-genesys:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported through the Genesys API:
@@ -67,7 +65,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-genesys:dev
+        image: ghcr.io/estuary/source-genesys:v1
         config:
           start_date: "2024-11-11T00:00:00Z"
           genesys_cloud_domain: mypurecloud.com

@@ -14,10 +14,6 @@ the Iceberg catalog.
 The delta updates are batched within Estuary, converted to parquet files, and then append to Iceberg
 tables at a time interval that you set.
 
-[`ghcr.io/estuary/materialize-s3-iceberg:dev`](https://ghcr.io/estuary/materialize-s3-iceberg:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 <ReactPlayer controls url="https://www.youtube.com/watch?v=s0kGGp17pBg" />
 
 ## Prerequisites
@@ -86,7 +82,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-s3-iceberg:dev"
+        image: "ghcr.io/estuary/materialize-s3-iceberg:v2"
         config:
           aws_access_key_id: <access_key_id>
           aws_secret_access_key: <secret_access_key>

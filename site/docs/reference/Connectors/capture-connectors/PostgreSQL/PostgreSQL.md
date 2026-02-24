@@ -6,8 +6,6 @@ sidebar_position: 6
 
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 For managed PostgreSQL instances that do not support logical replication, we offer a [PostgreSQL Batch Connector](./postgres-batch/) as an alternative.
 
 ## Supported versions and platforms
@@ -405,7 +403,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-postgres:dev"
+        image: "ghcr.io/estuary/source-postgres:v3"
         config:
           address: "localhost:5432"
           database: "postgres"

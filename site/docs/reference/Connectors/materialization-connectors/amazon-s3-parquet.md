@@ -11,10 +11,6 @@ The delta updates are batched within Estuary, converted to Parquet files, and th
 at a time interval that you set. Files are limited to a configurable maximum size. Each materialized
 Estuary collection will produce many separate files.
 
-[`ghcr.io/estuary/materialize-s3-parquet:dev`](https://ghcr.io/estuary/materialize-s3-parquet:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -70,7 +66,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-s3-parquet:dev"
+        image: "ghcr.io/estuary/materialize-s3-parquet:v3"
         config:
           bucket: bucket
           awsAccessKeyId: <access_key_id>

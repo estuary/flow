@@ -3,8 +3,6 @@
 
 This connector captures data from GitLab repositories and organizations into Estuary collections via GitLabs's API V4. It can also work with self-hosted GitLab.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gitlab:dev`](https://ghcr.io/estuary/source-gitlab:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
@@ -75,7 +73,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-gitlab:dev
+        image: ghcr.io/estuary/source-gitlab:v1
           config:
             credentials:
               option_title: PAT Credentials

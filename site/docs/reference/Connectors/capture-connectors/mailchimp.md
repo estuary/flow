@@ -5,8 +5,6 @@ This connector captures data from a Mailchimp account.
 
 Three data resources are supported, each of which is mapped to an Estuary collection: lists, campaigns, and email activity.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mailchimp:dev`](https://ghcr.io/estuary/source-mailchimp:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 There are two ways to authenticate with MailChimp when capturing data: using OAuth2, and manually, with an API key.
@@ -56,7 +54,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-mailchimp:dev
+        image: ghcr.io/estuary/source-mailchimp:v3
           config:
             credentials:
               auth_type: apikey

@@ -2,8 +2,6 @@
 
 This connector captures data from RingCentral into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-ringcentral:dev`](https://ghcr.io/estuary/source-ringcentral:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported Data Resources
 
 The following data resources are supported:
@@ -152,7 +150,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-ringcentral:dev
+        image: ghcr.io/estuary/source-ringcentral:v1
         config:
           credentials:
             client_id: <your-client-id>

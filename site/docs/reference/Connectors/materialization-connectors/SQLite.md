@@ -7,10 +7,6 @@ reason, the data materialized up to that point will be lost in the
 materialization (your collection will stay in-tact and your other
 materializations will have the data as normal).
 
-It is available for use in the Estuary web application. For local development or
-open-source workflows,
-[`ghcr.io/estuary/materialize-sqlite:dev`](https://ghcr.io/estuary/materialize-sqlite:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -37,7 +33,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-sqlite:dev
+        image: ghcr.io/estuary/materialize-sqlite:v1
         config: {}
     bindings:
       - resource:

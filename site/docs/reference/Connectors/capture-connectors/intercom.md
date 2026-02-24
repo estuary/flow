@@ -3,9 +3,11 @@
 
 This connector captures data from Intercom into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-intercom:dev`](https://ghcr.io/estuary/source-intercom:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
+
+:::warning
+This connector is deprecated. For the best experience, we recommend using our native [Intercom connector](./intercom-native.md) instead.
+:::
 
 ## Supported data resources
 
@@ -67,7 +69,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-intercom:dev
+        image: ghcr.io/estuary/source-intercom:v1
         config:
             access_token: <secret>
             start_date: 2022-06-18T00:00:00Z

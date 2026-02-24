@@ -2,8 +2,6 @@
 
 This connector captures data from Chargebee into Estuary collections in real-time. It is a native implementation that provides enhanced performance and reliability compared to the third-party connector.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-chargebee-native:dev`](https://ghcr.io/estuary/source-chargebee-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The connector supports many Chargebee resources, which vary based on your Product Catalog version. Below is a comprehensive list of available resources and their capabilities:
@@ -76,7 +74,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-chargebee-native:dev
+        image: ghcr.io/estuary/source-chargebee-native:v1
         config:
           credentials:
             credentials_title: API Key

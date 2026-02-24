@@ -2,8 +2,6 @@
 
 This connector captures data from [Microsoft Dynamics 365 Finance and Operations](https://www.microsoft.com/en-us/dynamics-365) into Estuary collections. It does so by capturing data exported to Azure Data Lake Storage via [Azure Synapse Link for Dataverse](https://learn.microsoft.com/en-us/power-apps/maker/data-platform/azure-synapse-link-select-fno-data).
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev`](https://ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 This connector captures changes to Dynamics 365 Finance and Operations tables that are exported to Azure Data Lake Storage. All available tables will appear after authenticating and performing a discovery.
@@ -68,7 +66,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev
+        image: ghcr.io/estuary/source-dynamics-365-finance-and-operations:v1
         config:
           account_name: my_account
           credentials:

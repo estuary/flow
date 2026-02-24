@@ -3,8 +3,6 @@
 
 This connector captures data from the Facebook Marketing API into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-facebook-marketing:dev`](https://ghcr.io/estuary/source-facebook-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 :::warning
 This connector is deprecated. For the best experience, we recommend using our native [Facebook Ads connector](./facebook-marketing-native.md) instead.
 :::
@@ -126,7 +124,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-facebook-marketing:dev
+        image: ghcr.io/estuary/source-facebook-marketing:v4
         config:
             access_token: <secret>
             account_ids: "000000000000000,111111111111111"

@@ -194,7 +194,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-postgres:dev"
+        image: "ghcr.io/estuary/source-postgres:v3"
         config:
           address: "localhost:5432"
           database: "postgres"

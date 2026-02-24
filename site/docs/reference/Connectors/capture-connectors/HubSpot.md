@@ -5,8 +5,6 @@ This connector captures data from a Hubspot account.
 
 Estuary offers a in-house real time version of this connector. For more information take a look at our [HubSpot Real-Time](/reference/Connectors/capture-connectors/HubSpot-real-time.md) docs.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 By default, each resource associated with your Hubspot account is mapped to an Estuary collection through a separate binding.
@@ -108,7 +106,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-hubspot:dev
+        image: ghcr.io/estuary/source-hubspot:v5
           config:
             credentials:
               credentials_title: Private App Credentials

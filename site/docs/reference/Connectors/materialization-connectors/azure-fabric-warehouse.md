@@ -6,10 +6,6 @@ import ReactPlayer from "react-player";
 This connector materializes Estuary collections into tables in Microsoft Azure
 Fabric Warehouse.
 
-[`ghcr.io/estuary/materialize-azure-fabric-warehouse:dev`](https://ghcr.io/estuary/materialize-azure-fabric-warehouse:dev)
-provides the latest connector image. You can also follow the link in your
-browser to see past image versions.
-
 <ReactPlayer controls url="https://www.youtube.com/watch?v=_aPyCWLciDs" />
 
 ## Prerequisites
@@ -79,7 +75,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-azure-fabric-warehouse:dev"
+        image: "ghcr.io/estuary/materialize-azure-fabric-warehouse:v1"
         config:
           clientID: <client-id>
           clientSecret: <client-secret>

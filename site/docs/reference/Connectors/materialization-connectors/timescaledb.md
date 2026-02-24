@@ -8,8 +8,6 @@ and has the same configuration.
 By default, the connector only materializes regular PostgreSQL tables in TimescaleDB.
 You can materialize an accompanying [Hypertable](https://docs.timescale.com/timescaledb/latest/how-to-guides/hypertables/) by [adding a SQL statement to a binding's configuration](#creating-timescaledb-hypertables).
 
-The connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-timescaledb:dev`](https://ghcr.io/estuary/materialize-timescaledb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -54,7 +52,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-timescaledb:dev
+        image: ghcr.io/estuary/materialize-timescaledb:v5
         config:
           database: flow
           address: xxxxxxxxxx.xxxxxxxxxx.tsdb.cloud.timescale.com:01234

@@ -7,8 +7,6 @@ It allows both standard and [delta updates](#delta-updates).
 The connector uses your Google Cloud service account to materialize to BigQuery tables by way of files in a Google Cloud Storage (GCS) bucket.
 The tables in the bucket act as a temporary staging area for data storage and retrieval.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-bigquery:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-bigquery) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -113,7 +111,7 @@ materializations:
           credentials:
             auth_type: CredentialsJSON
             credentials_json: <secret>
-        image: ghcr.io/estuary/materialize-bigquery:dev
+        image: ghcr.io/estuary/materialize-bigquery:v3
     bindings:
   	- resource:
       	table: ${table_name}

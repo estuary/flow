@@ -16,277 +16,277 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 
 - Ada
   - [Configuration](./ada.md)
-  - Package - ghcr.io/estuary/source-ada:dev
+  - Package - ghcr.io/estuary/source-ada:v1
 - Airtable
   - [Configuration](./airtable-native.md)
-  - Package - ghcr.io/estuary/source-airtable-native:dev
+  - Package - ghcr.io/estuary/source-airtable-native:v1
 - Airtable (deprecated)
   - [Configuration](./airtable.md)
-  - Package - ghcr.io/estuary/source-airtable:dev
+  - Package - ghcr.io/estuary/source-airtable:v1
 - AlloyDB
   - [Configuration](./alloydb.md)
-  - Package - ghcr.io/estuary/source-alloydb:dev
+  - Package - ghcr.io/estuary/source-alloydb:v3
 - Alpaca
   - [Configuration](./alpaca.md)
-  - Package - ghcr.io/estuary/source-alpaca:dev
+  - Package - ghcr.io/estuary/source-alpaca:v1
 - Amazon DocumentDB
   - [Configuration](./MongoDB/amazon-documentdb.md)
-  - Package - ghcr.io/estuary/source-amazon-documentdb:dev
+  - Package - ghcr.io/estuary/source-amazon-documentdb:v3
 - Amazon Dynamodb
   - [Configuration](./amazon-dynamodb.md)
-  - Package - ghcr.io/estuary/source-dynamodb:dev
+  - Package - ghcr.io/estuary/source-dynamodb:v1
 - Amazon Kinesis
   - [Configuration](./amazon-kinesis.md)
-  - Package — ghcr.io/estuary/source-kinesis:dev
+  - Package — ghcr.io/estuary/source-kinesis:v1
 - Amazon RDS SQL Server
   - [Configuration](./SQLServer/amazon-rds-sqlserver.md)
-  - Package - ghcr.io/estuary/source-amazon-rds-sqlserver:dev
+  - Package - ghcr.io/estuary/source-amazon-rds-sqlserver:v0
 - Amazon Redshift
   - [Configuration](./redshift-batch.md)
-  - Package - ghcr.io/estuary/source-redshift-batch:dev
+  - Package - ghcr.io/estuary/source-redshift-batch:v1
 - Amazon S3
   - [Configuration](./amazon-s3.md)
-  - Package — ghcr.io/estuary/source-s3:dev
+  - Package — ghcr.io/estuary/source-s3:v2
 - Apache Kafka
   - [Configuration](./apache-kafka.md)
-  - Package — ghcr.io/estuary/source-kafka:dev
+  - Package — ghcr.io/estuary/source-kafka:v1
 - Apple App Store
   - [Configuration](./apple-app-store.md)
-  - Package - ghcr.io/estuary/source-apple-app-store:dev
+  - Package - ghcr.io/estuary/source-apple-app-store:v1
 - Asana
   - [Configuration](./asana.md)
-  - Package - ghcr.io/estuary/source-asana:dev
+  - Package - ghcr.io/estuary/source-asana:v1
 - Azure Blob Storage
   - [Configuration](./azure-blob-storage.md)
-  - Package — ghcr.io/estuary/azure-blob-storage:dev
+  - Package — ghcr.io/estuary/azure-blob-storage:v1
 - Azure Cosmos DB
   - [Configuration](./MongoDB/azure-cosmosdb.md)
-  - Package - ghcr.io/estuary/source-cosmosdb-mongodb:dev
+  - Package - ghcr.io/estuary/source-cosmosdb-mongodb:v3
 - Azure SQL Server
   - [Configuration](./SQLServer/)
-  - Package - ghcr.io/estuary/source-azure-sqlserver:dev
+  - Package - ghcr.io/estuary/source-azure-sqlserver:v0
 - BigQuery
   - [Configuration](./bigquery-batch.md)
-  - Package — ghcr.io/estuary/source-bigquery-batch:dev
+  - Package — ghcr.io/estuary/source-bigquery-batch:v1
 - Braintree
   - [Configuration](./braintree.md)
-  - Package - ghcr.io/estuary/source-braintree-native:dev
+  - Package - ghcr.io/estuary/source-braintree-native:v1
 - Brevo
   - [Configuration](./brevo.md)
-  - Package - ghcr.io/estuary/source-brevo:dev
+  - Package - ghcr.io/estuary/source-brevo:v1
 - Chargebee
   - [Configuration](./chargebee-native.md)
-  - Package - ghcr.io/estuary/source-chargebee-native:dev
+  - Package - ghcr.io/estuary/source-chargebee-native:v1
 - Criteo
   - [Configuration](./criteo.md)
-  - Package - ghcr.io/estuary/source-criteo:dev
+  - Package - ghcr.io/estuary/source-criteo:v1
 - Datadog
   - [Configuration](./datadog.md)
-  - Package - ghcr.io/estuary/source-datadog:dev
+  - Package - ghcr.io/estuary/source-datadog:v1
 - Dropbox
   - [Configuration](./dropbox.md)
-  - Package - ghcr.io/estuary/source-dropbox:dev
+  - Package - ghcr.io/estuary/source-dropbox:v1
 - Facebook Marketing (deprecated)
   - [Configuration](./facebook-marketing.md)
-  - Package - ghcr.io/estuary/source-facebook-marketing:dev
+  - Package - ghcr.io/estuary/source-facebook-marketing:v4
 - Facebook Marketing
   - [Configuration](./facebook-marketing-native.md)
-  - Package - ghcr.io/estuary/source-facebook-marketing-native:dev
+  - Package - ghcr.io/estuary/source-facebook-marketing-native:v1
 - Front
   - [Configuration](./front.md)
-  - Package - ghcr.io/estuary/source-front:dev
+  - Package - ghcr.io/estuary/source-front:v3
 - Gainsight NXT
   - [Configuration](./gainsight-nxt.md)
-  - Package - ghcr.io/estuary/source-gainsight-nxt:dev
+  - Package - ghcr.io/estuary/source-gainsight-nxt:v1
 - Genesys
   - [Configuration](./genesys.md)
-  - Package - ghcr.io/estuary/source-genesys:dev
+  - Package - ghcr.io/estuary/source-genesys:v1
 - GitHub
   - [Configuration](./github.md)
-  - Package - ghcr.io/estuary/source-github:dev
+  - Package - ghcr.io/estuary/source-github:v2
 - Gladly
   - [Configuration](./gladly.md)
-  - Package - ghcr.io/estuary/source-gladly:dev
+  - Package - ghcr.io/estuary/source-gladly:v1
 - Google Ads
   - [Configuration](./google-ads.md)
-  - Package - ghcr.io/estuary/source-google-ads:dev
+  - Package - ghcr.io/estuary/source-google-ads:v2
 - Google Analytics Data API
   - [Configuration](./google-analytics-data-api-native.md)
-  - Package - ghcr.io/estuary/source-google-analytics-data-api-native:dev
+  - Package - ghcr.io/estuary/source-google-analytics-data-api-native:v1
 - Google Cloud Storage
   - [Configuration](./gcs.md)
-  - Package — ghcr.io/estuary/source-gcs:dev
+  - Package — ghcr.io/estuary/source-gcs:v2
 - Google Firestore
   - [Configuration](./google-firestore.md)
-  - Package - ghcr.io/estuary/source-firestore:dev
+  - Package - ghcr.io/estuary/source-firestore:v3
 - Google Cloud Pub/Sub
   - [Configuration](./google-pubsub.md)
-  - Package — ghcr.io/estuary/source-google-pubsub:dev
+  - Package — ghcr.io/estuary/source-google-pubsub:v1
 - Google Cloud SQL Server
   - [Configuration](./SQLServer/google-cloud-sql-sqlserver.md)
-  - Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver:dev
+  - Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver:v0
 - Google Drive
   - [Configuration](./google-drive.md)
-  - Package - ghcr.io/estuary/source-google-drive:dev
+  - Package - ghcr.io/estuary/source-google-drive:v1
 - Google Play
   - [Configuration](./google-play.md)
-  - Package - ghcr.io/estuary/source-google-play:dev
+  - Package - ghcr.io/estuary/source-google-play:v1
 - Google Sheets
   - [Configuration](./google-sheets.md)
-  - Package - ghcr.io/estuary/source-google-sheets-native:dev
+  - Package - ghcr.io/estuary/source-google-sheets-native:v1
 - HTTP file
   - [Configuration](./http-file.md)
-  - Package - ghcr.io/estuary/source-http-file:dev
+  - Package - ghcr.io/estuary/source-http-file:v1
 - HTTP ingest (webhook)
   - [Configuration](./http-ingest.md)
-  - Package - ghcr.io/estuary/source-http-ingest:dev
+  - Package - ghcr.io/estuary/source-http-ingest:v1
 - Hubspot (Real-Time)
   - [Configuration](./HubSpot-real-time.md)
-  - Package - ghcr.io/estuary/source-hubspot-native:dev
+  - Package - ghcr.io/estuary/source-hubspot-native:v1
 - IBM Db2 Batch
   - [Configuration](./db2-batch.md)
-  - Package - ghcr.io/estuary/source-db2-batch:dev
+  - Package - ghcr.io/estuary/source-db2-batch:v1
 - Incident.io
   - [Configuration](./incident-io.md)
-  - Package - ghcr.io/estuary/source-incident-io:dev
+  - Package - ghcr.io/estuary/source-incident-io:v1
 - Intercom
   - [Configuration](./intercom-native.md)
-  - Package - ghcr.io/estuary/source-intercom-native:dev
+  - Package - ghcr.io/estuary/source-intercom-native:v1
 - Iterable
   - [Configuration](./iterable-native.md)
-  - Package - ghcr.io/estuary/source-iterable-native:dev
+  - Package - ghcr.io/estuary/source-iterable-native:v1
 - Iterable (deprecated)
   - [Configuration](./iterable.md)
-  - Package - ghcr.io/estuary/source-iterable:dev
+  - Package - ghcr.io/estuary/source-iterable:v2
 - Iterate
   - [Configuration](./iterate.md)
-  - Package - ghcr.io/estuary/source-iterate:dev
+  - Package - ghcr.io/estuary/source-iterate:v1
 - Jira (legacy)
   - [Configuration](./jira-legacy.md)
-  - Package - ghcr.io/estuary/source-jira-legacy:dev
+  - Package - ghcr.io/estuary/source-jira-legacy:v2
 - Jira
   - [Configuration](./jira-native.md)
-  - Package - ghcr.io/estuary/source-jira-native:dev
+  - Package - ghcr.io/estuary/source-jira-native:v3
 - Klaviyo
   - [Configuration](./klaviyo-native.md)
-  - Package - ghcr.io/estuary/source-klaviyo-native:dev
+  - Package - ghcr.io/estuary/source-klaviyo-native:v1
 - LinkedIn Pages
   - [Configuration](./linkedin-pages.md)
-  - Package - ghcr.io/estuary/source-linkedin-pages:dev
+  - Package - ghcr.io/estuary/source-linkedin-pages:v1
 - Looker
   - [Configuration](./looker.md)
-  - Package - ghcr.io/estuary/source-looker:dev
+  - Package - ghcr.io/estuary/source-looker:v1
 - MariaDB
   - [Configuration](./MariaDB/)
-  - Package - ghcr.io/estuary/source-mariadb:dev
+  - Package - ghcr.io/estuary/source-mariadb:v3
 - Microsoft Dynamics 365 Finance and Operations
   - [Configuration](./dynamics-365-finance-and-operations.md)
-  - Package - ghcr.io/estuary/source-dynamics-365-finance-and-operations:dev
+  - Package - ghcr.io/estuary/source-dynamics-365-finance-and-operations:v1
 - Microsoft SQL Server
   - [Configuration](./SQLServer/)
-  - Package - ghcr.io/estuary/source-sqlserver:dev
+  - Package - ghcr.io/estuary/source-sqlserver:v0
 - Microsoft SQL Server Batch
   - [Configuration](./SQLServer/sqlserver-batch.md)
-  - Package - ghcr.io/estuary/source-sqlserver-batch:dev
+  - Package - ghcr.io/estuary/source-sqlserver-batch:v1
 - Monday
   - [Configuration](./monday.md)
-  - Package - ghcr.io/estuary/source-monday:dev
+  - Package - ghcr.io/estuary/source-monday:v1
 - MongoDB
   - [Configuration](./MongoDB/mongodb.md)
-  - Package - ghcr.io/estuary/source-mongodb:dev
+  - Package - ghcr.io/estuary/source-mongodb:v3
 - MySQL
   - [Configuration](./MySQL/)
-  - Package - ghcr.io/estuary/source-mysql:dev
+  - Package - ghcr.io/estuary/source-mysql:v3
 - MySQL Batch
   - [Configuration](./MySQL/mysql-batch.md)
-  - Package - ghcr.io/estuary/source-mysql-batch:dev
+  - Package - ghcr.io/estuary/source-mysql-batch:v1
 - Navan
   - [Configuration](./navan.md)
-  - Package - ghcr.io/estuary/source-navan:dev
+  - Package - ghcr.io/estuary/source-navan:v1
 - NetSuite SuiteAnalytics
   - [Configuration](./netsuite-suiteanalytics.md)
-  - Package - ghcr.io/estuary/source-netsuite-v2:dev
+  - Package - ghcr.io/estuary/source-netsuite-v2:v4
 - NetSuite SuiteQL
   - [Configuration](./netsuite-suiteql.md)
   - Package - ghcr.io/estuary/source-netsuite-suiteql:dev
 - OneDrive
   - [Configuration](./onedrive.md)
-  - Package - ghcr.io/estuary/source-onedrive:dev
+  - Package - ghcr.io/estuary/source-onedrive:v1
 - OracleDB
   - [Configuration](./OracleDB/)
-  - Package - ghcr.io/estuary/source-oracle:dev
+  - Package - ghcr.io/estuary/source-oracle:v1
 - OracleDB Batch
   - [Configuration](./OracleDB/oracle-batch.md)
-  - Package - ghcr.io/estuary/source-oracle-batch:dev
+  - Package - ghcr.io/estuary/source-oracle-batch:v1
 - Outreach
   - [Configuration](./outreach.md)
-  - Package - ghcr.io/estuary/source-outreach:dev
+  - Package - ghcr.io/estuary/source-outreach:v1
 - Pendo
   - [Configuration](./pendo.md)
-  - Package - ghcr.io/estuary/source-pendo:dev
+  - Package - ghcr.io/estuary/source-pendo:v2
 - PostgreSQL
   - [Configuration](./PostgreSQL/)
-  - Package — ghcr.io/estuary/source-postgres:dev
+  - Package — ghcr.io/estuary/source-postgres:v3
 - PostgreSQL Batch
   - [Configuration](./PostgreSQL/postgres-batch.md)
-  - Package - ghcr.io/estuary/source-postgres-batch:dev
+  - Package - ghcr.io/estuary/source-postgres-batch:v1
 - Qualtrics
   - [Configuration](./qualtrics.md)
-  - Package - ghcr.io/estuary/source-qualtrics:dev
+  - Package - ghcr.io/estuary/source-qualtrics:v1
 - QuickBooks
   - [Configuration](./quickbooks.md)
-  - Package - ghcr.io/estuary/source-quickbooks:dev
+  - Package - ghcr.io/estuary/source-quickbooks:v1
 - RingCentral
   -  [Configuration](./ringcentral.md)
-  - Package - ghcr.io/estuary/source-ringcentral:dev
+  - Package - ghcr.io/estuary/source-ringcentral:v1
 - Sage Intacct
   - [Configuration](./sage-intacct.md)
-  - Package — ghcr.io/estuary/source-sage-intacct:dev
+  - Package — ghcr.io/estuary/source-sage-intacct:v1
 - Salesforce
   - [Configuration](./Salesforce/salesforce-native.md)
-  - Package - ghcr.io/estuary/source-salesforce-native:dev
+  - Package - ghcr.io/estuary/source-salesforce-native:v1
 - Salesforce - Real-time data (deprecated)
   - [Configuration](./Salesforce/)
-  - Package - ghcr.io/estuary/source-salesforce-next:dev
+  - Package - ghcr.io/estuary/source-salesforce-next:v1
 - Sentry
   - [Configuration](./sentry.md)
-  - Package - ghcr.io/estuary/source-sentry:dev
+  - Package - ghcr.io/estuary/source-sentry:v2
 - SFTP
   - [Configuration](./sftp.md)
-  - Package - ghcr.io/estuary/source-sftp:dev
+  - Package - ghcr.io/estuary/source-sftp:v1
 - SharePoint
   - [Configuration](./sharepoint.md)
-  - Package - ghcr.io/estuary/source-sharepoint:dev
+  - Package - ghcr.io/estuary/source-sharepoint:v1
 - Shopify
   - [Configuration](./shopify.md)
-  - Package - ghcr.io/estuary/source-shopify:dev
+  - Package - ghcr.io/estuary/source-shopify:v1
 - Shopify (GraphQL)
   - [Configuration](./shopify-native.md)
-  - Package - ghcr.io/estuary/source-shopify-native:dev
+  - Package - ghcr.io/estuary/source-shopify-native:v2
 - Snowflake
   - [Configuration](./snowflake.md)
-  - Package - ghcr.io/estuary/source-snowflake:dev
+  - Package - ghcr.io/estuary/source-snowflake:v1
 - Stripe Real-time
   - [Configuration](./stripe-realtime.md)
-  - Package - ghcr.io/estuary/source-stripe-native:dev
+  - Package - ghcr.io/estuary/source-stripe-native:v1
 - Stripe (deprecated)
   - [Configuration](./stripe.md)
-  - Package - ghcr.io/estuary/source-stripe:dev
+  - Package - ghcr.io/estuary/source-stripe:v3
 - Twilio
   - [Configuration](./twilio.md)
-  - Package - ghcr.io/estuary/source-twilio:dev
+  - Package - ghcr.io/estuary/source-twilio:v2
 - Zendesk Chat
   - [Configuration](./zendesk-chat.md)
-  - Package - ghcr.io/estuary/source-zendesk-chat:dev
+  - Package - ghcr.io/estuary/source-zendesk-chat:v1
 - Zendesk Support (deprecated)
   - [Configuration](./zendesk-support.md)
-  - Package - ghcr.io/estuary/source-zendesk-support:dev
+  - Package - ghcr.io/estuary/source-zendesk-support:v2
 - Zendesk Support Real-Time
   - [Configuration](./zendesk-support-native.md)
-  - Package - ghcr.io/estuary/source-zendesk-support-native:dev
+  - Package - ghcr.io/estuary/source-zendesk-support-native:v1
 - Zoho CRM
   - [Configuration](./zoho-crm.md)
-  - Package - ghcr.io/estuary/source-zoho:dev
+  - Package - ghcr.io/estuary/source-zoho:v1
 
 ### Third party connectors
 
@@ -298,109 +298,109 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 
 - Aircall
   - [Configuration](./aircall.md)
-  - Package - ghcr.io/estuary/source-aircall:dev
+  - Package - ghcr.io/estuary/source-aircall:v1
 - Amazon Ads
   - [Configuration](./amazon-ads.md)
-  - Package - ghcr.io/estuary/source-amazon-ads:dev
+  - Package - ghcr.io/estuary/source-amazon-ads:v2
 - Amazon SQS
   - [Configuration](./amazon-sqs.md)
-  - Package - ghcr.io/estuary/source-amazon-sqs:dev
+  - Package - ghcr.io/estuary/source-amazon-sqs:v1
 - Amplitude
   - [Configuration](./amplitude.md)
-  - Package - ghcr.io/estuary/source-amplitude:dev
+  - Package - ghcr.io/estuary/source-amplitude:v2
 - Bing Ads
   - [Configuration](./bing-ads.md)
-  - Package - ghcr.io/estuary/source-bing-ads:dev
+  - Package - ghcr.io/estuary/source-bing-ads:v2
 - Braze
   - [Configuration](./braze.md)
-  - Package - ghcr.io/estuary/source-braze:dev
+  - Package - ghcr.io/estuary/source-braze:v1
 - Chargebee (deprecated)
   - [Configuration](./chargebee.md)
-  - Package - ghcr.io/estuary/source-chargebee:dev
+  - Package - ghcr.io/estuary/source-chargebee:v1
 - Confluence
   - [Configuration](./confluence.md)
-  - Package - ghcr.io/estuary/source-confluence:dev
+  - Package - ghcr.io/estuary/source-confluence:v1
 - Exchange Rates API
   - [Configuration](./exchange-rates.md)
   - Package - ghcr.io/estuary/source-exchange-rates:dev
 - Freshdesk
   - [Configuration](./freshdesk.md)
-  - Package - ghcr.io/estuary/source-freshdesk:dev
+  - Package - ghcr.io/estuary/source-freshdesk:v1
 - GitLab
   - [Configuration](./gitlab.md)
-  - Package - ghcr.io/estuary/source-gitlab:dev
+  - Package - ghcr.io/estuary/source-gitlab:v1
 - Google Analytics 4
   - [Configuration](./google-analytics-4.md)
-  - Package - ghcr.io/estuary/source-google-analytics-data-api:dev
+  - Package - ghcr.io/estuary/source-google-analytics-data-api:v3
 - Google Universal Analytics
   - [Configuration](./google-analytics.md)
-  - Package - ghcr.io/estuary/source-google-analytics-ua:dev
+  - Package - ghcr.io/estuary/source-google-analytics-ua:v2
 - Google Search Console
   - [Configuration](./google-search-console.md)
-  - Package - ghcr.io/estuary/source-google-search-console:dev
+  - Package - ghcr.io/estuary/source-google-search-console:v2
 - Greenhouse
   - [Configuration](./greenhouse.md)
-  - Package - ghcr.io/estuary/source-greenhouse:dev
+  - Package - ghcr.io/estuary/source-greenhouse:v1
 - Harvest
   - [Configuration](./harvest.md)
-  - Package - ghcr.io/estuary/source-harvest:dev
+  - Package - ghcr.io/estuary/source-harvest:v1
 - Instagram
   - [Configuration](./instagram.md)
-  - Package - ghcr.io/estuary/source-instagram:dev
+  - Package - ghcr.io/estuary/source-instagram:v1
 - Intercom (deprecated)
   - [Configuration](./intercom.md)
-  - Package - ghcr.io/estuary/source-intercom:dev
+  - Package - ghcr.io/estuary/source-intercom:v1
 - Jira (deprecated)
   - [Configuration](./jira.md)
-  - Package - ghcr.io/estuary/source-jira:dev
+  - Package - ghcr.io/estuary/source-jira:v1
 - Klaviyo (deprecated)
   - [Configuration](./klaviyo.md)
-  - Package - ghcr.io/estuary/source-klaviyo:dev
+  - Package - ghcr.io/estuary/source-klaviyo:v1
 - LinkedIn Ads
   - [Configuration](./linkedin-ads.md)
-  - Package - ghcr.io/estuary/source-linkedin-ads:dev
+  - Package - ghcr.io/estuary/source-linkedin-ads:v2
 - Mailchimp
   - [Configuration](./mailchimp.md)
-  - Package - ghcr.io/estuary/source-mailchimp:dev
+  - Package - ghcr.io/estuary/source-mailchimp:v3
 - Marketo
   - [Configuration](./marketo.md)
-  - Package - ghcr.io/estuary/source-marketo:dev
+  - Package - ghcr.io/estuary/source-marketo:v1
 - MixPanel
   - [Configuration](./mixpanel.md)
-  - Package - ghcr.io/estuary/source-mixpanel:dev
+  - Package - ghcr.io/estuary/source-mixpanel:v1
 - Notion
   - [Configuration](./notion.md)
-  - Package - ghcr.io/estuary/source-notion:dev
+  - Package - ghcr.io/estuary/source-notion:v2
 - Paypal Transaction
   - [Configuration](./paypal-transaction.md)
-  - Package - ghcr.io/estuary/source-paypal-transaction:dev
+  - Package - ghcr.io/estuary/source-paypal-transaction:v1
 - Pinterest
   - [Configuration](./pinterest.md)
-  - Package - ghcr.io/estuary/source-pinterest:dev
+  - Package - ghcr.io/estuary/source-pinterest:v1
 - Recharge
   - [Configuration](./recharge.md)
-  - Package - ghcr.io/estuary/source-recharge:dev
+  - Package - ghcr.io/estuary/source-recharge:v1
 - Salesforce - Historical data (deprecated)
   - [Configuration](./Salesforce/)
-  - Package - ghcr.io/estuary/source-salesforce:dev
+  - Package - ghcr.io/estuary/source-salesforce:v1
 - SendGrid
   - [Configuration](./sendgrid.md)
-  - Package - ghcr.io/estuary/source-sendgrid:dev
+  - Package - ghcr.io/estuary/source-sendgrid:v1
 - Slack
   - [Configuration](./slack.md)
-  - Package - ghcr.io/estuary/source-slack:dev
+  - Package - ghcr.io/estuary/source-slack:v2
 - Snapchat
   - [Configuration](./snapchat.md)
-  - Package - ghcr.io/estuary/source-snapchat:dev
+  - Package - ghcr.io/estuary/source-snapchat-marketing:v1
 - SurveyMonkey
   - [Configuration](./survey-monkey.md)
-  - Package - ghcr.io/estuary/source-surveymonkey:dev
+  - Package - ghcr.io/estuary/source-surveymonkey:v2
 - TikTok Marketing
   - [Configuration](./tiktok.md)
-  - Package - ghcr.io/estuary/source-tiktok-marketing:dev
+  - Package - ghcr.io/estuary/source-tiktok-marketing:v2
 - WooCommerce
   - [Configuration](./woocommerce.md)
-  - Package - ghcr.io/estuary/source-woocommerce:dev
+  - Package - ghcr.io/estuary/source-woocommerce:v1
 - YouTube Analytics
   - [Configuration](./youtube-analytics.md)
-  - Package - ghcr.io/estuary/source-youtube-analytics:dev
+  - Package - ghcr.io/estuary/source-youtube-analytics:v1

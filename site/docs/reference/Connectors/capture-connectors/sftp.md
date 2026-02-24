@@ -2,8 +2,6 @@
 
 This connector captures data from an SFTP server.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sftp:dev`](https://ghcr.io/estuary/source-sftp:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 You'll need an SFTP server that can accept connections from the [Estuary IP addresses](/reference/allow-ip-addresses) using password authentication.
@@ -71,7 +69,7 @@ captures:
   ${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-sftp:dev"
+        image: "ghcr.io/estuary/source-sftp:v1"
         config:
           address: myserver.com:22
           username: <SECRET>

@@ -2,9 +2,6 @@
 
 This connector captures data from your Amazon DocumentDB collections into Estuary collections.
 
-[`ghcr.io/estuary/source-amazon-documentdb:dev`](https://ghcr.io/estuary/source-amazon-documentdb:dev) provides the
-latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Data model
 
 Amazon DocumentDB is a NoSQL database. It is compatible with [MongoDB's data
@@ -95,7 +92,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-amazon-documentdb:dev
+        image: ghcr.io/estuary/source-amazon-documentdb:v3
         config:
           address: "mongo:27017"
           password: "flow"

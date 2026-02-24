@@ -2,8 +2,6 @@
 
 This connector lets you capture data from your Google Drive account into Estuary collections.
 
-[`ghcr.io/estuary/source-google-drive:dev`](https://ghcr.io/estuary/source-google-drive:dev) provides the latest connector image. For access to previous image versions, follow the link in your browser.
-
 ## Prerequisites
 
 To use this connector, make sure you have the following:
@@ -41,7 +39,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-google-drive:dev
+        image: ghcr.io/estuary/source-google-drive:v1
         config:
           credentials: /path/to/your/credentials.json
     bindings:

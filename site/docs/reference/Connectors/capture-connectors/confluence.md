@@ -3,8 +3,6 @@
 
 This connector captures data from Confluence into Estuary collections via the Confluence [Cloud REST API](https://developer.atlassian.com/cloud/confluence/rest/v1/intro/#about).
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-confluence:dev`](https://ghcr.io/estuary/source-confluence:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
@@ -55,12 +53,12 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-confluence:dev
+        image: ghcr.io/estuary/source-confluence:v1
           config:
             credentials:
               api_token: PAT Credentials
-            domain_name: estuary1.atlassian.net
-            email: dave@estuary.dev
+            domain_name: yourdomain.atlassian.net
+            email: email@example.com
       bindings:
         - resource:
             stream: audit

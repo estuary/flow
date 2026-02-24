@@ -2,8 +2,6 @@
 
 This connector materializes Estuary collections into tables in a PostgreSQL database.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -80,7 +78,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:v5
         config:
           database: flow
           address: localhost:5432

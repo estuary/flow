@@ -2,9 +2,6 @@
 
 This connector captures data from your Azure Cosmos DB collections into Estuary collections.
 
-[`ghcr.io/estuary/source-cosmosdb-mongodb:dev`](https://ghcr.io/estuary/source-cosmosdb-mongodb:dev) provides the
-latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Data model
 
 Azure Cosmos DB is a NoSQL database. It is compatible with [MongoDB's data
@@ -107,7 +104,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-cosmosdb-mongodb:dev
+        image: ghcr.io/estuary/source-cosmosdb-mongodb:v3
         config:
           address: "mongo:27017"
           password: "flow"

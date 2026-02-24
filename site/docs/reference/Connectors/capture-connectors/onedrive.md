@@ -3,8 +3,6 @@
 
 This connector captures data from a OneDrive account into an Estuary collection.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-onedrive:dev`](https://ghcr.io/estuary/source-onedrive:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data types
 
 This connector automatically captures the data within the specified OneDrive folder into a single Estuary collection.
@@ -67,7 +65,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-onedrive:dev
+        image: ghcr.io/estuary/source-onedrive:v1
         config:
           path: "/my-folder"
           matchKeys: ".*\.json"

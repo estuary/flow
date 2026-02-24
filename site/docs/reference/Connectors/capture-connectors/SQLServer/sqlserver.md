@@ -6,8 +6,6 @@ sidebar_position: 3
 
 This connector uses change data capture (CDC) to continuously capture updates in a Microsoft SQL Server database into one or more Estuary collections.
 
-It's available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-sqlserver:dev`](https://ghcr.io/estuary/source-sqlserver:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## When to use this connector
 
 Estuary offers three main SQL Server capture connectors and their variants (platform-specific versions for managed providers). All three work across self-hosted and cloud-managed deployments.
@@ -210,7 +208,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-sqlserver:dev"
+        image: "ghcr.io/estuary/source-sqlserver:v0"
         config:
           address: "<host>:1433"
           database: "my_db"

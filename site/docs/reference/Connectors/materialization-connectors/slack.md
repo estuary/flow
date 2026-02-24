@@ -2,8 +2,6 @@
 
 This connector lets you materialize data from Estuary directly into Slack channels.
 
-`ghcr.io/estuary/materialize-slack:dev` provides the latest connector image. For earlier versions, visit the [GitHub Container Registry](https://ghcr.io/estuary/materialize-slack) page.
-
 ### Prerequisites
 
 To use this connector, ensure you have the following:
@@ -40,7 +38,7 @@ materializations:
   ${PREFIX}/${MATERIALIZATION_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-slack:dev
+        image: ghcr.io/estuary/materialize-slack:v1
         config:
           credentials:
             auth_type: OAuth

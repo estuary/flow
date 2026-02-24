@@ -2,8 +2,6 @@
 
 This connector captures data from Stripe into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-stripe:dev`](https://ghcr.io/estuary/source-stripe:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 :::warning
 This connector is deprecated. See the [Stripe Real-time](./stripe-realtime.md) connector for the latest Stripe integration.
 :::
@@ -85,7 +83,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-stripe:dev
+        image: ghcr.io/estuary/source-stripe:v3
         config:
             account_id: 00000000
             client_secret: <secret>
