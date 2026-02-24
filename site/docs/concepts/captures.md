@@ -120,7 +120,7 @@ captures:
       # This endpoint uses a connector provided as a Docker image.
       connector:
         # Docker image that implements the capture connector.
-        image: ghcr.io/estuary/source-s3:dev
+        image: ghcr.io/estuary/source-s3:v2
         # File that provides the connector's required configuration.
         # Configuration may also be presented inline.
         config: path/to/connector-config.yaml

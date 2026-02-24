@@ -53,7 +53,7 @@ or any other public image registry provider.
 
 To interface with a connector, the Estuary runtime needs to know:
 
-1. The specific image to use, through an image name such as `ghcr.io/estuary/source-postgres:dev`.
+1. The specific image to use, through an image name such as `ghcr.io/estuary/source-postgres:v5`.
    Notice that the image name also conveys the specific image registry and version tag to use.
 
 2. Endpoint configuration such as a database address and account, with meaning that is specific to the connector.
@@ -74,7 +74,7 @@ materializations:
       connector:
         # 1: Provide the image that implements your endpoint connector.
         # The `dev` tag uses the most recent version (the web app chooses this tag automatically)
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:v5
         # 2: Provide endpoint configuration that the connector requires.
         config:
           address: localhost:5432
@@ -120,7 +120,7 @@ materializations:
   acmeCo/postgres-views:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:v5
         config:
           address: localhost:5432
           password: password
@@ -137,7 +137,7 @@ materializations:
   acmeCo/postgres-views:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:v5
         config: my.config.yaml
       bindings: []
 ```
@@ -185,7 +185,7 @@ captures:
   acmeCo/postgres-capture-ssh:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-postgres:dev
+        image: ghcr.io/estuary/source-postgres:v5
         config:
           address: 127.0.0.1:5432
           database: flow
