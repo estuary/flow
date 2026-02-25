@@ -1012,10 +1012,12 @@ impl TestHarness {
                 cj.failures,
                 cj.error,
                 ls.data_plane_id as "data_plane_id: Id",
-                dp.data_plane_name as "data_plane_name?: String"
+                dp.data_plane_name as "data_plane_name?: String",
+                (cs.flow_document->>'ts')::timestamptz as "last_connector_status_ts?: DateTime<Utc>"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
             left outer join data_planes dp on ls.data_plane_id = dp.id
+            left outer join connector_status cs on ls.catalog_name = cs.catalog_name
             where ls.catalog_name = $1;"#,
             name
         )

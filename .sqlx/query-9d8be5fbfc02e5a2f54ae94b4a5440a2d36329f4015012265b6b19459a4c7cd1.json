@@ -24,7 +24,8 @@
                 "data_not_processed_in_interval",
                 "shard_failed",
                 "auto_discover_failed",
-                "background_publication_failed"
+                "background_publication_failed",
+                "task_abandoned"
               ]
             }
           }

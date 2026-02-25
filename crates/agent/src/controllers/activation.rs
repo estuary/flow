@@ -56,6 +56,16 @@ const ALERT_AFTER_SHARD_FAILURES: std::sync::LazyLock<u32> = std::sync::LazyLock
     }
 });
 
+/// Minimum consecutive Ok health checks before counting as sustained PRIMARY.
+/// With Ok intervals starting at 3min, the default of 3 means ~6-9 min of healthy operation.
+const SUSTAINED_PRIMARY_MIN_CHECKS: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
+    if let Ok(val) = std::env::var("SUSTAINED_PRIMARY_MIN_CHECKS") {
+        FromStr::from_str(&val).expect("invalid SUSTAINED_PRIMARY_MIN_CHECKS")
+    } else {
+        3
+    }
+});
+
 /// Activates the spec in the data plane if necessary.
 pub async fn update_activation<C: ControlPlane>(
     status: &mut ActivationStatus,
@@ -117,6 +127,7 @@ pub async fn update_activation<C: ControlPlane>(
                 "restarting failed task shards"
             );
             do_activate(now, state, status, control_plane).await?;
+            status.restarts_since_last_primary += 1;
             if has_task_shards(state) {
                 // Reset the shard health status, as we'll need to await another successful check.
                 status.shard_status = Some(ShardStatusCheck {
@@ -410,6 +421,11 @@ async fn update_shard_health<C: ControlPlane>(
         status: new_status,
     });
 
+    if new_status == ShardsStatus::Ok && count >= *SUSTAINED_PRIMARY_MIN_CHECKS {
+        status.last_sustained_primary_ts = Some(now);
+        status.restarts_since_last_primary = 0;
+    }
+
     // If there's been at least 3 failed checks in a row, then consider the
     // shard failed. We require at least 3 failed checks in a row because it's
     // possible that the ShardFailed event delivery is simply delayed we don't
@@ -670,7 +686,7 @@ async fn do_activate<C: ControlPlane>(
     Ok(())
 }
 
-fn has_task_shards(state: &ControllerState) -> bool {
+pub(super) fn has_task_shards(state: &ControllerState) -> bool {
     match state.live_spec.as_ref() {
         Some(&AnySpec::Capture(ref cap)) if !cap.shards.disable => {
             // There's currently no such thing as a dekaf capture, but it seemed best to handle captures and materializations

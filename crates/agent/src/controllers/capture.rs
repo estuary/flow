@@ -3,7 +3,7 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
     coalesce_results, dependencies::Dependencies,
 };
-use crate::controllers::{activation, config_update, periodic, publication_status, republish};
+use crate::controllers::{abandon, activation, config_update, periodic, publication_status, republish};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
@@ -159,6 +159,13 @@ pub async fn update<C: ControlPlane>(
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
+    let abandon_result = Ok(abandon::evaluate_abandoned(
+        alerts,
+        activation,
+        state,
+        control_plane.current_time(),
+    ));
+
     let notify_result =
         publication_status::update_observed_pub_id(publications, alerts, state, control_plane)
             .await
@@ -174,6 +181,7 @@ pub async fn update<C: ControlPlane>(
             periodic_result,
             republish_result.map(|_| None),
             activate_result,
+            abandon_result,
             notify_result,
         ],
     )

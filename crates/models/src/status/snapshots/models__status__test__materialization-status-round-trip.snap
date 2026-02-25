@@ -77,6 +77,8 @@ StatusSnapshot {
                 next_retry: Some(
                     2025-01-02T03:04:05.060Z,
                 ),
+                last_sustained_primary_ts: None,
+                restarts_since_last_primary: 0,
             },
             config_updates: None,
             alerts: {},
@@ -157,6 +159,8 @@ StatusSnapshot {
                 next_retry: Some(
                     2025-01-02T03:04:05.060Z,
                 ),
+                last_sustained_primary_ts: None,
+                restarts_since_last_primary: 0,
             },
             config_updates: None,
             alerts: {},

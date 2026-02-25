@@ -30,6 +30,14 @@ expression: schema
           ],
           "description": "The most recent shard failure to have been observed. The presence of a failure here\ndoes not necessarily mean that the shard is currently in a failed state, as it may\nhave been re-activated since the failure occurred."
         },
+        "last_sustained_primary_ts": {
+          "description": "Last time shards held sustained PRIMARY status (SUSTAINED_PRIMARY_MIN_CHECKS\nconsecutive Ok health checks). None if sustained PRIMARY has never been observed.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "next_retry": {
           "description": "The next time at which failed task shards will be re-activated. If this is present, then\nthere has been at least one observed shard failure, which the controller has not yet handled.",
           "format": "date-time",
@@ -40,6 +48,12 @@ expression: schema
         },
         "recent_failure_count": {
           "description": "Count of shard failures that have been observed over the last 24 hours for the currently activated\nbuild. This resets to 0 when a newly published build is activated.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "restarts_since_last_primary": {
+          "description": "Number of shard restarts since the last sustained PRIMARY status.\nResets to 0 when last_sustained_primary_ts is updated.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"

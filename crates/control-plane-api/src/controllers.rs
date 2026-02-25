@@ -53,6 +53,7 @@ pub struct ControllerJob {
     pub data_plane_id: Id,
     pub data_plane_name: Option<String>,
     pub live_dependency_hash: Option<String>,
+    pub last_connector_status_ts: Option<DateTime<Utc>>,
 }
 
 pub async fn fetch_controller_job(
@@ -79,11 +80,13 @@ pub async fn fetch_controller_job(
             cj.failures,
             cj.error,
             ls.data_plane_id as "data_plane_id: Id",
-            dp.data_plane_name as "data_plane_name?: String"
+            dp.data_plane_name as "data_plane_name?: String",
+            (cs.flow_document->>'ts')::timestamptz as "last_connector_status_ts?: DateTime<Utc>"
         from internal.tasks t
         join live_specs ls on t.task_id = ls.controller_task_id
         join controller_jobs cj on ls.id = cj.live_spec_id
         left outer join data_planes dp on ls.data_plane_id = dp.id
+        left outer join connector_status cs on ls.catalog_name = cs.catalog_name
         where t.task_id = $1::flowid;"#,
         controller_task_id as Id,
     )

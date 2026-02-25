@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            ls.id as \"live_spec_id: Id\",\n            ls.catalog_name as \"catalog_name!: String\",\n            ls.last_pub_id as \"last_pub_id: Id\",\n            ls.last_build_id as \"last_build_id: Id\",\n            ls.spec as \"live_spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.spec_type as \"spec_type: CatalogType\",\n            ls.dependency_hash as \"live_dependency_hash\",\n            ls.created_at,\n            ls.updated_at as \"live_spec_updated_at\",\n            cj.controller_version as \"controller_version: i32\",\n            cj.updated_at as \"controller_updated_at\",\n            cj.logs_token,\n            cj.status as \"status: TextJson<Box<RawValue>>\",\n            cj.failures,\n            cj.error,\n            ls.data_plane_id as \"data_plane_id: Id\",\n            dp.data_plane_name as \"data_plane_name?: String\"\n        from internal.tasks t\n        join live_specs ls on t.task_id = ls.controller_task_id\n        join controller_jobs cj on ls.id = cj.live_spec_id\n        left outer join data_planes dp on ls.data_plane_id = dp.id\n        where t.task_id = $1::flowid;",
+  "query": "select\n            ls.id as \"live_spec_id: Id\",\n            ls.catalog_name as \"catalog_name!: String\",\n            ls.last_pub_id as \"last_pub_id: Id\",\n            ls.last_build_id as \"last_build_id: Id\",\n            ls.spec as \"live_spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.spec_type as \"spec_type: CatalogType\",\n            ls.dependency_hash as \"live_dependency_hash\",\n            ls.created_at,\n            ls.updated_at as \"live_spec_updated_at\",\n            cj.controller_version as \"controller_version: i32\",\n            cj.updated_at as \"controller_updated_at\",\n            cj.logs_token,\n            cj.status as \"status: TextJson<Box<RawValue>>\",\n            cj.failures,\n            cj.error,\n            ls.data_plane_id as \"data_plane_id: Id\",\n            dp.data_plane_name as \"data_plane_name?: String\",\n            (cs.flow_document->>'ts')::timestamptz as \"last_connector_status_ts?: DateTime<Utc>\"\n        from internal.tasks t\n        join live_specs ls on t.task_id = ls.controller_task_id\n        join controller_jobs cj on ls.id = cj.live_spec_id\n        left outer join data_planes dp on ls.data_plane_id = dp.id\n        left outer join connector_status cs on ls.catalog_name = cs.catalog_name\n        where t.task_id = $1::flowid;",
   "describe": {
     "columns": [
       {
@@ -104,6 +104,11 @@
         "ordinal": 17,
         "name": "data_plane_name?: String",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "last_connector_status_ts?: DateTime<Utc>",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -136,8 +141,9 @@
       false,
       true,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "94854e6541dc95093878b624c172b83a0dd95d2f00693cc9bff4551b5cce44fe"
+  "hash": "0803986c5c3106b3b402237bcfac169d52070300765c8d0052f178e50a13f3ee"
 }

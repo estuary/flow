@@ -1,5 +1,5 @@
 use crate::controllers::{
-    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, activation,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, abandon, activation,
     backoff_data_plane_activate, backoff_publication_failure, coalesce_results, config_update,
     dependencies::Dependencies,
     periodic,
@@ -145,6 +145,13 @@ pub async fn update<C: ControlPlane>(
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
+    let abandon_result = Ok(abandon::evaluate_abandoned(
+        alerts,
+        activation,
+        state,
+        control_plane.current_time(),
+    ));
+
     let observe_result =
         publication_status::update_observed_pub_id(publications, alerts, state, control_plane)
             .await
@@ -157,6 +164,7 @@ pub async fn update<C: ControlPlane>(
             observe_result,
             periodic_result,
             activation_result,
+            abandon_result,
             source_capture_published.map(|_| None),
             updated_config_published.map(|_| None),
             dep_result.map(|_| None),

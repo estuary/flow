@@ -1,3 +1,4 @@
+pub(crate) mod abandon;
 pub(crate) mod activation;
 pub(crate) mod alerts;
 pub(crate) mod capture;
@@ -72,6 +73,8 @@ pub struct ControllerState {
     /// The `dependency_hash` of the `live_specs` row, used to determine whether any
     /// dependencies have had their models changed.
     pub live_dependency_hash: Option<String>,
+    /// The most recent connector status emission timestamp, if any.
+    pub last_connector_status_ts: Option<DateTime<Utc>>,
 }
 
 /// Returns a struct with all of the initial state that's needed to run a
@@ -169,6 +172,7 @@ impl ControllerState {
             data_plane_id: job.data_plane_id.into(),
             data_plane_name: job.data_plane_name.clone(),
             live_dependency_hash: job.live_dependency_hash.clone(),
+            last_connector_status_ts: job.last_connector_status_ts,
         };
         Ok(controller_state)
     }

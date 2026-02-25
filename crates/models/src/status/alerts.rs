@@ -45,6 +45,10 @@ pub enum AlertType {
     /// continue to make progress in between failures, but at a minimum, performance will
     /// be degraded. And in many scenarios, the task will be unable to process data at all.
     ShardFailed,
+    /// Triggers when an enabled task has had no sustained PRIMARY shard status and no
+    /// recent connector status updates for a prolonged period, indicating it may be
+    /// abandoned by the user while still consuming data-plane resources.
+    TaskAbandoned,
     /// Triggers when an automated background process needs to publish a spec,
     /// but is unable to because of publication errors. Background publications
     /// are peformed on all specs for a variety of reasons. For example,
@@ -70,6 +74,7 @@ impl AlertType {
             AlertType::FreeTrialEnding => "free_trial_ending",
             AlertType::FreeTrialStalled => "free_trial_stalled",
             AlertType::MissingPaymentMethod => "missing_payment_method",
+            AlertType::TaskAbandoned => "task_abandoned",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
         }
     }
@@ -78,6 +83,7 @@ impl AlertType {
         &[
             AlertType::AutoDiscoverFailed,
             AlertType::ShardFailed,
+            AlertType::TaskAbandoned,
             AlertType::DataMovementStalled,
             AlertType::FreeTrial,
             AlertType::FreeTrialEnding,
@@ -98,6 +104,7 @@ impl AlertType {
             AlertType::FreeTrialStalled => Some("tenant_alerts"),
             AlertType::MissingPaymentMethod => Some("tenant_alerts"),
             AlertType::ShardFailed => None,
+            AlertType::TaskAbandoned => None,
             AlertType::BackgroundPublicationFailed => None,
         }
     }
