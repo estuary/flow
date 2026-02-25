@@ -526,7 +526,7 @@ async fn test_backoff_repeated_shard_failures(
         .await;
 }
 
-async fn publish_and_await_ready(
+pub(super) async fn publish_and_await_ready(
     harness: &mut TestHarness,
     task_type: models::CatalogType,
     catalog_name: &str,
@@ -573,7 +573,7 @@ async fn publish_and_await_ready(
     );
     harness
         .control_plane()
-        .assert_activations("after publish", vec![(catalog_name, Some(task_type))]);
+        .assert_activated("after publish", catalog_name, task_type);
     assert_status_shards_pending(harness, catalog_name).await;
 
     let activation_status = after_publish.current_status.activation_status().unwrap();
@@ -717,7 +717,7 @@ async fn task_becomes_ok(
     final_ok_state
 }
 
-fn shard_ref(build_id: models::Id, name: &str) -> ShardRef {
+pub(super) fn shard_ref(build_id: models::Id, name: &str) -> ShardRef {
     ShardRef {
         name: name.to_string(),
         build: build_id,

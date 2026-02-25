@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use super::{ControllerState, NextRun, alerts, backoff_data_plane_activate};
 use crate::{
     controllers::{ControllerErrorExt, Inbox},
@@ -19,42 +17,85 @@ use models::{
 };
 
 /// Helper for getting a `chrono::Duration` from an environment variable, using humantime so it
-/// supports parsing durations like `3h`.
+/// supports parsing durations like `3h`. The value is read once on first access. In test builds,
+/// the value can be overridden via `.set()`.
 macro_rules! env_config_interval {
-    ($var_ident:ident, $default_val:expr) => {
-        static $var_ident: std::sync::LazyLock<chrono::Duration> = std::sync::LazyLock::new(|| {
-            let var_name = stringify!($var_ident);
-            if let Ok(val) = std::env::var(var_name) {
-                let parsed: humantime::Duration = FromStr::from_str(&val)
-                    .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"));
-                chrono::Duration::from_std(parsed.into())
-                    .unwrap_or_else(|_err| panic!("invalid {var_name} value: out of range"))
-            } else {
-                $default_val
-            }
-        });
+    ($(#[$meta:meta])* $var_ident:ident, $default_val:expr) => {
+        $(#[$meta])*
+        static $var_ident: std::sync::LazyLock<$crate::controllers::EnvConfig<chrono::Duration>> =
+            std::sync::LazyLock::new(|| {
+                let var_name = stringify!($var_ident);
+                $crate::controllers::EnvConfig::new(if let Ok(val) = std::env::var(var_name) {
+                    let parsed: humantime::Duration = std::str::FromStr::from_str(&val)
+                        .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"));
+                    chrono::Duration::from_std(parsed.into())
+                        .unwrap_or_else(|_err| panic!("invalid {var_name} value: out of range"))
+                } else {
+                    $default_val
+                })
+            });
     };
 }
 
-// We retain rows in the `shard_failures` table for at most this long. Failures
-// are deleted every time the `build_id` changes, or if they're older than this
-// threshold. The controller keeps a count of recent failures in the status,
-// and it periodically cleans up old failures as long as that count is
-// positive.
-env_config_interval! {SHARD_FAILURE_RETENTION, chrono::Duration::hours(8)}
+/// Helper for getting a `bool` from an environment variable. Accepts `"true"`
+/// (case-insensitive) as the truthy value. The value is read once on first access. In test
+/// builds, the value can be overridden via `.set()`.
+macro_rules! env_config_bool {
+    ($(#[$meta:meta])* $vis:vis $var_ident:ident, $default_val:expr) => {
+        $(#[$meta])*
+        $vis static $var_ident: std::sync::LazyLock<$crate::controllers::EnvConfig<bool>> =
+            std::sync::LazyLock::new(|| {
+                let var_name = stringify!($var_ident);
+                $crate::controllers::EnvConfig::new(if let Ok(val) = std::env::var(var_name) {
+                    val.eq_ignore_ascii_case("true")
+                } else {
+                    $default_val
+                })
+            });
+    };
+}
 
-// We resolve shard failed alerts after this duration has passed since the shards
-// last became healthy.
-env_config_interval! {RESOLVE_SHARD_FAILED_ALERT_AFTER, chrono::Duration::hours(2)}
+/// Helper for getting a numeric value from an environment variable, parsed via `FromStr`.
+/// The value is read once on first access. In test builds, the value can be overridden via `.set()`.
+macro_rules! env_config_num {
+    ($(#[$meta:meta])* $var_ident:ident, $num_ty:ty, $default_val:expr) => {
+        $(#[$meta])*
+        static $var_ident: std::sync::LazyLock<$crate::controllers::EnvConfig<$num_ty>> =
+            std::sync::LazyLock::new(|| {
+                let var_name = stringify!($var_ident);
+                $crate::controllers::EnvConfig::new(if let Ok(val) = std::env::var(var_name) {
+                    std::str::FromStr::from_str(&val)
+                        .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"))
+                } else {
+                    $default_val
+                })
+            });
+    };
+}
+
+env_config_interval! {
+    /// We retain rows in the `shard_failures` table for at most this long. Failures
+    /// are deleted every time the `build_id` changes, or if they're older than this
+    /// threshold. The controller keeps a count of recent failures in the status,
+    /// and it periodically cleans up old failures as long as that count is
+    /// positive.
+    SHARD_FAILURE_RETENTION, chrono::Duration::hours(8)
+}
+
+env_config_interval! {
+    /// We resolve shard failed alerts after this duration has passed since the shards
+    /// last became healthy.
+    RESOLVE_SHARD_FAILED_ALERT_AFTER, chrono::Duration::hours(2)
+}
 env_config_interval! {FLOW_MAX_SHARD_STATUS_INTERVAL, chrono::Duration::hours(2)}
 
-const ALERT_AFTER_SHARD_FAILURES: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
-    if let Ok(val) = std::env::var("ALERT_AFTER_SHARD_FAILURES") {
-        FromStr::from_str(&val).expect("invalid ALERT_AFTER_SHARD_FAILURES")
-    } else {
-        3
-    }
-});
+env_config_num! {ALERT_AFTER_SHARD_FAILURES, u32, 3}
+
+env_config_num! {
+    /// Minimum consecutive Ok health checks before counting as sustained PRIMARY.
+    /// With Ok intervals starting at 3min, the default of 3 means ~6-9 min of healthy operation.
+    SUSTAINED_PRIMARY_MIN_CHECKS, u32, 3
+}
 
 /// Activates the spec in the data plane if necessary.
 pub async fn update_activation<C: ControlPlane>(
@@ -66,7 +107,7 @@ pub async fn update_activation<C: ControlPlane>(
     control_plane: &C,
 ) -> anyhow::Result<Option<NextRun>> {
     let now = control_plane.current_time();
-    let failure_retention_threshold = now - *SHARD_FAILURE_RETENTION;
+    let failure_retention_threshold = now - SHARD_FAILURE_RETENTION.get();
     // Did we receive at least one shard failure message?
     let observed_shard_failures = events
         .iter()
@@ -117,6 +158,7 @@ pub async fn update_activation<C: ControlPlane>(
                 "restarting failed task shards"
             );
             do_activate(now, state, status, control_plane).await?;
+            status.restarts_since_last_primary += 1;
             if has_task_shards(state) {
                 // Reset the shard health status, as we'll need to await another successful check.
                 status.shard_status = Some(ShardStatusCheck {
@@ -246,7 +288,7 @@ async fn handle_shard_failures<C: ControlPlane>(
             .live_spec
             .as_ref()
             .map(|s| s.catalog_type())
-            .filter(|_| status.recent_failure_count >= *ALERT_AFTER_SHARD_FAILURES)
+            .filter(|_| status.recent_failure_count >= ALERT_AFTER_SHARD_FAILURES.get())
         {
             // last_failure should always be present, but this just prevents
             // things from blowing up if someone were to manually edit the
@@ -339,11 +381,10 @@ fn should_resolve_alert(
     }
 
     status.shard_status.as_ref().is_some_and(|s| {
-        s.status == ShardsStatus::Ok && (now - s.first_ts) >= *RESOLVE_SHARD_FAILED_ALERT_AFTER
-    }) && status
-        .last_failure
-        .as_ref()
-        .is_none_or(|fail| fail.ts < now && (now - fail.ts) > *RESOLVE_SHARD_FAILED_ALERT_AFTER)
+        s.status == ShardsStatus::Ok && (now - s.first_ts) >= RESOLVE_SHARD_FAILED_ALERT_AFTER.get()
+    }) && status.last_failure.as_ref().is_none_or(|fail| {
+        fail.ts < now && (now - fail.ts) > RESOLVE_SHARD_FAILED_ALERT_AFTER.get()
+    })
 }
 
 async fn update_shard_health<C: ControlPlane>(
@@ -409,6 +450,8 @@ async fn update_shard_health<C: ControlPlane>(
         last_ts: now,
         status: new_status,
     });
+
+    update_sustained_primary(status, new_status, count);
 
     // If there's been at least 3 failed checks in a row, then consider the
     // shard failed. We require at least 3 failed checks in a row because it's
@@ -482,6 +525,19 @@ fn synthesize_shard_failed_events(
 
 fn is_ops_catalog_task(state: &ControllerState) -> bool {
     state.catalog_name.starts_with("ops/") || state.catalog_name.starts_with("ops.us-central1.v1/")
+}
+
+/// Resets `restarts_since_last_primary` to 0 when shards have been Ok for
+/// enough consecutive checks, indicating sustained healthy operation.
+fn update_sustained_primary(
+    status: &mut ActivationStatus,
+    new_status: ShardsStatus,
+    consecutive_ok_count: u32,
+) {
+    if new_status == ShardsStatus::Ok && consecutive_ok_count >= SUSTAINED_PRIMARY_MIN_CHECKS.get()
+    {
+        status.restarts_since_last_primary = 0;
+    }
 }
 
 fn aggregate_shard_status(
@@ -578,7 +634,7 @@ fn shard_health_check_interval(
     let max_duration = if is_ops_catalog_task(state) {
         Duration::minutes(5)
     } else {
-        *FLOW_MAX_SHARD_STATUS_INTERVAL
+        FLOW_MAX_SHARD_STATUS_INTERVAL.get()
     };
 
     // If the status is OK, then backoff much more quickly
@@ -670,7 +726,7 @@ async fn do_activate<C: ControlPlane>(
     Ok(())
 }
 
-fn has_task_shards(state: &ControllerState) -> bool {
+pub(super) fn has_task_shards(state: &ControllerState) -> bool {
     match state.live_spec.as_ref() {
         Some(&AnySpec::Capture(ref cap)) if !cap.shards.disable => {
             // There's currently no such thing as a dekaf capture, but it seemed best to handle captures and materializations
@@ -801,6 +857,39 @@ mod test {
             ],
         );
         assert_eq!(ShardsStatus::Failed, actual);
+    }
+
+    #[test]
+    fn test_sustained_primary_tracking() {
+        let mut status = ActivationStatus {
+            restarts_since_last_primary: 10,
+            ..Default::default()
+        };
+
+        // Below threshold: no reset
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 1);
+        assert_eq!(status.restarts_since_last_primary, 10);
+
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 2);
+        assert_eq!(status.restarts_since_last_primary, 10);
+
+        // At threshold: resets counter
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 3);
+        assert_eq!(status.restarts_since_last_primary, 0);
+
+        // Above threshold: continues resetting
+        status.restarts_since_last_primary = 5;
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 10);
+        assert_eq!(status.restarts_since_last_primary, 0);
+
+        // Failed status: no reset regardless of count
+        status.restarts_since_last_primary = 7;
+        update_sustained_primary(&mut status, ShardsStatus::Failed, 5);
+        assert_eq!(status.restarts_since_last_primary, 7);
+
+        // Pending status: no reset regardless of count
+        update_sustained_primary(&mut status, ShardsStatus::Pending, 5);
+        assert_eq!(status.restarts_since_last_primary, 7);
     }
 
     #[test]

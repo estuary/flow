@@ -1,4 +1,6 @@
+#[macro_use]
 pub(crate) mod activation;
+pub(crate) mod abandon;
 pub(crate) mod alerts;
 pub(crate) mod capture;
 pub(crate) mod catalog_test;
@@ -22,6 +24,47 @@ use sqlx::types::Uuid;
 use std::fmt::Debug;
 
 pub use executor::{Inbox, LiveSpecControllerExecutor};
+
+/// A configuration value with optional per-thread test overrides.
+/// In test builds, `set()` stores a per-thread override keyed by
+/// `std::thread::ThreadId` (which is never reused), so overrides
+/// are automatically scoped to the calling test.
+pub(super) struct EnvConfig<T: Copy + Send + 'static> {
+    value: T,
+    #[cfg(test)]
+    test_override: std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, T>>,
+}
+
+impl<T: Copy + Send + 'static> EnvConfig<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            #[cfg(test)]
+            test_override: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn get(&self) -> T {
+        #[cfg(test)]
+        if let Some(&v) = self
+            .test_override
+            .lock()
+            .unwrap()
+            .get(&std::thread::current().id())
+        {
+            return v;
+        }
+        self.value
+    }
+
+    #[cfg(test)]
+    pub fn set(&self, value: T) {
+        self.test_override
+            .lock()
+            .unwrap()
+            .insert(std::thread::current().id(), value);
+    }
+}
 
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
@@ -290,6 +333,10 @@ impl NextRun {
             after_seconds: 0,
             jitter_percent: 0,
         }
+    }
+
+    pub fn is_immediately(&self) -> bool {
+        self.after_seconds == 0
     }
 
     pub fn after_minutes(minutes: u32) -> NextRun {

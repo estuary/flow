@@ -377,6 +377,7 @@ mod test {
                 last_failure: None,
                 recent_failure_count: 3,
                 next_retry: Some("2025-01-02T03:04:05.06Z".parse().unwrap()),
+                ..Default::default()
             },
             config_updates: None,
             source_capture: Some(SourceCaptureStatus {

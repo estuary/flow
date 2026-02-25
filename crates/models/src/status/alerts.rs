@@ -45,6 +45,37 @@ pub enum AlertType {
     /// continue to make progress in between failures, but at a minimum, performance will
     /// be degraded. And in many scenarios, the task will be unable to process data at all.
     ShardFailed,
+    /// Warning that a task has been unable to run for an extended period and will
+    /// be auto-disabled unless someone intervenes.
+    ///
+    /// Fires when all of:
+    /// - `has_task_shards` (enabled, non-Dekaf task with shards)
+    /// - `ShardFailed` has been continuously firing >= `CHRONICALLY_FAILING_THRESHOLD` (30d)
+    /// - No user publication within `USER_PUB_THRESHOLD` (14d)
+    ///
+    /// Resolves when ShardFailed resolves, a user publishes, or the task is disabled.
+    TaskChronicallyFailing,
+    /// One-shot notification that a chronically failing task has been auto-disabled.
+    ///
+    /// Fires when `TaskChronicallyFailing` has been firing >=
+    /// `CHRONICALLY_FAILING_DISABLE_AFTER` (7d). Publishes `shards.disable = true`,
+    /// after which `has_task_shards` returns false and all abandon alerts resolve.
+    TaskAutoDisabledFailing,
+    /// Warning that a task has not moved any data and will be auto-disabled.
+    ///
+    /// Fires when all of:
+    /// - `has_task_shards` (enabled, non-Dekaf task with shards)
+    /// - No `ShardFailed` or `TaskChronicallyFailing` alert is active
+    /// - No data movement in `catalog_stats_daily` within `IDLE_THRESHOLD` (30d)
+    /// - No user publication within `USER_PUB_THRESHOLD` (14d)
+    ///
+    /// Resolves when data moves, a user publishes, ShardFailed fires, or task is disabled.
+    TaskIdle,
+    /// One-shot notification that an idle task has been auto-disabled.
+    ///
+    /// Fires when `TaskIdle` has been firing >= `IDLE_DISABLE_AFTER` (7d).
+    /// Publishes `shards.disable = true`, after which all abandon alerts resolve.
+    TaskAutoDisabledIdle,
     /// Triggers when an automated background process needs to publish a spec,
     /// but is unable to because of publication errors. Background publications
     /// are peformed on all specs for a variety of reasons. For example,
@@ -70,6 +101,10 @@ impl AlertType {
             AlertType::FreeTrialEnding => "free_trial_ending",
             AlertType::FreeTrialStalled => "free_trial_stalled",
             AlertType::MissingPaymentMethod => "missing_payment_method",
+            AlertType::TaskChronicallyFailing => "task_chronically_failing",
+            AlertType::TaskAutoDisabledFailing => "task_auto_disabled_failing",
+            AlertType::TaskIdle => "task_idle",
+            AlertType::TaskAutoDisabledIdle => "task_auto_disabled_idle",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
         }
     }
@@ -78,6 +113,10 @@ impl AlertType {
         &[
             AlertType::AutoDiscoverFailed,
             AlertType::ShardFailed,
+            AlertType::TaskChronicallyFailing,
+            AlertType::TaskAutoDisabledFailing,
+            AlertType::TaskIdle,
+            AlertType::TaskAutoDisabledIdle,
             AlertType::DataMovementStalled,
             AlertType::FreeTrial,
             AlertType::FreeTrialEnding,
@@ -98,6 +137,10 @@ impl AlertType {
             AlertType::FreeTrialStalled => Some("tenant_alerts"),
             AlertType::MissingPaymentMethod => Some("tenant_alerts"),
             AlertType::ShardFailed => None,
+            AlertType::TaskChronicallyFailing => None,
+            AlertType::TaskAutoDisabledFailing => None,
+            AlertType::TaskIdle => None,
+            AlertType::TaskAutoDisabledIdle => None,
             AlertType::BackgroundPublicationFailed => None,
         }
     }
@@ -176,7 +219,10 @@ pub struct ControllerAlert {
     /// The time at which the alert condition resolved. Unset if the alert is firing.
     #[schemars(schema_with = "crate::option_datetime_schema")]
     pub resolved_at: Option<DateTime<Utc>>,
-    // Allows passing arbitrary data as alert arguments, which will be available in alert message templates.
+    /// Additional data available as `arguments.<key>` in notification email
+    /// templates. Serialized with `#[serde(flatten)]` so keys become top-level
+    /// JSON fields alongside `state`, `first_ts`, etc. Avoid using keys that
+    /// collide with the struct's own field names.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }

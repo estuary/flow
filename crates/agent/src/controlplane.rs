@@ -57,6 +57,9 @@ pub struct ConnectorSpec {
 /// other language bindings.
 #[async_trait::async_trait]
 pub trait ControlPlane: Send + Sync {
+    /// Returns the system user id used for automated publications.
+    fn system_user_id(&self) -> Uuid;
+
     /// Returns the current time. Having controllers access the current time through this api
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
@@ -83,6 +86,16 @@ pub trait ControlPlane: Send + Sync {
     async fn insert_shard_failures(&self, failures: Vec<ShardFailure>) -> anyhow::Result<()>;
 
     async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>>;
+
+    async fn fetch_last_user_publication_at(
+        &self,
+        live_spec_id: Id,
+    ) -> anyhow::Result<Option<DateTime<Utc>>>;
+
+    async fn fetch_last_data_movement_ts(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<DateTime<Utc>>>;
 
     async fn delete_shard_failures(
         &self,
@@ -302,6 +315,10 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 
 #[async_trait::async_trait]
 impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
+    fn system_user_id(&self) -> Uuid {
+        self.system_user_id
+    }
+
     fn can_auto_discover(&self) -> bool {
         if self.auto_discover_probability == 1.0 {
             return true;
@@ -397,6 +414,24 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         .fetch_all(&self.pool)
         .await
         .context("fetching shard failures")
+    }
+
+    async fn fetch_last_user_publication_at(
+        &self,
+        live_spec_id: Id,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        controllers::fetch_last_user_publication_at(live_spec_id, self.system_user_id, &self.pool)
+            .await
+            .context("fetching last user publication")
+    }
+
+    async fn fetch_last_data_movement_ts(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        controllers::fetch_last_data_movement_ts(&catalog_name, &self.pool)
+            .await
+            .context("fetching last data movement")
     }
 
     async fn delete_shard_failures(
