@@ -61,7 +61,7 @@ impl Schema {
                 ptr: ptr.to_string(),
                 schema: read.curi.clone(),
             });
-        } else if read_exists == Exists::Cannot {
+        } else if read_exists == Exists::Cannot && read_shape.default.is_none() {
             return Err(Error::PtrCannotExist {
                 ptr: ptr.to_string(),
                 schema: read.curi.clone(),
@@ -73,41 +73,46 @@ impl Schema {
             return Ok(());
         }
 
-        if !read_shape.type_.is_keyable_type() {
-            return Err(Error::KeyWrongType {
-                ptr: ptr.to_string(),
-                type_: read_shape.type_,
-                schema: read.curi.clone(),
-            });
-        }
+        // When read_exists is Cannot but has a default, we skipped the
+        // PtrCannotExist error above. The read shape's type is INVALID in
+        // this case, so key-specific checks against it are meaningless.
+        if read_exists != Exists::Cannot {
+            if !read_shape.type_.is_keyable_type() {
+                return Err(Error::KeyWrongType {
+                    ptr: ptr.to_string(),
+                    type_: read_shape.type_,
+                    schema: read.curi.clone(),
+                });
+            }
 
-        if !matches!(
-            read_shape.reduce,
-            shape::Reduce::Unset | shape::Reduce::Strategy(doc::reduce::Strategy::LastWriteWins(_)),
-        ) {
-            return Err(Error::KeyHasReduce {
-                ptr: ptr.to_string(),
-                schema: read.curi.clone(),
-                strategy: read_shape.reduce.clone(),
-            });
-        }
-        if !matches!(read_shape.redact, shape::Redact::Unset) {
-            return Err(Error::KeyHasRedact {
-                ptr: ptr.to_string(),
-                schema: read.curi.clone(),
-                strategy: read_shape.redact.clone(),
-            });
+            if !matches!(
+                read_shape.reduce,
+                shape::Reduce::Unset
+                    | shape::Reduce::Strategy(doc::reduce::Strategy::LastWriteWins(_)),
+            ) {
+                return Err(Error::KeyHasReduce {
+                    ptr: ptr.to_string(),
+                    schema: read.curi.clone(),
+                    strategy: read_shape.reduce.clone(),
+                });
+            }
+            if !matches!(read_shape.redact, shape::Redact::Unset) {
+                return Err(Error::KeyHasRedact {
+                    ptr: ptr.to_string(),
+                    schema: read.curi.clone(),
+                    strategy: read_shape.redact.clone(),
+                });
+            }
         }
 
         if let Some(write) = write {
             let (write_shape, write_exists) = write.shape.locate(&json::Pointer::from(ptr));
-
             if write_exists == Exists::Implicit {
                 return Err(Error::PtrIsImplicit {
                     ptr: ptr.to_string(),
                     schema: write.curi.clone(),
                 });
-            } else if write_exists == Exists::Cannot {
+            } else if write_exists == Exists::Cannot && write_shape.default.is_none() {
                 return Err(Error::PtrCannotExist {
                     ptr: ptr.to_string(),
                     schema: write.curi.clone(),
@@ -115,18 +120,21 @@ impl Schema {
             }
 
             // Keyed location types may differ only in null-ability between
-            // the read and write schemas.
-            let read_type = read_shape.type_ - types::NULL;
-            let write_type = write_shape.type_ - types::NULL;
+            // the read and write schemas. Skip when the read type is INVALID
+            // (Cannot-exist location with a default).
+            if read_exists != Exists::Cannot {
+                let read_type = read_shape.type_ - types::NULL;
+                let write_type = write_shape.type_ - types::NULL;
 
-            if read_type != write_type {
-                return Err(Error::KeyReadWriteTypesDiffer {
-                    ptr: ptr.to_string(),
-                    read_type: read_type,
-                    read_schema: read.curi.clone(),
-                    write_type: write_type,
-                    write_schema: write.curi.clone(),
-                });
+                if read_type != write_type {
+                    return Err(Error::KeyReadWriteTypesDiffer {
+                        ptr: ptr.to_string(),
+                        read_type,
+                        read_schema: read.curi.clone(),
+                        write_type,
+                        write_schema: write.curi.clone(),
+                    });
+                }
             }
         }
 

@@ -1609,8 +1609,7 @@ fn test_key_with_write_default_allowed_despite_inferred_addl_props_false() {
     // When a collection key includes a field (/_meta/store) that is defined
     // in the write schema with a default value, but hasn't yet been observed
     // in the inferred schema (which has additionalProperties: false on _meta),
-    // validation currently raises PtrCannotExist because the read-schema
-    // intersection drops the default when type becomes INVALID.
+    // validation allows it because the default annotation survives intersection.
     let outcome = common::run(
         r##"
 driver:
@@ -1690,7 +1689,8 @@ test://example/catalog.yaml:
 #[test]
 fn test_key_with_write_default_via_ref_chain_allowed_despite_inferred_addl_props_false() {
     // Same scenario as above but using the exact schema structure from the
-    // source-shopify-native connector with $ref chains.
+    // source-shopify-native connector with $ref chains. The default annotation
+    // survives intersection, so validation allows the key field.
     let outcome = common::run(
         r##"
 driver:
