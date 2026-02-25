@@ -41,14 +41,13 @@ expression: email.body
         <div class="divider"></div>
         <div class="email-content">
             <p class="body-text">
-                Your Estuary capture <span class="identifier">acmeCo/test/capture</span> has not had healthy shard activity for an extended period while remaining enabled.
+                Your Estuary capture <span class="identifier">acmeCo/test/capture</span> has not started successfully since 2025-05-01. We have attempted to restart it 42 time(s) without success.
             </p>
             <p class="body-text">
-                This may indicate the task is no longer needed. If the task is still required, please check its configuration and logs for issues preventing it from running successfully.
+                If the task is still important to you, please check its configuration and logs for issues preventing it from running successfully. Otherwise, it will be disabled automatically in 7 days.
             </p>
             <ul>
                 <li><a href="http://dashboard.estuary.test/captures/details/overview?catalogName=acmeCo/test/capture" target="_blank" rel="noopener">View the task status and logs</a></li>
-                <li>If you no longer need this task, consider disabling it to free up resources.</li>
                 <li>If you need help, reach out to our team via Slack (#support) or reply to this email.</li>
             </ul>            <div class="signature">
                 Thanks,<br>

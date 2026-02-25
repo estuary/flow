@@ -406,10 +406,7 @@ async fn update_shard_health<C: ControlPlane>(
         status: new_status,
     });
 
-    if new_status == ShardsStatus::Ok && count >= *SUSTAINED_PRIMARY_MIN_CHECKS {
-        status.last_sustained_primary_ts = Some(now);
-        status.restarts_since_last_primary = 0;
-    }
+    update_sustained_primary(status, new_status, count, now);
 
     // If there's been at least 3 failed checks in a row, then consider the
     // shard failed. We require at least 3 failed checks in a row because it's
@@ -483,6 +480,20 @@ fn synthesize_shard_failed_events(
 
 fn is_ops_catalog_task(state: &ControllerState) -> bool {
     state.catalog_name.starts_with("ops/") || state.catalog_name.starts_with("ops.us-central1.v1/")
+}
+
+/// Updates `last_sustained_primary_ts` and resets `restarts_since_last_primary`
+/// when shards have been Ok for enough consecutive checks.
+fn update_sustained_primary(
+    status: &mut ActivationStatus,
+    new_status: ShardsStatus,
+    consecutive_ok_count: u32,
+    now: DateTime<Utc>,
+) {
+    if new_status == ShardsStatus::Ok && consecutive_ok_count >= *SUSTAINED_PRIMARY_MIN_CHECKS {
+        status.last_sustained_primary_ts = Some(now);
+        status.restarts_since_last_primary = 0;
+    }
 }
 
 fn aggregate_shard_status(
@@ -802,6 +813,50 @@ mod test {
             ],
         );
         assert_eq!(ShardsStatus::Failed, actual);
+    }
+
+    #[test]
+    fn test_sustained_primary_tracking() {
+        use chrono::TimeZone;
+
+        let now = Utc.with_ymd_and_hms(2025, 6, 1, 12, 0, 0).unwrap();
+        let mut status = ActivationStatus {
+            restarts_since_last_primary: 10,
+            ..Default::default()
+        };
+
+        // Below threshold: no update
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 1, now);
+        assert_eq!(status.last_sustained_primary_ts, None);
+        assert_eq!(status.restarts_since_last_primary, 10);
+
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 2, now);
+        assert_eq!(status.last_sustained_primary_ts, None);
+        assert_eq!(status.restarts_since_last_primary, 10);
+
+        // At threshold: updates
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 3, now);
+        assert_eq!(status.last_sustained_primary_ts, Some(now));
+        assert_eq!(status.restarts_since_last_primary, 0);
+
+        // Above threshold: continues updating
+        let later = now + Duration::hours(1);
+        status.restarts_since_last_primary = 5;
+        update_sustained_primary(&mut status, ShardsStatus::Ok, 10, later);
+        assert_eq!(status.last_sustained_primary_ts, Some(later));
+        assert_eq!(status.restarts_since_last_primary, 0);
+
+        // Failed status: no update regardless of count
+        status.restarts_since_last_primary = 7;
+        let even_later = later + Duration::hours(1);
+        update_sustained_primary(&mut status, ShardsStatus::Failed, 5, even_later);
+        assert_eq!(status.last_sustained_primary_ts, Some(later));
+        assert_eq!(status.restarts_since_last_primary, 7);
+
+        // Pending status: no update regardless of count
+        update_sustained_primary(&mut status, ShardsStatus::Pending, 5, even_later);
+        assert_eq!(status.last_sustained_primary_ts, Some(later));
+        assert_eq!(status.restarts_since_last_primary, 7);
     }
 
     #[test]

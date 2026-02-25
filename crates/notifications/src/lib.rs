@@ -952,6 +952,10 @@ mod tests {
             json!({
                 "recipients": [user_a()],
                 "spec_type": "capture",
+                "count": 42,
+
+                "disable_after_days": 7,
+                "last_primary_ts": "2025-05-01",
             }),
             State::Fired,
         );
@@ -966,6 +970,37 @@ mod tests {
     }
 
     #[test]
+    fn test_task_abandoned_fired_never_primary() {
+        let email = test_single_email(
+            AlertType::TaskAbandoned,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+                "count": 0,
+
+                "disable_after_days": 7,
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary Flow: capture acmeCo/test/capture appears abandoned",
+        );
+        assert!(
+            email.body.contains("since it was created"),
+            "should say 'since it was created' when last_primary_ts is absent"
+        );
+        assert!(
+            !email.body.contains("since 20"),
+            "should not contain a date"
+        );
+    }
+
+    #[test]
     fn test_task_abandoned_resolved() {
         let email = test_single_email(
             AlertType::TaskAbandoned,
@@ -973,6 +1008,9 @@ mod tests {
             json!({
                 "recipients": [user_b()],
                 "spec_type": "capture",
+                "count": 42,
+
+                "disable_after_days": 7,
             }),
             State::Resolved,
         );

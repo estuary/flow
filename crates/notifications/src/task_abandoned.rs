@@ -15,14 +15,13 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
         .register_template_string(
             &fired_body,
             r#"<p class="body-text">
-    Your Estuary {{arguments.spec_type}} <span class="identifier">{{catalog_name}}</span> has not had healthy shard activity for an extended period while remaining enabled.
+    Your Estuary {{arguments.spec_type}} <span class="identifier">{{catalog_name}}</span> has not started successfully {{#if arguments.last_primary_ts}}since {{arguments.last_primary_ts}}{{else}}since it was created{{/if}}. We have attempted to restart it {{arguments.count}} time(s) without success.
 </p>
 <p class="body-text">
-    This may indicate the task is no longer needed. If the task is still required, please check its configuration and logs for issues preventing it from running successfully.
+    If the task is still important to you, please check its configuration and logs for issues preventing it from running successfully. Otherwise, it will be disabled automatically in {{arguments.disable_after_days}} days.
 </p>
 <ul>
     <li><a href="{{> spec_dashboard_overview_url}}" target="_blank" rel="noopener">View the task status and logs</a></li>
-    <li>If you no longer need this task, consider disabling it to free up resources.</li>
     <li>If you need help, reach out to our team via Slack (#support) or reply to this email.</li>
 </ul>"#,
         )

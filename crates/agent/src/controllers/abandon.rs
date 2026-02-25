@@ -3,9 +3,13 @@ use crate::controllers::activation::has_task_shards;
 use chrono::{DateTime, Utc};
 use models::status::{AlertType, Alerts, activation::ActivationStatus};
 
-/// Default: 14 days without sustained PRIMARY before flagging.
+/// Duration without sustained PRIMARY before the TaskAbandoned alert fires.
 static ABANDONED_TASK_THRESHOLD: std::sync::LazyLock<chrono::Duration> =
     std::sync::LazyLock::new(|| env_duration("ABANDONED_TASK_THRESHOLD", chrono::Duration::days(14)));
+
+/// Duration after the TaskAbandoned alert fires before the task is automatically disabled.
+static ABANDONED_TASK_DISABLE_AFTER: std::sync::LazyLock<chrono::Duration> =
+    std::sync::LazyLock::new(|| env_duration("ABANDONED_TASK_DISABLE_AFTER", chrono::Duration::days(7)));
 
 pub fn evaluate_abandoned(
     alerts_status: &mut Alerts,
@@ -13,10 +17,10 @@ pub fn evaluate_abandoned(
     state: &ControllerState,
     now: DateTime<Utc>,
 ) -> Option<NextRun> {
-    if !has_task_shards(state) {
+    let Some(spec) = state.live_spec.as_ref().filter(|_| has_task_shards(state)) else {
         alerts::resolve_alert(alerts_status, AlertType::TaskAbandoned);
         return None;
-    }
+    };
 
     let cutoff_ts = now - *ABANDONED_TASK_THRESHOLD;
 
@@ -30,15 +34,28 @@ pub fn evaluate_abandoned(
         last_primary < cutoff_ts && state.last_connector_status_ts.map_or(true, |t| t < cutoff_ts);
 
     if is_abandoned {
-        let spec_type = state.live_spec.as_ref().unwrap().catalog_type();
         alerts::set_alert_firing(
             alerts_status,
             AlertType::TaskAbandoned,
             now,
             format!("task has had no sustained PRIMARY shard since {last_primary}"),
             activation.restarts_since_last_primary,
-            spec_type,
+            spec.catalog_type(),
         );
+        if let Some(alert) = alerts_status.get_mut(&AlertType::TaskAbandoned) {
+            alert.extra.insert(
+                "disable_after_days".to_string(),
+                serde_json::Value::from(ABANDONED_TASK_DISABLE_AFTER.num_days()),
+            );
+            // Pass the actual timestamp so the email can say "since <date>"
+            // vs "since it was created" when PRIMARY was never observed.
+            if let Some(ts) = activation.last_sustained_primary_ts {
+                alert.extra.insert(
+                    "last_primary_ts".to_string(),
+                    serde_json::Value::from(ts.format("%Y-%m-%d").to_string()),
+                );
+            }
+        }
     } else {
         alerts::resolve_alert(alerts_status, AlertType::TaskAbandoned);
     }
@@ -185,6 +202,9 @@ mod test {
         assert_eq!(alert.count, 5);
         assert_eq!(alert.spec_type, models::CatalogType::Capture);
         assert!(alert.error.contains("no sustained PRIMARY shard since"));
+        assert_eq!(alert.extra.get("disable_after_days"), Some(&serde_json::json!(7)));
+        // last_sustained_primary_ts was None, so last_primary_ts should be absent
+        assert_eq!(alert.extra.get("last_primary_ts"), None);
     }
 
     #[test]
@@ -242,6 +262,11 @@ mod test {
         assert_eq!(alert.state, AlertState::Firing);
         assert_eq!(alert.count, 12);
         assert_eq!(alert.spec_type, models::CatalogType::Materialization);
+        // last_sustained_primary_ts was Some, so last_primary_ts should be present
+        assert_eq!(
+            alert.extra.get("last_primary_ts"),
+            Some(&serde_json::json!("2025-05-12")),
+        );
     }
 
     #[test]
