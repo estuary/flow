@@ -3576,7 +3576,6 @@ dependencies = [
  "futures",
  "futures-core",
  "hexdump",
- "hyper-util",
  "jsonwebtoken",
  "memchr",
  "ops",
@@ -3592,9 +3591,9 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tonic",
- "tower",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
