@@ -214,6 +214,7 @@ mod test {
                 recent_failure_count: 999, // should be ignored
                 next_retry: None,
                 shard_status: None,
+                ..Default::default()
             },
             ..Default::default()
         });
@@ -263,6 +264,7 @@ mod test {
                     last_ts: "2024-02-03T09:10:11Z".parse().unwrap(),
                     status: ShardsStatus::Ok,
                 }),
+                ..Default::default()
             },
             ..Default::default()
         });

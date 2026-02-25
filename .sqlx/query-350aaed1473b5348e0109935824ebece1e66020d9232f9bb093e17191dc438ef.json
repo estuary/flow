@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select ps.published_at\n        from publication_specs ps\n        where ps.live_spec_id = $1\n            and ps.user_id != $2\n        order by ps.pub_id desc\n        limit 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "published_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "350aaed1473b5348e0109935824ebece1e66020d9232f9bb093e17191dc438ef"
+}

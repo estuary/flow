@@ -24,7 +24,11 @@
                 "data_not_processed_in_interval",
                 "shard_failed",
                 "auto_discover_failed",
-                "background_publication_failed"
+                "background_publication_failed",
+                "task_chronically_failing",
+                "task_auto_disabled_failing",
+                "task_idle",
+                "task_auto_disabled_idle"
               ]
             }
           }

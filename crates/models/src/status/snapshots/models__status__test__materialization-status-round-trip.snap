@@ -1,5 +1,6 @@
 ---
 source: crates/models/src/status/mod.rs
+assertion_line: 412
 expression: "StatusSnapshot { starting: status, json: as_json, parsed: round_tripped, }"
 ---
 StatusSnapshot {
@@ -77,6 +78,7 @@ StatusSnapshot {
                 next_retry: Some(
                     2025-01-02T03:04:05.060Z,
                 ),
+                restarts_since_last_primary: 0,
             },
             config_updates: None,
             alerts: {},
@@ -157,6 +159,7 @@ StatusSnapshot {
                 next_retry: Some(
                     2025-01-02T03:04:05.060Z,
                 ),
+                restarts_since_last_primary: 0,
             },
             config_updates: None,
             alerts: {},

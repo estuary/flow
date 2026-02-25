@@ -6,6 +6,10 @@ mod free_trial_ending;
 mod free_trial_stalled;
 mod missing_payment_method;
 mod shard_failed;
+mod task_auto_disabled_failing;
+mod task_auto_disabled_idle;
+mod task_chronically_failing;
+mod task_idle;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -141,6 +145,10 @@ impl Renderer {
         free_trial_ending::register_templates(&mut hb)?;
         missing_payment_method::register_templates(&mut hb)?;
         shard_failed::register_templates(&mut hb)?;
+        task_chronically_failing::register_templates(&mut hb)?;
+        task_auto_disabled_failing::register_templates(&mut hb)?;
+        task_idle::register_templates(&mut hb)?;
+        task_auto_disabled_idle::register_templates(&mut hb)?;
 
         Ok(Renderer {
             dashboard_base_url,
@@ -940,6 +948,78 @@ mod tests {
 
         assert_eq!(&user_a(), &emails[1].recipient);
         assert_eq!("0102030405060708-resolved-1", &emails[1].idempotency_key);
+    }
+
+    #[test]
+    fn test_task_chronically_failing_fired() {
+        let email = test_single_email(
+            AlertType::TaskChronicallyFailing,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+                "count": 42,
+
+                "disable_at": "2025-06-08",
+                "failing_since": "2025-05-01",
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary Flow: capture acmeCo/test/capture is chronically failing",
+        );
+        insta::assert_snapshot!("task_chronically_failing_fired_body", email.body);
+    }
+
+    #[test]
+    fn test_task_chronically_failing_fired_zero_restarts() {
+        let email = test_single_email(
+            AlertType::TaskChronicallyFailing,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+                "count": 0,
+
+                "disable_at": "2025-06-08",
+                "failing_since": "2025-05-01",
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary Flow: capture acmeCo/test/capture is chronically failing",
+        );
+        assert!(
+            email.body.contains("failing since 2025-05-01"),
+            "should include failing_since date"
+        );
+        assert!(
+            email.body.contains("0 time(s)"),
+            "should include restart count"
+        );
+    }
+
+    #[test]
+    fn test_task_chronically_failing_resolved() {
+        expect_no_email(
+            AlertType::TaskChronicallyFailing,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_b()],
+                "spec_type": "capture",
+                "count": 42,
+                "disable_at": "2025-06-08",
+            }),
+            State::Resolved,
+        );
     }
 
     #[test]
