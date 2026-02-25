@@ -72,7 +72,7 @@ impl Topology {
                 tuple::TuplePack::pack(value, &mut buf, tuple::TupleDepth::new())
                     .expect("packing Value cannot fail");
             }
-            let key_hash = crate::packed_key_hash(&buf);
+            let key_hash = doc::Extractor::packed_hash(&buf);
             (
                 Some(key_hash),
                 range_span(&self.members, key_hash, key_hash),
@@ -95,7 +95,7 @@ impl Topology {
 
         // Pick a member within [start, stop). Use a stable hash for test stability.
         // Our intent is merely to balance read assignments across members.
-        let hash = crate::packed_key_hash(
+        let hash = doc::Extractor::packed_hash(
             format!("{};{}", spec.name, binding.journal_read_suffix).as_bytes(),
         ) as usize;
         let member_index = hash % (stop - start) + start;
