@@ -506,14 +506,14 @@ pub fn journal_selector(
     if let Some(selector) = selector {
         for (field, values) in &selector.include {
             for value in values {
-                include =
-                    labels::partition::add_value(include, field, value).expect("value is valid");
+                include = labels::partition::encode_field_label(include, field, value)
+                    .expect("value is valid");
             }
         }
         for (field, values) in &selector.exclude {
             for value in values {
-                exclude =
-                    labels::partition::add_value(exclude, field, value).expect("value is valid");
+                exclude = labels::partition::encode_field_label(exclude, field, value)
+                    .expect("value is valid");
             }
         }
     }
