@@ -5,12 +5,16 @@ use json::schema::types;
 use std::fmt::Write;
 
 /// Map a Shape at the given location into an AVRO schema.
-/// If the location is not required and has no default, it may implicitly be none.
+/// If the location is not required and has no non-null default, it may implicitly be none.
 pub fn shape_to_avro(loc: json::Location, shape: doc::Shape, required: bool) -> avro::Schema {
     let mut type_ = shape.type_;
 
     // Is this location nullable ? NULL may union with any other schema.
-    let nullable = if shape.type_.overlaps(types::NULL) || (!required && shape.default.is_none()) {
+    // A null default is equivalent to no default for nullability: the field
+    // can be absent and absence maps to null.
+    let nullable = if shape.type_.overlaps(types::NULL)
+        || (!required && shape.default.as_ref().map_or(true, |d| d.0.is_null()))
+    {
         type_ = type_ - types::NULL;
         true
     } else {
