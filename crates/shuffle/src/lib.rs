@@ -40,25 +40,6 @@ fn now_clock() -> proto_gazette::uuid::Clock {
     }
 }
 
-// Fixed 32-byte key for HighwayHash, matching the Go implementation
-// in go/flow/mapping.go. The key is interpreted as 4 little-endian u64s.
-const HIGHWAY_KEY: highway::Key = highway::Key([
-    u64::from_le_bytes([0xba, 0x73, 0x7e, 0x89, 0x15, 0x52, 0x38, 0xd4]),
-    u64::from_le_bytes([0x7d, 0x80, 0x67, 0xc3, 0x5a, 0xad, 0x4d, 0x25]),
-    u64::from_le_bytes([0xec, 0xdd, 0x1c, 0x34, 0x88, 0x22, 0x7e, 0x01]),
-    u64::from_le_bytes([0x1f, 0xfa, 0x48, 0x0c, 0x02, 0x2b, 0xd3, 0xba]),
-]);
-
-/// Hash a packed shuffle key using HighwayHash, returning the top 32 bits.
-/// Must produce identical results to Go's flow.PackedKeyHash_HH64.
-fn packed_key_hash(packed_key: &[u8]) -> u32 {
-    use highway::HighwayHash;
-
-    let mut hasher = highway::HighwayHasher::new(HIGHWAY_KEY);
-    hasher.append(packed_key);
-    (hasher.finalize64() >> 32) as u32
-}
-
 fn new_channel<T>() -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
     mpsc::channel::<T>(32)
 }
