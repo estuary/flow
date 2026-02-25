@@ -1605,6 +1605,194 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_key_with_write_default_allowed_despite_inferred_addl_props_false() {
+    // When a collection key includes a field (/_meta/store) that is defined
+    // in the write schema with a default value, but hasn't yet been observed
+    // in the inferred schema (which has additionalProperties: false on _meta),
+    // validation currently raises PtrCannotExist because the read-schema
+    // intersection drops the default when type becomes INVALID.
+    let outcome = common::run(
+        r##"
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  liveInferredSchemas:
+    testing/multi-store:
+      type: object
+      properties:
+        id:
+          type: string
+        _meta:
+          type: object
+          properties:
+            uuid:
+              type: string
+          additionalProperties: false
+          required: [uuid]
+      required: [id, _meta]
+      additionalProperties: false
+      x-collection-generation-id: 0000000000000001
+
+  liveCollections:
+    testing/multi-store:
+      key: [/id]
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:02"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+
+test://example/catalog.yaml:
+  collections:
+    testing/multi-store:
+      key: ["/_meta/store", "/id"]
+
+      writeSchema:
+        type: object
+        properties:
+          id:
+            type: string
+          _meta:
+            type: object
+            properties:
+              store:
+                type: string
+                default: ""
+        required: [id]
+        x-infer-schema: true
+
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            type: object
+            properties:
+              id:
+                type: string
+              _meta:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                additionalProperties: false
+                required: [uuid]
+            required: [id, _meta]
+            additionalProperties: false
+            x-collection-generation-id: 0000000000000001
+        allOf:
+          - $ref: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema
+"##,
+        "{}",
+    );
+    insta::assert_debug_snapshot!(outcome.errors);
+}
+
+#[test]
+fn test_key_with_write_default_via_ref_chain_allowed_despite_inferred_addl_props_false() {
+    // Same scenario as above but using the exact schema structure from the
+    // source-shopify-native connector with $ref chains.
+    let outcome = common::run(
+        r##"
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  liveInferredSchemas:
+    testing/multi-store:
+      type: object
+      properties:
+        id:
+          type: string
+        _meta:
+          type: object
+          properties:
+            uuid:
+              type: string
+          additionalProperties: false
+          required: [uuid]
+      required: [id, _meta]
+      additionalProperties: false
+      x-collection-generation-id: 0000000000000001
+
+  liveCollections:
+    testing/multi-store:
+      key: [/id]
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:02"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+
+test://example/catalog.yaml:
+  collections:
+    testing/multi-store:
+      key: ["/_meta/store", "/id"]
+
+      writeSchema:
+        $defs:
+          "flow://connector-schema":
+            $id: "flow://connector-schema"
+            $defs:
+              Meta:
+                properties:
+                  op:
+                    default: u
+                    description: "Operation type (c: Create, u: Update, d: Delete)"
+                    enum: [c, u, d]
+                    title: Op
+                    type: string
+                  row_id:
+                    default: -1
+                    description: "Row ID of the Document, counting up from zero, or -1 if not known"
+                    title: Row Id
+                    type: integer
+                  store:
+                    default: ""
+                    description: The Shopify store this document belongs to
+                    title: Store
+                    type: string
+                title: Meta
+                type: object
+            additionalProperties: true
+            properties:
+              _meta:
+                $ref: "#/$defs/Meta"
+                description: Document metadata
+              id:
+                title: Id
+                type: string
+            required: [id]
+            title: ShopifyGraphQLResource
+            type: object
+            x-infer-schema: true
+        $ref: "flow://connector-schema"
+
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            type: object
+            properties:
+              id:
+                type: string
+              _meta:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                additionalProperties: false
+                required: [uuid]
+            required: [id, _meta]
+            additionalProperties: false
+            x-collection-generation-id: 0000000000000001
+        allOf:
+          - $ref: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema
+"##,
+        "{}",
+    );
+    insta::assert_debug_snapshot!(outcome.errors);
+}
+
+#[test]
 fn test_collection_inferred_schema_add_blocking() {
     // A redact annotation on a required write schema property raises an error.
     let outcome = common::run_errors(
