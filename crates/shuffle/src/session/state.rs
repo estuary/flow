@@ -57,9 +57,11 @@ impl Topology {
             .as_deref()
             .unwrap_or(&[]);
 
-        let ((key_begin, key_end), shuffle_key_values) =
-            labels::partition::decode_field_range(labels, shuffle_key_partition_fields)
-                .context("decoding journal field range")?;
+        let shuffle_key_values =
+            labels::partition::decode_fields_labels(labels, shuffle_key_partition_fields)
+                .context("decoding partitioned journal fields")?;
+        let (key_begin, key_end) = labels::partition::decode_key_range_labels(labels)
+            .context("decoding journal key range")?;
 
         let (shuffle_key_hash, (start, stop)) = if !shuffle_key_values.is_empty() {
             // The shuffle key is fully covered by partitioned fields, and thus
