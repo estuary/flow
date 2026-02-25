@@ -10,8 +10,12 @@ RUN apt update -y \
         openssh-client \
         python3-certbot-dns-google \
         python3-poetry \
+        python3-pip \
         python3-venv \
    && rm -rf /var/lib/apt/lists/*
+
+# Install the Mitogen strategy plugin for Ansible.
+RUN pip install --break-system-packages mitogen
 
 # Install the `pulumi` CLI.
 RUN curl -fsSL https://get.pulumi.com/ | bash -s
