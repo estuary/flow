@@ -1,22 +1,11 @@
-use std::str::FromStr;
-
-use super::{ControllerState, NextRun, alerts};
+use super::{ControllerState, NextRun, alerts, env_duration};
 use crate::controllers::activation::has_task_shards;
 use chrono::{DateTime, Utc};
 use models::status::{AlertType, Alerts, activation::ActivationStatus};
 
 /// Default: 14 days without sustained PRIMARY before flagging.
 static ABANDONED_TASK_THRESHOLD: std::sync::LazyLock<chrono::Duration> =
-    std::sync::LazyLock::new(|| {
-        if let Ok(val) = std::env::var("ABANDONED_TASK_THRESHOLD") {
-            let parsed: humantime::Duration = FromStr::from_str(&val)
-                .unwrap_or_else(|err| panic!("invalid ABANDONED_TASK_THRESHOLD value: {err:?}"));
-            chrono::Duration::from_std(parsed.into())
-                .unwrap_or_else(|_err| panic!("invalid ABANDONED_TASK_THRESHOLD value: out of range"))
-        } else {
-            chrono::Duration::days(14)
-        }
-    });
+    std::sync::LazyLock::new(|| env_duration("ABANDONED_TASK_THRESHOLD", chrono::Duration::days(14)));
 
 pub fn evaluate_abandoned(
     alerts_status: &mut Alerts,

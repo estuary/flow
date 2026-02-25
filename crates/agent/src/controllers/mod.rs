@@ -24,6 +24,19 @@ use std::fmt::Debug;
 
 pub use executor::{Inbox, LiveSpecControllerExecutor};
 
+/// Parses a `chrono::Duration` from an environment variable using humantime (e.g. `3h`, `14d`).
+/// Returns `default` if the variable is not set. Panics if the variable is set but unparseable.
+pub(super) fn env_duration(var_name: &str, default: chrono::Duration) -> chrono::Duration {
+    if let Ok(val) = std::env::var(var_name) {
+        let parsed: humantime::Duration = std::str::FromStr::from_str(&val)
+            .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"));
+        chrono::Duration::from_std(parsed.into())
+            .unwrap_or_else(|_err| panic!("invalid {var_name} value: out of range"))
+    } else {
+        default
+    }
+}
+
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
 pub const CONTROLLER_VERSION: i32 = 2;

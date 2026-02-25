@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use super::{ControllerState, NextRun, alerts, backoff_data_plane_activate};
+use super::{ControllerState, NextRun, alerts, backoff_data_plane_activate, env_duration};
 use crate::{
     controllers::{ControllerErrorExt, Inbox},
     controlplane::ControlPlane,
@@ -18,35 +18,20 @@ use models::{
     },
 };
 
-/// Helper for getting a `chrono::Duration` from an environment variable, using humantime so it
-/// supports parsing durations like `3h`.
-macro_rules! env_config_interval {
-    ($var_ident:ident, $default_val:expr) => {
-        static $var_ident: std::sync::LazyLock<chrono::Duration> = std::sync::LazyLock::new(|| {
-            let var_name = stringify!($var_ident);
-            if let Ok(val) = std::env::var(var_name) {
-                let parsed: humantime::Duration = FromStr::from_str(&val)
-                    .unwrap_or_else(|err| panic!("invalid {var_name} value: {err:?}"));
-                chrono::Duration::from_std(parsed.into())
-                    .unwrap_or_else(|_err| panic!("invalid {var_name} value: out of range"))
-            } else {
-                $default_val
-            }
-        });
-    };
-}
-
 // We retain rows in the `shard_failures` table for at most this long. Failures
 // are deleted every time the `build_id` changes, or if they're older than this
 // threshold. The controller keeps a count of recent failures in the status,
 // and it periodically cleans up old failures as long as that count is
 // positive.
-env_config_interval! {SHARD_FAILURE_RETENTION, chrono::Duration::hours(8)}
+static SHARD_FAILURE_RETENTION: std::sync::LazyLock<chrono::Duration> =
+    std::sync::LazyLock::new(|| env_duration("SHARD_FAILURE_RETENTION", chrono::Duration::hours(8)));
 
 // We resolve shard failed alerts after this duration has passed since the shards
 // last became healthy.
-env_config_interval! {RESOLVE_SHARD_FAILED_ALERT_AFTER, chrono::Duration::hours(2)}
-env_config_interval! {FLOW_MAX_SHARD_STATUS_INTERVAL, chrono::Duration::hours(2)}
+static RESOLVE_SHARD_FAILED_ALERT_AFTER: std::sync::LazyLock<chrono::Duration> =
+    std::sync::LazyLock::new(|| env_duration("RESOLVE_SHARD_FAILED_ALERT_AFTER", chrono::Duration::hours(2)));
+static FLOW_MAX_SHARD_STATUS_INTERVAL: std::sync::LazyLock<chrono::Duration> =
+    std::sync::LazyLock::new(|| env_duration("FLOW_MAX_SHARD_STATUS_INTERVAL", chrono::Duration::hours(2)));
 
 const ALERT_AFTER_SHARD_FAILURES: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
     if let Ok(val) = std::env::var("ALERT_AFTER_SHARD_FAILURES") {
