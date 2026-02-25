@@ -1,11 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 1687
+assertion_line: 1686
 expression: outcome.errors
 ---
-[
-    Error {
-        scope: test://example/catalog.yaml#/collections/testing~1multi-store/key/0,
-        error: location /_meta/store is prohibited from ever existing by the schema test://example/catalog.yaml?ptr=/collections/testing~1multi-store/readSchema,
-    },
-]
+[]
