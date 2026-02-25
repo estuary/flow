@@ -30,7 +30,6 @@ tuple = { path = "../tuple" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
-highway = { workspace = true }
 md5 = { workspace = true }
 memchr = { workspace = true }
 pbjson-types = { workspace = true }

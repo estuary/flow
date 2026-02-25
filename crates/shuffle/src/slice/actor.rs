@@ -645,7 +645,7 @@ impl SliceActor {
         packed_key.clear();
         doc::Extractor::extract_all(doc.get(), &binding.key_extractors, packed_key);
 
-        let key_hash = crate::packed_key_hash(packed_key);
+        let key_hash = doc::Extractor::packed_hash(packed_key);
         let r_clock = routing::rotate_clock(*clock);
 
         targets.clear();
