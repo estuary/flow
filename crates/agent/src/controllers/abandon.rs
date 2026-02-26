@@ -18,7 +18,8 @@ pub fn evaluate_abandoned(
     now: DateTime<Utc>,
 ) -> Option<NextRun> {
     let Some(spec) = state.live_spec.as_ref().filter(|_| has_task_shards(state)) else {
-        alerts::resolve_alert(alerts_status, AlertType::TaskAbandoned);
+        // Don't resolve the alert here. Disabling a task is not a recovery;
+        // the alert should stay in whatever state it was (firing or absent).
         return None;
     };
 
@@ -169,7 +170,8 @@ mod test {
         let result = evaluate_abandoned(&mut alerts, &activation, &state, now);
 
         assert!(result.is_none());
-        assert!(!alerts.contains_key(&AlertType::TaskAbandoned));
+        // Disabling a task leaves the alert in whatever state it was.
+        assert!(alerts.contains_key(&AlertType::TaskAbandoned));
     }
 
     #[test]
