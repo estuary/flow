@@ -127,7 +127,8 @@ async fn test_abandoned_task_detection_and_resolution() {
         test_recent_connector_status_prevents_firing(&mut harness, *task_type, *catalog_name).await;
         test_recent_primary_prevents_firing(&mut harness, *task_type, *catalog_name).await;
         test_alert_resolves_on_sustained_primary(&mut harness, *task_type, *catalog_name).await;
-        test_disable_leaves_alert_firing(&mut harness, *task_type, *catalog_name).await;
+        test_auto_disable_fires_after_grace_period(&mut harness, *task_type, *catalog_name).await;
+        test_disable_clears_alert(&mut harness, *task_type, *catalog_name).await;
     }
 }
 
@@ -159,10 +160,9 @@ async fn test_stale_primary_fires(
 
     // Verify extra fields in the alert_history arguments
     let extra = &alert.alert.arguments.0;
-    assert_eq!(
-        extra.get("disable_after_days").and_then(|v| v.as_i64()),
-        Some(7),
-        "expected disable_after_days=7, got: {extra:?}"
+    assert!(
+        extra.get("disable_at").and_then(|v| v.as_str()).is_some(),
+        "expected disable_at date in alert arguments, got: {extra:?}"
     );
     // last_primary_ts should be present because last_sustained_primary_ts was Some
     assert!(
@@ -305,8 +305,56 @@ async fn test_alert_resolves_on_sustained_primary(
         .await;
 }
 
-/// Scenario 7: Disabling a task leaves TaskAbandoned alert firing.
-async fn test_disable_leaves_alert_firing(
+/// Scenario: TaskAutoDisabled fires after the grace period expires.
+///
+/// Re-publishes to reset shard_status.count to 0, uses Backfill mock to
+/// prevent `update_sustained_primary` from overriding `last_sustained_primary_ts`.
+async fn test_auto_disable_fires_after_grace_period(
+    harness: &mut TestHarness,
+    task_type: CatalogType,
+    catalog_name: &str,
+) {
+    tracing::info!(%catalog_name, "scenario: auto-disable fires after grace period");
+    republish_spec(harness, task_type, catalog_name).await;
+
+    // Set up abandoned conditions.
+    push_back_created_at(catalog_name, chrono::Duration::days(30), harness).await;
+    set_last_sustained_primary_ts(catalog_name, None, harness).await;
+    delete_connector_status(catalog_name, harness).await;
+
+    // Mock Backfill so health checks produce Pending (not Ok), preventing
+    // update_sustained_primary from overriding last_sustained_primary_ts.
+    harness
+        .control_plane()
+        .mock_shard_status(catalog_name, vec![replica_status::Code::Backfill]);
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+
+    // First run: TaskAbandoned fires, but grace period just started.
+    let _state = harness.run_pending_controller(catalog_name).await;
+    harness
+        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
+        .await;
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskAutoDisabled)
+        .await;
+
+    // Push back the TaskAbandoned alert's first_ts past the 7-day grace period.
+    push_back_alert_first_ts(catalog_name, AlertType::TaskAbandoned, chrono::Duration::days(10), harness).await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+
+    // Second run: grace period has expired, TaskAutoDisabled fires.
+    let _state = harness.run_pending_controller(catalog_name).await;
+
+    harness
+        .assert_alert_firing(catalog_name, AlertType::TaskAutoDisabled)
+        .await;
+    harness
+        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
+        .await;
+}
+
+/// Scenario: Disabling a task clears both TaskAbandoned and TaskAutoDisabled (silently, no email).
+async fn test_disable_clears_alert(
     harness: &mut TestHarness,
     task_type: CatalogType,
     catalog_name: &str,
@@ -357,16 +405,11 @@ async fn test_disable_leaves_alert_firing(
 
     let _disabled_state = harness.run_pending_controller(catalog_name).await;
 
-    // The alert should STILL be firing in controller status (not resolved).
-    let state = harness.get_controller_state(catalog_name).await;
-    let alert_status = state
-        .current_status
-        .alerts_status()
-        .and_then(|alerts| alerts.get(&AlertType::TaskAbandoned));
-    assert!(
-        alert_status.is_some_and(|a| a.state == models::status::AlertState::Firing),
-        "expected TaskAbandoned alert to remain firing after disable, got: {alert_status:?}"
-    );
+    // The alert should be cleared from controller status. No resolution
+    // email is sent because TaskAbandoned has no resolved template.
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskAbandoned)
+        .await;
 
     // Re-enable the task so the next task-type iteration starts clean.
     let start = harness.get_controller_state(catalog_name).await;
@@ -614,6 +657,35 @@ async fn delete_connector_status(catalog_name: &str, harness: &mut TestHarness) 
     .execute(&harness.pool)
     .await
     .expect("failed to delete connector_status");
+}
+
+async fn push_back_alert_first_ts(
+    catalog_name: &str,
+    alert_type: AlertType,
+    by_duration: chrono::Duration,
+    harness: &mut TestHarness,
+) {
+    let alert_key = alert_type.name();
+    let new_ts = (chrono::Utc::now() - by_duration).to_rfc3339();
+
+    // The alerts map is at {alerts, <alert_type_name>, first_ts} in the controller status JSON.
+    let query = format!(
+        "update controller_jobs set \
+         status = jsonb_set(status::jsonb, '{{alerts,{alert_key},first_ts}}', to_jsonb($2::text))::json \
+         where live_spec_id = (select id from live_specs where catalog_name = $1) \
+         and status->'alerts'->'{alert_key}'->>'first_ts' is not null"
+    );
+    tracing::debug!(%catalog_name, %alert_key, %new_ts, %query, "pushing back alert first_ts");
+    let result = sqlx::query(&query)
+        .bind(catalog_name)
+        .bind(&new_ts)
+        .execute(&harness.pool)
+        .await
+        .expect("failed to push back alert first_ts");
+    assert!(
+        result.rows_affected() > 0,
+        "push_back_alert_first_ts for {catalog_name}/{alert_key} updated 0 rows"
+    );
 }
 
 async fn upsert_connector_status_at(

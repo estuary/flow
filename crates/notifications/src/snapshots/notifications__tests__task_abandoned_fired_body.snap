@@ -44,7 +44,7 @@ expression: email.body
                 Your Estuary capture <span class="identifier">acmeCo/test/capture</span> has not started successfully since 2025-05-01. We have attempted to restart it 42 time(s) without success.
             </p>
             <p class="body-text">
-                If the task is still important to you, please check its configuration and logs for issues preventing it from running successfully. Otherwise, it will be disabled automatically in 7 days.
+                If the task is still important to you, please check its configuration and logs for issues preventing it from running successfully. Otherwise, it will be disabled automatically on 2025-06-08.
             </p>
             <ul>
                 <li><a href="http://dashboard.estuary.test/captures/details/overview?catalogName=acmeCo/test/capture" target="_blank" rel="noopener">View the task status and logs</a></li>

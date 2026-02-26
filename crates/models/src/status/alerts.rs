@@ -49,6 +49,9 @@ pub enum AlertType {
     /// recent connector status updates for a prolonged period, indicating it may be
     /// abandoned by the user while still consuming data-plane resources.
     TaskAbandoned,
+    /// Triggers when a task is automatically disabled after the TaskAbandoned alert
+    /// has been firing for a configured grace period without recovery.
+    TaskAutoDisabled,
     /// Triggers when an automated background process needs to publish a spec,
     /// but is unable to because of publication errors. Background publications
     /// are peformed on all specs for a variety of reasons. For example,
@@ -75,6 +78,7 @@ impl AlertType {
             AlertType::FreeTrialStalled => "free_trial_stalled",
             AlertType::MissingPaymentMethod => "missing_payment_method",
             AlertType::TaskAbandoned => "task_abandoned",
+            AlertType::TaskAutoDisabled => "task_auto_disabled",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
         }
     }
@@ -84,6 +88,7 @@ impl AlertType {
             AlertType::AutoDiscoverFailed,
             AlertType::ShardFailed,
             AlertType::TaskAbandoned,
+            AlertType::TaskAutoDisabled,
             AlertType::DataMovementStalled,
             AlertType::FreeTrial,
             AlertType::FreeTrialEnding,
@@ -105,6 +110,7 @@ impl AlertType {
             AlertType::MissingPaymentMethod => Some("tenant_alerts"),
             AlertType::ShardFailed => None,
             AlertType::TaskAbandoned => None,
+            AlertType::TaskAutoDisabled => None,
             AlertType::BackgroundPublicationFailed => None,
         }
     }

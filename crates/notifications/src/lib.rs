@@ -7,6 +7,7 @@ mod free_trial_stalled;
 mod missing_payment_method;
 mod shard_failed;
 mod task_abandoned;
+mod task_auto_disabled;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -143,6 +144,7 @@ impl Renderer {
         missing_payment_method::register_templates(&mut hb)?;
         shard_failed::register_templates(&mut hb)?;
         task_abandoned::register_templates(&mut hb)?;
+        task_auto_disabled::register_templates(&mut hb)?;
 
         Ok(Renderer {
             dashboard_base_url,
@@ -954,7 +956,7 @@ mod tests {
                 "spec_type": "capture",
                 "count": 42,
 
-                "disable_after_days": 7,
+                "disable_at": "2025-06-08",
                 "last_primary_ts": "2025-05-01",
             }),
             State::Fired,
@@ -979,7 +981,7 @@ mod tests {
                 "spec_type": "capture",
                 "count": 0,
 
-                "disable_after_days": 7,
+                "disable_at": "2025-06-08",
             }),
             State::Fired,
         );
@@ -1002,26 +1004,17 @@ mod tests {
 
     #[test]
     fn test_task_abandoned_resolved() {
-        let email = test_single_email(
+        expect_no_email(
             AlertType::TaskAbandoned,
             "acmeCo/test/capture",
             json!({
                 "recipients": [user_b()],
                 "spec_type": "capture",
                 "count": 42,
-
-                "disable_after_days": 7,
+                "disable_at": "2025-06-08",
             }),
             State::Resolved,
         );
-
-        assert_email(
-            &email,
-            user_b(),
-            EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary Flow: capture acmeCo/test/capture is no longer abandoned",
-        );
-        insta::assert_snapshot!("task_abandoned_resolved_body", email.body);
     }
 
     #[test]
