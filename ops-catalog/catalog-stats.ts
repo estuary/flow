@@ -172,6 +172,9 @@ const collectionStats = (source: SourceStats): StatsData => {
                 output[collectionName] = {};
             }
             output[collectionName].writtenToMe = accumulateStats(output[collectionName].writtenToMe, stats.out);
+            if (stats.lastPublishedAt) {
+                output[collectionName].lastPublishedAt = stats.lastPublishedAt;
+            }
         }
     } else if (source.materialize) {
         for (const [collectionName, stats] of Object.entries(source.materialize!)) {
@@ -193,6 +196,9 @@ const collectionStats = (source: SourceStats): StatsData => {
             output[source.shard.name].writtenToMe,
             source.derive!.out,
         );
+        if (source.derive!.lastPublishedAt) {
+            output[source.shard.name].lastPublishedAt = source.derive!.lastPublishedAt;
+        }
 
         // Each transform will include a source collection that is read from.
         for (const transform of Object.values(source.derive!.transforms || {})) {

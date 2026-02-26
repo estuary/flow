@@ -6,8 +6,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
     statsSummary: {
         errors?: /* Total number of logged errors */ number;
         failures?: /* Total number of shard failures */ number;
-        lastSourcePublishedAt?: /* The smallest lastSourcePublishedAt timestamp from among all of the task bindings for each transaction.
- */ string;
+        lastPublishedAt?: /* The most recent publish timestamp of documents in this collection. */ string;
         readByMe?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
@@ -31,6 +30,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
     taskStats?: {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
+                lastPublishedAt?: /* The publication timestamp of the most recently captured document. */ string;
                 out?: {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
@@ -42,6 +42,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
             };
         };
         derive?: {
+            lastPublishedAt?: /* The publication timestamp of the most recently derived document. */ string;
             out?: {
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
@@ -52,12 +53,13 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
             };
             transforms?: /* A map of each transform (transform name, not collection name) to stats for that transform */ {
                 [k: string]: /* Stats for a specific transform of a derivation, which will have an update, publish, or both. */ {
+                    bytesBehind?: /* Bytes behind of the source journals for this transform */ number;
                     input: /* The input documents that were fed into this transform. */ {
                         bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                         docsTotal: /* Total number of documents */ number;
-                        lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
- */ string;
                     };
+                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                     source?: /* The name of the collection that this transform sources from */ string;
                 };
             };
@@ -68,6 +70,9 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
         };
         materialize?: /* A map of each binding source (collection name) to combiner stats for that binding */ {
             [k: string]: {
+                bytesBehind?: /* Bytes behind of the source journals for this binding */ number;
+                lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                 left?: {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
@@ -79,8 +84,6 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                 right?: {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
-                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
- */ string;
                 };
             };
         };
@@ -92,12 +95,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
 // Generated for read documents of sourced collection ops/tasks/BASE_NAME/logs.
 export type SourceLogs = /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
     fields?: /* Map of keys and values that are associated with this log entry. */ {
-        error?: /* If the log entry is an error, this field contains the error message.
- */ string;
-        eventType?: /* Identifies this log message as an event of the given type. Events
-are special logs that are meant to be observed by the Flow control plane.
- */ string;
-        [k: string]: unknown | undefined;
+        [k: string]: unknown;
     };
     level: "debug" | "error" | "info" | "trace" | "warn";
     message?: string;
@@ -116,6 +114,7 @@ are special logs that are meant to be observed by the Flow control plane.
 export type SourceStats = /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
     capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
         [k: string]: {
+            lastPublishedAt?: /* The publication timestamp of the most recently captured document. */ string;
             out?: {
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
@@ -127,6 +126,7 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
         };
     };
     derive?: {
+        lastPublishedAt?: /* The publication timestamp of the most recently derived document. */ string;
         out?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
@@ -137,12 +137,13 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
         };
         transforms?: /* A map of each transform (transform name, not collection name) to stats for that transform */ {
             [k: string]: /* Stats for a specific transform of a derivation, which will have an update, publish, or both. */ {
+                bytesBehind?: /* Bytes behind of the source journals for this transform */ number;
                 input: /* The input documents that were fed into this transform. */ {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
-                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
- */ string;
                 };
+                lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                 source?: /* The name of the collection that this transform sources from */ string;
             };
         };
@@ -153,6 +154,9 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
     };
     materialize?: /* A map of each binding source (collection name) to combiner stats for that binding */ {
         [k: string]: {
+            bytesBehind?: /* Bytes behind of the source journals for this binding */ number;
+            lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
             left?: {
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
@@ -164,8 +168,6 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
             right?: {
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
-                lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
- */ string;
             };
         };
     };

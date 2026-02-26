@@ -34,6 +34,10 @@ properties:
           $ref: "#/$defs/docsAndBytes"
         out:
           $ref: "#/$defs/docsAndBytes"
+        lastPublishedAt:
+          type: string
+          format: date-time
+          description: The publication timestamp of the most recently captured document.
       reduce:
         strategy: merge
     reduce:
@@ -51,6 +55,9 @@ properties:
           format: date-time
           description: |
             The publication timestamp of the most recently processed source document.
+        bytesBehind:
+          description: Bytes behind of the source journals for this binding
+          type: integer
         left:
           $ref: "#/$defs/docsAndBytes"
         right:
@@ -94,6 +101,10 @@ properties:
         $ref: "#/$defs/docsAndBytes"
       out:
         $ref: "#/$defs/docsAndBytes"
+      lastPublishedAt:
+        type: string
+        format: date-time
+        description: The publication timestamp of the most recently derived document.
     reduce:
       strategy: merge
   interval:
@@ -161,6 +172,9 @@ $defs:
         format: date-time
         description: |
           The publication timestamp of the most recently processed source document.
+      bytesBehind:
+        description: Bytes behind of the source journals for this transform
+        type: integer
     required:
       - input
     reduce:
