@@ -15,6 +15,7 @@ mod null_bytes;
 mod periodic_publications;
 mod quotas;
 mod republish;
+mod abandoned_tasks;
 mod shard_failures;
 mod source_captures;
 mod tenant_alerts;
