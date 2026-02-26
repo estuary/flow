@@ -53,7 +53,7 @@ or any other public image registry provider.
 
 To interface with a connector, the Estuary runtime needs to know:
 
-1. The specific image to use, through an image name such as `ghcr.io/estuary/source-postgres:v5`.
+1. The specific image to use, through an image name such as `ghcr.io/estuary/source-postgres:v3`.
    Notice that the image name also conveys the specific image registry and version tag to use.
 
 2. Endpoint configuration such as a database address and account, with meaning that is specific to the connector.
@@ -185,7 +185,7 @@ captures:
   acmeCo/postgres-capture-ssh:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-postgres:v5
+        image: ghcr.io/estuary/source-postgres:v3
         config:
           address: 127.0.0.1:5432
           database: flow
