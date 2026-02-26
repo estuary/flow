@@ -73,36 +73,40 @@ impl Schema {
             return Ok(());
         }
 
-        // When read_exists is Cannot but has a default, we skipped the
-        // PtrCannotExist error above. The read shape's type is INVALID in
-        // this case, so key-specific checks against it are meaningless.
-        if read_exists != Exists::Cannot {
-            if !read_shape.type_.is_keyable_type() {
-                return Err(Error::KeyWrongType {
-                    ptr: ptr.to_string(),
-                    type_: read_shape.type_,
-                    schema: read.curi.clone(),
-                });
-            }
+        // When the location Cannot exist but has a default, the shape type
+        // is INVALID. Union with the default value's type so the keyable
+        // check passes when the default itself is a keyable type.
+        let default_type = read_shape
+            .default
+            .as_ref()
+            .map(|d| types::Set::for_node(&d.0))
+            .unwrap_or(types::INVALID);
+        let effective_type = read_shape.type_ | default_type;
 
-            if !matches!(
-                read_shape.reduce,
-                shape::Reduce::Unset
-                    | shape::Reduce::Strategy(doc::reduce::Strategy::LastWriteWins(_)),
-            ) {
-                return Err(Error::KeyHasReduce {
-                    ptr: ptr.to_string(),
-                    schema: read.curi.clone(),
-                    strategy: read_shape.reduce.clone(),
-                });
-            }
-            if !matches!(read_shape.redact, shape::Redact::Unset) {
-                return Err(Error::KeyHasRedact {
-                    ptr: ptr.to_string(),
-                    schema: read.curi.clone(),
-                    strategy: read_shape.redact.clone(),
-                });
-            }
+        if !effective_type.is_keyable_type() {
+            return Err(Error::KeyWrongType {
+                ptr: ptr.to_string(),
+                type_: read_shape.type_,
+                schema: read.curi.clone(),
+            });
+        }
+
+        if !matches!(
+            read_shape.reduce,
+            shape::Reduce::Unset | shape::Reduce::Strategy(doc::reduce::Strategy::LastWriteWins(_)),
+        ) {
+            return Err(Error::KeyHasReduce {
+                ptr: ptr.to_string(),
+                schema: read.curi.clone(),
+                strategy: read_shape.reduce.clone(),
+            });
+        }
+        if !matches!(read_shape.redact, shape::Redact::Unset) {
+            return Err(Error::KeyHasRedact {
+                ptr: ptr.to_string(),
+                schema: read.curi.clone(),
+                strategy: read_shape.redact.clone(),
+            });
         }
 
         if let Some(write) = write {
@@ -120,21 +124,18 @@ impl Schema {
             }
 
             // Keyed location types may differ only in null-ability between
-            // the read and write schemas. Skip when the read type is INVALID
-            // (Cannot-exist location with a default).
-            if read_exists != Exists::Cannot {
-                let read_type = read_shape.type_ - types::NULL;
-                let write_type = write_shape.type_ - types::NULL;
+            // the read and write schemas.
+            let read_type = effective_type - types::NULL;
+            let write_type = write_shape.type_ - types::NULL;
 
-                if read_type != write_type {
-                    return Err(Error::KeyReadWriteTypesDiffer {
-                        ptr: ptr.to_string(),
-                        read_type,
-                        read_schema: read.curi.clone(),
-                        write_type,
-                        write_schema: write.curi.clone(),
-                    });
-                }
+            if read_type != write_type {
+                return Err(Error::KeyReadWriteTypesDiffer {
+                    ptr: ptr.to_string(),
+                    read_type,
+                    read_schema: read.curi.clone(),
+                    write_type,
+                    write_schema: write.curi.clone(),
+                });
             }
         }
 
