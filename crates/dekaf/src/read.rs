@@ -502,7 +502,7 @@ impl Read {
         logging::get_log_forwarder().map(|f| {
             f.send_stats(
                 self.collection_name.to_owned(),
-                ops::stats::Binding {
+                ops::stats::MaterializeBinding {
                     right: Some(ops::stats::DocsAndBytes {
                         docs_total: stats_records,
                         bytes_total: stats_bytes,
@@ -514,6 +514,7 @@ impl Read {
                     left: None,
                     last_source_published_at: last_source_published_at
                         .and_then(|c| c.to_pb_json_timestamp()),
+                    bytes_behind: 0,
                 },
             );
         });

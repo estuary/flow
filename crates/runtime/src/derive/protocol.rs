@@ -267,6 +267,7 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
                     input: Some(docs_and_bytes.clone()),
                     source: task.transforms[*index as usize].collection_name.clone(),
                     last_source_published_at: Clock::from_u64(*last_clock).to_pb_json_timestamp(),
+                    bytes_behind: 0,
                 },
             )
         })
@@ -282,6 +283,7 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
             transforms,
             published,
             out,
+            last_published_at: None,
         }),
         interval: None,
         materialize: Default::default(),

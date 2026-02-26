@@ -1,0 +1,16 @@
+{
+	"bytesBehind": 9999,
+	"lastSourcePublishedAt": "2023-11-14T22:13:20.123Z",
+	"left": {
+		"bytesTotal": 30,
+		"docsTotal": 3
+	},
+	"out": {
+		"bytesTotal": 40,
+		"docsTotal": 4
+	},
+	"right": {
+		"bytesTotal": 50,
+		"docsTotal": 5
+	}
+}
