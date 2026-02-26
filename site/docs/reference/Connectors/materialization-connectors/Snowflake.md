@@ -9,8 +9,6 @@ It allows both standard and [delta updates](#delta-updates). [Snowpipe Streaming
 The connector first uploads data changes to a [Snowflake table stage](https://docs.snowflake.com/en/user-guide/data-load-local-file-system-create-stage.html#table-stages).
 From there, it transactionally applies the changes to the Snowflake table.
 
-[`ghcr.io/estuary/materialize-snowflake:dev`](https://ghcr.io/estuary/materialize-snowflake:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 <ReactPlayer controls url="https://www.youtube.com/watch?v=nC_zDUz4SQw" />
 
 ## Prerequisites
@@ -182,7 +180,7 @@ materializations:
                   ...
                   ...
                   -----END PRIVATE KEY-----
-    	    image: ghcr.io/estuary/materialize-snowflake:dev
+    	    image: ghcr.io/estuary/materialize-snowflake:v4
   # If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:
@@ -207,7 +205,7 @@ materializations:
                 auth_type: user_pasword
                 user: snowflake_user
                 password: secret
-    	    image: ghcr.io/estuary/materialize-snowflake:dev
+    	    image: ghcr.io/estuary/materialize-snowflake:v4
   # If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:

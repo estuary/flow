@@ -3,8 +3,6 @@
 
 This connector captures data from Jira's [Platform](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/), [Service Management](https://developer.atlassian.com/cloud/jira/service-desk/rest/intro/), and [Software](https://developer.atlassian.com/cloud/jira/software/rest/intro/) REST APIs into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-jira-native:dev`](https://ghcr.io/estuary/source-jira-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported through the Jira APIs:
@@ -99,7 +97,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-jira-native:dev
+        image: ghcr.io/estuary/source-jira-native:v3
         config:
             advanced:
               projects: 12345,67890

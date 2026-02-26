@@ -3,8 +3,6 @@
 
 This connector captures data from an Azure Blob Storage Account.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-azure-blob-storage:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## **Prerequisites**
 
 You will need the following values to authenticate to Azure and an active subscription
@@ -68,7 +66,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-azure-blob-storage:dev"
+        image: "ghcr.io/estuary/source-azure-blob-storage:v1"
         config:
           containerName: example
           credentials:

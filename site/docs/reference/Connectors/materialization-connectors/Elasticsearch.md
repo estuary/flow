@@ -2,8 +2,6 @@
 
 This connector materializes Estuary collections into indices in an Elasticsearch cluster.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-elasticsearch:dev`](https://ghcr.io/estuary/materialize-elasticsearch:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -58,7 +56,7 @@ materializations:
     endpoint:
       connector:
         # Path to the latest version of the connector, provided as a Docker image
-        image: ghcr.io/estuary/materialize-elasticsearch:dev
+        image: ghcr.io/estuary/materialize-elasticsearch:v3
         config:
           endpoint: https://ec47fc4d2c53414e1307e85726d4b9bb.us-east-1.aws.found.io:9243
           credentials:

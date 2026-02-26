@@ -11,8 +11,6 @@ Google Analytics 4 is supported by a [separate connector](./google-analytics-4.m
 
 :::
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-ua:dev`](https://ghcr.io/estuary/source-google-analytics-ua:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 
@@ -149,7 +147,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-google-analytics-v4:dev
+        image: ghcr.io/estuary/source-google-analytics-ua:v2
           config:
             view_id: 000000000
             start_date: 2022-03-01

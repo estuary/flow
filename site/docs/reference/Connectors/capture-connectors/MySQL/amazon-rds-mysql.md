@@ -6,8 +6,6 @@ sidebar_position: 5
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need a MySQL database setup with the following.
@@ -172,7 +170,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-mysql:dev
+        image: ghcr.io/estuary/source-mysql:v3
         config:
           address: "127.0.0.1:3306"
           user: "flow_capture"

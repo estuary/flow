@@ -7,8 +7,6 @@ import TabItem from '@theme/TabItem';
 
 This connector captures data from an Amazon S3 bucket.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 You can use this connector to capture data from an entire S3 bucket or for a [prefix](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) within a bucket.
@@ -232,7 +230,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-s3:dev
+        image: ghcr.io/estuary/source-s3:v2
         config:
           bucket: "my-bucket"
           region: "us-east-1"

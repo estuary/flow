@@ -2,8 +2,6 @@
 
 This connector captures data from Gladly into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gladly:dev`](https://ghcr.io/estuary/source-gladly:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 This connector can be used to sync the following [Event entity types](https://developer.gladly.com/rest/#tag/Events) from Gladly:
@@ -52,7 +50,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-gladly:dev
+        image: ghcr.io/estuary/source-gladly:v1
         config:
           organization:
           agentEmail:

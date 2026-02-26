@@ -38,7 +38,7 @@ materializations:
           schema: acmeCo_flow_schema
           user: snowflake_user
           warehouse: acmeCo_warehouse
-        image: ghcr.io/estuary/materialize-snowflake:dev
+        image: ghcr.io/estuary/materialize-snowflake:v4
     bindings:
     - resource:
         table: anvils

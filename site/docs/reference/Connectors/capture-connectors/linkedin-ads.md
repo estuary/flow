@@ -3,8 +3,6 @@
 
 This connector captures data from LinkedIn Ads into Estuary collections through the LinkedIn Marketing API.
 
-[`ghcr.io/estuary/source-linkedin-ads:dev`](https://ghcr.io/estuary/source-linkedin-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported:
@@ -87,7 +85,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-linkedin-ads:dev
+        image: ghcr.io/estuary/source-linkedin-ads:v2
         config:
           account_ids:
             - 000000000

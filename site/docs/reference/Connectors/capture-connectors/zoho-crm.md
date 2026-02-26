@@ -11,9 +11,6 @@ This connector offers several unique advantages:
 
 - **Formula Field Handling**: The connector can automatically refresh formula fields on a configurable schedule. This ensures your formula field data stays current without manual intervention, even though Zoho doesn't track formula field changes in record modification timestamps.
 
-This connector is available for use in the Estuary web application.
-For local development or open-source workflows, [`ghcr.io/estuary/source-zoho:dev`](https://ghcr.io/estuary/source-zoho:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 This connector captures data from Zoho CRM [modules](https://www.zoho.com/crm/developer/docs/api/v7/modules-api.html). All available modules will appear after connecting to Zoho CRM.
@@ -81,7 +78,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-zoho:dev
+        image: ghcr.io/estuary/source-zoho:v1
         config:
           credentials:
             client_id: <secret>

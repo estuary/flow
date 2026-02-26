@@ -3,8 +3,6 @@
 
 This connector captures data from [monthly Google Play reports](https://support.google.com/googleplay/android-developer/answer/6135870#zippy=%2Cdownload-reports-using-a-client-library-and-service-account%2Csee-an-example-python) into Estuary collections.
 
-It’s available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-play:dev`](https://ghcr.io/estuary/source-google-play:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported:
@@ -63,7 +61,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-google-play:dev
+        image: ghcr.io/estuary/source-google-play:v1
           config:
             bucket: pubsite_prod_0123456_my_bucket
             credentials:

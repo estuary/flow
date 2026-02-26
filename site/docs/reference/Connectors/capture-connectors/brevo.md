@@ -3,8 +3,6 @@
 
 This connector captures data from [Brevo's REST API](https://developers.brevo.com/reference).
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-brevo:dev`](https://ghcr.io/estuary/source-brevo:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported through the Brevo APIs:
@@ -50,7 +48,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-brevo:dev
+        image: ghcr.io/estuary/source-brevo:v1
         config:
           api-key: {secret}
           start_date: 2025-01-01T00:00:00.000Z

@@ -2,8 +2,6 @@
 
 This connector captures data from TikTok marketing campaigns and ads into Estuary collections via the [TikTok API for Business](https://ads.tiktok.com/marketing_api/docs). It supports production as well as [sandbox](https://ads.tiktok.com/marketing_api/docs?id=1738855331457026) accounts.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-tiktok-marketing:dev`](https://ghcr.io/estuary/source-tiktok-marketing:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
@@ -107,7 +105,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-tiktok-marketing:dev
+        image: ghcr.io/estuary/source-tiktok-marketing:v2
         config:
           credentials:
             auth_type: sandbox_access_token

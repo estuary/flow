@@ -7,8 +7,6 @@ Shopify is deprecating their REST API in favor of their GraphQL API. We recommen
 
 This connector captures data from [Shopify's REST Admin API](https://shopify.dev/docs/api/admin-rest).
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-shopify:dev`](https://ghcr.io/estuary/source-shopify:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 Alternatively, if you would like to receive Shopify webhooks directly in Estuary, see the [HTTP Ingest (Webhook)](https://docs.estuary.dev/reference/Connectors/capture-connectors/http-ingest/) connector.
 
 ## Supported data resources
@@ -79,7 +77,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-shopify:dev
+        image: ghcr.io/estuary/source-shopify:v1
         config:
           credentials:
             auth_type: access_token

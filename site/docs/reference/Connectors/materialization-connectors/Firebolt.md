@@ -9,8 +9,6 @@ First, it stores data as JSON documents in an S3 bucket.
 It then references the S3 bucket to create a [Firebolt _external table_](https://docs.firebolt.io/Guides/loading-data/working-with-external-tables.html),
 which acts as a SQL interface between the JSON documents and the destination table in Firebolt.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -89,7 +87,7 @@ materializations:
             client_id: firebolt-user
             account_name: my-account
           # Path to the latest version of the connector, provided as a Docker image
-          image: ghcr.io/estuary/materialize-firebolt:dev
+          image: ghcr.io/estuary/materialize-firebolt:v1
 	# If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:

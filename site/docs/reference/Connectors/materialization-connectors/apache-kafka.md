@@ -2,10 +2,6 @@
 
 This connector materializes Estuary collections into Apache Kafka topics.
 
-[`ghcr.io/estuary/materialize-kafka:dev`](https://ghcr.io/estuary/materialize-kafka:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 Messages with this connector are currently delivered using an at-least-once non-transactional mode of operation rather than exactly-once. [Let us know](mailto:support@estuary.dev) if your use case requires transaction support.
 
 If you want to integrate with a Kafka consumer without managing your own broker and registry, see the [Dekaf](./Dekaf/dekaf.md) connector instead.

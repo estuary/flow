@@ -2,8 +2,6 @@
 
 This connector materializes data from your Estuary collections to your MongoDB collections.
 
-[`ghcr.io/estuary/materialize-mongodb:dev`](https://ghcr.io/estuary/materialize-mongodb:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Data model
 
 MongoDB is a NoSQL database. Its [data
@@ -62,7 +60,7 @@ materializations:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-mongodb:dev
+        image: ghcr.io/estuary/materialize-mongodb:v1
         config:
           address: "mongo:27017"
           database: "test"

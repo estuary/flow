@@ -3,8 +3,6 @@
 
 This connector captures data from a Google Cloud Storage (GCS) bucket.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, either your GCS bucket must be public, or you must have access via a Google service account.
@@ -49,7 +47,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-gcs:dev
+        image: ghcr.io/estuary/source-gcs:v2
         config:
           bucket: my-bucket
           googleCredentials:

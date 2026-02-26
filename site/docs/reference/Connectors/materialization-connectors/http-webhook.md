@@ -2,8 +2,6 @@
 
 This connector lets you materialize data from Estuary directly to specified HTTP endpoints via webhooks.
 
-[`ghcr.io/estuary/materialize-webhook:v1`](https://ghcr.io/estuary/materialize-webhook:v1) provides the latest connector image. For earlier versions, please follow the link in your browser.
-
 ## Prerequisites
 To use this materialization connector, you’ll need the following:
 

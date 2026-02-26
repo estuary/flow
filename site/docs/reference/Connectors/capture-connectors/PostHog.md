@@ -2,9 +2,6 @@
 
 This connector captures data from PostHog into Estuary collections.
 
-This connector is available for use in the Estuary web application.
-For local development or open-source workflows, [`ghcr.io/estuary/source-posthog:dev`](https://ghcr.io/estuary/source-posthog:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The connector captures the following PostHog resources:
@@ -78,7 +75,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-posthog:dev
+        image: ghcr.io/estuary/source-posthog:v1
         config:
           credentials:
             credentials: <secret>

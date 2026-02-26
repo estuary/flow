@@ -4,8 +4,6 @@
 
 This connector captures data from one LinkedIn Page into Estuary collections via the [LinkedIn Marketing API](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-integrations-overview?view=li-lms-2024-03).
 
-[`ghcr.io/estuary/source-linkedin-pages:dev`](https://ghcr.io/estuary/source-linkedin-pages:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported Streams
 
 - [Organization Lookup](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/organization-lookup-api?tabs=http#retrieve-organizations)

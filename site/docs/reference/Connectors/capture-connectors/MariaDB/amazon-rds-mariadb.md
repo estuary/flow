@@ -8,8 +8,6 @@ This is a change data capture (CDC) connector that captures change events from a
 It's derived from the [MySQL capture connector](../MySQL/MySQL.md),
 so the same configuration applies, but the setup steps look somewhat different.
 
-This connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need a MariaDB database setup with the following.
@@ -151,7 +149,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-mariadb:dev
+        image: ghcr.io/estuary/source-mariadb:v3
         config:
           address: "127.0.0.1:3306"
           user: "flow_capture"

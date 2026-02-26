@@ -5,10 +5,6 @@ This connector materializes Estuary collections into tables in an Amazon Redshif
 The connector uses your AWS account to materialize to Redshift tables by way of files in an S3
 bucket. The files in the bucket as as a temporary staging area for data storage and retrieval.
 
-[`ghcr.io/estuary/materialize-redshift:dev`](https://ghcr.io/estuary/materialize-redshift:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -64,7 +60,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-redshift:dev"
+        image: "ghcr.io/estuary/materialize-redshift:v2"
         config:
           address: "redshift-cluster.account.us-east-2.redshift.amazonaws.com:5439"
           user: user

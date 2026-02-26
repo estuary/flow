@@ -3,8 +3,6 @@
 
 This connector captures data from Amazon Kinesis streams.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-kinesis:dev`](https://github.com/estuary/connectors/pkgs/container/source-kinesis) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -58,7 +56,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-kinesis:dev
+        image: ghcr.io/estuary/source-kinesis:v1
         config:
           awsAccessKeyId: "example-aws-access-key-id"
           awsSecretAccessKey: "example-aws-secret-access-key"

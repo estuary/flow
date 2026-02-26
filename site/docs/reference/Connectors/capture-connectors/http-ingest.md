@@ -6,8 +6,6 @@ A common use case is to capture webhook deliveries, turning them into an Estuary
 
 If you need to capture a dataset hosted at an HTTP endpoint, see the [HTTP File](./http-file.md) connector.
 
-The connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Usage
 
 This connector is different from most other capture connectors in that it's not designed to pull data from a specific

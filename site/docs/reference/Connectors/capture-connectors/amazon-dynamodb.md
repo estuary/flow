@@ -2,8 +2,6 @@
 
 This connector uses DynamoDB streams to continuously capture updates from DynamoDB tables into one or more Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dynamodb:dev`](https://ghcr.io/estuary/source-dynamodb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -184,7 +182,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-dynamodb:dev
+        image: ghcr.io/estuary/source-dynamodb:v1
         config:
           credentials:
             auth_type: "AWSAccessKey"

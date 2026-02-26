@@ -2,8 +2,6 @@
 
 This connector lets you materialize data from your Estuary collections directly into Oracle MySQL HeatWave instances.
 
-[`ghcr.io/estuary/materialize-mysql-heatwave:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-mysql-heatwave) provides the latest connector image. For earlier versions, please follow the link in your browser.
-
 ## Prerequisites
 To use this materialization connector, you’ll need the following:
 
@@ -49,7 +47,7 @@ materializations:
   ${PREFIX}/${MAT_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-mysql-heatwave:dev
+        image: ghcr.io/estuary/materialize-mysql-heatwave:v2
         config:
           database: flow
           address: localhost:5432

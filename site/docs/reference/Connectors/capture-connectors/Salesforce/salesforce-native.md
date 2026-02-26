@@ -11,9 +11,6 @@ This connector offers several unique advantages:
 
 - **Custom Field Support**: Enhanced handling of custom fields with better type detection and mapping, ensuring all your custom Salesforce objects and fields are captured accurately.
 
-This connector is available for use in the Estuary web application.
-For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce-native:dev`](https://ghcr.io/estuary/source-salesforce-native:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 This connector captures Salesforce [standard objects](https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_list.htm), [custom objects](https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_custom_objects.htm), and field history for custom objects.
@@ -98,7 +95,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-salesforce-native:dev
+        image: ghcr.io/estuary/source-salesforce-native:v1
         config:
           credentials:
             credentials_title: "OAuth Credentials"

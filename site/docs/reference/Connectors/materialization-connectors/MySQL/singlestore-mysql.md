@@ -3,10 +3,6 @@
 
 This connector materializes Estuary collections into tables in a SingleStore database.
 
-It is available for use in the Estuary web application. For local development or
-open-source workflows,
-[`ghcr.io/estuary/materialize-singlestore:dev`](https://ghcr.io/estuary/materialize-singlestore:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -95,7 +91,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-singlestore:dev
+        image: ghcr.io/estuary/materialize-singlestore:v2
         config:
           database: flow
           address: svc-abc123.aws-region.svc.singlestore.com:3306

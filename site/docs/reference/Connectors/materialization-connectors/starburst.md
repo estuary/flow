@@ -5,8 +5,6 @@ The Starburst Galaxy connector supports only standard (merge) updates.
 
 The connector makes use of S3 AWS storage for temporarily storing data during the materialization process.
 
-[`ghcr.io/estuary/materialize-starburst:dev`](https://ghcr.io/estuary/materialize-starburst:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -72,7 +70,7 @@ materializations:
               region: REGION
               bucket: BUCKET
               bucketPath: BUCKET_PATH
-    	    image: ghcr.io/estuary/materialize-starburst:dev
+    	    image: ghcr.io/estuary/materialize-starburst:v1
   # If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:

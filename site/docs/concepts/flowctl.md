@@ -210,6 +210,9 @@ Starting with version 0.5.18, `flowctl` will automatically encrypt plain-text co
 * `catalog test`
 * `catalog publish`
 
+For `flowctl` to correctly parse and encrypt the specification, the spec should include a valid connector image and image tag, such as `ghcr.io/estuary/source-postgres:v3` or `ghcr.io/estuary/materialize-snowflake:v4`.
+You can find the image name and latest tag in the connector's [reference](/reference/Connectors) documentation.
+
 These commands use the same encryption mechanism as the dashboard and ensure that your secrets are encrypted whenever you send your specifications to Estuary.
 
 This does not, by default, encrypt secrets in your local environment.

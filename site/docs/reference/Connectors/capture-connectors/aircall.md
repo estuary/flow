@@ -3,8 +3,6 @@
 
 This connector captures data from Aircall into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-aircall:dev`](https://ghcr.io/estuary/source-aircall:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 To set up the Aircall connector, you need the following prerequisite:
 

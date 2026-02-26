@@ -2,8 +2,6 @@
 
 This connector captures data from Airtable into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-airtable-native:dev`](https://ghcr.io/estuary/source-airtable-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 This connector captures data from accessible bases and tables in an Airtable account. All available tables will appear after connecting to Airtable.
@@ -67,7 +65,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-airtable-native:dev
+        image: ghcr.io/estuary/source-airtable-native:v1
         config:
           credentials:
             credentials_title: Private App Credentials

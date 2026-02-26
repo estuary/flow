@@ -10,10 +10,6 @@ MotherDuck tables. You can choose from S3 or S3-compatible, GCS, Azure Blob
 Storage. The files in storage are used as a temporary staging area for data
 storage and retrieval.
 
-[`ghcr.io/estuary/materialize-motherduck:dev`](https://ghcr.io/estuary/materialize-motherduck:dev)
-provides the latest connector image. You can also follow the link in your browser to see past image
-versions.
-
 <ReactPlayer controls url="https://www.youtube.com/watch?v=2flyH-rjmqI" />
 
 ## Prerequisites
@@ -126,7 +122,7 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/materialize-motherduck:dev"
+        image: "ghcr.io/estuary/materialize-motherduck:v4"
         config:
           token: <motherduck_service_token>
           database: my_db

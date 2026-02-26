@@ -3,8 +3,6 @@
 
 This connector captures data from Google Search Console into Estuary collections via the [Google Search Console API](https://developers.google.com/webmaster-tools/v1/api_reference_index).
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-search-console:dev`](https://ghcr.io/estuary/source-google-search-console:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
 ## Supported data resources
@@ -105,7 +103,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-google-search-console:dev
+        image: ghcr.io/estuary/source-google-search-console:v2
           config:
             credentials:
               auth_type: Service

@@ -5,8 +5,6 @@ This connector captures data from an HTTP endpoint into an Estuary collection.
 
 To capture data from an _incoming_ HTTP request, see the [HTTP Ingest](./http-ingest.md) connector.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data types
 
 This connector automatically captures the data hosted at the specified URL into a single Estuary collection.
@@ -79,7 +77,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-http-file:dev
+        image: ghcr.io/estuary/source-http-file:v1
         config:
           url: https://my-site.com/my_hosted_dataset.json.zip
           parser:

@@ -5,10 +5,6 @@ orchestrates Spark jobs running on your configured compute system to merge
 updates into materialized tables as new data is available in the source
 collections.
 
-[`ghcr.io/estuary/materialize-iceberg:dev`](https://ghcr.io/estuary/materialize-iceberg:dev)
-provides the latest connector image. You can also follow the link in your
-browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:

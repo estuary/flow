@@ -3,8 +3,6 @@
 
 This connector captures data from a Dropbox account into an Estuary collection.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-dropbox:dev`](https://ghcr.io/estuary/source-dropbox:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data types
 
 This connector automatically captures the data within the specified Dropbox folder into a single Estuary collection.
@@ -66,7 +64,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-http-file:dev
+        image: ghcr.io/estuary/source-dropbox:v1
         config:
           path: "/my_folder"
           matchKeys: ".*\.json"

@@ -2,8 +2,6 @@
 
 This connector captures data from Front into Estuary collections.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-front:dev`](https://ghcr.io/estuary/source-front:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The following data resources are supported through the Front API:
@@ -50,7 +48,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-front:dev
+        image: ghcr.io/estuary/source-front:v3
         config:
           credentials:
             access_token: <secret>

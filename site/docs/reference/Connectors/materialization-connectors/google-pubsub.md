@@ -3,8 +3,6 @@
 
 This connector materializes Estuary collections into topics in Google Cloud Pub/Sub.
 
-It is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-google-pubsub:dev`](https://ghcr.io/estuary/materialize-google-pubsub:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
 ## Prerequisites
 
 To use this connector, you'll need:
