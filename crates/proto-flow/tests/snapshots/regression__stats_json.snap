@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 997
 expression: json_test(msg)
 ---
 {
@@ -26,7 +27,7 @@ expression: json_test(msg)
         "docsTotal": 1,
         "bytesTotal": 100
       },
-      "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
+      "lastPublishedAt": "1970-01-01T00:00:06.000000007+00:00"
     }
   },
   "derive": {
@@ -37,7 +38,8 @@ expression: json_test(msg)
           "docsTotal": 12,
           "bytesTotal": 369
         },
-        "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
+        "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00",
+        "bytesBehind": "1000"
       },
       "otherTransform": {
         "source": "other/collection",
@@ -45,7 +47,8 @@ expression: json_test(msg)
           "docsTotal": 52,
           "bytesTotal": 2389
         },
-        "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
+        "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00",
+        "bytesBehind": "2000"
       }
     },
     "published": {
@@ -55,7 +58,8 @@ expression: json_test(msg)
     "out": {
       "docsTotal": 3,
       "bytesTotal": 102
-    }
+    },
+    "lastPublishedAt": "1970-01-01T00:00:08.000000009+00:00"
   },
   "materialize": {
     "materialized/collection": {
@@ -71,7 +75,8 @@ expression: json_test(msg)
         "docsTotal": 3,
         "bytesTotal": 300
       },
-      "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
+      "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00",
+      "bytesBehind": "5000"
     }
   },
   "interval": {

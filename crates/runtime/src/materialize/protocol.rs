@@ -467,7 +467,7 @@ pub fn send_connector_store(
 }
 
 pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transaction) -> Response {
-    let mut materialize = BTreeMap::<String, ops::stats::Binding>::new();
+    let mut materialize = BTreeMap::<String, ops::stats::MaterializeBinding>::new();
 
     for (index, binding_stats) in txn.stats.iter() {
         let index = *index as usize;

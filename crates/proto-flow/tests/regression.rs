@@ -772,12 +772,11 @@ fn ex_stats() -> ops::Stats {
         txn_count: 15,
         capture: [(
             "captured/collection".to_string(),
-            ops::stats::Binding {
-                last_source_published_at: Some(proto_flow::Timestamp {
+            ops::stats::CaptureBinding {
+                last_published_at: Some(proto_flow::Timestamp {
                     seconds: 6,
                     nanos: 7,
                 }),
-                left: None,
                 right: Some(ops::stats::DocsAndBytes {
                     docs_total: 2,
                     bytes_total: 200,
@@ -803,6 +802,7 @@ fn ex_stats() -> ops::Stats {
                             docs_total: 12,
                             bytes_total: 369,
                         }),
+                        bytes_behind: 1000,
                     },
                 ),
                 (
@@ -817,6 +817,7 @@ fn ex_stats() -> ops::Stats {
                             docs_total: 52,
                             bytes_total: 2389,
                         }),
+                        bytes_behind: 2000,
                     },
                 ),
             ]
@@ -829,10 +830,14 @@ fn ex_stats() -> ops::Stats {
                 docs_total: 3,
                 bytes_total: 102,
             }),
+            last_published_at: Some(proto_flow::Timestamp {
+                seconds: 8,
+                nanos: 9,
+            }),
         }),
         materialize: [(
             "materialized/collection".to_string(),
-            ops::stats::Binding {
+            ops::stats::MaterializeBinding {
                 last_source_published_at: Some(proto_flow::Timestamp {
                     seconds: 6,
                     nanos: 7,
@@ -849,6 +854,7 @@ fn ex_stats() -> ops::Stats {
                     docs_total: 3,
                     bytes_total: 300,
                 }),
+                bytes_behind: 5000,
             },
         )]
         .into(),

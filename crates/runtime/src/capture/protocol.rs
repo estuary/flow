@@ -284,7 +284,7 @@ pub fn send_client_final_checkpoint(
     task: &Task,
     txn: &Transaction,
 ) -> Response {
-    let mut capture = BTreeMap::<String, ops::stats::Binding>::new();
+    let mut capture = BTreeMap::<String, ops::stats::CaptureBinding>::new();
 
     for (index, binding_stats) in txn.stats.iter() {
         let index = *index as usize;

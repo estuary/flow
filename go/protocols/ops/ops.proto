@@ -124,21 +124,16 @@ message Stats {
     uint64 bytes_total = 2;
   }
 
-  // Binding represents counts of JSON documents and their
-  // cumulative total size in bytes, passing through the binding
-  // of a capture or materialization.
-  message Binding {
-      DocsAndBytes left = 1;
-      DocsAndBytes right = 2;
-      DocsAndBytes out = 3;
-      // For materializations, this is most recent publish timestamp from the
-      // source documents that were read for this binding. This field is
-      // currently unused for captures.
-      google.protobuf.Timestamp last_source_published_at = 4;
+  // CaptureBinding represents stats for a single binding of a capture task.
+  message CaptureBinding {
+      DocsAndBytes right = 1;
+      DocsAndBytes out = 2;
+      // The most recent publish timestamp of documents captured by this binding.
+      google.protobuf.Timestamp last_published_at = 3;
   }
 
   // Capture metrics.
-  map<string, Binding> capture = 6;
+  map<string, CaptureBinding> capture = 6;
 
   // Derivation metrics.
   message Derive {
@@ -149,6 +144,8 @@ message Stats {
       DocsAndBytes input = 2;
       // The most recent publish timestamp from the source documents that were read by this transform.
       google.protobuf.Timestamp last_source_published_at = 3;
+      // Total bytes behind across all source journals of this transform.
+      uint64 bytes_behind = 4;
     }
     // A map from transform name (not collection name), to metrics for that transform.
     map<string, Transform> transforms = 1;
@@ -156,11 +153,25 @@ message Stats {
     DocsAndBytes published = 2;
     // Documents written to the derived collection, after combining over published documents.
     DocsAndBytes out = 3;
+    // The most recent publish timestamp of documents written to the derived collection.
+    google.protobuf.Timestamp last_published_at = 4;
   }
   Derive derive = 7;
 
+  // MaterializeBinding represents stats for a single binding of a materialization task.
+  message MaterializeBinding {
+      DocsAndBytes left = 1;
+      DocsAndBytes right = 2;
+      DocsAndBytes out = 3;
+      // The most recent publish timestamp from the source documents that were
+      // read by this binding.
+      google.protobuf.Timestamp last_source_published_at = 4;
+      // Total bytes behind across all source journals of this binding.
+      uint64 bytes_behind = 5;
+  }
+
   // Materialization metrics.
-  map<string, Binding> materialize = 8;
+  map<string, MaterializeBinding> materialize = 8;
 
   // Interval metrics are emitted at regular intervals.
   message Interval {

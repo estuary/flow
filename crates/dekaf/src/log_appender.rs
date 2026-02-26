@@ -27,7 +27,7 @@ use tracing::instrument;
 enum TaskWriterMessage {
     SetTaskName { name: String, build: String },
     Log(ops::Log),
-    Stats((String, ops::stats::Binding)),
+    Stats((String, ops::stats::MaterializeBinding)),
     Shutdown,
 }
 
@@ -35,11 +35,11 @@ enum TaskWriterMessage {
 /// a task, it's possible to read from any number of bindings within a single session. As a result, we store
 /// each binding's stats as an entry in this map, where the key is the name of the binding's target collection.
 #[derive(Default)]
-pub struct StatsAggregator(BTreeMap<String, ops::stats::Binding>);
+pub struct StatsAggregator(BTreeMap<String, ops::stats::MaterializeBinding>);
 
 impl StatsAggregator {
     /// Add new statistics to the aggregator
-    pub fn add(&mut self, collection_name: String, stats: ops::stats::Binding) {
+    pub fn add(&mut self, collection_name: String, stats: ops::stats::MaterializeBinding) {
         let binding = self.0.entry(collection_name).or_insert(Default::default());
         if let Some(left) = &stats.left {
             ops::merge_docs_and_bytes(left, &mut binding.left);
@@ -56,7 +56,7 @@ impl StatsAggregator {
     }
 
     // If any stats have been written, return them and reset the counter. Otherwise None
-    pub fn take(&mut self) -> Option<BTreeMap<String, ops::stats::Binding>> {
+    pub fn take(&mut self) -> Option<BTreeMap<String, ops::stats::MaterializeBinding>> {
         if self.0.iter().any(|(_, v)| {
             v.left
                 .is_some_and(|s| s.bytes_total > 0 && s.docs_total > 0)
@@ -499,7 +499,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
 
     fn serialize_stats(
         producer: Producer,
-        stats: BTreeMap<String, ops::stats::Binding>,
+        stats: BTreeMap<String, ops::stats::MaterializeBinding>,
         shard: ops::ShardRef,
     ) -> bytes::Bytes {
         let uuid = gazette::uuid::build(
@@ -565,7 +565,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
         self.send_message(TaskWriterMessage::Shutdown);
     }
 
-    pub fn send_stats(&self, collection_name: String, stats: ops::stats::Binding) {
+    pub fn send_stats(&self, collection_name: String, stats: ops::stats::MaterializeBinding) {
         let is_any_stats_invalid = stats
             .left
             .is_some_and(|s| (s.bytes_total == 0) != (s.docs_total == 0))
@@ -639,7 +639,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
     async fn append_stats_to_writer(
         mut writer: W,
         uuid_producer: Producer,
-        stats: BTreeMap<String, ops::stats::Binding>,
+        stats: BTreeMap<String, ops::stats::MaterializeBinding>,
         shard_ref: ops::ShardRef,
     ) -> anyhow::Result<()> {
         writer
@@ -946,7 +946,7 @@ mod tests {
 
                 MOCK_LOG_FORWARDER.get().send_stats(
                     "test_collection".to_string(),
-                    ops::stats::Binding {
+                    ops::stats::MaterializeBinding {
                         last_source_published_at: Some(proto_flow::Timestamp {
                             seconds: 6,
                             nanos: 7,
@@ -963,6 +963,7 @@ mod tests {
                             docs_total: 5,
                             bytes_total: 6,
                         }),
+                        bytes_behind: 0,
                     },
                 );
 
@@ -990,7 +991,7 @@ mod tests {
 
                 MOCK_LOG_FORWARDER.get().send_stats(
                     "test_collection".to_string(),
-                    ops::stats::Binding {
+                    ops::stats::MaterializeBinding {
                         left: Some(ops::stats::DocsAndBytes {
                             docs_total: 1,
                             bytes_total: 0,
