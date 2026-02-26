@@ -13,6 +13,45 @@ However, if you don't have SuiteAnalytics, see the [SuiteQL connector](./netsuit
 
 Estuary discovers all of the tables to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
 
+## Sync modes and data loading
+
+Each table binding uses one of two sync modes, determined by the cursor fields available on the table.
+
+### Incremental sync
+
+Tables with a date-time column suitable for change tracking (configured via [`log_cursor`](#bindings)) are synced **incrementally**. Most base record tables — such as `Transaction`, `Account`, `Customer`, `Employee`, `Item`, `Subsidiary`, and `Vendor` — have a `lastmodifieddate` column that the connector discovers automatically.
+
+During incremental sync, the connector queries only for rows modified since the last checkpoint. The polling frequency is controlled by the [`interval`](#bindings) setting (default: 1 hour).
+
+**How to tell if a table is incremental:** Check the binding's `log_cursor` field. If it's set (e.g., `lastmodifieddate`), the table is incremental.
+
+### Full refresh
+
+Tables without a `log_cursor` are synced via **full refresh** — the connector re-reads the entire table on each sync. This is common for linking and junction tables (e.g., `TransactionLine`, `NextTransactionLineLink`) that lack a `lastmodifieddate` column.
+
+There are two full refresh modes:
+
+- **Paginated backfill** — Uses the [`page_cursor`](#bindings) to read the table in ordered pages. Pair this with a [`schedule`](#setting-a-schedule) cron expression to control how often the full refresh runs (e.g., daily).
+- **Snapshot backfill** — Set [`snapshot_backfill: true`](#bindings) when no good page cursor exists and the table is small enough for a single query. Snapshot mode manages its own schedule via the `interval` field. Do **not** combine `snapshot_backfill` with a cron `schedule` — this will cause issues with delete emission.
+
+:::tip Switching from full refresh to incremental
+If a table has a `lastmodifieddate` column (or similar date-time field) that isn't currently configured as the `log_cursor`, you can add it to enable incremental sync. After updating the binding, trigger a backfill to re-read the table from the new cursor's starting point.
+:::
+
+### Delete handling
+
+Estuary captures deletions from NetSuite using the **DeletedRecord** system table, which NetSuite maintains to track when records are removed.
+
+**Base record tables** (such as `Transaction`, `Account`, `Customer`, `Subsidiary`, `Currency`, `CurrencyRate`, `Department`, `Employee`, `Item`, `Vendor`, etc.) support delete tracking. When a record is deleted in NetSuite, it appears in the `DeletedRecord` table, and Estuary emits a deletion event to the corresponding collection.
+
+**Linking and junction tables** (such as `TransactionLine`, `TransactionAccountingLine`, `NextTransactionLineLink`, `NextTransactionAccountingLineLink`) do **not** support delete tracking via `DeletedRecord`. NetSuite does not track deletions for these table types. If a linking table is configured for full refresh (snapshot mode), rows that no longer appear in the source are detected as removals during the next full read.
+
+### Table associations
+
+Linking tables can optionally be loaded as **associations** of a parent table instead of — or in addition to — standalone bindings. For example, `TransactionAccountingLine` can be associated with `Transaction` so that when a transaction is modified, its related accounting lines are also loaded.
+
+See the [`associations`](#table-associations) binding property for configuration details.
+
 ## Prerequisites
 
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
