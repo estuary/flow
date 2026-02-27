@@ -5,11 +5,17 @@ use models::status::{AlertType, Alerts, activation::ActivationStatus};
 
 /// Duration without sustained PRIMARY before the TaskAbandoned alert fires.
 static ABANDONED_TASK_THRESHOLD: std::sync::LazyLock<chrono::Duration> =
-    std::sync::LazyLock::new(|| env_duration("ABANDONED_TASK_THRESHOLD", chrono::Duration::days(14)));
+    std::sync::LazyLock::new(|| {
+        env_duration("ABANDONED_TASK_THRESHOLD", chrono::Duration::days(14))
+    });
 
 /// Duration after the TaskAbandoned alert fires before the task is automatically disabled.
 static ABANDONED_TASK_DISABLE_AFTER: std::sync::LazyLock<chrono::Duration> =
-    std::sync::LazyLock::new(|| env_duration("ABANDONED_TASK_DISABLE_AFTER", chrono::Duration::days(7)));
+    std::sync::LazyLock::new(|| {
+        env_duration("ABANDONED_TASK_DISABLE_AFTER", chrono::Duration::days(7))
+    });
+
+/// A task is considered abandoned if:
 
 pub fn evaluate_abandoned(
     alerts_status: &mut Alerts,
@@ -17,6 +23,12 @@ pub fn evaluate_abandoned(
     state: &ControllerState,
     now: DateTime<Utc>,
 ) -> Option<NextRun> {
+    // `has_task_shards` is answering the question of whether this task is _expected_ to have any shards.
+    // Essentially, is it something that _could_ have shards, and if so, is it enabled? If not, then we consider
+    // the task to be disabled and don't run the rest of the abandonment controller on it. Additionally, we resolve
+    // any abandonment alerts that may have fired. Note that these alerts don't have any resolution messages registered,
+    // so this just clears the alert state silently, so that when the tasks are enabled again later, the abandonment
+    // logic can be run against them again cleanly.
     let Some(spec) = state.live_spec.as_ref().filter(|_| has_task_shards(state)) else {
         alerts::resolve_alert(alerts_status, AlertType::TaskAbandoned);
         alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabled);
@@ -31,8 +43,10 @@ pub fn evaluate_abandoned(
         .last_sustained_primary_ts
         .unwrap_or(state.created_at);
 
-    let is_abandoned =
-        last_primary < cutoff_ts && state.last_connector_status_ts.map_or(true, |t| t < cutoff_ts);
+    let is_abandoned = last_primary < cutoff_ts
+        && state
+            .last_connector_status_ts
+            .map_or(true, |t| t < cutoff_ts);
 
     if is_abandoned {
         alerts::set_alert_firing(
@@ -193,11 +207,14 @@ mod test {
         }
     }
 
-
     #[test]
     fn no_shards_resolves_both_alerts() {
         let now = fixed_now();
-        let state = mock_state(Some(disabled_capture()), now - *ABANDONED_TASK_THRESHOLD * 2, None);
+        let state = mock_state(
+            Some(disabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD * 2,
+            None,
+        );
         let activation = ActivationStatus::default();
         let mut alerts: Alerts = Default::default();
         alerts.insert(AlertType::TaskAbandoned, firing_alert(now));
@@ -213,7 +230,11 @@ mod test {
     #[test]
     fn new_task_not_abandoned() {
         let now = fixed_now();
-        let state = mock_state(Some(enabled_capture()), now - *ABANDONED_TASK_THRESHOLD / 2, None);
+        let state = mock_state(
+            Some(enabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD / 2,
+            None,
+        );
         let activation = ActivationStatus::default();
         let mut alerts: Alerts = Default::default();
 
@@ -226,7 +247,11 @@ mod test {
     #[test]
     fn old_task_no_signals_abandoned() {
         let now = fixed_now();
-        let state = mock_state(Some(enabled_capture()), now - *ABANDONED_TASK_THRESHOLD - Duration::days(6), None);
+        let state = mock_state(
+            Some(enabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD - Duration::days(6),
+            None,
+        );
         let activation = ActivationStatus {
             restarts_since_last_primary: 5,
             ..Default::default()
@@ -241,7 +266,9 @@ mod test {
         assert_eq!(alert.spec_type, models::CatalogType::Capture);
         assert!(alert.error.contains("no sustained PRIMARY shard since"));
         // disable_at should be first_ts + grace period
-        let expect_disable_at = (now + *ABANDONED_TASK_DISABLE_AFTER).format("%Y-%m-%d").to_string();
+        let expect_disable_at = (now + *ABANDONED_TASK_DISABLE_AFTER)
+            .format("%Y-%m-%d")
+            .to_string();
         assert_eq!(
             alert.extra.get("disable_at"),
             Some(&serde_json::json!(expect_disable_at)),
@@ -255,7 +282,11 @@ mod test {
     #[test]
     fn recent_primary_prevents_abandonment() {
         let now = fixed_now();
-        let state = mock_state(Some(enabled_capture()), now - *ABANDONED_TASK_THRESHOLD * 4, None);
+        let state = mock_state(
+            Some(enabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD * 4,
+            None,
+        );
         let activation = ActivationStatus {
             last_sustained_primary_ts: Some(now - *ABANDONED_TASK_THRESHOLD / 3),
             ..Default::default()
@@ -318,7 +349,11 @@ mod test {
     #[test]
     fn grace_period_expired_fires_auto_disable() {
         let now = fixed_now();
-        let state = mock_state(Some(enabled_capture()), now - *ABANDONED_TASK_THRESHOLD * 2, None);
+        let state = mock_state(
+            Some(enabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD * 2,
+            None,
+        );
         let activation = ActivationStatus {
             restarts_since_last_primary: 8,
             ..Default::default()
@@ -340,7 +375,11 @@ mod test {
     #[test]
     fn grace_period_not_expired_no_auto_disable() {
         let now = fixed_now();
-        let state = mock_state(Some(enabled_capture()), now - *ABANDONED_TASK_THRESHOLD - Duration::days(6), None);
+        let state = mock_state(
+            Some(enabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD - Duration::days(6),
+            None,
+        );
         let activation = ActivationStatus::default();
         let mut alerts: Alerts = Default::default();
         let mut abandoned_alert = firing_alert(now);
@@ -356,7 +395,11 @@ mod test {
     #[test]
     fn recovery_resolves_both_alerts() {
         let now = fixed_now();
-        let state = mock_state(Some(enabled_capture()), now - *ABANDONED_TASK_THRESHOLD * 4, None);
+        let state = mock_state(
+            Some(enabled_capture()),
+            now - *ABANDONED_TASK_THRESHOLD * 4,
+            None,
+        );
         let activation = ActivationStatus {
             last_sustained_primary_ts: Some(now - Duration::days(2)),
             ..Default::default()
