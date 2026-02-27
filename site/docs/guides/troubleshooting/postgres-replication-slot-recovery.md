@@ -55,7 +55,7 @@ Example output:
 Note the `xid` value - you'll use it in the next step.
 
 :::note
-If no `xid` entries appear, the capture may have been down longer than your log retention window. In this case, use `0` as the transaction ID, which will scan all rows (equivalent to a full backfill).
+If no `xid` entries appear, the capture may have been down longer than your log retention window. In this case, skip the XMIN approach and run a full **incremental** backfill of all bindings instead.
 :::
 
 ### Step 2: Trigger an XMIN backfill
@@ -75,9 +75,13 @@ This will:
 - Scan each table for rows modified since the given transaction ID
 - Resume CDC from the current WAL position
 
+:::warning XMIN backfill does not capture deletions
+An XMIN backfill scans for rows that were inserted or updated since the cutoff transaction ID. Rows that were **deleted** during the outage window will not be detected and will remain in your destination tables. If deletions occurred during the gap and need to be propagated, run a full incremental backfill instead.
+:::
+
 :::info Choosing between XMIN and a full backfill
-- **XMIN backfill (recommended)**: Limits the scan to rows changed since the last known transaction ID. Much faster than a full backfill for large databases - tables with no changes since the cutoff complete instantly.
-- **Full backfill**: Re-reads all rows in all tables. Use this only if you have no reliable transaction ID to use as a cutoff.
+- **XMIN backfill (recommended)**: Limits the scan to rows inserted or updated since the last known transaction ID. Much faster for large databases, but will not propagate deletions that occurred during the outage.
+- **Full incremental backfill**: Re-reads all rows in all tables and correctly reflects the current state of the source, including deletions. Use this if deletions are a concern or if no reliable transaction ID is available.
 :::
 
 ### Step 3: Monitor recovery
