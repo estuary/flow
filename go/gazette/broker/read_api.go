@@ -192,4 +192,12 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 	return nil
 }
 
-var chunkSize = 1 << 17 // 128K.
+// This constant matters. We set chunkSize to be *slightly* under 32KB,
+// so that a marshaled ReadResponse containing a buffer of this size is
+// itself under 32KB.
+//
+// gRPC has an internal tiered buffer pool with tiers of 256, 4KB, 16KB,
+// 32KB, and 1MB. Going over 32KB means rounding up to 1MB, and these buffers
+// can be pinned for extended periods if the broker is awaiting write quota
+// (because the reader is slow to read, which is common), using excessive memory.
+var chunkSize = (1 << 15) - 32

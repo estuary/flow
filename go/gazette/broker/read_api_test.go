@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/url"
 	"testing"
 	"time"
@@ -494,6 +495,20 @@ func TestReadRequestErrorCases(t *testing.T) {
 	require.Len(t, resp.Header.Route.Endpoints, 0)
 
 	broker.cleanup()
+}
+
+func TestReadResponseChunkFitsIn32KB(t *testing.T) {
+	var resp = pb.ReadResponse{
+		Offset:    math.MaxInt64,
+		WriteHead: math.MaxInt64, // Not actually set with content chunks.
+		Content:   make([]byte, chunkSize),
+	}
+	require.Less(t, resp.ProtoSize(), 1<<15) // 32,768 bytes.
+
+	var buf, _ = resp.Marshal()
+	require.Equal(t, len(buf), resp.ProtoSize())
+	require.Equal(t, len(buf), 32760)
+
 }
 
 func buildRemoteFragmentFixture(t require.TestingT) (frag pb.Fragment, buf bytes.Buffer) {
