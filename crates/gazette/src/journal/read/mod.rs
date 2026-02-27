@@ -66,14 +66,7 @@ impl Client {
         write_head: &mut i64,
     ) -> crate::Result<()> {
         let mut client = self
-            .subclient(
-                &mut req.header,
-                if req.do_not_proxy {
-                    router::Mode::Replica
-                } else {
-                    router::Mode::Default
-                },
-            )
+            .subclient(&mut req.header, router::Mode::Replica)
             .await?;
 
         // Fetch metadata first before we start the actual read.
@@ -86,6 +79,11 @@ impl Client {
 
         tracing::trace!(req=?ops::DebugJson(&req), meta=?ops::DebugJson(&metadata), "fetched read metadata");
 
+        // Use routing topology from the metadata response for subsequent
+        // requests, dispatching to a broker that serves this journal rather
+        // than the default broker we initially dialed for the metadata request.
+        req.header = metadata.header.take();
+
         // OFFSET_NOT_YET_AVAILABLE means the requested offset has no content.
         // When the request was for offset -1 (resolved to write head) or
         // exactly at the write head, this is a normal "caught up" condition:
@@ -97,7 +95,6 @@ impl Client {
         {
             *write_head = metadata.write_head;
             req.offset = metadata.write_head;
-            req.header = metadata.header.take();
             () = co.yield_(Ok(metadata)).await;
             return Ok(());
         }
@@ -112,7 +109,6 @@ impl Client {
                 tracing::info!(req.journal, req.offset, metadata.offset, "offset jump");
                 req.offset = metadata.offset;
             }
-            req.header = metadata.header.take();
 
             *write_head = metadata.write_head;
             let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
@@ -122,8 +118,12 @@ impl Client {
 
         tracing::trace!(req.offset, write_head, "started direct journal read");
 
-        // Restart as a regular (non-metadata) read.
+        // Restart as a regular (non-metadata) read, re-picking a routed subclient.
         req.metadata_only = false;
+
+        let mut client = self
+            .subclient(&mut req.header, router::Mode::Replica)
+            .await?;
         let mut stream = client.read(req.clone()).await?.into_inner();
 
         while let Some(resp) = stream.try_next().await? {

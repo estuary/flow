@@ -56,14 +56,7 @@ impl Client {
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {
         let mut client = self
-            .subclient(
-                &mut req.header,
-                if req.do_not_proxy {
-                    router::Mode::Primary
-                } else {
-                    router::Mode::Default
-                },
-            )
+            .subclient(&mut req.header, router::Mode::Primary)
             .await?;
 
         let req_clone = req.clone();

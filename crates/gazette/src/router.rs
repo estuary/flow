@@ -12,8 +12,7 @@ pub enum Mode {
     /// Prefer the closest replica of the current topology.
     Replica,
     /// Use the default service address, ignoring the current topology.
-    /// This is appropriate for un-routed RPCs or when running
-    /// behind a proxy.
+    /// This is appropriate for un-routed RPCs.
     Default,
 }
 

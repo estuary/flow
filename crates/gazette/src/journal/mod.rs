@@ -115,14 +115,7 @@ impl Client {
         mut req: broker::FragmentsRequest,
     ) -> crate::Result<broker::FragmentsResponse> {
         let mut client = self
-            .subclient(
-                &mut req.header,
-                if req.do_not_proxy {
-                    router::Mode::Replica
-                } else {
-                    router::Mode::Default
-                },
-            )
+            .subclient(&mut req.header, router::Mode::Replica)
             .await?;
 
         let resp = client
