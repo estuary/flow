@@ -490,14 +490,20 @@ fn do_merge_bounded(
             out.push(b'\n');
         }
 
-        // Extract just the document (index 1) from [key, doc] arrays
+        // Extract the document (index 1) from [key, doc] arrays.
+        // When a full reduction with a null merge-patch operand fires
+        // the LWW delete flag, the value position is removed from the
+        // array. In that case the semantic result is JSON null.
         let doc::HeapNode::Array(_, array) = root.get() else {
             unreachable!()
         };
-        let node = &array[1];
-
-        serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on(node))
-            .expect("serialization cannot fail");
+        match array.get(1) {
+            Some(node) => {
+                serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on(node))
+                    .expect("serialization cannot fail");
+            }
+            None => out.extend_from_slice(b"null"),
+        }
     }
 
     Ok((out, consumed))
@@ -711,16 +717,18 @@ mod test {
     impl quickcheck::Arbitrary for MergePatchSequence {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
             let n = gen_range(g, 1..21) as usize;
-            // Connector state is always a JSON object at the top level.
+            // Connector state base is always a JSON object.
             let gen_obj = |g: &mut quickcheck::Gen| loop {
                 let v = gen_merge_patch_value(g, 3);
                 if v.is_object() {
                     return MergePatchValue(v);
                 }
             };
+            // Operands can be any merge-patch value, including scalars and
+            // nulls that trigger NotAssociative reductions during batching.
             Self {
                 base: gen_obj(g),
-                operands: (0..n).map(|_| gen_obj(g)).collect(),
+                operands: (0..n).map(|_| MergePatchValue::arbitrary(g)).collect(),
             }
         }
 
