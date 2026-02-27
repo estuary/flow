@@ -61,6 +61,7 @@ Estuary collections to your tables.
 | **`/namespace`**             | Namespace             | Namespace for bound collection tables (unless overridden within the binding resource configuration).        | string | Required         |
 | `/upload_interval`           | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours. | string | PT5M             |
 | **`/catalog/catalog_type`**  | Catalog Type          | Either "Iceberg REST Server" or "AWS Glue".                                                                 | string | Required         |
+| `/catalog/glue_id`           | Glue Catalog ID       | Glue Catalog ID to use. If not specified, defaults to the account ID of the configured credentials. This enables cross-account Glue catalog access. | string |                  |
 | **`/catalog/uri`**           | URI                   | URI identifying the REST catalog, in the format of 'https://yourserver.com/catalog'.                        | string | Required         |
 | `/catalog/credential`        | Credential            | Credential for connecting to the REST catalog.                                                              | string |                  |
 | `/catalog/token`             | Token                 | Token for connecting to the TEST catalog.                                                                   | string |                  |
