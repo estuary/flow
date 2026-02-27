@@ -22,6 +22,7 @@ jobs:
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - uses: actions/setup-go@v4
+      - run: sudo apt update
       - run: sudo apt install -y protobuf-compiler librocksdb-dev libsqlite3-dev etcd-server
       - run: echo "VERSION=$(git describe --dirty --tags)" >> "$GITHUB_ENV"
 
