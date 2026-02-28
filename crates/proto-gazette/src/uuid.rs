@@ -1,3 +1,5 @@
+pub use ::uuid::Uuid;
+
 /// Producer is the unique node identifier portion of a v1 UUID.
 /// Gazette uses Producer to identify distinct writers of collection data,
 /// as the key of a vector clock.
@@ -102,8 +104,9 @@ impl Clock {
     }
 
     #[inline]
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> Self {
         self.0 += 1;
+        *self
     }
 
     #[inline]
@@ -175,6 +178,10 @@ impl std::fmt::Debug for Clock {
 }
 
 impl Flags {
+    pub const ACK_TXN: Self = Self(crate::message_flags::ACK_TXN as u16);
+    pub const CONTINUE_TXN: Self = Self(crate::message_flags::CONTINUE_TXN as u16);
+    pub const OUTSIDE_TXN: Self = Self(crate::message_flags::OUTSIDE_TXN as u16);
+
     #[inline]
     pub fn is_ack(&self) -> bool {
         self.0 & (crate::message_flags::ACK_TXN as u16) != 0
