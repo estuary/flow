@@ -224,7 +224,7 @@ impl dataloader::Loader<LiveSpecKey> for super::PgDataLoader {
                 array_agg(distinct in_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and in_flows.flow_type = 'capture') as "written_by?: Vec<String>",
                 array_agg(distinct out_flows_specs.catalog_name) filter (where ls.spec_type = 'collection' and out_flows.flow_type is not null) as "read_by?: Vec<String>"
             from unnest($1::catalog_name[], $2::boolean[], $3::boolean[]) inputs(name, with_model, with_built)
-            join live_specs ls on inputs.name = ls.catalog_name
+            join live_specs ls on inputs.name = ls.catalog_name and ls.spec_type is not null
             left outer join live_spec_flows in_flows on in_flows.target_id = ls.id
             left outer join live_spec_flows out_flows on out_flows.source_id = ls.id
             left outer join live_specs in_flows_specs on in_flows_specs.id = in_flows.source_id
