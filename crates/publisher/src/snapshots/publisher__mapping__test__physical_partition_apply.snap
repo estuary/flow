@@ -1,0 +1,61 @@
+---
+source: crates/publisher/src/mapping.rs
+expression: "json!({\n    \"name\": name, \"change\": request.changes.into_iter().next().unwrap(),\n})"
+---
+{
+  "change": {
+    "upsert": {
+      "flags": 4,
+      "fragment": {
+        "compressionCodec": "GZIP",
+        "flushInterval": "900s",
+        "length": "536870912",
+        "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+        "refreshInterval": "300s",
+        "stores": [
+          "gs://example-bucket/"
+        ]
+      },
+      "labels": {
+        "labels": [
+          {
+            "name": "app.gazette.dev/managed-by",
+            "value": "estuary.dev/flow"
+          },
+          {
+            "name": "content-type",
+            "value": "application/x-ndjson"
+          },
+          {
+            "name": "estuary.dev/build",
+            "value": "0101010101010101"
+          },
+          {
+            "name": "estuary.dev/collection",
+            "value": "example/collection"
+          },
+          {
+            "name": "estuary.dev/field/a_bool",
+            "value": "%_true"
+          },
+          {
+            "name": "estuary.dev/field/a_str",
+            "value": "hello"
+          },
+          {
+            "name": "estuary.dev/key-begin",
+            "value": "00000000"
+          },
+          {
+            "name": "estuary.dev/key-end",
+            "value": "ffffffff"
+          }
+        ]
+      },
+      "maxAppendRate": "4194304",
+      "name": "example/collection/2020202020202020/a_bool=%_true/a_str=hello/pivot=00",
+      "replication": 3
+    }
+  },
+  "name": "example/collection/2020202020202020/a_bool=%_true/a_str=hello/pivot=00"
+}

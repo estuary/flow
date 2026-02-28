@@ -398,8 +398,10 @@ fn list_recovery_logs_request(task_type: ops::TaskType, task_name: &str) -> brok
     }
 }
 
-/// Build a ListRequest of a collections partitions.
-fn list_partitions_request(collection: &str) -> broker::ListRequest {
+/// Build a ListRequest of a collection's partitions.
+/// This request will enumerate all of a collection's partitions, whereas the
+/// source partition selector bundled in task bindings filters to selected ones.
+pub fn list_partitions_request(collection: &str) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
