@@ -76,7 +76,7 @@ where
     let ready = CancellationToken::new();
     let cell = Arc::new(Cell(std::sync::Mutex::new(Arc::new(Refresh {
         expired: ready.clone(),
-        result: Err(tonic::Status::unavailable("placeholder")),
+        result: Err(tonic::Status::unavailable("awaiting initial refresh")),
         version: 0,
     }))));
     let cell_weak = Arc::downgrade(&cell);
@@ -142,25 +142,32 @@ where
                 now
             };
 
-            let result = match source.refresh(started).await {
-                Ok(Ok((token, valid_for, new_revoke))) => {
-                    backoff = (valid_for - TimeDelta::minutes(2)).max(TimeDelta::minutes(1));
-                    maybe_started = None;
-                    maybe_revoke = Some(new_revoke);
+            // Select on both refresh and the drop signal, so that a long-running
+            // refresh (e.g. a blocked gRPC stream) doesn't prevent prompt shutdown.
+            let result = tokio::select! {
+                _ = dropped.as_mut() => {
+                    return; // All clones dropped during refresh.
+                }
+                result = source.refresh(started) => match result {
+                    Ok(Ok((token, valid_for, new_revoke))) => {
+                        backoff = (valid_for - TimeDelta::minutes(2)).max(TimeDelta::minutes(1));
+                        maybe_started = None;
+                        maybe_revoke = Some(new_revoke);
 
-                    Ok(token)
-                }
-                Ok(Err(retry_after)) => {
-                    backoff = retry_after;
-                    continue;
-                }
-                Err(err) => {
-                    // Re-attempt after a random backoff centered around 1 minute.
-                    backoff = TimeDelta::milliseconds(rand::random_range(45_000..75_000));
-                    maybe_started = None;
+                        Ok(token)
+                    }
+                    Ok(Err(retry_after)) => {
+                        backoff = retry_after;
+                        continue;
+                    }
+                    Err(err) => {
+                        // Re-attempt after a random backoff centered around 1 minute.
+                        backoff = TimeDelta::milliseconds(rand::random_range(45_000..75_000));
+                        maybe_started = None;
 
-                    Err(err)
-                }
+                        Err(err)
+                    }
+                },
             };
 
             if let Some(next_dropped) = replace(result) {
