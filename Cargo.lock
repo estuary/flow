@@ -6302,6 +6302,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "publisher"
+version = "0.0.0"
+dependencies = [
+ "activate",
+ "anyhow",
+ "base64 0.22.1",
+ "build",
+ "bytes",
+ "doc",
+ "extractors",
+ "futures",
+ "gazette",
+ "insta",
+ "itertools 0.14.0",
+ "json",
+ "labels",
+ "models",
+ "ops",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "serde",
+ "serde_json",
+ "tables",
+ "tokens",
+ "tokio",
+ "tonic",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pulldown-cmark"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
