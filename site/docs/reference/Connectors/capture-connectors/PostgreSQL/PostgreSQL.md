@@ -232,6 +232,10 @@ However, you may find it appropriate to skip the backfill, especially for extrem
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
+## Replication slot recovery
+
+If the replication slot is dropped or invalidated — for example after a major version upgrade, a failover, or a WAL size limit being exceeded — the capture will fail and require manual recovery. See [PostgreSQL replication slot recovery](/guides/troubleshooting/postgres-replication-slot-recovery) for step-by-step instructions.
+
 ## WAL Retention and Tuning Parameters
 
 Postgres logical replication works by reading change events from the writeahead log,
