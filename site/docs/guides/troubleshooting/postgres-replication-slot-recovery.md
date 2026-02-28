@@ -1,5 +1,5 @@
 ---
-sidebar_label: PostgreSQL replication slot recovery
+sidebar_label: PostgreSQL Replication Slot Recovery
 description: How to recover a PostgreSQL capture when the replication slot has been dropped or invalidated.
 ---
 
@@ -75,13 +75,12 @@ This will:
 - Scan each table for rows modified since the given transaction ID
 - Resume CDC from the current WAL position
 
-:::warning XMIN backfill does not capture deletions
-An XMIN backfill scans for rows that were inserted or updated since the cutoff transaction ID. Rows that were **deleted** during the outage window will not be detected and will remain in your destination tables. If deletions occurred during the gap and need to be propagated, run a full incremental backfill instead.
-:::
+:::warning Choosing between XMIN and a full backfill
+An XMIN backfill scans for rows that were **inserted or updated** since the cutoff transaction ID. Rows **deleted** during the outage window will not be detected and will remain in your destination tables.
 
-:::info Choosing between XMIN and a full backfill
-- **XMIN backfill (recommended)**: Limits the scan to rows inserted or updated since the last known transaction ID. Much faster for large databases, but will not propagate deletions that occurred during the outage.
-- **Full incremental backfill**: Re-reads all rows in all tables and correctly reflects the current state of the source, including deletions. Use this if deletions are a concern or if no reliable transaction ID is available.
+Choose the approach based on your situation:
+- **XMIN backfill (recommended for most cases)**: Much faster for large databases. Use this if deletions during the outage are not a concern and you have a reliable transaction ID from Step 1.
+- **Full incremental backfill**: Re-reads all rows and reflects the current source state, including deletions. Use this if deletions occurred during the outage and need to be propagated, or if no transaction ID is available.
 :::
 
 ### Step 3: Monitor recovery
