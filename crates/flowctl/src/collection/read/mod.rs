@@ -70,7 +70,7 @@ pub async fn read_collection(
 
     let list_resp = journal_client
         .list(broker::ListRequest {
-            selector: Some(selector.build_label_selector(journal_name_prefix)),
+            selector: Some(selector.build_label_selector(&journal_name_prefix)),
             ..Default::default()
         })
         .await

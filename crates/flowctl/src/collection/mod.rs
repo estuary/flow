@@ -29,13 +29,21 @@ fn parse_partition_selector(arg: &str) -> Result<models::PartitionSelector, anyh
 }
 
 impl CollectionJournalSelector {
-    pub fn build_label_selector(&self, journal_name_prefix: String) -> broker::LabelSelector {
+    pub fn build_label_selector(&self, journal_name_prefix: &str) -> broker::LabelSelector {
+        // The authorization endpoint returns `journal_name_prefix` with a trailing
+        // slash, but the names of journal partition templates don't have one
+        // (assemble::journal_selector() adds it when building selectors).
+        let name = journal_name_prefix
+            .strip_suffix('/')
+            .unwrap_or(&journal_name_prefix)
+            .to_string();
+
         assemble::journal_selector(
             // Synthesize a minimal CollectionSpec to satisfy `journal_selector()`.
             &flow::CollectionSpec {
                 name: self.collection.to_string(),
                 partition_template: Some(broker::JournalSpec {
-                    name: journal_name_prefix,
+                    name,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -203,7 +211,7 @@ async fn do_list_fragments(
 
     let list_resp = client
         .list(broker::ListRequest {
-            selector: Some(selector.build_label_selector(journal_name_prefix)),
+            selector: Some(selector.build_label_selector(&journal_name_prefix)),
             ..Default::default()
         })
         .await?;
@@ -244,7 +252,7 @@ async fn do_list_journals(
 
     let list_resp = client
         .list(broker::ListRequest {
-            selector: Some(selector.build_label_selector(journal_name_prefix)),
+            selector: Some(selector.build_label_selector(&journal_name_prefix)),
             ..Default::default()
         })
         .await?;
@@ -310,7 +318,7 @@ async fn do_split_journals(
     // List current journals
     let list_resp = client
         .list(proto_gazette::broker::ListRequest {
-            selector: Some(selector.build_label_selector(journal_name_prefix)),
+            selector: Some(selector.build_label_selector(&journal_name_prefix)),
             ..Default::default()
         })
         .await?;
