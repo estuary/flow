@@ -1,4 +1,4 @@
-use super::spec_fixture;
+use super::{spec_fixture, wrap_connector_schema};
 use crate::{
     ControlPlane,
     integration_tests::harness::{TestHarness, UserDiscoverResult, draft_catalog, set_of},
@@ -139,28 +139,28 @@ async fn test_user_discovers() {
                 },
                 "collections": {
                     "squirrels/acorns": {
-                        "schema": {
+                        "schema": wrap_connector_schema(serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "id": { "type": "string" },
                                 "drafted": { "type": "string" }
                             },
                             "required": ["id", "drafted"]
-                        },
+                        })),
                         "projections": {
                             "iiiiiideeeee": "/id"
                         },
                         "key": ["/drafted"]
                     },
                     "squirrels/walnuts": {
-                        "writeSchema": {
+                        "writeSchema": wrap_connector_schema(serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "id": { "type": "string" },
                                 "drafted": { "type": "string" }
                             },
                             "required": ["id", "drafted"]
-                        },
+                        })),
                         "readSchema": {
                             "type": "object",
                             "properties": {
@@ -173,13 +173,13 @@ async fn test_user_discovers() {
                         "key": ["/drafted"]
                     },
                     "squirrels/extra": {
-                        "schema": {
+                        "schema": wrap_connector_schema(serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "id": { "type": "string" },
                             },
                             "required": ["id"]
-                        },
+                        })),
                         "key": ["/id"]
                     }
                 }
