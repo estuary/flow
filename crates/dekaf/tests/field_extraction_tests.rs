@@ -14,7 +14,7 @@ async fn get_extraction_components(
     let source = build::arg_source_to_url(fixture_path.as_ref(), false)
         .context("Failed to create source URL")?;
 
-    let build::Output { built, draft, .. } = managed_build(source).await;
+    let build::Output { built, draft, .. } = build::for_local_test(&source, false).await;
 
     if !built.errors.is_empty() || !draft.errors.is_empty() {
         // Remove the error scope to avoid including file path components that break the snapshot
@@ -92,35 +92,6 @@ fn json_schema_to_shape(schema: &[u8]) -> anyhow::Result<doc::Shape> {
         validator.schema(),
         validator.schema_index(),
     ))
-}
-
-async fn managed_build(source: url::Url) -> build::Output {
-    use tables::CatalogResolver;
-
-    let file_root = std::path::Path::new("/");
-    let draft = build::load(&source, file_root).await;
-    if !draft.errors.is_empty() {
-        return build::Output::new(draft, Default::default(), Default::default());
-    }
-    let catalog_names = draft.all_spec_names().collect();
-    let live = build::NoOpCatalogResolver.resolve(catalog_names).await;
-    if !live.errors.is_empty() {
-        return build::Output::new(draft, live, Default::default());
-    }
-
-    build::local(
-        models::Id::new([32; 8]),
-        models::Id::new([1; 8]),
-        "",
-        ops::tracing_log_handler,
-        false,
-        false,
-        false,
-        &build::project_root(&source),
-        draft,
-        live,
-    )
-    .await
 }
 
 async fn roundtrip(
