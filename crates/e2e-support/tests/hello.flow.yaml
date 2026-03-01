@@ -1,0 +1,14 @@
+collections:
+  testing/hello-world:
+    schema:
+      type: object
+      required: [id, region]
+      properties:
+        id: { type: string }
+        message: { type: string }
+        region: { type: string }
+    key: [/id]
+    projections:
+      region:
+        location: /region
+        partition: true
