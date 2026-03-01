@@ -42,4 +42,3 @@ type LazyPartitionsClient = std::sync::LazyLock<
     ),
     PartitionsClientInit,
 >;
-
