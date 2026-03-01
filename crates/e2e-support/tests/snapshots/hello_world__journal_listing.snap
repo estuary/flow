@@ -1,0 +1,18 @@
+---
+source: crates/e2e-support/tests/hello_world.rs
+expression: splits
+---
+[
+  {
+    "name": "testing/hello-world/2020202020202020/region=eu/pivot=00",
+    "key_begin": 0,
+    "key_end": 4294967295,
+    "mod_revision": "[mod_revision]"
+  },
+  {
+    "name": "testing/hello-world/2020202020202020/region=us/pivot=00",
+    "key_begin": 0,
+    "key_end": 4294967295,
+    "mod_revision": "[mod_revision]"
+  }
+]
