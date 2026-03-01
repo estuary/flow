@@ -40,6 +40,10 @@ impl From<std::process::Child> for Child {
 }
 
 impl Child {
+    pub fn id(&self) -> u32 {
+        self.pid as u32
+    }
+
     pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
         if let Ok(handle) = &mut self.status {
             self.status = Err(handle.await.unwrap());
