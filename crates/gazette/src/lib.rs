@@ -13,7 +13,7 @@ pub enum Error {
     InvalidEndpoint(String),
     #[error(transparent)]
     Transport(#[from] tonic::transport::Error),
-    #[error(transparent)]
+    #[error("gRPC code: {:?}, message: {}", .0.code(), .0.message())]
     Grpc(#[from] tonic::Status),
     #[error("failed to fetch fragment from storage URL")]
     FetchFragment(#[source] reqwest::Error),
@@ -124,14 +124,17 @@ pub type RetryResult<T> = std::result::Result<T, RetryError>;
 pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
     use std::time::Duration;
 
-    // Normalize "unix://localhost/path" to "unix:/path". Tonic's Endpoint::from_shared
-    // strips the "unix://" prefix and uses the remainder as the socket file path,
-    // which incorrectly includes the "localhost" authority (e.g. "localhost/tmp/sock"
-    // instead of "/tmp/sock"). Go's gRPC requires the authority, so callers may
-    // provide it — strip it here for tonic compatibility.
-    let endpoint = match endpoint.strip_prefix("unix://localhost/") {
-        Some(path) => std::borrow::Cow::Owned(format!("unix:/{path}")),
-        None => std::borrow::Cow::Borrowed(endpoint),
+    // Normalize "unix://<authority>/path" to "unix:/path". Go's gRPC requires
+    // a URI authority in UDS endpoints (e.g. "unix://localhost/path" or
+    // "unix://hostname/path"), but tonic strips the "unix://" prefix and uses
+    // the remainder as the socket file path, incorrectly including the authority
+    // (e.g. "localhost/tmp/sock" instead of "/tmp/sock"). Parse as a URL and
+    // drop the host so tonic sees the correct absolute path.
+    let endpoint = match url::Url::parse(endpoint) {
+        Ok(url) if url.scheme() == "unix" && url.has_host() => {
+            std::borrow::Cow::Owned(format!("unix:{}", url.path()))
+        }
+        _ => std::borrow::Cow::Borrowed(endpoint),
     };
 
     let ep = tonic::transport::Endpoint::from_shared(endpoint.to_string())

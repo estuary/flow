@@ -3616,6 +3616,7 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
@@ -7663,8 +7664,10 @@ name = "shuffle"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "build",
  "bytes",
  "doc",
+ "e2e-support",
  "flow-client-next",
  "futures",
  "gazette",
@@ -7680,6 +7683,7 @@ dependencies = [
  "proto-flow",
  "proto-gazette",
  "proto-grpc",
+ "publisher",
  "schemars",
  "serde",
  "serde-transcode",

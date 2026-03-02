@@ -1,0 +1,24 @@
+---
+source: crates/shuffle/tests/shuffle.rs
+expression: snapshot_frontier(&phase2_frontier)
+---
+[
+    (
+        "testing/apples/2020202020202020/category=alpha/pivot=00",
+        0,
+        [
+            (
+                "01:00:00:00:00:01",
+                (
+                    0,
+                    8,
+                ),
+                (
+                    0,
+                    0,
+                ),
+                -198,
+            ),
+        ],
+    ),
+]

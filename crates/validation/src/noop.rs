@@ -28,9 +28,18 @@ impl Connectors for NoOpConnectors {
                     }),
                     ..Default::default()
                 }
-            } else if let Some(_validate) = request.validate {
+            } else if let Some(validate) = request.validate {
                 capture::Response {
-                    validated: Some(capture::response::Validated::default()),
+                    validated: Some(capture::response::Validated {
+                        bindings: validate
+                            .bindings
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| capture::response::validated::Binding {
+                                resource_path: vec![format!("binding-{i}")],
+                            })
+                            .collect(),
+                    }),
                     ..Default::default()
                 }
             } else {
@@ -90,9 +99,42 @@ impl Connectors for NoOpConnectors {
                     }),
                     ..Default::default()
                 }
-            } else if let Some(_validate) = request.validate {
+            } else if let Some(validate) = request.validate {
                 materialize::Response {
-                    validated: Some(materialize::response::Validated::default()),
+                    validated: Some(materialize::response::Validated {
+                        bindings: validate
+                            .bindings
+                            .iter()
+                            .enumerate()
+                            .map(|(i, binding)| {
+                                // Return FIELD_OPTIONAL for every collection projection
+                                // so that field selection validation succeeds.
+                                let constraints = binding
+                                    .collection
+                                    .as_ref()
+                                    .map(|c| &c.projections)
+                                    .into_iter()
+                                    .flatten()
+                                    .map(|p| {
+                                        (
+                                            p.field.clone(),
+                                            materialize::response::validated::Constraint {
+                                                r#type: materialize::response::validated::constraint::Type::FieldOptional as i32,
+                                                reason: String::new(),
+                                                folded_field: String::new(),
+                                            },
+                                        )
+                                    })
+                                    .collect();
+
+                                materialize::response::validated::Binding {
+                                    resource_path: vec![format!("binding-{i}")],
+                                    constraints,
+                                    ..Default::default()
+                                }
+                            })
+                            .collect(),
+                    }),
                     ..Default::default()
                 }
             } else {

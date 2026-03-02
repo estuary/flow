@@ -1,6 +1,7 @@
 use tokio::sync::mpsc;
 
 mod binding;
+mod client;
 pub mod frontier;
 mod queue;
 mod service;
@@ -11,6 +12,7 @@ mod slice;
 pub(crate) mod testing;
 
 pub use binding::Binding;
+pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
 pub use service::Service;
 
@@ -112,6 +114,16 @@ impl<'p> Verify<'p> {
         match t {
             Ok(t) => Ok(t),
             Err(status) => Err(self.fail_status(status)),
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    fn eof<T: serde::Serialize>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<()> {
+        match t {
+            None => Ok(()),
+            Some(Err(status)) => Err(self.fail_status(status)),
+            Some(Ok(t)) => Err(self.fail(t)),
         }
     }
 

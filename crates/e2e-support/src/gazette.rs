@@ -113,7 +113,7 @@ impl GazetteCluster {
             set_time_claims: Box::new(|claims, iat, exp| {
                 (claims.iat, claims.exp) = (iat.timestamp() as u64, exp.timestamp() as u64);
             }),
-            duration: tokens::TimeDelta::seconds(30),
+            duration: tokens::TimeDelta::seconds(70), // Max refresh cadence in `tokens` is every 60s.
             key: self.encode_key.clone(),
         };
         let default_endpoint = self.brokers[0].endpoint.clone();

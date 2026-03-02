@@ -20,6 +20,8 @@ pub struct Topology {
     pub bindings: Vec<crate::Binding>,
     /// Lazily-initialized Gazette clients for listing and reading journals, indexed by binding.
     pub journal_clients: Vec<super::LazyJournalClient>,
+    /// Sorted index for projecting hinted journal names to bindings.
+    pub hint_index: HintIndex,
 }
 
 /// Flush cycle state machine, tracking in-flight flushes to Queue members.
@@ -133,6 +135,25 @@ impl ProgressState {
         }
         self.requested = false;
         Some(std::mem::take(&mut self.flushed))
+    }
+}
+
+impl std::fmt::Debug for FlushState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlushState")
+            .field("seq", &self.seq)
+            .field("ready", &self.ready)
+            .field("in_flight", &self.in_flight.iter().filter(|p| **p).count())
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ProgressState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProgressState")
+            .field("requested", &self.requested)
+            .field("flushed", &self.flushed.journals.len())
+            .finish()
     }
 }
 
@@ -304,6 +325,18 @@ pub fn sequence_document(
     // the propagation of flush and progress reporting.
     let is_enqueue = is_enqueue && *clock >= binding.not_before && *clock < binding.not_after;
 
+    tracing::trace!(
+        journal = %read_state.journal,
+        binding = binding.state_key(),
+        ?producer,
+        ?clock,
+        begin_offset,
+        ?outcome,
+        is_enqueue,
+        is_commit,
+        "sequenced document"
+    );
+
     Ok(SequencedDoc {
         is_enqueue,
         is_commit,
@@ -311,8 +344,107 @@ pub fn sequence_document(
     })
 }
 
+/// Sorted index for projecting hinted journal names to (binding_index, cohort).
+///
+/// Entries are sorted by prefix then binding index. Because the control plane
+/// guarantees no collection is a prefix of another, at most one distinct prefix
+/// can match a given journal name — so lookup is a single binary search plus
+/// a linear scan of adjacent entries sharing that prefix.
+pub struct HintIndex(Vec<(Box<str>, u32, u32)>); // (prefix, binding_index, cohort)
+
+impl HintIndex {
+    pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u32, u32)>) -> Self {
+        let mut index: Vec<(&str, u32, u32)> = entries.collect();
+
+        index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+        // Now that we've sorted, re-allocate partition name prefixes.
+        // This aligns memory locality and order with our query pattern.
+        let owned: Vec<(Box<str>, u32, u32)> = index
+            .into_iter()
+            .map(|(prefix, idx, cohort)| (Box::from(prefix), idx, cohort))
+            .collect();
+
+        Self(owned)
+    }
+
+    pub fn from_bindings(bindings: &[crate::Binding]) -> Self {
+        Self::new(
+            bindings
+                .iter()
+                .map(|b| (b.partition_template_name.as_ref(), b.index, b.cohort)),
+        )
+    }
+
+    /// Find all binding indices whose prefix matches `journal` within `cohort`.
+    ///
+    /// Because no collection prefix is a prefix of another, there is at most
+    /// one matching prefix for any journal name.
+    pub fn lookup(&self, journal: &str, cohort: u32, out: &mut Vec<u32>) {
+        out.clear();
+
+        // Find the first entry whose partition name prefix is > journal.
+        // The matching prefix, if any, is immediately before this position.
+        let pos = self
+            .0
+            .partition_point(|(prefix, _, _)| prefix.as_ref() <= journal);
+        if pos == 0 {
+            return;
+        }
+
+        // Check whether the entry just before `pos` is a prefix of `journal`.
+        let matched_prefix = &self.0[pos - 1].0;
+        if !journal.starts_with(matched_prefix.as_ref()) {
+            return;
+        }
+
+        // Scan all entries sharing this prefix (they are contiguous and sorted).
+        for &(ref prefix, binding_idx, binding_cohort) in self.0[..pos].iter().rev() {
+            if prefix != matched_prefix {
+                break;
+            }
+            if binding_cohort == cohort {
+                out.push(binding_idx);
+            }
+        }
+    }
+}
+
+/// Decode causal hints from an ACK document and project them through the
+/// `hint_index` into `causal_hints` entries keyed by (journal, binding_index).
+pub fn extract_causal_hints<N: json::AsNode>(
+    hint_index: &HintIndex,
+    ack_journal: &str,
+    ack_cohort: u32,
+    ack_producer: uuid::Producer,
+    ack_clock: uuid::Clock,
+    ack_doc: &N,
+    causal_hints: &mut super::CausalHints,
+) -> anyhow::Result<()> {
+    let mut hint_iter =
+        publisher::intents::decode_transaction_hints(ack_journal, ack_producer, ack_clock, ack_doc);
+    let mut matched_bindings = Vec::new();
+
+    while let Some(result) = hint_iter.next() {
+        let (hinted_journal, hinted_producer, hinted_clock) = result.map_err(|err| {
+            anyhow::anyhow!("decoding causal hint from ACK in {ack_journal}: {err}")
+        })?;
+
+        hint_index.lookup(hinted_journal, ack_cohort, &mut matched_bindings);
+
+        for &binding_idx in &matched_bindings {
+            causal_hints
+                .entry((hinted_journal.into(), binding_idx))
+                .or_default()
+                .push((hinted_producer, hinted_clock));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
+    use super::super::CausalHints;
     use super::super::read::Meta;
     use super::*;
     use crate::testing::test_binding;
@@ -737,6 +869,169 @@ mod test {
         assert_eq!(
             seq.producer_state.offset, -450,
             "rollback yields committed offset"
+        );
+    }
+
+    #[test]
+    fn test_hint_index_lookup() {
+        // (index_entries, lookup_journal, lookup_cohort, expected_sorted_bindings)
+        let cases: &[(&[(&str, u32, u32)], &str, u32, &[u32])] = &[
+            // Prefix match.
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)],
+                "acmeCo/anvils/part=a/pivot=00",
+                0,
+                &[0],
+            ),
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)],
+                "acmeCo/bananas/pivot=00",
+                0,
+                &[1],
+            ),
+            // No matching prefix.
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)],
+                "other/collection/pivot=00",
+                0,
+                &[],
+            ),
+            // Cohort filtering: same prefix, different cohorts.
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 1)],
+                "acmeCo/anvils/part=a/pivot=00",
+                0,
+                &[0],
+            ),
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 1)],
+                "acmeCo/anvils/part=a/pivot=00",
+                1,
+                &[1],
+            ),
+            // Unknown cohort.
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 1)],
+                "acmeCo/anvils/part=a/pivot=00",
+                99,
+                &[],
+            ),
+            // Multiple bindings, same prefix and cohort.
+            (
+                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 0)],
+                "acmeCo/anvils/part=a/pivot=00",
+                0,
+                &[0, 1],
+            ),
+        ];
+
+        let mut out = Vec::new();
+        for (entries, journal, cohort, expected) in cases {
+            let index = HintIndex::new(entries.iter().copied());
+            index.lookup(journal, *cohort, &mut out);
+            out.sort();
+            assert_eq!(&out, expected, "journal={journal}, cohort={cohort}");
+        }
+    }
+
+    fn test_hint_index() -> HintIndex {
+        HintIndex::new([("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)].into_iter())
+    }
+
+    #[test]
+    fn test_extract_causal_hints_round_trip() {
+        let index = test_hint_index();
+        let mut causal_hints = CausalHints::default();
+
+        let p1 = producer(0x00);
+        let p2 = producer(0x02);
+
+        // Build a transaction with two producers across two journals.
+        let txn = vec![
+            (
+                p1,
+                Clock::from_u64(100),
+                vec![
+                    "acmeCo/anvils/part=a/pivot=00".to_string(),
+                    "acmeCo/bananas/pivot=00".to_string(),
+                ],
+            ),
+            (
+                p2,
+                Clock::from_u64(200),
+                vec!["acmeCo/anvils/part=a/pivot=00".to_string()],
+            ),
+        ];
+
+        let journal_acks = publisher::intents::build_transaction_intents(&txn);
+
+        // For each journal's first ACK, extract hints into causal_hints.
+        for (journal, acks) in &journal_acks {
+            let ack = &acks[0];
+            let uuid_str = ack["_meta"]["uuid"].as_str().unwrap();
+            let (ack_producer, commit_clock, _flags) = uuid::parse_str(uuid_str).unwrap();
+
+            extract_causal_hints(
+                &index,
+                journal,
+                0, // cohort
+                ack_producer,
+                commit_clock,
+                ack,
+                &mut causal_hints,
+            )
+            .unwrap();
+        }
+
+        // Collect into sorted tuples for deterministic assertion.
+        let mut entries: Vec<_> = causal_hints
+            .iter()
+            .map(|((j, b), hints)| {
+                let mut h: Vec<_> = hints.iter().map(|(p, c)| (p, c)).collect();
+                h.sort();
+                (j.as_ref().to_string(), *b, h)
+            })
+            .collect();
+        entries.sort();
+
+        insta::assert_debug_snapshot!(entries);
+    }
+
+    #[test]
+    fn test_extract_causal_hints_no_hints_and_decode_error() {
+        let index = test_hint_index();
+        let p1 = producer(0x00);
+
+        // ACK doc without hints field: causal_hints remains empty.
+        let mut causal_hints = CausalHints::default();
+        let doc = serde_json::json!({"_meta": {"uuid": "00000000-0000-0000-0000-000000000000"}});
+        extract_causal_hints(
+            &index,
+            "acmeCo/anvils/x",
+            0,
+            p1,
+            Clock::from_u64(100),
+            &doc,
+            &mut causal_hints,
+        )
+        .unwrap();
+        assert!(causal_hints.is_empty());
+
+        // Malformed hints field: returns decode error.
+        let doc = serde_json::json!({"hints": [{"j": "not-an-array", "p": []}]});
+        let err = extract_causal_hints(
+            &index,
+            "acmeCo/anvils/x",
+            0,
+            p1,
+            Clock::from_u64(100),
+            &doc,
+            &mut causal_hints,
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("decoding causal hint"),
+            "error should mention decoding: {err}"
         );
     }
 }

@@ -8,7 +8,6 @@ use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, stream};
 use proto_flow::shuffle;
 use proto_gazette::{broker, uuid};
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 #[allow(dead_code)]
@@ -18,7 +17,7 @@ pub struct SliceActor {
     /// Per-read producer tracking
     pub reads: Vec<ReadState>,
     /// Causal hints accumulated from consumed ACK documents. Drained during flush.
-    pub causal_hints: HashMap<(Box<str>, u32), Vec<(uuid::Producer, uuid::Clock)>>,
+    pub causal_hints: super::CausalHints,
     /// State machine for tracking flush cycles with Queue members.
     pub flush: FlushState,
     /// State machine for tracking progress reporting with the Session.
@@ -110,7 +109,21 @@ impl SliceActor {
         // Measure of wall-clock time, used to gate delayed reads.
         let mut now = uuid::Clock::zero();
 
+        let mut loop_count: u64 = 0;
         loop {
+            loop_count += 1;
+            tracing::debug!(
+                loop_count,
+                total_reads = self.reads.len(),
+                tailing_reads = self.tailing_reads,
+                pending_probes = self.pending_probes.len(),
+                pending_reads = self.pending_reads.len(),
+                ready_heap = self.ready_read_heap.len(),
+                flush = ?self.flush,
+                progress = ?self.progress,
+                progressed_drain = ?self.progressed_drain,
+                "SliceActor::serve iteration"
+            );
             // First, attempt non-blocking sends.
             let wake_queue_request_tx = self.try_queue_request_tx(&mut buffers, &mut now)?;
             let wake_slice_response_tx = self.try_slice_response_tx()?;
@@ -123,7 +136,15 @@ impl SliceActor {
                 slice_request = slice_request_rx.next() => {
                     match slice_request {
                         Some(result) => self.on_slice_request(result)?,
-                        None => break Ok(()), // Clean EOF: shutdown.
+                        None => {
+                            tracing::debug!(
+                                loop_count,
+                                total_reads = self.reads.len(),
+                                flush_seq = self.flush.seq,
+                                "SliceActor::serve exiting on Session EOF"
+                            );
+                            break Ok(());
+                        }
                     }
                 }
                 Some((member_index, queue_response, rx)) = queue_response_rx.next() => {
@@ -200,7 +221,10 @@ impl SliceActor {
             shuffle::SliceRequest {
                 progress: Some(shuffle::slice_request::Progress {}),
                 ..
-            } => self.progress.request(),
+            } => {
+                tracing::debug!("received Progress request from Session");
+                self.progress.request()
+            }
 
             shuffle::SliceRequest {
                 start_read: Some(start_read),
@@ -236,6 +260,14 @@ impl SliceActor {
 
         // Resolve the checkpoint into producer state and start offset.
         let (offset, producers) = state::resolve_checkpoint(checkpoint);
+
+        tracing::debug!(
+            binding = binding.state_key(),
+            %journal,
+            offset,
+            ?producers,
+            "starting journal read"
+        );
 
         let mut request = broker::ReadRequest {
             // Add `journal_read_suffix` as a metadata component to the journal name.
@@ -352,6 +384,7 @@ impl SliceActor {
                         binding = %binding.state_key(),
                         journal = %read_state.journal,
                         attempt = attempt,
+                        %err,
                         "transient error reading from journal (will retry)"
                     );
                     self.pending_reads.push(read.into_future());
@@ -522,16 +555,26 @@ impl SliceActor {
                     Meta {
                         end_offset: next_begin_offset,
                         producer,
+                        clock,
+                        flags,
                         ..
                     },
-                doc: _,
+                doc,
                 mut tail,
             } = *ready_read;
 
             if sequenced.is_commit {
-                // TODO(johnny): Extract causal hints from `doc`. Add to self.causal_hints.
-
-                // Commits begin a new flush cycle.
+                if flags == uuid::Flags::ACK_TXN {
+                    state::extract_causal_hints(
+                        &self.topology.hint_index,
+                        &read_state.journal,
+                        binding.cohort,
+                        producer,
+                        clock,
+                        doc.get(),
+                        &mut self.causal_hints,
+                    )?;
+                }
                 self.flush.set_ready();
             }
 
@@ -656,6 +699,18 @@ impl SliceActor {
             members,
         ));
 
+        tracing::trace!(
+            %journal,
+            binding = binding.state_key(),
+            ?producer,
+            ?clock,
+            begin_offset,
+            key_hash,
+            r_clock,
+            ?targets,
+            "enqueuing document to members"
+        );
+
         // Safety: `permits` is always cleared prior to return (retaining only capacity).
         let permits: &mut Vec<_> =
             unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
@@ -714,6 +769,7 @@ impl SliceActor {
             let Some(frontier) = self.progress.take_progressed() else {
                 return Ok(idle);
             };
+            tracing::debug!(?frontier, "sending Progressed to Session");
             self.progressed_drain.start(frontier);
         }
 

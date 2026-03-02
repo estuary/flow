@@ -242,7 +242,7 @@ async fn walk_materialization<C: Connectors>(
                 built_collections,
                 materialization,
                 data_plane.control_id,
-                noop_materializations || shards.disable,
+                shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
                 &mut model_fixes,

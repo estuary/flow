@@ -60,6 +60,10 @@ pub struct Binding {
     /// Assigned as ascending integers by walking bindings in index order
     /// and identifying unique (priority, read_delay) tuples.
     pub cohort: u32,
+    /// Partition template name for this binding's source collection.
+    /// Prefixes all partition journal names. Used to build the hint
+    /// projection index.
+    pub partition_template_name: Box<str>,
 }
 
 impl Binding {
@@ -175,12 +179,19 @@ impl Binding {
             key,
             name: collection_name,
             partition_fields: _,
-            partition_template: _,
+            partition_template,
             projections,
             read_schema_json,
             uuid_ptr,
             write_schema_json,
         } = collection.as_ref().context("missing source collection")?;
+
+        let partition_template_name = partition_template
+            .as_ref()
+            .context("missing partition template")?
+            .name
+            .as_str()
+            .into();
 
         // read_delay is a duration, not an absolute timestamp.
         // Clock's internal representation is (100ns_ticks << 4 | sequence_counter),
@@ -233,6 +244,7 @@ impl Binding {
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
+            partition_template_name,
         })
     }
 
@@ -263,12 +275,19 @@ impl Binding {
             key,
             name: collection_name,
             partition_fields: _,
-            partition_template: _,
+            partition_template,
             projections,
             read_schema_json,
             uuid_ptr,
             write_schema_json,
         } = collection.as_ref().context("missing source collection")?;
+
+        let partition_template_name = partition_template
+            .as_ref()
+            .context("missing partition template")?
+            .name
+            .as_str()
+            .into();
 
         let (not_before, not_after) = not_before_after(not_before.as_ref(), not_after.as_ref());
 
@@ -297,6 +316,7 @@ impl Binding {
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
+            partition_template_name,
         })
     }
 
@@ -310,19 +330,26 @@ impl Binding {
             key,
             name: collection_name,
             partition_fields: _,
-            partition_template: _,
+            partition_template,
             projections,
             read_schema_json,
             uuid_ptr,
             write_schema_json,
         } = spec;
 
+        let partition_template_name = partition_template
+            .as_ref()
+            .context("missing partition template")?
+            .name
+            .as_str()
+            .into();
+
         let (schema, shape) = build_schema(read_schema_json, write_schema_json)?;
 
         Ok(Binding {
             index: 0,
             filter_r_clocks: false,
-            journal_read_suffix: String::new(), // No suffix for ad-hoc reads.
+            journal_read_suffix: "ad-hoc".to_string(),
             priority: 0,
             projections: projections.clone(),
             read_delay: uuid::Clock::from_u64(0),
@@ -338,6 +365,7 @@ impl Binding {
             not_before: uuid::Clock::UNIX_EPOCH,
             not_after: uuid::Clock::from_u64(u64::MAX),
             cohort: 0, // Assigned by assign_cohorts().
+            partition_template_name,
         })
     }
 

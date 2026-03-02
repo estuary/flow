@@ -49,7 +49,18 @@ impl QueueActor {
         // we send the corresponding Flushed response.
         let mut pending_io = futures::stream::FuturesUnordered::new();
 
+        let mut loop_count: u64 = 0;
         loop {
+            loop_count += 1;
+            tracing::debug!(
+                loop_count,
+                pending_slices = pending_slices.len(),
+                pending_io = pending_io.len(),
+                pending_flushed = self.pending_flushed.len(),
+                heap_size = self.enqueue_heap.len(),
+                "QueueActor::serve iteration"
+            );
+
             // First, attempt non-blocking sends of completed Flushed responses.
             let wake_queue_response_tx = self.try_queue_response_tx()?;
 
@@ -66,7 +77,9 @@ impl QueueActor {
 
                 // Second priority: complete a pending IO, queuing the Flushed for send.
                 Some(result) = pending_io.next() => {
-                    self.pending_flushed.push(result?);
+                    let (member_index, seq) = result?;
+                    tracing::debug!(member_index, seq, "flush IO completed");
+                    self.pending_flushed.push((member_index, seq));
                 }
 
                 // Third priority: wake when a blocked queue_response_tx has capacity.
@@ -79,7 +92,10 @@ impl QueueActor {
                 }
 
                 // All slices EOF'd, heap drained, IO complete, and flushes sent.
-                else => break Ok(()),
+                else => {
+                    tracing::debug!(loop_count, "QueueActor::serve exiting, all slices EOF");
+                    break Ok(());
+                }
             }
         }
     }
@@ -107,6 +123,7 @@ impl QueueActor {
                 flushed: Some(shuffle::queue_response::Flushed { seq }),
                 ..Default::default()
             }));
+            tracing::debug!(member_index, seq, "sent Flushed response to Slice");
         }
 
         Ok(idle)
@@ -166,6 +183,14 @@ impl QueueActor {
         let priority = enqueue.priority;
         let adjusted_clock = uuid::Clock::from_u64(enqueue.adjusted_clock);
 
+        tracing::trace!(
+            member_index,
+            priority,
+            ?adjusted_clock,
+            doc_bytes = enqueue.doc_archived.len(),
+            "received Enqueue from Slice"
+        );
+
         debug_assert!(self.slice_enqueues[member_index].is_none());
         self.slice_enqueues[member_index] = Some((enqueue, rx));
 
@@ -182,6 +207,8 @@ impl QueueActor {
         member_index: usize,
     ) -> impl Future<Output = anyhow::Result<(usize, u64)>> + 'static {
         let shuffle::queue_request::Flush { seq } = flush;
+
+        tracing::debug!(member_index, seq, "received Flush from Slice");
 
         // Emulate disk IO latency.
         async move {
@@ -207,7 +234,7 @@ impl QueueActor {
             &enqueue.journal_name_suffix,
         );
 
-        tracing::debug!(
+        tracing::trace!(
             member_index,
             journal = self.slice_prev_journal[member_index],
             priority,

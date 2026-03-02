@@ -1,5 +1,4 @@
-use super::state::{FlushState, ProgressState, Topology};
-use super::{LazyJournalClient, SliceActor, heap::ReadyReadHeap};
+use super::{LazyJournalClient, SliceActor, heap::ReadyReadHeap, state};
 use anyhow::Context;
 use futures::{StreamExt, stream};
 use proto_flow::shuffle;
@@ -99,21 +98,24 @@ where
         })
         .collect();
 
-    let topology = Topology {
+    let hint_index = state::HintIndex::from_bindings(&bindings);
+
+    let topology = state::Topology {
         session_id,
         members,
         slice_member_index,
         task_name,
         bindings,
         journal_clients,
+        hint_index,
     };
 
     SliceActor {
         topology,
         reads: Vec::new(),
         causal_hints: Default::default(),
-        flush: FlushState::new(),
-        progress: ProgressState::new(),
+        flush: state::FlushState::new(),
+        progress: state::ProgressState::new(),
         slice_response_tx,
         queue_prev_journal: vec![String::new(); queue_request_tx.len()],
         queue_request_tx,

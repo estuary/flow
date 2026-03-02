@@ -45,7 +45,18 @@ impl SessionActor {
             .map(next_slice_rx)
             .collect();
 
+        let mut loop_count: u64 = 0;
         loop {
+            loop_count += 1;
+            tracing::debug!(
+                loop_count,
+                checkpoint = ?self.checkpoint,
+                drain_empty = ?self.checkpoint_drain,
+                progress_ready = ?self.progress_ready,
+                start_reads = self.start_reads.len(),
+                "SessionActor::serve iteration"
+            );
+
             // First, attempt non-blocking sends.
             let wake_slice_request_tx = self.try_slice_request_tx()?;
             let wake_session_response_tx = self.try_session_response_tx()?;
@@ -58,7 +69,10 @@ impl SessionActor {
                 session_request = session_request_rx.next() => {
                     match session_request {
                         Some(result) => self.on_session_request(result)?,
-                        None => break Ok(()), // Clean EOF: shutdown.
+                        None => {
+                        tracing::debug!(loop_count, "SessionActor::serve exiting on coordinator EOF");
+                        break Ok(());
+                    }
                     }
                 }
                 Some((member_index, slice_response, rx)) = slice_response_rx.next() => {
@@ -127,6 +141,10 @@ impl SessionActor {
 
         if self.checkpoint_drain.is_empty() {
             if let Some(frontier) = self.checkpoint.take_ready() {
+                tracing::debug!(
+                    journals = frontier.journals.len(),
+                    "starting NextCheckpoint drain to coordinator"
+                );
                 self.checkpoint_drain.start(frontier);
             }
         }
@@ -160,7 +178,10 @@ impl SessionActor {
             shuffle::SessionRequest {
                 next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
                 ..
-            } => self.checkpoint.request(),
+            } => {
+                tracing::debug!("received NextCheckpoint request from coordinator");
+                self.checkpoint.request()
+            }
             request => Err(verify.fail(request)),
         }
     }
@@ -184,6 +205,14 @@ impl SessionActor {
                 ..
             } => {
                 let routed = self.topology.route_read(&added)?;
+                tracing::debug!(
+                    member_index,
+                    binding = added.binding,
+                    journal = added.spec.as_ref().map(|s| s.name.as_str()).unwrap_or(""),
+                    target_member = routed.member_index,
+                    candidates = routed.member_stop - routed.member_start,
+                    "received ListingAdded, assigning read"
+                );
                 let (member_index, start_read) = self.topology.build_start_read(&routed, added);
                 self.start_reads.push_back((member_index, start_read));
                 Ok(())
@@ -194,6 +223,10 @@ impl SessionActor {
                 ..
             } => {
                 if self.checkpoint.on_progressed_chunk(member_index, chunk)? {
+                    tracing::debug!(
+                        member_index,
+                        "Progressed sequence complete, sending next ProgressRequest"
+                    );
                     self.progress_ready[member_index] = true;
                 }
                 Ok(())

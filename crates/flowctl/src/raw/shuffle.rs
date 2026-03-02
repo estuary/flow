@@ -1,7 +1,5 @@
 use anyhow::Context;
-use futures::{SinkExt, StreamExt, TryStreamExt};
-use proto_flow::shuffle::{self as proto};
-use proto_grpc::shuffle::shuffle_client::ShuffleClient;
+use proto_flow::{flow, shuffle as proto};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -97,21 +95,6 @@ impl Shuffle {
                 .context("shuffle server (odd) error")
         });
 
-        // Give the servers a moment to start.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        // Connect as a client to the even server and open a Session.
-        tracing::info!(
-            addr_even = %peer_addr_even,
-            addr_odd = %peer_addr_odd,
-            member_count,
-            "connecting to shuffle servers"
-        );
-
-        let mut client = ShuffleClient::connect(peer_addr_even.clone())
-            .await
-            .context("connecting to shuffle server")?;
-
         // Create member topology: even-indexed members use even server, odd use odd.
         let members = build_member_topology(*member_count, &peer_addr_even, &peer_addr_odd);
 
@@ -121,105 +104,43 @@ impl Shuffle {
             .unwrap()
             .as_nanos() as u64;
 
-        // Create the request stream.
-        let (mut request_tx, request_rx) =
-            futures::channel::mpsc::channel::<proto::SessionRequest>(16);
-
-        // Send the Open request.
-        tracing::info!(session_id, "sending Session Open request");
-
-        request_tx
-            .send(proto::SessionRequest {
-                open: Some(proto::session_request::Open {
-                    session_id,
-                    task: Some(task),
-                    members,
-                }),
-                ..Default::default()
-            })
-            .await
-            .context("sending Session Open")?;
-
-        // Start the Session RPC.
-        let mut response_stream = client
-            .session(request_rx)
-            .await
-            .context("starting Session RPC")?
-            .into_inner();
-
-        // Wait for Opened response.
-        let opened = response_stream
-            .try_next()
-            .await
-            .context("waiting for Session Opened")?
-            .context("Session closed without Opened")?;
-
-        anyhow::ensure!(
-            opened.opened.is_some(),
-            "expected Opened response from Session"
+        tracing::info!(
+            session_id,
+            addr_even = %peer_addr_even,
+            addr_odd = %peer_addr_odd,
+            member_count,
+            "opening session"
         );
 
-        tracing::info!(session_id, "received Opened from Session");
+        let mut client = ::shuffle::SessionClient::open(
+            &peer_addr_even,
+            session_id,
+            task,
+            members,
+            ::shuffle::Frontier::default(),
+        )
+        .await
+        .context("opening session")?;
 
-        // Send resume checkpoint frontier (empty).
-        request_tx
-            .send(proto::SessionRequest {
-                resume_checkpoint_chunk: Some(proto::FrontierChunk {
-                    journals: Vec::new(),
-                }),
-                ..Default::default()
-            })
-            .await
-            .context("sending resume checkpoint frontier")?;
+        tracing::info!(session_id, "session opened, requesting checkpoints");
 
-        // Send some NextCheckpoint requests and read their responses.
         for i in 0..15 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            tracing::info!(i, session_id, "sending NextCheckpoint request");
+            tracing::info!(i, session_id, "requesting NextCheckpoint");
 
-            request_tx
-                .send(proto::SessionRequest {
-                    next_checkpoint: Some(proto::session_request::NextCheckpoint {}),
-                    ..Default::default()
-                })
+            let frontier = client
+                .next_checkpoint()
                 .await
-                .context("sending NextCheckpoint")?;
+                .context("requesting next checkpoint")?;
 
-            let mut checkpoint = Vec::new();
-            loop {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    response_stream.next(),
-                )
-                .await
-                {
-                    Ok(Some(Ok(proto::SessionResponse {
-                        next_checkpoint_chunk: Some(chunk),
-                        ..
-                    }))) => {
-                        if chunk.journals.is_empty() {
-                            break; // End-of-sequence for this checkpoint.
-                        } else {
-                            checkpoint.extend(::shuffle::JournalFrontier::decode(chunk));
-                        }
-                    }
-                    Ok(Some(Ok(unexpected))) => {
-                        anyhow::bail!("unexpected Session response received: {unexpected:?}")
-                    }
-                    Ok(None) => {
-                        anyhow::bail!(
-                            "Session response stream closed unexpectedly while request_tx held"
-                        )
-                    }
-                    Ok(Some(Err(status))) => {
-                        return Err(runtime::status_to_anyhow(status));
-                    }
-                    Err(_elapsed) => anyhow::bail!("timeout waiting for Session response"),
-                }
-            }
+            let total_producers: usize = frontier.journals.iter().map(|j| j.producers.len()).sum();
 
-            let frontier =
-                ::shuffle::Frontier::new(checkpoint).context("validating checkpoint frontier")?;
+            tracing::info!(
+                i,
+                journals = frontier.journals.len(),
+                total_producers,
+                "received NextCheckpoint"
+            );
 
             for ::shuffle::JournalFrontier {
                 journal,
@@ -247,13 +168,10 @@ impl Shuffle {
             }
         }
 
-        // Close the request stream.
-        drop(request_tx);
-        let _ignored = response_stream.next().await;
+        client.close().await.context("closing session")?;
 
         tracing::info!(session_id, "shuffle test completed successfully");
 
-        // Abort both servers (we're done testing).
         server_handle_even.abort();
         server_handle_odd.abort();
 
@@ -283,15 +201,14 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
 
     let task = match row.spec_type.as_str() {
         "materialization" => {
-            let spec: proto_flow::flow::MaterializationSpec =
-                serde_json::from_value(row.built_spec)?;
+            let spec: flow::MaterializationSpec = serde_json::from_value(row.built_spec)?;
             tracing::info!(name = spec.name, "fetched materialization");
             proto::Task {
                 task: Some(proto::task::Task::Materialization(spec)),
             }
         }
         "collection" => {
-            let spec: proto_flow::flow::CollectionSpec = serde_json::from_value(row.built_spec)?;
+            let spec: flow::CollectionSpec = serde_json::from_value(row.built_spec)?;
 
             if spec.derivation.is_some() {
                 tracing::info!(name = spec.name, "fetched derivation");
@@ -339,7 +256,7 @@ fn build_member_topology(count: u32, addr_even: &str, addr_odd: &str) -> Vec<pro
         let endpoint = if i % 2 == 0 { addr_even } else { addr_odd };
 
         members.push(proto::Member {
-            range: Some(proto_flow::flow::RangeSpec {
+            range: Some(flow::RangeSpec {
                 key_begin,
                 key_end,
                 r_clock_begin: 0,

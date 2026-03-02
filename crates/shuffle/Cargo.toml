@@ -22,6 +22,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "shuffle_client",
     "shuffle_server",
 ] }
+publisher = { path = "../publisher" }
 simd-doc = { path = "../simd-doc" }
 tables = { path = "../tables" }
 tokens = { path = "../tokens" }
@@ -48,5 +49,6 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-
+build = { path = "../build" }
+e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
