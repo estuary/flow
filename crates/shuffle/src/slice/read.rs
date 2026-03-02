@@ -117,6 +117,7 @@ pub async fn probe_write_head(
                         binding = %binding_state_key,
                         %journal,
                         attempt,
+                        %err,
                         "transient error probing journal write head (will retry)"
                     );
                 } else {

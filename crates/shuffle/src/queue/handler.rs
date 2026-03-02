@@ -31,7 +31,7 @@ where
         members = members.len(),
         slice_member_index,
         queue_member_index,
-        "queue received Open"
+        "Queue received Open"
     );
     let join_key = (session_id, queue_member_index);
 

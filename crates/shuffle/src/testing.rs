@@ -112,6 +112,7 @@ pub fn test_binding(
         not_before: Clock::UNIX_EPOCH,
         not_after: Clock::from_u64(u64::MAX),
         cohort: 0,
+        partition_template_name: "test/collection/".into(),
     }
 }
 

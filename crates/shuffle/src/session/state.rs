@@ -206,6 +206,12 @@ impl CheckpointPipeline {
         let unresolved = resume_checkpoint.project_unresolved_hints();
         let unresolved_count = unresolved.count_unresolved_hints();
 
+        tracing::debug!(
+            unresolved_hints = unresolved_count,
+            recovery_pending = unresolved_count > 0,
+            "CheckpointPipeline initialized"
+        );
+
         Self {
             partials: vec![Vec::new(); member_count],
             progressed: Default::default(),
@@ -236,6 +242,12 @@ impl CheckpointPipeline {
         let ready = std::mem::take(&mut self.ready);
         self.requested = false;
 
+        tracing::debug!(
+            journals = ready.journals.len(),
+            was_recovery = self.recovery_pending,
+            "checkpoint ready, taken by coordinator"
+        );
+
         // Clearing recovery_pending may unblock accumulated progress that was
         // previously held back to avoid contaminating the recovery checkpoint.
         self.recovery_pending = false;
@@ -264,11 +276,7 @@ impl CheckpointPipeline {
         let progressed =
             crate::Frontier::new(journals).context("validating Progressed frontier delta")?;
 
-        tracing::debug!(
-            member_index,
-            journals = progressed.journals.len(),
-            "received Progressed response"
-        );
+        tracing::debug!(member_index, ?progressed, "received Progressed response");
 
         // Resolve causal hints in `unresolved` using the incoming progress.
         // Producers in `unresolved` where hinted_commit > last_commit are resolved
@@ -278,8 +286,19 @@ impl CheckpointPipeline {
 
         // Promote unresolved → ready if all its hints were just resolved.
         if resolved_count != 0 && resolved_count == self.unresolved_count {
+            tracing::debug!(
+                resolved_count,
+                unresolved_journals = self.unresolved.journals.len(),
+                "all causal hints resolved, promoting unresolved to ready"
+            );
             let resolved = std::mem::take(&mut self.unresolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
+        } else if resolved_count != 0 {
+            tracing::debug!(
+                resolved_count,
+                remaining = self.unresolved_count - resolved_count,
+                "partially resolved causal hints"
+            );
         }
         self.unresolved_count -= resolved_count;
 
@@ -298,14 +317,41 @@ impl CheckpointPipeline {
         if self.recovery_pending || !self.unresolved.journals.is_empty() {
             return;
         }
+        let journals = self.progressed.journals.len();
+        if journals == 0 {
+            return;
+        }
+
         self.unresolved = std::mem::take(&mut self.progressed);
         self.unresolved_count = self.unresolved.count_unresolved_hints();
 
         if self.unresolved_count == 0 {
-            // No unresolved hints → promote directly to ready.
+            tracing::debug!(
+                journals,
+                "promoted progressed directly to ready (no unresolved hints)"
+            );
             let resolved = std::mem::take(&mut self.unresolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
+        } else {
+            tracing::debug!(
+                journals,
+                unresolved_hints = self.unresolved_count,
+                "promoted progressed to unresolved (awaiting hint resolution)"
+            );
         }
+    }
+}
+
+impl std::fmt::Debug for CheckpointPipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CheckpointPipeline")
+            .field("progressed", &self.progressed.journals.len())
+            .field("unresolved", &self.unresolved.journals.len())
+            .field("unresolved_count", &self.unresolved_count)
+            .field("ready", &self.ready.journals.len())
+            .field("requested", &self.requested)
+            .field("recovery_pending", &self.recovery_pending)
+            .finish()
     }
 }
 

@@ -1,5 +1,6 @@
 ---
 source: crates/shuffle/src/slice/producer.rs
+assertion_line: 286
 expression: snap
 ---
 [
@@ -176,6 +177,44 @@ expression: snap
                             last_commit: Clock(0s 16ns),
                             hinted_commit: Clock(0s 0ns),
                             offset: -400,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    (
+        "duplicate_hint_producers",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 0ns),
+                            hinted_commit: Clock(0s 32ns),
+                            offset: 0,
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+    (
+        "duplicate_hints_merged_with_reads",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 8ns),
+                            hinted_commit: Clock(0s 32ns),
+                            offset: -300,
                         },
                     ],
                 },

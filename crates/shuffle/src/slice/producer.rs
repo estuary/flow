@@ -46,7 +46,7 @@ pub type ProducerMap<V> = std::collections::HashMap<Producer, V, ProducerHasher>
 ///   - Non-negative: Begin offset of first pending CONTINUE_TXN
 ///   - Negative: Negation of end offset of last committing ACK_TXN / OUTSIDE_TXN
 /// Internal default state uses zero before any document has been observed.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ProducerState {
     /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
     pub last_commit: Clock,
@@ -54,6 +54,16 @@ pub struct ProducerState {
     pub max_continue: Clock,
     /// Journal byte offset, sign-encoded (see struct docs).
     pub offset: i64,
+}
+
+impl Default for ProducerState {
+    fn default() -> Self {
+        Self {
+            last_commit: Clock::zero(),
+            max_continue: Clock::zero(),
+            offset: 0,
+        }
+    }
 }
 const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 
@@ -107,8 +117,6 @@ pub fn build_flush_frontier(
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
-    // Sort afterward to restore the sorted invariant (entries are
-    // already unique since they come from HashMap keys).
     let mut hint_journals: Vec<crate::JournalFrontier> = hints
         .map(|((journal, binding), producers)| {
             let mut producers: Vec<_> = producers
@@ -120,7 +128,14 @@ pub fn build_flush_frontier(
                     offset: 0,
                 })
                 .collect();
+
             producers.sort_by(|a, b| a.producer.cmp(&b.producer));
+            producers.dedup_by(|b, a| {
+                a.producer == b.producer && {
+                    a.hinted_commit = a.hinted_commit.max(b.hinted_commit);
+                    true
+                }
+            });
 
             crate::JournalFrontier {
                 journal,
@@ -129,6 +144,9 @@ pub fn build_flush_frontier(
             }
         })
         .collect();
+
+    // Sort to restore the sorted Frontier invariant
+    // (entries must be unique since they come from HashMap keys).
     hint_journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
 
     reads_frontier.reduce(crate::Frontier {
@@ -155,7 +173,7 @@ mod test {
                 producer(id),
                 ProducerState {
                     last_commit: Clock::from_u64(last_commit),
-                    max_continue: Clock::from_u64(0),
+                    max_continue: Clock::zero(),
                     offset,
                 },
             );
@@ -241,6 +259,21 @@ mod test {
                     read_state("journal/X", 0, &[(0x03, 50, -200)]),
                 ],
                 vec![hint("journal/X", 1, &[(0x05, 250)])],
+            ),
+            // Duplicate hint producers: same producer hinted twice with
+            // different clocks (from two ACK documents). Should be deduped
+            // to a single entry with the max clock.
+            (
+                "duplicate_hint_producers",
+                vec![],
+                vec![hint("journal/A", 0, &[(0x01, 100), (0x01, 200)])],
+            ),
+            // Duplicate hint producers merged with reads: the deduped hint
+            // should merge cleanly with the read-derived entry.
+            (
+                "duplicate_hints_merged_with_reads",
+                vec![read_state("journal/A", 0, &[(0x01, 50, -300)])],
+                vec![hint("journal/A", 0, &[(0x01, 100), (0x01, 200)])],
             ),
         ];
 

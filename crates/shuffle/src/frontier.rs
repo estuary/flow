@@ -467,6 +467,19 @@ impl Drain {
     }
 }
 
+impl std::fmt::Debug for Drain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.offset == usize::MAX {
+            f.write_str("empty")
+        } else {
+            f.debug_struct("Drain")
+                .field("offset", &self.offset)
+                .field("journals", &self.frontier.journals.len())
+                .finish()
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

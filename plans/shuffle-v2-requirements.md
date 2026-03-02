@@ -268,7 +268,7 @@ The `flowctl raw shuffle` command (`crates/flowctl/src/raw/shuffle.rs`) runs the
 # Run against a collection with 3 members.
 # Uses RUST_LOG to control verbosity; shuffle=info shows lifecycle events.
 # This can produce a lot of output, so use `head` to limit the amount read.
-RUST_LOG=shuffle=info \
+RUST_LOG=flowctl=info,shuffle=info \
   cargo run -p flowctl -- raw shuffle \
     --name demo/wikipedia/recentchange-sampled \
     --members 3
