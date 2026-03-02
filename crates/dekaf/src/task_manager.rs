@@ -221,7 +221,8 @@ impl TaskManager {
         // messages emitted by the task manager after that session is closed would be lost.
         // Instead, we'll create a separate log forwarder for this task manager that will report
         // its logs to the correct task's ops logs, irrespective of the session that spawned it.
-        tokio::spawn(logging::forward_logs(
+
+        let handle = tokio::spawn(logging::forward_logs(
             GazetteWriter::new(self.clone()),
             stop_signal.clone(),
             self.clone().run_task_manager(
@@ -232,6 +233,22 @@ impl TaskManager {
                 task_name,
             ),
         ));
+
+        tokio::spawn(async move {
+            let handle_resp = handle.await;
+
+            match handle_resp {
+                Ok(Err(task_mgr_err)) => {
+                    tracing::error!(?task_mgr_err, "run_task_manager error!")
+                }
+                Ok(_) => {
+                    tracing::info!("run_task_manager exited Ok")
+                }
+                Err(e) => {
+                    tracing::error!(?e, "run_task_manager panic!");
+                }
+            }
+        });
 
         TaskStateListener(receiver)
     }
@@ -642,7 +659,12 @@ pub async fn fetch_partitions(
         ..Default::default()
     };
 
+    tracing::info!("Starting to list journals");
     let response = journal_client.list(request).await?;
+
+    let journals_len = response.journals.len();
+
+    tracing::info!(num_journals = journals_len, "Finished listing journals");
 
     let mut partitions = Vec::with_capacity(response.journals.len());
 
