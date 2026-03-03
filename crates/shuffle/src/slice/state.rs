@@ -1,5 +1,6 @@
 use super::producer::{ProducerMap, ProducerState};
 use super::read::ReadState;
+use crate::binding::PartitionFilter;
 use anyhow::Context;
 use proto_flow::shuffle;
 use proto_gazette::uuid;
@@ -344,69 +345,81 @@ pub fn sequence_document(
     })
 }
 
-/// Sorted index for projecting hinted journal names to (binding_index, cohort).
+/// Sorted index for projecting hinted journal names to (binding_index, cohort),
+/// with per-entry partition filters.
 ///
 /// Entries are sorted by prefix then binding index. Because the control plane
 /// guarantees no collection is a prefix of another, at most one distinct prefix
 /// can match a given journal name — so lookup is a single binary search plus
 /// a linear scan of adjacent entries sharing that prefix.
-pub struct HintIndex(Vec<(Box<str>, u32, u32)>); // (prefix, binding_index, cohort)
+pub struct HintIndex(Vec<(Box<str>, u32, u32, PartitionFilter)>); // (prefix, binding_index, cohort, filter)
 
 impl HintIndex {
-    pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u32, u32)>) -> Self {
-        let mut index: Vec<(&str, u32, u32)> = entries.collect();
+    pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u32, u32, PartitionFilter)>) -> Self {
+        let mut index: Vec<(&str, u32, u32, PartitionFilter)> = entries.collect();
 
         index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
-        // Now that we've sorted, re-allocate partition name prefixes.
-        // This aligns memory locality and order with our query pattern.
-        let owned: Vec<(Box<str>, u32, u32)> = index
+        // Now that we've sorted, re-allocate partition name prefixes extended with a trailing slash.
+        // This ensures we don't match "acmeCo/anvils/..." to "acmeCo/anvils-two/...",
+        // and also aligns memory locality and ordering with our query pattern.
+        let owned: Vec<(Box<str>, u32, u32, PartitionFilter)> = index
             .into_iter()
-            .map(|(prefix, idx, cohort)| (Box::from(prefix), idx, cohort))
+            .map(|(prefix, idx, cohort, filter)| {
+                (Box::from(format!("{prefix}/")), idx, cohort, filter)
+            })
             .collect();
 
         Self(owned)
     }
 
     pub fn from_bindings(bindings: &[crate::Binding]) -> Self {
-        Self::new(
-            bindings
-                .iter()
-                .map(|b| (b.partition_template_name.as_ref(), b.index, b.cohort)),
-        )
+        Self::new(bindings.iter().map(|b| {
+            (
+                b.partition_template_name.as_ref(),
+                b.index,
+                b.cohort,
+                PartitionFilter::new(&b.partition_fields, &b.partition_selector),
+            )
+        }))
     }
 
-    /// Find all binding indices whose prefix matches `journal` within `cohort`.
+    /// Find all binding indices whose prefix matches `journal` within `cohort`,
+    /// filtering by each entry's partition selector.
     ///
     /// Because no collection prefix is a prefix of another, there is at most
     /// one matching prefix for any journal name.
-    pub fn lookup(&self, journal: &str, cohort: u32, out: &mut Vec<u32>) {
+    pub fn lookup(&self, journal: &str, cohort: u32, out: &mut Vec<u32>) -> anyhow::Result<()> {
         out.clear();
 
         // Find the first entry whose partition name prefix is > journal.
         // The matching prefix, if any, is immediately before this position.
         let pos = self
             .0
-            .partition_point(|(prefix, _, _)| prefix.as_ref() <= journal);
+            .partition_point(|(prefix, _, _, _)| prefix.as_ref() <= journal);
         if pos == 0 {
-            return;
+            return Ok(());
         }
 
         // Check whether the entry just before `pos` is a prefix of `journal`.
         let matched_prefix = &self.0[pos - 1].0;
         if !journal.starts_with(matched_prefix.as_ref()) {
-            return;
+            return Ok(());
         }
 
         // Scan all entries sharing this prefix (they are contiguous and sorted).
-        for &(ref prefix, binding_idx, binding_cohort) in self.0[..pos].iter().rev() {
+        for &(ref prefix, binding_idx, binding_cohort, ref filter) in self.0[..pos].iter().rev() {
             if prefix != matched_prefix {
                 break;
             }
-            if binding_cohort == cohort {
+            if binding_cohort == cohort
+                && filter.matches_name_suffix(&journal[matched_prefix.len()..])?
+            {
                 out.push(binding_idx);
             }
         }
+
+        Ok(())
     }
 }
 
@@ -430,7 +443,7 @@ pub fn extract_causal_hints<N: json::AsNode>(
             anyhow::anyhow!("decoding causal hint from ACK in {ack_journal}: {err}")
         })?;
 
-        hint_index.lookup(hinted_journal, ack_cohort, &mut matched_bindings);
+        hint_index.lookup(hinted_journal, ack_cohort, &mut matched_bindings)?;
 
         for &binding_idx in &matched_bindings {
             causal_hints
@@ -448,6 +461,7 @@ mod test {
     use super::super::read::Meta;
     use super::*;
     use crate::testing::test_binding;
+    use proto_gazette::broker;
     use proto_gazette::uuid::{Clock, Flags, Producer};
 
     const OUTSIDE: Flags = Flags(proto_gazette::message_flags::OUTSIDE_TXN as u16);
@@ -872,70 +886,142 @@ mod test {
         );
     }
 
+    /// Build a passthrough PartitionFilter that accepts any value for the given fields.
+    /// The field count must match the partition field segments in the journal suffix.
+    fn passthrough_filter(fields: &[&str]) -> PartitionFilter {
+        let fields: Vec<String> = fields.iter().map(|f| f.to_string()).collect();
+        PartitionFilter::new(&fields, &broker::LabelSelector::default())
+    }
+
     #[test]
     fn test_hint_index_lookup() {
-        // (index_entries, lookup_journal, lookup_cohort, expected_sorted_bindings)
-        let cases: &[(&[(&str, u32, u32)], &str, u32, &[u32])] = &[
-            // Prefix match.
+        // Example filter that includes "alpha" category and excludes "bad" region.
+        let filter = PartitionFilter::new(
+            &["category".to_string(), "region".to_string()],
+            &broker::LabelSelector {
+                include: Some(labels::build_set(
+                    [(
+                        "estuary.dev/field/category".to_string(),
+                        "alpha".to_string(),
+                    )]
+                    .into_iter(),
+                )),
+                exclude: Some(labels::build_set(
+                    [("estuary.dev/field/region".to_string(), "bad".to_string())].into_iter(),
+                )),
+            },
+        );
+
+        let cases: Vec<(Vec<(&str, u32, u32, PartitionFilter)>, &str, u32, Vec<u32>)> = vec![
+            // Prefix match: anvils has 1 partition field, bananas has 0.
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
-                &[0],
+                vec![0],
             ),
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                ],
                 "acmeCo/bananas/pivot=00",
                 0,
-                &[1],
+                vec![1],
             ),
             // No matching prefix.
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                ],
                 "other/collection/pivot=00",
                 0,
-                &[],
+                vec![],
             ),
             // Cohort filtering: same prefix, different cohorts.
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 1)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils", 1, 1, passthrough_filter(&["part"])),
+                ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
-                &[0],
+                vec![0],
             ),
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 1)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils", 1, 1, passthrough_filter(&["part"])),
+                ],
                 "acmeCo/anvils/part=a/pivot=00",
                 1,
-                &[1],
+                vec![1],
             ),
             // Unknown cohort.
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 1)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils", 1, 1, passthrough_filter(&["part"])),
+                ],
                 "acmeCo/anvils/part=a/pivot=00",
                 99,
-                &[],
+                vec![],
             ),
             // Multiple bindings, same prefix and cohort.
             (
-                &[("acmeCo/anvils/", 0, 0), ("acmeCo/anvils/", 1, 0)],
+                vec![
+                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils", 1, 0, passthrough_filter(&["part"])),
+                ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
-                &[0, 1],
+                vec![0, 1],
+            ),
+            // Partition filter: "alpha" is included, "eu" not excluded.
+            (
+                vec![("acmeCo/anvils", 0, 0, filter.clone())],
+                "acmeCo/anvils/category=alpha/region=eu/pivot=00",
+                0,
+                vec![0],
+            ),
+            // Partition filter: "beta" is not included, "eu" not excluded.
+            (
+                vec![("acmeCo/anvils", 0, 0, filter.clone())],
+                "acmeCo/anvils/category=beta/region=eu/pivot=00",
+                0,
+                vec![],
+            ),
+            // Partition filter: "alpha" is included, "bad" is excluded.
+            (
+                vec![("acmeCo/anvils", 0, 0, filter.clone())],
+                "acmeCo/anvils/category=beta/region=bad/pivot=00",
+                0,
+                vec![],
             ),
         ];
 
         let mut out = Vec::new();
         for (entries, journal, cohort, expected) in cases {
-            let index = HintIndex::new(entries.iter().copied());
-            index.lookup(journal, *cohort, &mut out);
+            let index = HintIndex::new(entries.into_iter());
+            index.lookup(&journal, cohort, &mut out).unwrap();
             out.sort();
-            assert_eq!(&out, expected, "journal={journal}, cohort={cohort}");
+            assert_eq!(&out, &expected, "journal={journal}, cohort={cohort}");
         }
     }
 
     fn test_hint_index() -> HintIndex {
-        HintIndex::new([("acmeCo/anvils/", 0, 0), ("acmeCo/bananas/", 1, 0)].into_iter())
+        // anvils has 1 partition field ("part"), bananas has 0.
+        HintIndex::new(
+            [
+                ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
+                ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+            ]
+            .into_iter(),
+        )
     }
 
     #[test]
