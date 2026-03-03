@@ -29,6 +29,9 @@ struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
     leader_epoch: i32,    // Leader epoch (binding backfill counter) for this read.
+    // Last time this read was included in a Fetch request. Used to reap reads for
+    // partitions the client has stopped fetching.
+    last_accessed: std::time::Instant,
     handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
 }
 
@@ -53,7 +56,7 @@ enum PartitionOffsetOutcome {
 pub struct Session {
     app: Arc<App>,
     client: Option<KafkaApiClient>,
-    reads: HashMap<(TopicName, i32), (PendingRead, std::time::Instant)>,
+    reads: HashMap<(TopicName, i32), PendingRead>,
     secret: String,
     auth: Option<SessionAuthentication>,
     data_preview_state: SessionDataPreviewState,
@@ -560,6 +563,19 @@ impl Session {
         }
     }
 
+    /// Reap pending reads that haven't been accessed within `max_idle`. Called periodically
+    /// by the connection handler so that reads for partitions the client has stopped fetching
+    /// are cleaned up regardless of whether Fetch requests are still arriving.
+    pub fn reap_stale_reads(&mut self, max_idle: std::time::Duration) {
+        let before = self.reads.len();
+        self.reads
+            .retain(|_, pending| pending.last_accessed.elapsed() <= max_idle);
+        let reaped = before - self.reads.len();
+        if reaped > 0 {
+            tracing::info!(reaped, remaining = self.reads.len(), "reaped stale reads");
+        }
+    }
+
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
     #[tracing::instrument(
         skip_all,
@@ -682,25 +698,10 @@ impl Session {
                     }
                 };
 
-                let pending_info = self
-                    .reads
-                    .get(&key)
-                    .map(|(p, s)| (p.offset, p.leader_epoch, s.elapsed()));
+                let pending_info = self.reads.get(&key).map(|p| (p.offset, p.leader_epoch));
 
                 match pending_info {
-                    Some((_, _, elapsed)) if elapsed > std::time::Duration::from_secs(60 * 5) => {
-                        metrics::counter!(
-                            "dekaf_fetch_requests",
-                            "topic_name" => key.0.to_string(),
-                            "partition_index" => key.1.to_string(),
-                            "task_name" => task_name.to_string(),
-                            "state" => "read_expired"
-                        )
-                        .increment(1);
-                        tracing::debug!(lifetime=?elapsed, topic_name=?key.0,partition_index=?key.1, "Restarting expired Read");
-                        self.reads.remove(&key);
-                    }
-                    Some((pending_offset, pending_epoch, _)) if pending_offset == fetch_offset => {
+                    Some((pending_offset, pending_epoch)) if pending_offset == fetch_offset => {
                         // Validate pending read's epoch is still current
                         let auth = self.auth.as_ref().unwrap();
                         let current_epoch = Collection::new(&auth, &key.0)
@@ -875,6 +876,7 @@ impl Session {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
                     leader_epoch: collection.binding_backfill_counter as i32,
+                    last_accessed: std::time::Instant::now(),
                     handle: tokio_util::task::AbortOnDropHandle::new(match data_preview_params {
                         // Startree: 0, Tinybird: 12
                         Some(PartitionOffset {
@@ -954,16 +956,13 @@ impl Session {
                     "started read",
                 );
 
-                if let Some((old, started_at)) = self
-                    .reads
-                    .insert(key.clone(), (pending, std::time::Instant::now()))
-                {
+                if let Some(old) = self.reads.insert(key.clone(), pending) {
                     tracing::warn!(
                         topic = topic_request.topic.as_str(),
                         partition = partition_request.partition,
                         old_offset = old.offset,
                         new_offset = fetch_offset,
-                        read_lifetime = ?started_at.elapsed(),
+                        read_lifetime = ?old.last_accessed.elapsed(),
                         "discarding pending read due to offset jump",
                     );
                 }
@@ -980,7 +979,7 @@ impl Session {
             for partition_request in &topic_request.partitions {
                 key.1 = partition_request.partition;
 
-                let Some((pending, _)) = self.reads.get_mut(&key) else {
+                let Some(pending) = self.reads.get_mut(&key) else {
                     // No pending read. Check if this is due to epoch validation failure
                     let auth = self.auth.as_ref().unwrap();
                     match Collection::new(&auth, &key.0).await {
@@ -1093,6 +1092,7 @@ impl Session {
                     SessionDataPreviewState::NotDataPreview => {
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
+                        pending.last_accessed = std::time::Instant::now();
                         pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                             propagate_task_forwarder(read.next_batch(
                                 crate::read::ReadTarget::Bytes(

@@ -91,6 +91,10 @@ pub struct Cli {
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
 
+    /// How long an active read can exist without being polled in a Fetch request before it gets shut down for inactivity.
+    #[arg(long, env = "STALE_READ_TIMEOUT", value_parser = humantime::parse_duration, default_value = "1m")]
+    stale_read_timeout: std::time::Duration,
+
     /// How long to cache materialization specs and other task metadata for before refreshing
     #[arg(long, env = "TASK_REFRESH_INTERVAL", value_parser = humantime::parse_duration, default_value = "30s")]
     task_refresh_interval: std::time::Duration,
@@ -394,6 +398,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                             tls_acceptor.clone(),
                             addr,
                             cli.idle_session_timeout,
+                            cli.stale_read_timeout,
                             cli.tls_handshake_timeout,
                             task_cancellation,
                             connection_limit.clone()
@@ -424,6 +429,7 @@ async fn serve(
     tls_acceptor: Option<Arc<tokio_rustls::TlsAcceptor>>,
     addr: std::net::SocketAddr,
     idle_timeout: std::time::Duration,
+    stale_read_timeout: std::time::Duration,
     tls_handshake_timeout: std::time::Duration,
     stop: tokio_util::sync::CancellationToken,
     connection_limit: Arc<tokio::sync::Semaphore>,
@@ -464,6 +470,11 @@ async fn serve(
 
     metrics::gauge!("dekaf_total_connections").increment(1);
 
+    // Reap reads for partitions the client has stopped fetching. Fires every idle_timeout
+    // regardless of request activity.
+    let mut reap_interval =
+        tokio::time::interval_at(tokio::time::Instant::now() + idle_timeout, idle_timeout);
+
     let result = async {
         loop {
             tokio::select! {
@@ -484,6 +495,9 @@ async fn serve(
                 }
                 _ = stop.cancelled() => {
                     anyhow::bail!("signalled to stop")
+                }
+                _ = reap_interval.tick() => {
+                    session.reap_stale_reads(stale_read_timeout);
                 }
             }
         }
