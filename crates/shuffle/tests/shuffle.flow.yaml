@@ -62,7 +62,11 @@ materializations:
         image: ghcr.io/estuary/materialize-sqlite:dev
         config: {}
     bindings:
-      - source: testing/apples
+      - source:
+          name: testing/apples
+          partitions:
+            include:
+              category: [alpha, gamma]
         resource: { table: apples }
       - source: testing/bananas
         resource: { table: bananas }

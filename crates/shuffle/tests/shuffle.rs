@@ -224,6 +224,15 @@ async fn shuffle_scenarios() {
         &endpoint,
     )
     .await;
+    data_plane.reset().await.expect("reset");
+
+    partition_filtered_hints(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &endpoint,
+    )
+    .await;
 
     server_handle.abort();
     data_plane
@@ -617,6 +626,96 @@ async fn multi_partition_transaction(
 
     let frontier = session.next_checkpoint().await.expect("next_checkpoint");
     insta::assert_debug_snapshot!("multi_partition_transaction", snapshot_frontier(&frontier));
+
+    session.close().await.expect("close");
+}
+
+/// A single transaction spans three partitions of the same collection
+/// (alpha, beta, gamma). The materialization only reads alpha and gamma
+/// (beta is excluded by the partition selector). The ACK in each journal
+/// hints at all three journals. Since no Slice reads beta, beta hints
+/// must be dropped — otherwise they would block `next_checkpoint()` forever.
+async fn partition_filtered_hints(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    endpoint: &str,
+) {
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    // Write to binding 0 (testing/apples), partition category=alpha (included).
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "pf-alpha",
+                    "category": "alpha",
+                    "value": 1,
+                }),
+            )
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+
+    // Write to binding 0 (testing/apples), partition category=beta (excluded).
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "pf-beta",
+                    "category": "beta",
+                    "value": 2,
+                }),
+            )
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+
+    // Write to binding 0 (testing/apples), partition category=gamma (included).
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "pf-gamma",
+                    "category": "gamma",
+                    "value": 3,
+                }),
+            )
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+
+    // Commit with ACK intents spanning all three partition journals.
+    let (producer, commit_clock, journals) = pub_.commit_intents();
+    let journal_acks =
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    pub_.write_intents(&journal_acks).await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        endpoint,
+        700,
+        build_task(materialization_spec),
+        build_members(1, endpoint),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    insta::assert_debug_snapshot!("partition_filtered_hints", snapshot_frontier(&frontier));
 
     session.close().await.expect("close");
 }

@@ -94,7 +94,6 @@ pub fn test_binding(
         filter_r_clocks: false,
         journal_read_suffix: journal_read_suffix.to_string(),
         priority: 0,
-        projections: Vec::new(),
         read_delay: Clock::from_u64(0),
         key_extractors: Vec::new(),
         shuffle_key_partition_fields: partition_fields,
@@ -105,7 +104,8 @@ pub fn test_binding(
         not_before: Clock::UNIX_EPOCH,
         not_after: Clock::from_u64(u64::MAX),
         cohort: 0,
-        partition_template_name: "test/collection/".into(),
+        partition_template_name: "test/collection".into(),
+        partition_fields: Vec::new(),
     }
 }
 
