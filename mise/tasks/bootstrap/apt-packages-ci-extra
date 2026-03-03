@@ -18,8 +18,12 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   musl-tools \
   postgresql-client-16 \
   postgresql-client-common \
+  python3-pip \
   python3-venv \
   python3-poetry \
+
+# Install the Mitogen strategy plugin for Ansible
+pip install --break-system-packages mitogen
 
 # Configure system default compilers and linkers using update-alternatives.
 sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
