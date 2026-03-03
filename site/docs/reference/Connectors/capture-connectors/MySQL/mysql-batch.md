@@ -142,6 +142,26 @@ to learn more about using connectors.
 | `/poll` | Polling Schedule | When and how often to execute the fetch query (overrides the connector default setting). Accepts a Go duration string like '5m' or '6h' for frequency-based polling, or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. | string | |
 | `/template` | Query Template Override | Optionally overrides the query template which will be rendered and then executed. | string | |
 
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-mysql-batch:v1
+        config:
+          address: host:3306
+          user: flow_capture
+          password: secret
+    bindings:
+      - resource:
+          name: main_orders
+          schema: main
+          table: orders
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
+
 ## Type mapping
 
 MySQL types are mapped to JSON types as follows:

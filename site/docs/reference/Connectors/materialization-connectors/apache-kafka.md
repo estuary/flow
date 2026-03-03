@@ -109,6 +109,8 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
+        image: ghcr.io/estuary/materialize-kafka:v1
+        config:
           bootstrap_servers: server1:9092,server2:9092
           tls: system_certificates
           credentials:

@@ -27,7 +27,12 @@ You configure connectors either in the Estuary web app, or by directly editing t
 | Property      | Title      | Description                                                                                                                            | Type   | Required/Default |
 | ------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
 | `/start_date` | Start Date | A date in the format YYYY-MM-DD. If you have not set a date, it would be defaulted to latest allowed date by api (89 days from today). | string | Required         |
-
+| `/credentials` | Credentials | An authorization method to authenticate your Pinterest account. | object | Required |
+| `/credentials/auth_method` | Authentication Method | One of `oauth2.0` or `access_token`. | string | Required |
+| `/credentials/client_id` | Client ID | Client ID for the `oauth2.0` auth method. | string | Required for `oauth2.0` |
+| `/credentials/client_secret` | Client Secret | Client secret for the `oauth2.0` auth method. | string | Required for `oauth2.0` |
+| `/credentials/refresh_token` | Refresh Token | Refresh token for the `oauth2.0` auth method. | string | Required for `oauth2.0` |
+| `/credentials/access_token` | Access Token | Access token for the `access_token` auth method. | string | Required for `access_token` auth |
 
 #### Bindings
 
@@ -39,79 +44,22 @@ You configure connectors either in the Estuary web app, or by directly editing t
 
 ### Sample
 
-```json
-{
-  "required": ["start_date", "credentials"],
-  "properties": {
-    "start_date": {
-      "pattern_descriptor": null
-    },
-    "credentials": {
-      "discriminator": {
-        "propertyName": "auth_method"
-      },
-      "oneOf": [
-        {
-          "title": "OAuth2.0",
-          "type": "object",
-          "x-oauth2-provider": "pinterest",
-          "properties": {
-            "auth_method": {
-              "const": "oauth2.0",
-              "order": 0,
-              "type": "string",
-              "default": "oauth2.0"
-            },
-            "client_id": {
-              "airbyte_secret": true,
-              "description": "The Client ID of your OAuth application",
-              "title": "Client ID",
-              "type": "string"
-            },
-            "client_secret": {
-              "airbyte_secret": true,
-              "description": "The Client Secret of your OAuth application.",
-              "title": "Client Secret",
-              "type": "string"
-            },
-            "refresh_token": {
-              "airbyte_secret": true,
-              "description": "Refresh Token to obtain new Access Token, when it's expired.",
-              "title": "Refresh Token",
-              "type": "string"
-            }
-          },
-          "required": [
-            "auth_method",
-            "refresh_token"
-          ]
-        },
-        {
-          "title": "Access Token",
-          "type": "object",
-          "properties": {
-            "access_token": {
-              "airbyte_secret": true,
-              "description": "The Access Token to make authenticated requests.",
-              "title": "Access Token",
-              "type": "string"
-            },
-            "auth_method": {
-              "const": "access_token",
-              "order": 0,
-              "type": "string",
-              "default": "access_token"
-            }
-          },
-          "required": [
-            "auth_method",
-            "access_token"
-          ]
-        }
-      ]
-    }
-  }
-}
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-pinterest:v1
+        config:
+          start_date: 2026-01-01
+          credentials:
+            auth_method: access_token
+            access_token: <secret>
+    bindings:
+      - resource:
+          name: boards
+          syncMode: full_refresh
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 ## Supported Streams

@@ -61,11 +61,41 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 
 ### Properties
 
+#### Endpoint
+
 | Property           | Title           | Description                                                                                                                   | Type   | Required/Default |
 | ------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
-| `/organization_id` | Organization ID | Your unique organization's id, found in the url of your bussiness' Organization Page                                          | string | Required         |
-| `/client_id`       | Client ID       | Your Oauth app's client id.                                                                                                   | string | Required         |
-| `/client_secret`   | Client Secret   | Your Oauth app's client secret.                                                                                               | string | Required         |
-| `/refresh_token`   | Refresh Token   | The token value generated using the LinkedIn Developers [OAuth Token Tools](https://www.linkedin.com/developers/tools/oauth). | string | Required         |
-| `/access_token`    | Access Token    | The token value generated using the LinkedIn Developers [OAuth Token Tools](https://www.linkedin.com/developers/tools/oauth). | string | Required         |
+| `/org_id` | Organization ID | Your unique organization's id, found in the url of your bussiness' Organization Page | string | Required |
+| `/credentials` | Credentials | An authorization method to authenticate your LinkedIn account. | object | Required |
+| `/credentials/auth_method` | Authentication Method | One of `oAuth2.0` or `access_token`. | string | Required |
+| `/credentials/client_id` | Client ID | Your Oauth app's client id. | string | Required for `oAuth2.0` |
+| `/credentials/client_secret` | Client Secret | Your Oauth app's client secret. | string | Required for `oAuth2.0` |
+| `/credentials/refresh_token` | Refresh Token | The token value generated using the LinkedIn Developers [OAuth Token Tools](https://www.linkedin.com/developers/tools/oauth). | string | Required for `oAuth2.0` |
+| `/credentials/access_token` | Access Token | The token value generated using the LinkedIn Developers [OAuth Token Tools](https://www.linkedin.com/developers/tools/oauth). | string | Required for `access_token` auth |
 
+#### Bindings
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/stream`** | Stream | LinkedIn Pages stream from which a collection is captured. | string | Required |
+| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-linkedin-pages:v1
+        config:
+          org_id: 123456
+          credentials:
+            auth_method: access_token
+            access_token: <secret>
+    bindings:
+      - resource:
+          stream: follower_statistics
+          syncMode: full_refresh
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
