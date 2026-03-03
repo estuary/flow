@@ -239,6 +239,8 @@ message QueueRequest {
     bytes packed_key = 8;
     // Document content as transcoded ArchivedNode bytes.
     bytes doc_archived = 9;
+    // Whether the document passed schema validation.
+    bool valid = 10;
   }
   Enqueue enqueue = 2;
 

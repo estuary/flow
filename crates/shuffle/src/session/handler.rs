@@ -33,7 +33,7 @@ where
     super::state::validate_member_ranges(&members)?;
 
     let task = task.context("Open must include task")?;
-    let (task_name, bindings) = crate::Binding::from_task(&task)?;
+    let (task_name, bindings, _validators) = crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,

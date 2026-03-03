@@ -37,7 +37,7 @@ where
         );
     }
     let task = task.context("Open must include task")?;
-    let (task_name, bindings) = crate::Binding::from_task(&task)?;
+    let (task_name, bindings, validators) = crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,
@@ -112,6 +112,7 @@ where
 
     SliceActor {
         topology,
+        validators,
         reads: Vec::new(),
         causal_hints: Default::default(),
         flush: state::FlushState::new(),

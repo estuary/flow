@@ -774,6 +774,9 @@ impl serde::Serialize for queue_request::Enqueue {
         if !self.doc_archived.is_empty() {
             len += 1;
         }
+        if self.valid {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.QueueRequest.Enqueue", len)?;
         if self.journal_name_truncate_delta != 0 {
             struct_ser.serialize_field("journalNameTruncateDelta", &self.journal_name_truncate_delta)?;
@@ -812,6 +815,9 @@ impl serde::Serialize for queue_request::Enqueue {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("docArchived", pbjson::private::base64::encode(&self.doc_archived).as_str())?;
         }
+        if self.valid {
+            struct_ser.serialize_field("valid", &self.valid)?;
+        }
         struct_ser.end()
     }
 }
@@ -837,6 +843,7 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
             "packedKey",
             "doc_archived",
             "docArchived",
+            "valid",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -850,6 +857,7 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
             AdjustedClock,
             PackedKey,
             DocArchived,
+            Valid,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -880,6 +888,7 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                             "adjustedClock" | "adjusted_clock" => Ok(GeneratedField::AdjustedClock),
                             "packedKey" | "packed_key" => Ok(GeneratedField::PackedKey),
                             "docArchived" | "doc_archived" => Ok(GeneratedField::DocArchived),
+                            "valid" => Ok(GeneratedField::Valid),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -908,6 +917,7 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                 let mut adjusted_clock__ = None;
                 let mut packed_key__ = None;
                 let mut doc_archived__ = None;
+                let mut valid__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::JournalNameTruncateDelta => {
@@ -980,6 +990,12 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Valid => {
+                            if valid__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("valid"));
+                            }
+                            valid__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(queue_request::Enqueue {
@@ -992,6 +1008,7 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                     adjusted_clock: adjusted_clock__.unwrap_or_default(),
                     packed_key: packed_key__.unwrap_or_default(),
                     doc_archived: doc_archived__.unwrap_or_default(),
+                    valid: valid__.unwrap_or_default(),
                 })
             }
         }

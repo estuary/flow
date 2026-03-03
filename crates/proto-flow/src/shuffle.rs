@@ -320,6 +320,9 @@ pub mod queue_request {
         /// Document content as transcoded ArchivedNode bytes.
         #[prost(bytes = "bytes", tag = "9")]
         pub doc_archived: ::prost::bytes::Bytes,
+        /// Whether the document passed schema validation.
+        #[prost(bool, tag = "10")]
+        pub valid: bool,
     }
     /// Flush requests a durability barrier.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

@@ -1,5 +1,4 @@
 use super::producer::{ProducerMap, ProducerState};
-use anyhow::Context;
 use proto_gazette::{broker, uuid};
 
 /// State about an active read, indexed by its `read.id()`.
@@ -17,7 +16,13 @@ pub struct ReadState {
     pub pending: ProducerMap<ProducerState>,
 }
 
-/// Metadata about the head document of a ReadyRead.
+/// Application-local flag packed into `Flags`: document passed schema validation.
+/// Bit 15 of the u16, above the 10-bit UUID wire space (bits 0-9).
+/// `uuid::build()` asserts flags fit in 10 bits, so accidental round-trip is impossible.
+const FLAGS_SCHEMA_VALID: u16 = 0x8000;
+
+/// Metadata about a document in a ReadyRead batch.
+#[derive(Debug)]
 pub struct Meta {
     /// Begin offset (inclusive) of `doc` within the journal.
     pub begin_offset: i64,
@@ -27,9 +32,19 @@ pub struct Meta {
     /// Publication Clock of `doc` (extracted from its UUID).
     pub clock: uuid::Clock,
     /// Publication Flags of `doc` (extracted from its UUID).
+    /// Bit 15 (`FLAGS_SCHEMA_VALID`) is set when the document passes schema validation.
     pub flags: uuid::Flags,
     /// Publication Producer of `doc` (extracted from its UUID).
     pub producer: uuid::Producer,
+}
+
+impl Meta {
+    /// Whether the document passed schema validation.
+    /// This is encoded as bit 15 of `flags`, above the 10-bit UUID wire space.
+    #[inline]
+    pub fn is_schema_valid(&self) -> bool {
+        self.flags.0 & FLAGS_SCHEMA_VALID != 0
+    }
 }
 
 /// ReadyRead is a ReadLines which has one or more parsed documents.
@@ -41,46 +56,57 @@ pub struct ReadyRead {
     /// Metadata about the head document.
     pub meta: Meta,
     /// Remaining tail of ready documents.
-    pub tail: simd_doc::transcoded::OwnedIterOut,
+    pub doc_tail: simd_doc::transcoded::OwnedIterOut,
+    /// Pre-extracted metadata for remaining tail documents.
+    pub meta_tail: std::vec::IntoIter<Meta>,
 }
 
-impl ReadyRead {
-    pub fn new(
-        binding: &crate::Binding,
-        doc: doc::OwnedArchivedNode,
-        begin_offset: i64,
-        end_offset: i64,
-        tail: simd_doc::transcoded::OwnedIterOut,
-        read: super::ReadLines,
-    ) -> anyhow::Result<Self> {
-        let (producer, clock, flags) = binding
-            .source_uuid_ptr
-            .query(doc.get())
+/// Extract UUID metadata and validate each document in a transcoded batch.
+/// Returns a Vec<Meta> parallel to `transcoded.iter()`.
+pub fn extract_metas(
+    transcoded: &simd_doc::transcoded::Transcoded,
+    uuid_ptr: &json::Pointer,
+    validator: &mut doc::Validator,
+    journal: &str,
+) -> anyhow::Result<Vec<Meta>> {
+    let mut begin_offset = transcoded.offset;
+    let mut out = Vec::with_capacity(32);
+
+    for (bytes, end_offset) in transcoded.iter() {
+        let archived = doc::ArchivedNode::from_archive(bytes);
+
+        let (producer, clock, flags) = uuid_ptr
+            .query(archived)
             .and_then(|node| match node {
-                doc::ArchivedNode::String(s) => Some(proto_gazette::uuid::parse_str(s).ok()),
+                doc::ArchivedNode::String(s) => proto_gazette::uuid::parse_str(s).ok(),
                 _ => None,
             })
-            .flatten()
-            .with_context(|| {
-                format!(
-                    "journal {} offset {begin_offset}: document is missing a valid UUID",
-                    read.fragment().journal,
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "journal {journal} offset {begin_offset}: \
+                         document is missing a valid UUID"
                 )
             })?;
 
-        Ok(Self {
-            doc,
-            meta: Meta {
-                begin_offset,
-                end_offset,
-                clock,
-                flags,
-                producer,
-            },
-            tail,
-            inner: read,
-        })
+        let flags = if flags != uuid::Flags::ACK_TXN && validator.is_valid(archived) {
+            uuid::Flags(flags.0 | FLAGS_SCHEMA_VALID)
+        } else {
+            flags
+        };
+
+        let meta = Meta {
+            begin_offset,
+            end_offset,
+            clock,
+            flags,
+            producer,
+        };
+        begin_offset = end_offset;
+
+        out.push(meta);
     }
+
+    Ok(out)
 }
 
 /// Probe the current write head of a journal via a non-blocking read at offset -1.
@@ -140,4 +166,86 @@ pub fn map_read_error(
         err => anyhow::anyhow!(err),
     }
     .context(format!("read of {journal} (binding {binding_state_key})"))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use proto_gazette::uuid;
+
+    fn producer(id: u8) -> uuid::Producer {
+        uuid::Producer::from_bytes([id | 0x01, 0, 0, 0, 0, 0])
+    }
+
+    fn make_uuid_str(producer: uuid::Producer, clock: uuid::Clock, flags: uuid::Flags) -> String {
+        uuid::build(producer, clock, flags).to_string()
+    }
+
+    /// Build a Transcoded batch from newline-delimited JSON at the given starting offset.
+    fn transcode(json_lines: &str, offset: i64) -> simd_doc::Transcoded {
+        let mut input = json_lines.as_bytes().to_vec();
+        let mut off = offset;
+        simd_doc::transcode_many(
+            &mut simd_doc::SimdParser::new(1_000_000),
+            &mut input,
+            &mut off,
+            Default::default(),
+        )
+        .expect("transcoding should succeed")
+    }
+
+    #[test]
+    fn test_extract_metas() {
+        // Schema requires "required_field", exercising both valid and invalid paths.
+        let schema = br#"{"type":"object","required":["required_field"]}"#;
+        let bundle = doc::validation::build_bundle(schema).unwrap();
+        let mut validator = doc::Validator::new(bundle).unwrap();
+
+        let p1 = producer(0x01);
+        let mut clock = uuid::Clock::from_unix(1000, 0);
+        let c1 = clock.tick();
+        let c2 = clock.tick();
+        let c3 = clock.tick();
+
+        // Three docs exercise: non-zero base offset, offset chaining,
+        // OUTSIDE_TXN/CONTINUE_TXN/ACK_TXN flags, valid + invalid schema, ACK bypass.
+        let json = [
+            format!(
+                r#"{{"_meta":{{"uuid":"{}"}},"required_field":"present"}}"#,
+                make_uuid_str(p1, c1, uuid::Flags::OUTSIDE_TXN),
+            ),
+            format!(
+                r#"{{"_meta":{{"uuid":"{}"}},"other":"value"}}"#,
+                make_uuid_str(p1, c2, uuid::Flags::CONTINUE_TXN),
+            ),
+            format!(
+                r#"{{"_meta":{{"uuid":"{}"}}}}"#,
+                make_uuid_str(p1, c3, uuid::Flags::ACK_TXN),
+            ),
+        ]
+        .join("\n")
+            + "\n";
+
+        let uuid_ptr = json::Pointer::from_str("/_meta/uuid");
+        let transcoded = transcode(&json, 12345);
+
+        let metas = extract_metas(&transcoded, &uuid_ptr, &mut validator, "test/journal")
+            .expect("should succeed");
+
+        insta::assert_debug_snapshot!(metas);
+    }
+
+    #[test]
+    fn test_extract_metas_missing_uuid() {
+        let bundle = doc::validation::build_bundle(b"{}").unwrap();
+        let mut validator = doc::Validator::new(bundle).unwrap();
+
+        let transcoded = transcode("{\"_meta\":{},\"key\":\"value\"}\n", 12345);
+        let uuid_ptr = json::Pointer::from_str("/_meta/uuid");
+
+        let err = extract_metas(&transcoded, &uuid_ptr, &mut validator, "test/journal")
+            .expect_err("should fail for missing UUID");
+
+        insta::assert_debug_snapshot!(err.to_string());
+    }
 }
