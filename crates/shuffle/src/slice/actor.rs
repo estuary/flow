@@ -14,6 +14,8 @@ use tokio::sync::mpsc;
 pub struct SliceActor {
     /// Immutable slice configuration: topology, bindings, journal clients.
     pub topology: Topology,
+    /// Per-binding schema validators, indexed by binding index.
+    pub validators: Vec<doc::Validator>,
     /// Per-read producer tracking
     pub reads: Vec<ReadState>,
     /// Causal hints accumulated from consumed ACK documents. Drained during flush.
@@ -428,11 +430,27 @@ impl SliceActor {
             read.as_mut().put_back(lines_batch.content.into());
         }
 
-        // Extract the first document, build a new ReadyRead, and heap it.
-        let begin_offset = transcoded.offset;
-        let mut tail = transcoded.into_iter();
-        let (doc, end_offset) = tail.next().expect("non-empty transcoded");
-        let ready_read = ReadyRead::new(binding, doc, begin_offset, end_offset, tail, read)?;
+        let metas = super::read::extract_metas(
+            &transcoded,
+            &binding.source_uuid_ptr,
+            &mut self.validators[read_state.binding_index as usize],
+            &read_state.journal,
+        )?;
+
+        // Consume into owned documents and pair with pre-extracted metadata.
+        let mut doc_tail = transcoded.into_iter();
+        let mut meta_tail = metas.into_iter();
+
+        let (doc, _) = doc_tail.next().expect("non-empty transcoded");
+        let meta = meta_tail.next().expect("non-empty metas");
+
+        let ready_read = ReadyRead {
+            doc,
+            meta,
+            doc_tail,
+            meta_tail,
+            inner: read,
+        };
 
         self.ready_read_heap.push(ReadyReadEntry {
             priority: binding.priority,
@@ -553,14 +571,14 @@ impl SliceActor {
                 inner: read,
                 meta:
                     Meta {
-                        end_offset: next_begin_offset,
                         producer,
                         clock,
                         flags,
                         ..
                     },
                 doc,
-                mut tail,
+                mut doc_tail,
+                mut meta_tail,
             } = *ready_read;
 
             if sequenced.is_commit {
@@ -583,27 +601,30 @@ impl SliceActor {
                 .pending
                 .insert(producer, sequenced.producer_state);
 
-            // Advance to the next document in `tail`, or return the `read`
-            // stream to `pending_reads` if its current batch is exhausted.
-            match tail.next() {
-                Some((doc, end_offset)) => {
+            // Advance doc_tail and meta_tail in lock-step (guaranteed equal length).
+            match (doc_tail.next(), meta_tail.next()) {
+                (Some((doc, _)), Some(meta)) => {
                     // Re-structure into the existing Box to re-use it.
-                    *ready_read =
-                        ReadyRead::new(binding, doc, next_begin_offset, end_offset, tail, read)
-                            .expect("ReadyRead::new should not fail for a valid tail entry");
-
+                    *ready_read = ReadyRead {
+                        doc,
+                        meta,
+                        doc_tail,
+                        meta_tail,
+                        inner: read,
+                    };
                     self.ready_read_heap.push(ReadyReadEntry {
                         priority,
                         adjusted_clock: ready_read.meta.clock + binding.read_delay,
                         inner: Some(ready_read),
                     })
                 }
-                None => {
+                (None, None) => {
                     if read.tailing() {
                         self.tailing_reads += 1;
                     }
                     self.pending_reads.push(read.into_future());
                 }
+                _ => unreachable!("doc_tail and meta_tail have equal length"),
             }
         }
     }
@@ -706,6 +727,7 @@ impl SliceActor {
             ?clock,
             begin_offset,
             key_hash,
+            valid = ready_read.meta.is_schema_valid(),
             r_clock,
             ?targets,
             "enqueuing document to members"
@@ -752,6 +774,7 @@ impl SliceActor {
                     adjusted_clock: (*clock + binding.read_delay).as_u64(),
                     packed_key: packed_key.clone(),
                     doc_archived: doc.bytes().clone(),
+                    valid: ready_read.meta.is_schema_valid(),
                 }),
                 ..Default::default()
             });

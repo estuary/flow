@@ -88,11 +88,6 @@ pub fn test_binding(
     partition_fields: Option<Vec<String>>,
     journal_read_suffix: &str,
 ) -> crate::Binding {
-    let schema_bundle =
-        doc::validation::build_bundle(b"{}").expect("building trivial schema bundle");
-    let schema =
-        doc::validation::Validator::new(schema_bundle).expect("indexing trivial schema bundle");
-
     crate::Binding {
         index,
         collection: models::Collection::new("test/collection"),
@@ -107,8 +102,6 @@ pub fn test_binding(
         source_uuid_ptr: json::Pointer::from_str("/_meta/uuid"),
         uses_lambda: false,
         uses_source_key,
-        schema,
-        validate_on_read: false,
         not_before: Clock::UNIX_EPOCH,
         not_after: Clock::from_u64(u64::MAX),
         cohort: 0,

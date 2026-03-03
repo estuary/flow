@@ -45,10 +45,6 @@ pub struct Binding {
     pub uses_lambda: bool,
     /// True if shuffle key equals the source collection key.
     pub uses_source_key: bool,
-    /// Pre-parsed schema for validation and inference.
-    pub schema: doc::Validator,
-    /// True if documents should be validated on read (derivation transforms only).
-    pub validate_on_read: bool,
     /// Non-ACK documents with clocks before this value are filtered.
     /// Clock::UNIX_EPOCH means no lower bound.
     pub not_before: uuid::Clock,
@@ -67,16 +63,20 @@ pub struct Binding {
 }
 
 impl Binding {
-    /// Extract the task name and bindings of a shuffle::Task.
-    pub fn from_task(task: &shuffle::Task) -> anyhow::Result<(models::Name, Vec<Self>)> {
-        let (name, mut bindings) = match &task.task {
+    /// Extract the task name, bindings, and per-binding validators of a shuffle::Task.
+    /// Validators are returned separately so that callers can store them independently
+    /// (e.g. on SliceActor) or discard them (e.g. SessionActor).
+    pub fn from_task(
+        task: &shuffle::Task,
+    ) -> anyhow::Result<(models::Name, Vec<Self>, Vec<doc::Validator>)> {
+        let (name, pairs) = match &task.task {
             Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
                     .as_ref()
                     .context("CollectionSpec missing derivation")?;
 
-                let bindings = derivation
+                let pairs = derivation
                     .transforms
                     .iter()
                     .enumerate()
@@ -92,10 +92,10 @@ impl Binding {
                     .id
                     .clone();
 
-                (models::Name::new(shard_template_id), bindings)
+                (models::Name::new(shard_template_id), pairs)
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
-                let bindings = materialization
+                let pairs = materialization
                     .bindings
                     .iter()
                     .enumerate()
@@ -111,7 +111,7 @@ impl Binding {
                     .id
                     .clone();
 
-                (models::Name::new(shard_template_id), bindings)
+                (models::Name::new(shard_template_id), pairs)
             }
             Some(shuffle::task::Task::CollectionPartitions(collection_partitions)) => {
                 let shuffle::CollectionPartitions {
@@ -127,7 +127,7 @@ impl Binding {
                     .as_ref()
                     .context("CollectionPartitions missing partition selector")?;
 
-                let bindings = vec![Self::from_collection_partitions(
+                let pairs = vec![Self::from_collection_partitions(
                     collection_spec,
                     partition_selector,
                 )?];
@@ -143,20 +143,23 @@ impl Binding {
                     .name
                     .clone();
 
-                (models::Name::new(partition_template_name), bindings)
+                (models::Name::new(partition_template_name), pairs)
             }
             None => anyhow::bail!("missing task variant"),
         };
 
+        let (mut bindings, validators): (Vec<Self>, Vec<doc::Validator>) =
+            pairs.into_iter().unzip();
+
         assign_cohorts(&mut bindings);
 
-        Ok((name, bindings))
+        Ok((name, bindings, validators))
     }
 
     fn from_derivation_transform(
         index: u32,
         spec: &flow::collection_spec::derivation::Transform,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
             collection,
@@ -203,7 +206,7 @@ impl Binding {
             .as_ref()
             .context("missing partition selector")?;
 
-        let (schema, shape) = build_schema(read_schema_json, write_schema_json)?;
+        let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
 
         // Determine shuffle key configuration.
         let (key_extractors, uses_lambda, uses_source_key, shuffle_key_partition_fields) =
@@ -225,7 +228,7 @@ impl Binding {
                 (build_key_extractors(key, &shape), false, true, None)
             };
 
-        Ok(Binding {
+        let binding = Self {
             index,
             filter_r_clocks: *read_only,
             journal_read_suffix: journal_read_suffix.clone(),
@@ -239,19 +242,19 @@ impl Binding {
             source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda,
             uses_source_key,
-            schema,
-            validate_on_read: true,
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
             partition_template_name,
-        })
+        };
+
+        Ok((binding, validator))
     }
 
     fn from_materialization_binding(
         index: u32,
         spec: &flow::materialization_spec::Binding,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::materialization_spec::Binding {
             backfill: _,
             collection,
@@ -295,9 +298,9 @@ impl Binding {
             .as_ref()
             .context("missing partition selector")?;
 
-        let (schema, shape) = build_schema(read_schema_json, write_schema_json)?;
+        let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
 
-        Ok(Binding {
+        let binding = Self {
             index,
             filter_r_clocks: false, // Always false for materializations.
             journal_read_suffix: journal_read_suffix.clone(),
@@ -311,19 +314,19 @@ impl Binding {
             source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda: false,    // Always false for materializations.
             uses_source_key: true, // Always true for materializations.
-            schema,
-            validate_on_read: false,
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
             partition_template_name,
-        })
+        };
+
+        Ok((binding, validator))
     }
 
     fn from_collection_partitions(
         spec: &flow::CollectionSpec,
         source_partitions: &broker::LabelSelector,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::CollectionSpec {
             ack_template_json: _,
             derivation: _,
@@ -344,9 +347,9 @@ impl Binding {
             .as_str()
             .into();
 
-        let (schema, shape) = build_schema(read_schema_json, write_schema_json)?;
+        let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
 
-        Ok(Binding {
+        let binding = Self {
             index: 0,
             filter_r_clocks: false,
             journal_read_suffix: "ad-hoc".to_string(),
@@ -360,13 +363,13 @@ impl Binding {
             source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda: false,
             uses_source_key: true,
-            schema,
-            validate_on_read: false,
             not_before: uuid::Clock::UNIX_EPOCH,
             not_after: uuid::Clock::from_u64(u64::MAX),
             cohort: 0, // Assigned by assign_cohorts().
             partition_template_name,
-        })
+        };
+
+        Ok((binding, validator))
     }
 
     pub fn state_key(&self) -> &str {
