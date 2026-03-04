@@ -74,10 +74,10 @@ cat > "${TEMP_CONFIG}" << EOF
 # Lima VM configuration for: ${VM_NAME}
 # Generated on: $(date) at ${TEMP_CONFIG}.
 
-# We use base template://_images/ubuntu-24.04 to bypass template://_default/mounts,
+# We use base template:_images/ubuntu-24.04 to bypass template:_default/mounts,
 # which mounts the entire home directory. We don't want this behavior
 # as we explicitly mount the desired share directory (only).
-base: [template://_images/ubuntu-24.04]
+base: [template:_images/ubuntu-24.04]
 EOF
 
 # Add OS-specific config
