@@ -1,0 +1,30 @@
+---
+source: crates/agent/src/discovers/specs.rs
+expression: fetched_capture
+---
+{
+  "endpoint": {
+    "connector": {
+      "image": "old/image",
+      "config": {
+        "$serde_json::private::RawValue": "{\"fetched\":1}"
+      }
+    }
+  },
+  "bindings": [
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"modified\":1,\"stream\":\"foo\"}"
+      },
+      "disable": true,
+      "target": "acmeCo/does-not-exist"
+    },
+    {
+      "resource": {
+        "$serde_json::private::RawValue": "{\"stream\":\"foo\"}"
+      },
+      "disable": true,
+      "target": "acmeCo/fooName2"
+    }
+  ]
+}

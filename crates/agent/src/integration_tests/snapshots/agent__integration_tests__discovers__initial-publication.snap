@@ -1,0 +1,105 @@
+---
+source: crates/agent/src/integration_tests/discovers.rs
+expression: published_specs
+---
+[
+    (
+        "squirrels/acorns",
+        Some(
+            "collection",
+        ),
+        Some(
+            Object {
+                "key": Array [
+                    String("/id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("string"),
+                        },
+                        "nuttiness": Object {
+                            "maximum": Number(1),
+                            "type": String("number"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                },
+            },
+        ),
+    ),
+    (
+        "squirrels/capture-1",
+        Some(
+            "capture",
+        ),
+        Some(
+            Object {
+                "autoDiscover": Object {
+                    "addNewBindings": Bool(true),
+                    "evolveIncompatibleCollections": Bool(true),
+                },
+                "bindings": Array [
+                    Object {
+                        "resource": Object {
+                            "id": String("acorns"),
+                        },
+                        "target": String("squirrels/acorns"),
+                    },
+                    Object {
+                        "disable": Bool(true),
+                        "resource": Object {
+                            "id": String("crab apples"),
+                        },
+                        "target": String("squirrels/crab_apples"),
+                    },
+                    Object {
+                        "resource": Object {
+                            "id": String("walnuts"),
+                        },
+                        "target": String("squirrels/walnuts"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {
+                            "tail": String("shake"),
+                        },
+                        "image": String("source/test:test"),
+                    },
+                },
+            },
+        ),
+    ),
+    (
+        "squirrels/walnuts",
+        Some(
+            "collection",
+        ),
+        Some(
+            Object {
+                "key": Array [
+                    String("/id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("string"),
+                        },
+                        "nuttiness": Object {
+                            "maximum": Number(1),
+                            "type": String("number"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                },
+            },
+        ),
+    ),
+]
