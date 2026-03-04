@@ -30,18 +30,3 @@ fn spec_fixture() -> proto_flow::capture::response::Spec {
         ..Default::default()
     }
 }
-
-/// Wraps a schema fixture as a `flow://connector-schema` $defs entry,
-/// mirroring what `update_connector_schema` produces for managed schemas.
-fn wrap_connector_schema(mut fixture: serde_json::Value) -> serde_json::Value {
-    let object = fixture.as_object_mut().unwrap();
-    object.insert(
-        "$id".to_string(),
-        serde_json::json!("flow://connector-schema"),
-    );
-
-    serde_json::json!({
-        "$defs": {"flow://connector-schema": fixture},
-        "$ref": "flow://connector-schema",
-    })
-}

@@ -1,4 +1,4 @@
-use super::{spec_fixture, wrap_connector_schema};
+use super::spec_fixture;
 use crate::integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog};
 use models::{
     publications,
@@ -647,15 +647,15 @@ async fn test_auto_discovers_update_only() {
         },
         "collections": {
             "pikas/alpine-grass": {
-                "schema": wrap_connector_schema(document_schema(1)),
+                "schema": document_schema(1),
                 "key": ["/id"]
             },
             "pikas/moss": {
-                "schema": wrap_connector_schema(document_schema(1)),
+                "schema": into_wrapped_connector_schema(document_schema(1)),
                 "key": ["/id"]
             },
             "pikas/lichen": {
-                "writeSchema": wrap_connector_schema(document_schema(1)),
+                "writeSchema": document_schema(1),
                 "readSchema": {
                   "allOf": [
                         {"$ref": models::Schema::REF_RELAXED_WRITE_SCHEMA_URL},
@@ -1142,5 +1142,18 @@ fn document_schema(version: usize) -> serde_json::Value {
             "squeaks": { "type": "integer", "maximum": version },
         },
         "required": ["id", "squeaks"]
+    })
+}
+
+fn into_wrapped_connector_schema(mut fixture: serde_json::Value) -> serde_json::Value {
+    let object = fixture.as_object_mut().unwrap();
+    object.insert(
+        "$id".to_string(),
+        serde_json::json!("flow://connector-schema"),
+    );
+
+    serde_json::json!({
+        "$defs": {"flow://connector-schema": fixture},
+        "$ref": "flow://connector-schema",
     })
 }

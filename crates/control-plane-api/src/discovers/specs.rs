@@ -356,11 +356,10 @@ pub fn merge_collections(
         };
 
         // Does the connector's schema update the effective write schema?
-        if let Some(updated) = update_connector_schema(
-            &collection,
-            effective_write_schema.as_ref(),
-            &connector_schema,
-        )? {
+        if let Some(updated) =
+            update_connector_schema(effective_write_schema.as_ref(), &connector_schema)
+                .context("failed to update write schema with connector schema")?
+        {
             tracing::debug!(
                 %collection,
                 "discovered schema change"
@@ -412,41 +411,21 @@ fn normalize_recommended_name(name: &str) -> String {
     parts.join("_")
 }
 
-fn has_connector_schema_def(schema: &models::Schema) -> anyhow::Result<bool> {
-    type Skim = BTreeMap<String, models::RawValue>;
-
-    let top =
-        serde_json::from_str::<Skim>(schema.get()).context("failed to parse schema as object")?;
-    let Some(defs_raw) = top.get("$defs") else {
-        return Ok(false);
-    };
-    let defs = serde_json::from_str::<Skim>(defs_raw.get())
-        .context("failed to parse schema $defs as object")?;
-    Ok(defs.contains_key(models::Schema::REF_CONNECTOR_SCHEMA_URL))
-}
-
 fn update_connector_schema(
-    collection: &models::Collection,
     current: Option<&models::Schema>,
     connector_schema: &models::Schema,
-) -> anyhow::Result<Option<models::Schema>> {
+) -> serde_json::Result<Option<models::Schema>> {
     let base = match current {
-        // Collection schema is being initialized.
-        None => models::Schema::new(models::RawValue::from_value(&serde_json::json!({
+        // If the current schema includes the connector schema URL in any capacity
+        // (including an inert $defs, or even just the $id), then presume it's
+        // been migrated already.
+        Some(s) if s.get().contains(models::Schema::REF_CONNECTOR_SCHEMA_URL) => s.clone(),
+
+        // Otherwise, this schema is being initialized or is being migrated
+        // to have an embedded flow://connector-schema.
+        _ => models::Schema::new(models::RawValue::from_value(&serde_json::json!({
             "$ref": models::Schema::REF_CONNECTOR_SCHEMA_URL
         }))),
-        // Existing collection schema that already has a connector schema in $defs.
-        Some(s) if has_connector_schema_def(s)? => s.clone(),
-        // Existing collection schema that doesn't have a connector schema in $defs.
-        // Error explicitly to prevent clobbering a user's manually crafted schema.
-        // While injecting into $defs is harmless, it wouldn't be harmless if we
-        // initialized a readSchema under the connector's direction.
-        Some(_) => anyhow::bail!(
-            "collection {collection} has a schema that is not managed by auto-discover \
-            (it has no $defs entry for '{url}'). To opt in, add \
-            {{\"$defs\": {{\"{url}\": {{}}}}}} to the collection schema",
-            url = models::Schema::REF_CONNECTOR_SCHEMA_URL,
-        ),
     };
 
     let updated = base.add_defs(&[models::schemas::AddDef {
@@ -621,16 +600,10 @@ mod tests {
             },
         ];
 
-        let old_schema = json!({
-            "$defs": {
-                "flow://connector-schema": {"const": "old"}
-            },
-            "$ref": "flow://connector-schema",
-        });
         let draft_catalog: models::Catalog = serde_json::from_value(json!({
             "collections": {
                 "case/2": {
-                    "schema": old_schema,
+                    "schema": false,
                     "key": ["/old"],
                     "projections": {"field": "/ptr"},
                     "derive": {
@@ -640,16 +613,16 @@ mod tests {
                     "journals": {"fragments": {"length": 1234}},
                 },
                 "case/3": {
-                    "schema": old_schema,
+                    "schema": false,
                     "key": ["/one", "/two"],
                 },
                 "case/4": {
-                    "writeSchema": old_schema,
+                    "writeSchema": false,
                     "readSchema": {"const": "read!"},
                     "key": ["/foo", "/bar"],
                 },
                 "case/7": {
-                    "schema": old_schema,
+                    "schema": false,
                     "key": ["/chosen", "/key"],
                 },
             }
@@ -665,7 +638,7 @@ mod tests {
             last_pub_id: models::Id::zero(),
             last_build_id: models::Id::zero(),
             model: serde_json::from_value(json!({
-                "schema": old_schema,
+                "schema": false,
                 "key": ["/drafted-key-should-be-used-instead"],
             }))
             .unwrap(),
@@ -679,7 +652,7 @@ mod tests {
             last_pub_id: models::Id::zero(),
             last_build_id: models::Id::zero(),
             model: serde_json::from_value(json!({
-                "schema": old_schema,
+                "schema": false,
                 "key": ["/key"],
             }))
             .unwrap(),
@@ -1149,7 +1122,7 @@ mod tests {
 
     #[test]
     fn test_connector_schema_update() {
-        let collection = models::Collection::new("test/collection");
+        // Test that update_connector_schema correctly handles various cases
         let connector_schema =
             models::Schema::new(models::RawValue::from_value(&serde_json::json!({
                 "type": "object",
@@ -1157,7 +1130,7 @@ mod tests {
             })));
 
         // Case 1: No existing schema - should create new with connector schema reference
-        let updated = update_connector_schema(&collection, None, &connector_schema)
+        let updated = update_connector_schema(None, &connector_schema)
             .unwrap()
             .unwrap();
         insta::assert_json_snapshot!(updated.to_value(), @r###"
@@ -1177,19 +1150,32 @@ mod tests {
         }
         "###);
 
-        // Case 2: Existing schema without connector $defs - should return an error
+        // Case 2: Existing schema without connector reference - should replace with new structure
         let existing = models::Schema::new(
             models::RawValue::from_str(
                 r#"{"type": "object", "properties": {"old": {"type": "string"}}}"#,
             )
             .unwrap(),
         );
-        let err = update_connector_schema(&collection, Some(&existing), &connector_schema)
-            .expect_err("should fail for schema without connector $defs");
-        insta::assert_snapshot!(
-            format!("{err:#}"),
-            @r###"collection test/collection has a schema that is not managed by auto-discover (it has no $defs entry for 'flow://connector-schema'). To opt in, add {"$defs": {"flow://connector-schema": {}}} to the collection schema"###
-        );
+        let updated = update_connector_schema(Some(&existing), &connector_schema)
+            .unwrap()
+            .unwrap();
+        insta::assert_json_snapshot!(updated.to_value(), @r###"
+        {
+          "$defs": {
+            "flow://connector-schema": {
+              "$id": "flow://connector-schema",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "$ref": "flow://connector-schema"
+        }
+        "###);
 
         // Case 3: Existing schema with connector reference - should preserve outer structure
         let existing_with_ref = models::Schema::new(
@@ -1209,10 +1195,9 @@ mod tests {
             )
             .unwrap(),
         );
-        let updated =
-            update_connector_schema(&collection, Some(&existing_with_ref), &connector_schema)
-                .unwrap()
-                .unwrap();
+        let updated = update_connector_schema(Some(&existing_with_ref), &connector_schema)
+            .unwrap()
+            .unwrap();
         insta::assert_json_snapshot!(updated.to_value(), @r###"
         {
           "$defs": {
@@ -1235,7 +1220,7 @@ mod tests {
         }
         "###);
 
-        // Case 4: Existing schema already reflects connector schema - no update needed
+        // Case 4: Existing schema already reflects connector schema
         let existing_complete =
             models::Schema::new(models::RawValue::from_value(&serde_json::json!({
                 "$ref": "flow://connector-schema",
@@ -1248,23 +1233,7 @@ mod tests {
                     }
                 }
             })));
-        let result =
-            update_connector_schema(&collection, Some(&existing_complete), &connector_schema)
-                .unwrap();
+        let result = update_connector_schema(Some(&existing_complete), &connector_schema).unwrap();
         assert!(result.is_none());
-
-        // Case 5: Schema mentions connector URL (e.g. in $id) but NOT as a $defs key -
-        // should still be rejected by the strict check.
-        let has_url_but_no_def = models::Schema::new(
-            models::RawValue::from_str(r#"{"$id": "flow://connector-schema", "type": "object"}"#)
-                .unwrap(),
-        );
-        let err =
-            update_connector_schema(&collection, Some(&has_url_but_no_def), &connector_schema)
-                .expect_err("should fail for schema with URL but no $defs key");
-        insta::assert_snapshot!(
-            format!("{err:#}"),
-            @r###"collection test/collection has a schema that is not managed by auto-discover (it has no $defs entry for 'flow://connector-schema'). To opt in, add {"$defs": {"flow://connector-schema": {}}} to the collection schema"###
-        );
     }
 }
