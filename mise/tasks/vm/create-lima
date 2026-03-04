@@ -85,13 +85,14 @@ if [[ "$OS" == "mac" ]]; then
     cat >> "${TEMP_CONFIG}" << EOF
 vmType: vz
 
-# Note that in V2, this is moving under vmOpts->vz
-rosetta:
-  # Enable Rosetta for Intel containers under ARM host.
-  # Hint: try "softwareupdate --install-rosetta" if Lima gets stuck at "Installing rosetta..."
-  enabled: true
-  # Register rosetta to /proc/sys/fs/binfmt_misc
-  binfmt: true
+vmOpts:
+  vz:
+    rosetta:
+      # Enable Rosetta for Intel containers under ARM host.
+      # Hint: try "softwareupdate --install-rosetta" if Lima gets stuck at "Installing rosetta..."
+      enabled: true
+      # Register rosetta to /proc/sys/fs/binfmt_misc
+      binfmt: true
 
 networks:
   - vzNAT: true   # Fast (kernel), but host <=> VM only
