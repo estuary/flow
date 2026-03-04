@@ -79,6 +79,23 @@ about using connectors.
 |--------------|-------|-------------------------------------------|--------|------------------|
 | **`/topic`** | Topic | Name of the PubSub topic to subscribe to. | string | Required         |
 
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-google-pubsub:v1
+        config:
+          projectId: project-id
+          credentialsJson: <service account JSON credentials>
+    bindings:
+      - resource:
+          topic: topic-name
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
+
 ### At-Least-Once Message Capture
 
 Received messages are acknowledged to Pub/Sub after they have been durably

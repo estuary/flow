@@ -51,12 +51,22 @@ You configure connectors either in the Estuary web app, or by directly editing t
 
 ### Sample
 
-```json
-{
-  "properties": {
-
-  }
-}
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-woocommerce:v1
+        config:
+          customer_key: api-key
+          customer_secret: secret
+          shop_name: acmeCo
+          start_date: 2025-01-01
+    bindings:
+      - resource:
+          stream: orders
+          syncMode: incremental
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 ## Supported Streams

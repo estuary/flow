@@ -46,26 +46,20 @@ You configure connectors either in the Estuary web app, or by directly editing t
 
 ### Sample
 
-```json
-{
-  "properties": {
-    "queue_url": {
-      "order": 0
-    },
-    "region": {
-      "order": 1
-    },
-    "access_key": {
-      "order": 2
-    },
-    "secret_key": {
-      "order": 3
-    },
-    "delete_messages": {
-      "order": 4
-    }
-  }
-}
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-amazon-sqs:v1
+        config:
+          queue_url: https://sqs.us-east-1.amazonaws.com/your-url
+          region: us-east-1
+    bindings:
+      - resource:
+          stream: example
+          syncMode: full_refresh
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 ### Performance Considerations

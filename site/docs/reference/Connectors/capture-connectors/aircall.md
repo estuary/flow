@@ -41,18 +41,23 @@ You configure connectors either in the Estuary web app, or by directly editing t
 | **`/stream`**   | Stream    | Resource of your Aircall project from which collections are captured. | string | Required         |
 | **`/syncMode`** | Sync Mode | Connection method.                                                    | string | Required         |
 
-
 ### Sample
 
-```json
-{
-  "properties": {
-    "start_date": {
-      "default": "2023-01-01T00:00:00.000Z",
-      "format": null
-    }
-  }
-}
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-aircall:v1
+        config:
+          api_id: <api-id>
+          api_token: <token>
+          start_date: 2025-01-01T00:00:00.000Z
+    bindings:
+      - resource:
+          stream: calls
+          syncMode: full_refresh
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 ## Supported Streams
@@ -67,12 +72,6 @@ The Aircall connector supports the following streams:
 - users
 - teams
 - webhooks
-
-## API Method Example
-An example of an API method call for Aircall:
-
-`GET https://api.aircall.io/v1/numbers`
-
 
 ## Performance Considerations
 The Aircall API currently uses v1. The connector defaults to using v1.

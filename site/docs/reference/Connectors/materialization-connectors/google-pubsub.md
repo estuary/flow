@@ -77,16 +77,17 @@ materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
       connector:
+        image: ghcr.io/estuary/materialize-google-pubsub:v1
         config:
           credentials:
             auth_type: Service
             credentials_json: {secret}
           project_id: my_google_cloud_project
     bindings:
-  	- resource:
-        create_default_subscription: true
-      	topic: my_new_topic
-      source: ${PREFIX}/${source_collection}
+  	  - resource:
+          create_default_subscription: true
+      	  topic: my_new_topic
+        source: ${PREFIX}/${source_collection}
 ```
 
 ## Multiplex topics

@@ -120,6 +120,27 @@ Credentials for authenticating with GCP.  Use one of the following sets of optio
 | **`/template`** | Template       | The query (template) which will be executed every polling interval        | string | Required         |
 | **`/poll`**     | Poll Interval  | Override the global polling interval for this binding.                    | string | `""`               |
 
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-bigquery-batch:v1
+        config:
+          project_id: your-project
+          dataset: analytics
+          credentials:
+            auth_type: CredentialsJSON
+            credentials_json: <service account JSON credentials>
+    bindings:
+      - resource:
+          name: events
+          template: "SELECT * FROM analytics.events;"
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
+
 ### Query Templates
 
 The query template property of a binding defines what query will be executed against
