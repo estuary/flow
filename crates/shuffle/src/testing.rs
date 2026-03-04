@@ -30,8 +30,8 @@ pub fn jf(
     producers: Vec<crate::ProducerFrontier>,
 ) -> crate::JournalFrontier {
     crate::JournalFrontier {
-        journal: journal.into(),
         binding,
+        journal: journal.into(),
         producers,
     }
 }

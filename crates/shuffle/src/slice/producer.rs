@@ -101,15 +101,15 @@ pub fn build_flush_frontier(
         by_journal.push((&read_state.journal, read_state.binding_index, producers));
     }
 
-    by_journal.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+    by_journal.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(b.0)));
 
     let reads_frontier = crate::Frontier {
         journals: by_journal
             .into_iter()
             .map(
                 |(journal_name, binding, producers)| crate::JournalFrontier {
-                    journal: journal_name.into(),
                     binding,
+                    journal: journal_name.into(),
                     producers,
                 },
             )
@@ -138,8 +138,8 @@ pub fn build_flush_frontier(
             });
 
             crate::JournalFrontier {
-                journal,
                 binding,
+                journal,
                 producers,
             }
         })
@@ -147,7 +147,7 @@ pub fn build_flush_frontier(
 
     // Sort to restore the sorted Frontier invariant
     // (entries must be unique since they come from HashMap keys).
-    hint_journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
+    hint_journals.sort_by(|a, b| a.binding.cmp(&b.binding).then(a.journal.cmp(&b.journal)));
 
     reads_frontier.reduce(crate::Frontier {
         journals: hint_journals,

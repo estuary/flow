@@ -39,16 +39,17 @@ impl ProducerFrontier {
 /// Frontier state for a single journal under a specific binding.
 #[derive(Debug, Clone)]
 pub struct JournalFrontier {
-    pub journal: Box<str>,
     /// Binding under which the journal is read.
     pub binding: u32,
+    /// Journal name.
+    pub journal: Box<str>,
     /// Producers of this journal.
     /// Entries are sorted and unique on `producer`.
     pub producers: Vec<ProducerFrontier>,
 }
 
 impl JournalFrontier {
-    /// Reduce two JournalFrontier entries for the same (journal, binding)
+    /// Reduce two JournalFrontier entries for the same (binding, journal)
     /// by sorted-merging their producer lists. Matching producers are reduced
     /// via `ProducerFrontier::reduce`; unmatched producers pass through.
     pub fn reduce(self, other: Self) -> Self {
@@ -78,14 +79,14 @@ impl JournalFrontier {
         merged.shrink_to_fit();
 
         Self {
-            journal: self.journal,
             binding: self.binding,
+            journal: self.journal,
             producers: merged,
         }
     }
 
     /// Resolve causal hints on producers of `self` using progress from `other`.
-    /// Both must be for the same `(journal, binding)`. Returns the count resolved.
+    /// Both must be for the same `(binding, journal)`. Returns the count resolved.
     fn resolve_hints(&mut self, other: &JournalFrontier) -> usize {
         let mut resolved = 0usize;
         let mut lhs = self.producers.iter_mut().peekable();
@@ -136,8 +137,8 @@ impl JournalFrontier {
                 &jf.journal_name_suffix,
             );
             JournalFrontier {
-                journal: journal_name.clone().into_boxed_str(),
                 binding: jf.binding,
+                journal: journal_name.clone().into_boxed_str(),
                 producers: jf
                     .producers
                     .into_iter()
@@ -168,9 +169,9 @@ impl JournalFrontier {
                 prev_journal = jf.journal.as_ref();
 
                 shuffle::JournalFrontier {
+                    binding: jf.binding,
                     journal_name_truncate_delta: truncate_delta,
                     journal_name_suffix: suffix.to_string(),
-                    binding: jf.binding,
                     producers: jf
                         .producers
                         .iter()
@@ -193,37 +194,36 @@ impl JournalFrontier {
 #[derive(Debug, Clone, Default)]
 pub struct Frontier {
     /// Journals which constitute the frontier.
-    /// Entries are sorted and unique on `(journal, binding)`.
+    /// Entries are sorted and unique on `(binding, journal)`.
     pub journals: Vec<JournalFrontier>,
 }
 
 impl Frontier {
     /// Construct a `Frontier` from a list of journal entries, validating that
-    /// entries are sorted and unique on `(journal, binding)` and that producers
+    /// entries are sorted and unique on `(binding, journal)` and that producers
     /// within each entry are sorted and unique on `producer`.
     pub fn new(journals: Vec<JournalFrontier>) -> anyhow::Result<Self> {
         for (index, window) in journals.windows(2).enumerate() {
             let (prev, curr) = (&window[0], &window[1]);
             match prev
-                .journal
-                .as_ref()
-                .cmp(curr.journal.as_ref())
-                .then(prev.binding.cmp(&curr.binding))
+                .binding
+                .cmp(&curr.binding)
+                .then(prev.journal.as_ref().cmp(curr.journal.as_ref()))
             {
                 std::cmp::Ordering::Less => {}
                 std::cmp::Ordering::Equal => anyhow::bail!(
-                    "JournalFrontier is not unique on (journal, binding) at index {}: ({}, {})",
+                    "JournalFrontier is not unique on (binding, journal) at index {}: ({}, {})",
                     index + 1,
-                    curr.journal,
                     curr.binding,
+                    curr.journal,
                 ),
                 std::cmp::Ordering::Greater => anyhow::bail!(
-                    "JournalFrontier is not ordered on (journal, binding) at index {}: ({}, {}) follows ({}, {})",
+                    "JournalFrontier is not ordered on (binding, journal) at index {}: ({}, {}) follows ({}, {})",
                     index + 1,
-                    curr.journal,
                     curr.binding,
-                    prev.journal,
+                    curr.journal,
                     prev.binding,
+                    prev.journal,
                 ),
             }
         }
@@ -235,14 +235,14 @@ impl Frontier {
                     std::cmp::Ordering::Equal => anyhow::bail!(
                         "ProducerFrontier is not unique on producer at index {} in ({}, {})",
                         index + 1,
-                        jf.journal,
                         jf.binding,
+                        jf.journal,
                     ),
                     std::cmp::Ordering::Greater => anyhow::bail!(
                         "ProducerFrontier is not ordered on producer at index {} in ({}, {})",
                         index + 1,
-                        jf.journal,
                         jf.binding,
+                        jf.journal,
                     ),
                 }
             }
@@ -251,7 +251,7 @@ impl Frontier {
     }
 
     /// Reduce two Frontiers by sorted-merging their journal lists.
-    /// Matching (journal, binding) entries are reduced via `JournalFrontier::reduce`;
+    /// Matching (binding, journal) entries are reduced via `JournalFrontier::reduce`;
     /// unmatched entries pass through. Both inputs may contain non-unique keys,
     /// which are reduced to single entries.
     pub fn reduce(self, other: Self) -> Self {
@@ -269,10 +269,9 @@ impl Frontier {
             match (a.peek(), b.peek()) {
                 (Some(ja), Some(jb)) => {
                     let ord = ja
-                        .journal
-                        .as_ref()
-                        .cmp(jb.journal.as_ref())
-                        .then(ja.binding.cmp(&jb.binding));
+                        .binding
+                        .cmp(&jb.binding)
+                        .then(ja.journal.as_ref().cmp(jb.journal.as_ref()));
 
                     match ord {
                         std::cmp::Ordering::Less => merged.push(a.next().unwrap()),
@@ -297,14 +296,13 @@ impl Frontier {
         Self { journals: merged }
     }
 
-    /// Look up a journal entry by `(journal, binding)`.
-    pub fn find_journal(&self, journal: &str, binding: u32) -> Option<&JournalFrontier> {
+    /// Look up a journal entry by `(binding, journal)`.
+    pub fn find_journal(&self, binding: u32, journal: &str) -> Option<&JournalFrontier> {
         self.journals
             .binary_search_by(|jf| {
-                jf.journal
-                    .as_ref()
-                    .cmp(journal)
-                    .then(jf.binding.cmp(&binding))
+                jf.binding
+                    .cmp(&binding)
+                    .then(jf.journal.as_ref().cmp(journal))
             })
             .ok()
             .map(|i| &self.journals[i])
@@ -317,7 +315,7 @@ impl Frontier {
     /// with `last_commit >= hinted_commit`, set this producer's `last_commit`
     /// to `hinted_commit` (capped, not the full progressed last_commit).
     ///
-    /// Uses an ordered merge on `(journal, binding)` then `producer`,
+    /// Uses an ordered merge on `(binding, journal)` then `producer`,
     /// matching the sorted invariants of both frontiers.
     ///
     /// Returns the number of producers that were resolved.
@@ -329,10 +327,9 @@ impl Frontier {
         loop {
             let ord = match (lhs.peek(), rhs.peek()) {
                 (Some(l), Some(r)) => l
-                    .journal
-                    .as_ref()
-                    .cmp(r.journal.as_ref())
-                    .then(l.binding.cmp(&r.binding)),
+                    .binding
+                    .cmp(&r.binding)
+                    .then(l.journal.as_ref().cmp(r.journal.as_ref())),
                 _ => break,
             };
             match ord {
@@ -381,8 +378,8 @@ impl Frontier {
                     None
                 } else {
                     Some(JournalFrontier {
-                        journal: jf.journal.clone(),
                         binding: jf.binding,
+                        journal: jf.journal.clone(),
                         producers,
                     })
                 }
@@ -605,11 +602,6 @@ mod test {
                 vec![pf(0x01, 100, 0, -500)],
             ),
             jf(
-                "estuary/tenants/acme/orders/pivot=00",
-                1,
-                vec![pf(0x03, 200, 0, -1000)],
-            ),
-            jf(
                 "estuary/tenants/acme/orders/pivot=01",
                 0,
                 vec![pf(0x01, 50, 0, -200)],
@@ -618,6 +610,11 @@ mod test {
                 "estuary/tenants/acme/users/pivot=00",
                 0,
                 vec![pf(0x05, 300, 400, 42)],
+            ),
+            jf(
+                "estuary/tenants/acme/orders/pivot=00",
+                1,
+                vec![pf(0x03, 200, 0, -1000)],
             ),
             jf(
                 "estuary/tenants/other/events/pivot=00",
@@ -681,7 +678,7 @@ mod test {
 
     #[test]
     fn test_frontier_new_validates_journal_order() {
-        // Out-of-order journals.
+        // Out-of-order journals within the same binding.
         let err = Frontier::new(vec![jf("journal/B", 0, vec![]), jf("journal/A", 0, vec![])])
             .unwrap_err();
         assert!(
@@ -689,7 +686,15 @@ mod test {
             "expected ordering error, got: {err}"
         );
 
-        // Duplicate (journal, binding).
+        // Out-of-order bindings.
+        let err = Frontier::new(vec![jf("journal/A", 1, vec![]), jf("journal/A", 0, vec![])])
+            .unwrap_err();
+        assert!(
+            format!("{err}").contains("not ordered"),
+            "expected ordering error, got: {err}"
+        );
+
+        // Duplicate (binding, journal).
         let err = Frontier::new(vec![jf("journal/A", 0, vec![]), jf("journal/A", 0, vec![])])
             .unwrap_err();
         assert!(
@@ -954,8 +959,8 @@ mod test {
     fn test_drain_round_trip() {
         let original = Frontier::new(vec![
             jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
-            jf("journal/A", 1, vec![pf(0x03, 200, 0, -800)]),
             jf("journal/B", 0, vec![pf(0x05, 300, 400, 42)]),
+            jf("journal/A", 1, vec![pf(0x03, 200, 0, -800)]),
         ])
         .unwrap();
 

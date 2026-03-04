@@ -64,25 +64,25 @@ pub struct ProducerFrontier {
 /// truncate `journal_name_truncate_delta` bytes then append `journal_name_suffix`.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalFrontier {
-    /// Number of bytes to truncate from the preceding name.
-    /// Must align with a UTF-8 code point boundary.
-    #[prost(int32, tag = "1")]
-    pub journal_name_truncate_delta: i32,
-    /// Suffix to append to the preceding, truncated name.
-    #[prost(string, tag = "2")]
-    pub journal_name_suffix: ::prost::alloc::string::String,
     /// Binding index under which the journal is read.
     /// When persisting across sessions, this should be mapped via the task binding's
     /// `journal_read_suffix` to ensure stability across task versions.
-    #[prost(uint32, tag = "3")]
+    #[prost(uint32, tag = "1")]
     pub binding: u32,
+    /// Number of bytes to truncate from the preceding name.
+    /// Must align with a UTF-8 code point boundary.
+    #[prost(int32, tag = "2")]
+    pub journal_name_truncate_delta: i32,
+    /// Suffix to append to the preceding, truncated name.
+    #[prost(string, tag = "3")]
+    pub journal_name_suffix: ::prost::alloc::string::String,
     /// Producers of this journal.
     /// Sorted and unique on `producer`.
     #[prost(message, repeated, tag = "4")]
     pub producers: ::prost::alloc::vec::Vec<ProducerFrontier>,
 }
 /// FrontierChunk is a portion of a frontier sequence for streaming.
-/// Entries are sorted and unique on (journal name, binding).
+/// Entries are sorted and unique on (binding, journal name).
 /// A final empty chunk (empty `journals`) represents end-of-sequence.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FrontierChunk {
@@ -304,24 +304,27 @@ pub mod queue_request {
         #[prost(uint32, tag = "4")]
         pub binding: u32,
         /// Priority of this binding.
-        /// Queue orders documents by (priority DESC, clock ASC).
         #[prost(uint32, tag = "5")]
         pub priority: u32,
+        /// Read delay of the binding, as a uuid::Clock duration.
+        /// Queue computes adjusted_clock = clock + read_delay for merge ordering.
+        /// Zero (the common case) means no delay.
+        #[prost(uint64, tag = "6")]
+        pub read_delay: u64,
         /// Producer of the document, extracted from its UUID.
-        #[prost(sfixed64, tag = "6")]
+        #[prost(sfixed64, tag = "7")]
         pub producer: i64,
-        /// Adjusted Clock of the the document, extracted from its UUID
-        /// and adjusted by the binding's read delay.
-        #[prost(fixed64, tag = "7")]
-        pub adjusted_clock: u64,
+        /// Publication clock of the document, extracted from its UUID.
+        #[prost(fixed64, tag = "8")]
+        pub clock: u64,
         /// Packed shuffle key of the document.
-        #[prost(bytes = "bytes", tag = "8")]
+        #[prost(bytes = "bytes", tag = "9")]
         pub packed_key: ::prost::bytes::Bytes,
         /// Document content as transcoded ArchivedNode bytes.
-        #[prost(bytes = "bytes", tag = "9")]
+        #[prost(bytes = "bytes", tag = "10")]
         pub doc_archived: ::prost::bytes::Bytes,
         /// Whether the document passed schema validation.
-        #[prost(bool, tag = "10")]
+        #[prost(bool, tag = "11")]
         pub valid: bool,
     }
     /// Flush requests a durability barrier.
@@ -347,7 +350,7 @@ pub mod queue_response {
     /// Sent after the Queue has joined over the member's queue file.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
-    /// Flushed confirms all preceding documents are durable on disk.
+    /// Flushed confirms all preceding documents are visible for dequeue.
     /// Only after receiving Flushed from ALL Queues can a Slice safely
     /// report ProgressDelta to the Session.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

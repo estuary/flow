@@ -206,27 +206,27 @@ impl serde::Serialize for JournalFrontier {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
         if self.journal_name_truncate_delta != 0 {
             len += 1;
         }
         if !self.journal_name_suffix.is_empty() {
-            len += 1;
-        }
-        if self.binding != 0 {
             len += 1;
         }
         if !self.producers.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.JournalFrontier", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
         if self.journal_name_truncate_delta != 0 {
             struct_ser.serialize_field("journalNameTruncateDelta", &self.journal_name_truncate_delta)?;
         }
         if !self.journal_name_suffix.is_empty() {
             struct_ser.serialize_field("journalNameSuffix", &self.journal_name_suffix)?;
-        }
-        if self.binding != 0 {
-            struct_ser.serialize_field("binding", &self.binding)?;
         }
         if !self.producers.is_empty() {
             struct_ser.serialize_field("producers", &self.producers)?;
@@ -241,19 +241,19 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "binding",
             "journal_name_truncate_delta",
             "journalNameTruncateDelta",
             "journal_name_suffix",
             "journalNameSuffix",
-            "binding",
             "producers",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Binding,
             JournalNameTruncateDelta,
             JournalNameSuffix,
-            Binding,
             Producers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -276,9 +276,9 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                         E: serde::de::Error,
                     {
                         match value {
+                            "binding" => Ok(GeneratedField::Binding),
                             "journalNameTruncateDelta" | "journal_name_truncate_delta" => Ok(GeneratedField::JournalNameTruncateDelta),
                             "journalNameSuffix" | "journal_name_suffix" => Ok(GeneratedField::JournalNameSuffix),
-                            "binding" => Ok(GeneratedField::Binding),
                             "producers" => Ok(GeneratedField::Producers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -299,12 +299,20 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut binding__ = None;
                 let mut journal_name_truncate_delta__ = None;
                 let mut journal_name_suffix__ = None;
-                let mut binding__ = None;
                 let mut producers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::JournalNameTruncateDelta => {
                             if journal_name_truncate_delta__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("journalNameTruncateDelta"));
@@ -319,14 +327,6 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                             }
                             journal_name_suffix__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Binding => {
-                            if binding__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("binding"));
-                            }
-                            binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                         GeneratedField::Producers => {
                             if producers__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("producers"));
@@ -336,9 +336,9 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                     }
                 }
                 Ok(JournalFrontier {
+                    binding: binding__.unwrap_or_default(),
                     journal_name_truncate_delta: journal_name_truncate_delta__.unwrap_or_default(),
                     journal_name_suffix: journal_name_suffix__.unwrap_or_default(),
-                    binding: binding__.unwrap_or_default(),
                     producers: producers__.unwrap_or_default(),
                 })
             }
@@ -762,10 +762,13 @@ impl serde::Serialize for queue_request::Enqueue {
         if self.priority != 0 {
             len += 1;
         }
+        if self.read_delay != 0 {
+            len += 1;
+        }
         if self.producer != 0 {
             len += 1;
         }
-        if self.adjusted_clock != 0 {
+        if self.clock != 0 {
             len += 1;
         }
         if !self.packed_key.is_empty() {
@@ -795,15 +798,20 @@ impl serde::Serialize for queue_request::Enqueue {
         if self.priority != 0 {
             struct_ser.serialize_field("priority", &self.priority)?;
         }
+        if self.read_delay != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("readDelay", ToString::to_string(&self.read_delay).as_str())?;
+        }
         if self.producer != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("producer", ToString::to_string(&self.producer).as_str())?;
         }
-        if self.adjusted_clock != 0 {
+        if self.clock != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("adjustedClock", ToString::to_string(&self.adjusted_clock).as_str())?;
+            struct_ser.serialize_field("clock", ToString::to_string(&self.clock).as_str())?;
         }
         if !self.packed_key.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -836,9 +844,10 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
             "beginOffset",
             "binding",
             "priority",
+            "read_delay",
+            "readDelay",
             "producer",
-            "adjusted_clock",
-            "adjustedClock",
+            "clock",
             "packed_key",
             "packedKey",
             "doc_archived",
@@ -853,8 +862,9 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
             BeginOffset,
             Binding,
             Priority,
+            ReadDelay,
             Producer,
-            AdjustedClock,
+            Clock,
             PackedKey,
             DocArchived,
             Valid,
@@ -884,8 +894,9 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                             "beginOffset" | "begin_offset" => Ok(GeneratedField::BeginOffset),
                             "binding" => Ok(GeneratedField::Binding),
                             "priority" => Ok(GeneratedField::Priority),
+                            "readDelay" | "read_delay" => Ok(GeneratedField::ReadDelay),
                             "producer" => Ok(GeneratedField::Producer),
-                            "adjustedClock" | "adjusted_clock" => Ok(GeneratedField::AdjustedClock),
+                            "clock" => Ok(GeneratedField::Clock),
                             "packedKey" | "packed_key" => Ok(GeneratedField::PackedKey),
                             "docArchived" | "doc_archived" => Ok(GeneratedField::DocArchived),
                             "valid" => Ok(GeneratedField::Valid),
@@ -913,8 +924,9 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                 let mut begin_offset__ = None;
                 let mut binding__ = None;
                 let mut priority__ = None;
+                let mut read_delay__ = None;
                 let mut producer__ = None;
-                let mut adjusted_clock__ = None;
+                let mut clock__ = None;
                 let mut packed_key__ = None;
                 let mut doc_archived__ = None;
                 let mut valid__ = None;
@@ -958,6 +970,14 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::ReadDelay => {
+                            if read_delay__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("readDelay"));
+                            }
+                            read_delay__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::Producer => {
                             if producer__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("producer"));
@@ -966,11 +986,11 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::AdjustedClock => {
-                            if adjusted_clock__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("adjustedClock"));
+                        GeneratedField::Clock => {
+                            if clock__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clock"));
                             }
-                            adjusted_clock__ = 
+                            clock__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1004,8 +1024,9 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                     begin_offset: begin_offset__.unwrap_or_default(),
                     binding: binding__.unwrap_or_default(),
                     priority: priority__.unwrap_or_default(),
+                    read_delay: read_delay__.unwrap_or_default(),
                     producer: producer__.unwrap_or_default(),
-                    adjusted_clock: adjusted_clock__.unwrap_or_default(),
+                    clock: clock__.unwrap_or_default(),
                     packed_key: packed_key__.unwrap_or_default(),
                     doc_archived: doc_archived__.unwrap_or_default(),
                     valid: valid__.unwrap_or_default(),
