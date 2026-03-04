@@ -7,8 +7,8 @@ PipelineSnapshot {
     ready: Frontier {
         journals: [
             JournalFrontier {
-                journal: "journal/A",
                 binding: 0,
+                journal: "journal/A",
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:00),
@@ -19,8 +19,8 @@ PipelineSnapshot {
                 ],
             },
             JournalFrontier {
-                journal: "journal/B",
                 binding: 0,
+                journal: "journal/B",
                 producers: [
                     ProducerFrontier {
                         producer: Producer(03:00:00:00:00:00),
@@ -31,8 +31,8 @@ PipelineSnapshot {
                 ],
             },
             JournalFrontier {
-                journal: "journal/C",
                 binding: 0,
+                journal: "journal/C",
                 producers: [
                     ProducerFrontier {
                         producer: Producer(05:00:00:00:00:00),
@@ -43,8 +43,8 @@ PipelineSnapshot {
                 ],
             },
             JournalFrontier {
-                journal: "journal/D",
                 binding: 0,
+                journal: "journal/D",
                 producers: [
                     ProducerFrontier {
                         producer: Producer(07:00:00:00:00:00),

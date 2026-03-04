@@ -7,8 +7,8 @@ PipelineSnapshot {
     ready: Frontier {
         journals: [
             JournalFrontier {
-                journal: "journal/X",
                 binding: 0,
+                journal: "journal/X",
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:00),

@@ -53,22 +53,22 @@ message ProducerFrontier {
 // It uses delta-encoding for journal names: given a preceding journal name,
 // truncate `journal_name_truncate_delta` bytes then append `journal_name_suffix`.
 message JournalFrontier {
-  // Number of bytes to truncate from the preceding name.
-  // Must align with a UTF-8 code point boundary.
-  int32 journal_name_truncate_delta = 1;
-  // Suffix to append to the preceding, truncated name.
-  string journal_name_suffix = 2;
   // Binding index under which the journal is read.
   // When persisting across sessions, this should be mapped via the task binding's
   // `journal_read_suffix` to ensure stability across task versions.
-  uint32 binding = 3;
+  uint32 binding = 1;
+  // Number of bytes to truncate from the preceding name.
+  // Must align with a UTF-8 code point boundary.
+  int32 journal_name_truncate_delta = 2;
+  // Suffix to append to the preceding, truncated name.
+  string journal_name_suffix = 3;
   // Producers of this journal.
   // Sorted and unique on `producer`.
   repeated ProducerFrontier producers = 4;
 }
 
 // FrontierChunk is a portion of a frontier sequence for streaming.
-// Entries are sorted and unique on (journal name, binding).
+// Entries are sorted and unique on (binding, journal name).
 // A final empty chunk (empty `journals`) represents end-of-sequence.
 message FrontierChunk {
   repeated JournalFrontier journals = 1;
@@ -228,19 +228,21 @@ message QueueRequest {
     // Binding index for this document.
     uint32 binding = 4;
     // Priority of this binding.
-    // Queue orders documents by (priority DESC, clock ASC).
     uint32 priority = 5;
+    // Read delay of the binding, as a uuid::Clock duration.
+    // Queue computes adjusted_clock = clock + read_delay for merge ordering.
+    // Zero (the common case) means no delay.
+    uint64 read_delay = 6;
     // Producer of the document, extracted from its UUID.
-    sfixed64 producer = 6;
-    // Adjusted Clock of the the document, extracted from its UUID
-    // and adjusted by the binding's read delay.
-    fixed64 adjusted_clock = 7;
+    sfixed64 producer = 7;
+    // Publication clock of the document, extracted from its UUID.
+    fixed64 clock = 8;
     // Packed shuffle key of the document.
-    bytes packed_key = 8;
+    bytes packed_key = 9;
     // Document content as transcoded ArchivedNode bytes.
-    bytes doc_archived = 9;
+    bytes doc_archived = 10;
     // Whether the document passed schema validation.
-    bool valid = 10;
+    bool valid = 11;
   }
   Enqueue enqueue = 2;
 
@@ -260,7 +262,7 @@ message QueueResponse {
   message Opened {}
   Opened opened = 1;
 
-  // Flushed confirms all preceding documents are durable on disk.
+  // Flushed confirms all preceding documents are visible for dequeue.
   // Only after receiving Flushed from ALL Queues can a Slice safely
   // report ProgressDelta to the Session.
   message Flushed {

@@ -5,8 +5,8 @@ expression: "&recovery"
 Frontier {
     journals: [
         JournalFrontier {
-            journal: "journal/A",
             binding: 0,
+            journal: "journal/A",
             producers: [
                 ProducerFrontier {
                     producer: Producer(01:00:00:00:00:00),

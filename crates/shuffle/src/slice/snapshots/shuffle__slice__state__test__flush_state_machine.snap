@@ -1,12 +1,12 @@
 ---
 source: crates/shuffle/src/slice/state.rs
-expression: "&state.flushed"
+expression: "&s.progress.flushed"
 ---
 Frontier {
     journals: [
         JournalFrontier {
-            journal: "test/journal/A",
             binding: 0,
+            journal: "test/journal/A",
             producers: [
                 ProducerFrontier {
                     producer: Producer(01:00:00:00:00:00),

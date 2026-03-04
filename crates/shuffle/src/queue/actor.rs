@@ -181,7 +181,8 @@ impl QueueActor {
         rx: SliceRx,
     ) {
         let priority = enqueue.priority;
-        let adjusted_clock = uuid::Clock::from_u64(enqueue.adjusted_clock);
+        let clock = uuid::Clock::from_u64(enqueue.clock);
+        let adjusted_clock = clock + uuid::Clock::from_u64(enqueue.read_delay);
 
         tracing::trace!(
             member_index,

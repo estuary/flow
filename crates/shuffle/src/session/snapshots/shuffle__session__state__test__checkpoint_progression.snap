@@ -5,8 +5,8 @@ expression: "&pipeline.ready"
 Frontier {
     journals: [
         JournalFrontier {
-            journal: "journal/A",
             binding: 0,
+            journal: "journal/A",
             producers: [
                 ProducerFrontier {
                     producer: Producer(01:00:00:00:00:00),
@@ -17,8 +17,8 @@ Frontier {
             ],
         },
         JournalFrontier {
-            journal: "journal/B",
             binding: 0,
+            journal: "journal/B",
             producers: [
                 ProducerFrontier {
                     producer: Producer(03:00:00:00:00:00),
