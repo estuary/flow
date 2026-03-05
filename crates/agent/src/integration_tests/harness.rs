@@ -13,6 +13,7 @@ use crate::{
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use control_plane_api::publications::PruneUnboundCollections;
 use control_plane_api::server;
 use control_plane_api::{
     TextJson,
@@ -1802,7 +1803,11 @@ impl publications::FinalizeBuild for InjectBuildFailures {
                 failure.modify(build);
             }
         }
-        Ok(())
+
+        // This is necessary in order to match the behavior of
+        // `PgControlPlane::publish`, which uses `PruneUnboundCollections` as
+        // the finalizer.
+        PruneUnboundCollections.finalize(build)
     }
 }
 

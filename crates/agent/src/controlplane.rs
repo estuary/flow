@@ -18,8 +18,8 @@ use control_plane_api::{
     live_specs, logs,
     proxy_connectors::{DiscoverConnectors, MakeConnectors},
     publications::{
-        DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
-        PublicationResult, Publisher,
+        DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
+        PruneUnboundCollections, PublicationResult, Publisher,
     },
 };
 
@@ -578,7 +578,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
             initialize: NoopInitialize,
-            finalize: NoopFinalize,
+            finalize: PruneUnboundCollections,
             retry: DefaultRetryPolicy,
             with_commit: NoopWithCommit,
         };

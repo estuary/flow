@@ -1,5 +1,8 @@
 use super::spec_fixture;
-use crate::integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog};
+use crate::{
+    ControlPlane,
+    integration_tests::harness::{InjectBuildError, TestHarness, draft_catalog},
+};
 use models::{
     publications,
     status::{AlertType, StatusSummaryType, capture::DiscoverChange},
@@ -141,6 +144,8 @@ async fn test_auto_discovers_add_new_bindings() {
       }
     ]
     "###);
+    // Expect that the moss collection was not created because the binding is disabled
+    harness.assert_live_spec_hard_deleted("marmots/moss").await;
 
     let status = capture_state.current_status.unwrap_capture();
     let auto_discover = status
@@ -180,16 +185,18 @@ async fn test_auto_discovers_add_new_bindings() {
 
     // Subsequent discover with the same bindings should result in a no-op
     harness.set_auto_discover_due("marmots/capture").await;
-    harness.run_pending_controller("marmots/capture").await;
+    let capture_state = harness.run_pending_controller("marmots/capture").await;
 
-    let capture_state = harness.get_controller_state("marmots/capture").await;
     let status = capture_state.current_status.unwrap_capture();
     let auto_discover = status.auto_discover.as_ref().unwrap();
     assert!(auto_discover.failure.is_none());
     let success = auto_discover.last_success.as_ref().unwrap();
     assert!(success.ts > last_success_time);
     assert!(success.added.is_empty());
-    assert!(success.modified.is_empty());
+    assert!(
+        success.modified.is_empty(),
+        "expected empty, got: {success:?}"
+    );
     assert!(success.removed.is_empty());
     let last_success_time = success.ts;
 
@@ -230,6 +237,7 @@ async fn test_auto_discovers_add_new_bindings() {
     assert!(auto_discover.failure.is_none());
     let success = auto_discover.last_success.as_ref().unwrap();
     assert!(success.ts > last_success_time);
+    let last_success_time = success.ts;
     insta::assert_json_snapshot!(success, {
         ".ts" => "[ts]",
     }, @r###"
@@ -309,6 +317,107 @@ async fn test_auto_discovers_add_new_bindings() {
     ]
     "###);
 
+    // Scenario: user disables the capture bindings after the collections have
+    // already been published. Expect that a subsequent auto-discover will still
+    // publish any discovered changes to those collections. Even though the
+    // capture bindings are disabled, we'll still keep the collection specs up
+    // to date since that's less confusing to users. This also ensures a smoother
+    // experience for users if they later come and re-enable a binding.
+    let live = harness
+        .control_plane()
+        .get_capture(models::Capture::new("marmots/capture"))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut draft = tables::DraftCatalog::default();
+    let mut model = live.model;
+    for binding in model.bindings.iter_mut() {
+        binding.disable = true;
+    }
+    draft.captures.insert(tables::DraftCapture {
+        capture: models::Capture::new("marmots/capture"),
+        scope: tables::synthetic_scope("capture", "marmots/capture"),
+        expect_pub_id: None,
+        model: Some(model),
+        is_touch: false,
+    });
+    let pub_result = harness
+        .user_publication(user_id, "disabling all bindings", draft)
+        .await;
+    assert!(pub_result.status.is_success());
+
+    let discovered = Discovered {
+        bindings: vec![
+            Binding {
+                recommended_name: "grass".to_string(),
+                resource_config_json: r#"{"id": "grass" }"#.into(),
+                document_schema_json: document_schema(3).to_string().into(),
+                key: vec!["/id".to_string()],
+                disable: false,
+                resource_path: Vec::new(),
+                is_fallback_key: false,
+            },
+            Binding {
+                recommended_name: "flowers".to_string(),
+                resource_config_json: r#"{"id": "flowers" }"#.into(),
+                document_schema_json: document_schema(2).to_string().into(),
+                key: vec!["/id".to_string()],
+                disable: false,
+                resource_path: Vec::new(),
+                is_fallback_key: false,
+            },
+        ],
+    };
+    harness
+        .discover_handler
+        .connectors
+        .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
+
+    harness.set_auto_discover_due("marmots/capture").await;
+    let capture_state = harness.run_pending_controller("marmots/capture").await;
+
+    let status = capture_state.current_status.unwrap_capture();
+    let auto_discover = status.auto_discover.as_ref().unwrap();
+    assert!(auto_discover.failure.is_none());
+    let success = auto_discover.last_success.as_ref().unwrap();
+    assert!(success.ts > last_success_time);
+    insta::assert_json_snapshot!(success, {
+        ".ts" => "[ts]",
+    }, @r#"
+    {
+      "ts": "[ts]",
+      "modified": [
+        {
+          "resource_path": [
+            "flowers"
+          ],
+          "target": "marmots/flowers",
+          "disable": true
+        },
+        {
+          "resource_path": [
+            "grass"
+          ],
+          "target": "marmots/grass",
+          "disable": true
+        }
+      ],
+      "publish_result": {
+        "type": "success"
+      }
+    }
+    "#);
+    let bindings = &capture_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_capture()
+        .unwrap()
+        .bindings;
+    assert!(
+        bindings.iter().all(|b| b.disable),
+        "expected bindings to all still be disabled"
+    );
     // Final snapshot of the publication history
     let pub_history = &capture_state
         .current_status
@@ -318,8 +427,14 @@ async fn test_auto_discovers_add_new_bindings() {
         .iter()
         .map(|e| (e.detail.as_ref(), &e.result))
         .collect::<Vec<_>>();
-    insta::assert_json_snapshot!(pub_history, @r###"
+    insta::assert_json_snapshot!(pub_history, @r#"
     [
+      [
+        "auto-discover changes (0 added, 2 modified, 0 removed)",
+        {
+          "type": "success"
+        }
+      ],
       [
         "auto-discover changes (1 added, 0 modified, 1 removed)\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
         {
@@ -327,13 +442,13 @@ async fn test_auto_discovers_add_new_bindings() {
         }
       ],
       [
-        "auto-discover changes (2 added, 0 modified, 0 removed)\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
+        "auto-discover changes (1 added, 0 modified, 0 removed, 1 added (disabled))\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
         {
           "type": "success"
         }
       ]
     ]
-    "###);
+    "#);
 }
 
 #[tokio::test]
