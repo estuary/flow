@@ -23,12 +23,15 @@ To use this connector, you'll need:
 * An S3 bucket to write files to. See [this
   guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) for
   instructions on setting up a new S3 bucket.
-- An AWS root or IAM user with [read and write
+
+- An AWS root, IAM user or role with [read and write
   access](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_s3_rw-bucket.html)
-  to the S3 bucket. For this user, you'll need the **access key** and **secret
-  access key**. See the [AWS
-  blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for
-  help finding these credentials.
+  to the S3 bucket.
+
+  When authenticating as user, you'll need the **access key** and **secret access key**. See the
+  [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding
+  these credentials. When authenticating using a role, you'll need the **region** and the **role
+  arn**. Follow the steps in the [AWS IAM guide](/guides/iam-auth/aws.md) to setup the role.
 
 If using the **AWS Glue Catalog**:
 
@@ -51,22 +54,24 @@ Estuary collections to your tables.
 
 #### Endpoint
 
-| Property                     | Title                 | Description                                                                                                 | Type   | Required/Default |
-|------------------------------|-----------------------|-------------------------------------------------------------------------------------------------------------|--------|------------------|
-| **`/aws_access_key_id`**     | AWS Access Key ID     | Access Key ID for accessing AWS services.                                                                   | string | Required         |
-| **`/aws_secret_access_key`** | AWS Secret Access key | Secret Access Key for accessing AWS services.                                                               | string | Required         |
-| **`/bucket`**                | Bucket                | The S3 bucket to write data files to.                                                                       | string | Required         |
-| `/prefix`                    | Prefix                | Optional prefix that will be used to store objects.                                                         | string |                  |
-| **`/region`**                | Region                | AWS Region.                                                                                                 | string | Required         |
-| **`/namespace`**             | Namespace             | Namespace for bound collection tables (unless overridden within the binding resource configuration).        | string | Required         |
-| `/upload_interval`           | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours. | string | PT5M             |
-| **`/catalog/catalog_type`**  | Catalog Type          | Either "Iceberg REST Server" or "AWS Glue".                                                                 | string | Required         |
-| `/catalog/glue_id`           | Glue Catalog ID       | Glue Catalog ID to use. If not specified, defaults to the account ID of the configured credentials. This enables cross-account Glue catalog access. | string |                  |
-| **`/catalog/uri`**           | URI                   | URI identifying the REST catalog, in the format of 'https://yourserver.com/catalog'.                        | string | Required         |
-| `/catalog/credential`        | Credential            | Credential for connecting to the REST catalog.                                                              | string |                  |
-| `/catalog/token`             | Token                 | Token for connecting to the TEST catalog.                                                                   | string |                  |
-| **`/catalog/warehouse`**     | Warehouse             | Warehouse to connect to in the REST catalog.                                                                | string | Required         |
-
+| Property                          | Title                 | Description                                                                                                                                         | Type   | Required/Default |
+| --------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
+| **`/credentials/auth_type`**      | Auth Type             | Method to use for authentication. Must be set to either `AWSAccessKey` or `AWSIAM`.                                                                 | string | AWSAccessKey     |
+| `/credentials/awsAccessKeyId`     | AWS Access Key ID     | Access Key ID for accessing AWS services. Required when using the `AWSAccessKey` auth type.                                                         | string |                  |
+| `/credentials/awsSecretAccessKey` | AWS Secret Access Key | Secret Access Key for accessing AWS services. Required when using the `AWSAccessKey` auth type.                                                     | string |                  |
+| `/credentials/aws_role_arn`       | AWS Role ARN          | Role to assume for accessing AWS services. Required when using the `AWSIAM` auth type.                                                              | string |                  |
+| `/credentials/aws_region`         | AWS Region            | AWS Region of your resource. Required when using the `AWSIAM` auth type.                                                                            | string |                  |
+| **`/bucket`**                     | Bucket                | The S3 bucket to write data files to.                                                                                                               | string | Required         |
+| `/prefix`                         | Prefix                | Optional prefix that will be used to store objects.                                                                                                 | string |                  |
+| **`/region`**                     | Region                | AWS Region.                                                                                                                                         | string | Required         |
+| **`/namespace`**                  | Namespace             | Namespace for bound collection tables (unless overridden within the binding resource configuration).                                                | string | Required         |
+| `/upload_interval`                | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours.                                         | string | PT5M             |
+| **`/catalog/catalog_type`**       | Catalog Type          | Either "Iceberg REST Server" or "AWS Glue".                                                                                                         | string | Required         |
+| `/catalog/glue_id`                | Glue Catalog ID       | Glue Catalog ID to use. If not specified, defaults to the account ID of the configured credentials. This enables cross-account Glue catalog access. | string |                  |
+| **`/catalog/uri`**                | URI                   | URI identifying the REST catalog, in the format of 'https://yourserver.com/catalog'.                                                                | string | Required         |
+| `/catalog/credential`             | Credential            | Credential for connecting to the REST catalog.                                                                                                      | string |                  |
+| `/catalog/token`                  | Token                 | Token for connecting to the TEST catalog.                                                                                                           | string |                  |
+| **`/catalog/warehouse`**          | Warehouse             | Warehouse to connect to in the REST catalog.                                                                                                        | string | Required         |
 
 #### Bindings
 
@@ -85,8 +90,10 @@ materializations:
       connector:
         image: "ghcr.io/estuary/materialize-s3-iceberg:v2"
         config:
-          aws_access_key_id: <access_key_id>
-          aws_secret_access_key: <secret_access_key>
+          credentials:
+            auth_type: AWSAccessKey
+            awsAccessKeyId: <access_key_id>
+            awsSecretAccessKey: <secret_access_key>
           bucket: bucket
           region: us-east-2
           namespace: namespace
