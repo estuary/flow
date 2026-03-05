@@ -212,6 +212,15 @@ nvim .
 
 Zed editor support is TODO - requires updating `bootstrap:ide-settings` to write Zed configuration.
 
+### JetBrains RustRover
+
+1. In the JetBrains toolbox, click "Local" and select "SSH".
+2. Click "New SSH Connection".
+3. Enter your VM hostname (e.g., `lima-tiger` for Lima, `dev-<you>-panther` for GCP).
+4. Click "Create".
+5. Once connected, click "Install a tool".
+6. Find "RustRover" and click "Install".
+
 ## Task Reference
 
 List all available tasks:
