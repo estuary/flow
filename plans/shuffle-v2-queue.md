@@ -2,11 +2,13 @@
 
 ## Background
 
-The Shuffle V2 protocol (see `shuffle-v2-requirements.md`, `shuffle.proto`)
-routes documents from Slices to per-member Queues for on-disk staging.
+The `shuffle` crate routes documents from Slices to per-member Queues for on-disk staging.
 The Queue receives Enqueue requests containing documents and must support
 efficient dequeue by the downstream consumer, which reads per-binding in
 clock order across all journal×producer combinations.
+
+Currently queue storage is a TODO.
+This document describes a storage architecture for implementation.
 
 ### Processing Model
 
@@ -124,8 +126,8 @@ Compaction depth is a near proxy for total disk usage, which is what we
 actually want to adapt to.
 
 **Bounded read amplification**: Leveled compaction maintains at most one SST
-per level with overlapping key ranges. A sequential range scan over a binding's
-clock range merges at most one file per level.
+per level L1+ with overlapping key ranges. A sequential range scan over a
+binding's clock range merges at most one file per level.
 
 **Trivial move optimization**: When an L(n) SST has no overlapping keys in L(n+1),
 RocksDB moves it down without rewriting (`kMinOverlappingRatio`). Our write
@@ -262,8 +264,8 @@ the enqueue CF, key sort order is `(binding, clock, journal_id, producer)`,
 which matches the desired read order. Since priority determines binding
 grouping (higher priority bindings drain first), the write pattern is
 roughly append-only within each binding — clocks are mostly ascending.
-This produces L0 SSTs with minimal overlap, enabling trivial moves during
-compaction.
+This minimizes overlap, increasing the likelihood of trivial moves as SSTs
+move into deeper tree levels (or even L0->L1, if just one binding is active).
 
 ### Consumer Lifecycle
 
@@ -290,12 +292,12 @@ this is merely for protobuf convenience. Only the low 6 bytes are used)
 
 The consumer maintains two in-memory indexes:
 
-**Per-binding Commit Index**: Built from the NextCheckpoint delta.
-A sorted map of `(journal_id, local_producer_id) → last_commit` for every
+**Per-binding Commit Index**: Built from the NextCheckpoint delta, as an
+index of `(journal_id, local_producer_id) → last_commit` for every
 producer with committed data in a given binding.
 This index is discarded and rebuilt on each binding of each NextCheckpoint.
 
-**Low-Clock Index**: A HashMap of `(binding, journal_id, local_producer_id) → signed_clock`,
+**Low-Clock Index**: An index of `(binding, journal_id, local_producer_id) → signed_clock`,
 tracking the lower bound of un-dequeued data for each producer using sign encoding
 (mirroring the wire protocol's offset convention):
 - **Positive (`+first_pending_clock`)**: The clock of the first pending document
@@ -316,8 +318,9 @@ On each dequeue cycle, for each binding in order:
 1. **Build binding's Commit Index**: Mapped from NextCheckpoint.
 
 2. **Compute `high_clock`**: `max(last_commit)` across all entries in the
-   binding's Commit Index. No enqueue key can be committed beyond this clock,
-   so there's nothing useful to scan past it.
+   binding's Commit Index. As `last_commit` is an ACK_TXN clock which commits
+   preceding CONTINUE_TXN clocks, or an OUTSIDE_TXN clock, no committed enqueue
+   key can be beyond this ACK clock, so there's nothing useful to scan past it.
 
 3. **Compute `low_clock`**: For each `(journal_id, local_producer_id)` in
    the binding's Commit Index, look up the Low-Clock Index entry for
@@ -336,8 +339,9 @@ On each dequeue cycle, for each binding in order:
    This skips past the prefix of already-dequeued data and un-compacted
    DeleteRange tombstones.
 
-4. **Seek and scan**: Open an iterator at `(binding, low_clock, 0, 0)` and
-   scan forward through `(binding, high_clock, MAX, MAX)`.
+4. **Seek and scan**: Open an iterator at prefix `(binding, low_clock)` and
+   scan until reaching a key beyond the prefix `(binding, high_clock)`,
+   or EOF.
 
 5. **For each key** `(binding, clock, journal_id, producer)`:
    - Resolve `producer` to a `local_producer_id` via the in-memory mapping
@@ -355,8 +359,11 @@ On each dequeue cycle, for each binding in order:
 6. **Track deletion runs**: As iteration proceeds, accumulate contiguous
    runs of keys that were dequeued (committed). They're eligible for deletion.
    - When a run ends (because we encounter a pending key, or reach EOF):
-     - If the run has more than one key: `DeleteRange(run_start, run_end)`,
-       where `run_end` is a first pending key or `high_clock` on EOF.
+     - If the run has more than one key:
+      `DeleteRange(run_start inclusive, run_end exclusive)` where `run_end` is:
+       - a pending key, or
+       - the key which terminated the scan, or
+       - the prefix `(binding, high_clock+1)`
      - If the run is exactly one key: `SingleDelete(key)`
        (safe given assumed-correct exactly once shuffle sequencing behavior).
      - Invariant: a single key is deleted by DeleteRange or SingleDelete, not both.

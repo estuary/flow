@@ -6,37 +6,28 @@ use tokio::sync::mpsc;
 /// Client for the Session RPC, providing a structured interface for
 /// opening a session, requesting checkpoints, and cleanly closing.
 ///
-/// Connects to the shuffle service over gRPC transport.
+/// Spawns an in-process Session actor via the shuffle Service.
 pub struct SessionClient {
     request_tx: mpsc::Sender<shuffle::SessionRequest>,
-    response_rx: tonic::codec::Streaming<shuffle::SessionResponse>,
-    endpoint: String,
+    response_rx: mpsc::Receiver<tonic::Result<shuffle::SessionResponse>>,
 }
 
 impl SessionClient {
-    /// Open a Session over gRPC, sending the Open request and resume
+    /// Open a Session, sending the Open request and resume
     /// checkpoint, then waiting for the Opened response.
     pub async fn open(
-        endpoint: &str,
+        service: &crate::Service,
         session_id: u64,
         task: shuffle::Task,
         members: Vec<shuffle::Member>,
         resume_checkpoint: crate::Frontier,
     ) -> anyhow::Result<Self> {
-        let mut grpc_client =
-            proto_grpc::shuffle::shuffle_client::ShuffleClient::connect(endpoint.to_string())
-                .await
-                .context("connecting to shuffle service")?
-                .max_decoding_message_size(usize::MAX)
-                .max_encoding_message_size(usize::MAX);
-
-        let verify = crate::verify("SessionResponse", "Opened", endpoint, 0);
+        let verify = crate::verify("SessionResponse", "Opened", "(in-process)", 0);
         let (request_tx, request_rx) = crate::new_channel::<shuffle::SessionRequest>();
-        let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
+        let request_rx =
+            tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Ok::<_, tonic::Status>);
 
-        let mut response_rx = verify
-            .ok(grpc_client.session(request_rx).await)?
-            .into_inner();
+        let mut response_rx = service.spawn_session(request_rx);
 
         // Send Open request and read Opened response.
         crate::verify_send(
@@ -51,7 +42,7 @@ impl SessionClient {
             },
         )?;
 
-        match verify.not_eof(response_rx.next().await)? {
+        match verify.not_eof(response_rx.recv().await)? {
             shuffle::SessionResponse {
                 opened: Some(shuffle::session_response::Opened {}),
                 ..
@@ -77,7 +68,6 @@ impl SessionClient {
         Ok(Self {
             request_tx,
             response_rx,
-            endpoint: endpoint.to_string(),
         })
     }
 
@@ -88,7 +78,7 @@ impl SessionClient {
         let verify = crate::verify(
             "SessionResponse",
             "next_checkpoint_chunk",
-            &self.endpoint,
+            "(in-process)",
             0,
         );
 
@@ -102,7 +92,7 @@ impl SessionClient {
 
         let mut journals = Vec::new();
         loop {
-            let chunk = match verify.not_eof(self.response_rx.next().await)? {
+            let chunk = match verify.not_eof(self.response_rx.recv().await)? {
                 shuffle::SessionResponse {
                     next_checkpoint_chunk: Some(chunk),
                     ..
@@ -125,12 +115,11 @@ impl SessionClient {
         let Self {
             request_tx,
             mut response_rx,
-            endpoint,
         } = self;
 
         drop(request_tx); // Drop to close RPC send.
 
-        let verify = crate::verify("SessionResponse", "EOF", &endpoint, 0);
-        verify.eof(response_rx.next().await)
+        let verify = crate::verify("SessionResponse", "EOF", "(in-process)", 0);
+        verify.eof(response_rx.recv().await)
     }
 }

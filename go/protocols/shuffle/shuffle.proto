@@ -37,8 +37,8 @@ message Task {
 
 // ProducerFrontier is the frontier state of a single producer within a journal.
 message ProducerFrontier {
-  // Producer ID, extracted from document UUID.
-  sfixed64 producer = 1;
+  // Producer ID, extracted from document UUID. Only the low 6 bytes are used.
+  int64 producer = 1;
   // Clock of the last committing ACK_TXN or OUTSIDE_TXN.
   fixed64 last_commit = 2;
   // Clock of the last hinted (causal) commit, or zero if no hint.
@@ -52,6 +52,13 @@ message ProducerFrontier {
 // JournalFrontier is the frontier state for a single journal under a specific binding.
 // It uses delta-encoding for journal names: given a preceding journal name,
 // truncate `journal_name_truncate_delta` bytes then append `journal_name_suffix`.
+//
+// At a given time, the set of distinct producers writing to a journal is small.
+// However, Producer IDs come and go over time, and the historical set of producers
+// who have EVER written to a journal may be large.
+//
+// Most JournalFrontier focuses on _deltas_ of frontier state, and have few producers.
+// The exception is when a Coordinator client is streaming in a resume checkpoint.
 message JournalFrontier {
   // Binding index under which the journal is read.
   // When persisting across sessions, this should be mapped via the task binding's
@@ -89,18 +96,34 @@ message SessionRequest {
   }
   Open open = 1;
 
-  // The resume checkpoint: the frontier from which the session resumes.
-  // It's streamed by the Coordinator after reading SessionResponse.Opened.
-  // Producers with non-zero `hinted_commit` represent read-through state:
+  // The resume checkpoint: the non-delta frontier from which the
+  // session is to resume. It's streamed by the Coordinator client after reading
+  // SessionResponse.Opened.
+  //
+  // This is a comprehensive checkpoint, reflecting all journals and producers
+  // which have committed transactions. There may be a *lot* of historical producers
+  // in long-lived tasks, and the Coordinator should employ regular "pruning" to
+  // remove producers having a `last_commit` clock which is far older than the
+  // latest `last_commit` of a peer journal producer. Such producers are assumed
+  // to have been retired and will produce no further transactions.
+  //
+  // Resume checkpoint producers use `hinted_commit` to represent read-through state:
   // transactions that were prepared but not yet committed during the previous
   // session. The Session will read through these and emit the read-through
   // frontier as the first NextCheckpoint response.
+  //
+  // The Coordinator should use a last unfinished NextCheckpoint of a prior
+  // Session to initialize `hinted_commit` of its resume checkpoint, by mapping
+  // an incomplete producer `last_commit` to `hinted_commit`. This ensures that
+  // the first NextCheckpoint of the current session will match the last
+  // unfinished NextCheckpoint of its prior session, which enables the transaction
+  // to be idempotent.
   FrontierChunk resume_checkpoint_chunk = 2;
 
   // NextCheckpoint requests the next available checkpoint delta.
   // This is a blocking request: the Session only responds when progress is
-  // available. The client requests a next checkpoint at times of its choosing
-  // (e.g., after completing processing of the previous checkpoint).
+  // available. The Coordinator client requests a next checkpoint at times of
+  // its choosing (e.g., after completing processing of the previous checkpoint).
   message NextCheckpoint {}
   NextCheckpoint next_checkpoint = 4;
 }
@@ -116,6 +139,11 @@ message SessionResponse {
   // of a transaction which is ready to be processed. It's sent in response to
   // SessionRequest.NextCheckpoint, and is never empty (though the Session may
   // block indefinitely until progress is available).
+  //
+  // The Coordinator client should retain this checkpoint and use it to initialize
+  // `hinted_commit` of future session resume checkpoint. Then, upon it's durable
+  // completion of all downstream processing related to the NextCheckpoint,
+  // it should merge it into its base checkpoint.
   FrontierChunk next_checkpoint_chunk = 2;
 }
 
@@ -223,18 +251,18 @@ message QueueRequest {
     int32 journal_name_truncate_delta = 1;
     // Suffix to append to the preceding, truncated name.
     string journal_name_suffix = 2;
-    // Begin offset (inclusive) of the document within the journal.
-    int64 begin_offset = 3;
     // Binding index for this document.
-    uint32 binding = 4;
+    uint32 binding = 3;
     // Priority of this binding.
-    uint32 priority = 5;
+    uint32 priority = 4;
     // Read delay of the binding, as a uuid::Clock duration.
     // Queue computes adjusted_clock = clock + read_delay for merge ordering.
     // Zero (the common case) means no delay.
-    uint64 read_delay = 6;
+    uint64 read_delay = 5;
+    // Begin offset (inclusive) of the document within the journal.
+    int64 begin_offset = 6;
     // Producer of the document, extracted from its UUID.
-    sfixed64 producer = 7;
+    int64 producer = 7;
     // Publication clock of the document, extracted from its UUID.
     fixed64 clock = 8;
     // Packed shuffle key of the document.

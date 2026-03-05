@@ -41,6 +41,11 @@ pub struct RoutedRead {
 }
 
 impl Topology {
+    /// Route a ListingAdded to a targeted Slice member that will perform the read.
+    /// There are various nuances to how this is done, but big picture: we're
+    /// trying to minimize data movement, by picking the member that has a maximized
+    /// likelihood of *also* being the primary Slice to which documents of the journal
+    /// would be routed.
     pub fn route_read(
         &self,
         added: &shuffle::slice_response::ListingAdded,

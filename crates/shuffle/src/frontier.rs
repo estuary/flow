@@ -319,6 +319,12 @@ impl Frontier {
     /// matching the sorted invariants of both frontiers.
     ///
     /// Returns the number of producers that were resolved.
+    ///
+    /// Liveness: unresolved hints always eventually resolve because a producer's
+    /// write-ahead log guarantees that if any journal in a transaction receives an ACK,
+    /// all journals in that transaction will eventually receive their ACKs as well.
+    /// If the producer WAL commit fails, no ACKs are written to any journal,
+    /// so unresolved hints for failed transactions never appear.
     pub fn resolve_hints(&mut self, progressed: &Frontier) -> usize {
         let mut resolved = 0usize;
         let mut lhs = self.journals.iter_mut().peekable();
