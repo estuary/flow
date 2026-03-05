@@ -93,6 +93,7 @@ fn prune_unbound_collections(built: &mut Validations) -> BTreeSet<models::Collec
         .map(|r| r.catalog_name().clone())
         .collect::<BTreeSet<_>>();
 
+    tracing::debug!(?prune_collections, "pruned unbound collections");
     built
         .built_collections
         .retain(|r| !prune_collections.contains(r.catalog_name()));

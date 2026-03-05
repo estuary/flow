@@ -298,6 +298,7 @@ async fn try_auto_discover<C: ControlPlane>(
     }
 
     // There are changes to publish
+    let publish_detail = summarize_discover(&output);
     let (mut outcome, draft) = new_outcome(control_plane.current_time(), output);
 
     assert!(
@@ -306,12 +307,6 @@ async fn try_auto_discover<C: ControlPlane>(
     );
 
     let mut pending = PendingPublication::new();
-    let publish_detail = format!(
-        "auto-discover changes ({} added, {} modified, {} removed)",
-        outcome.added.len(),
-        outcome.modified.len(),
-        outcome.removed.len(),
-    );
     pending.details.push(publish_detail);
     // Add the draft back into the pending publication, so it will be published.
     pending.draft = draft;
@@ -325,6 +320,24 @@ async fn try_auto_discover<C: ControlPlane>(
     outcome.publish_result = Some(pub_result.status);
 
     Ok(outcome)
+}
+
+fn summarize_discover(outcome: &DiscoverOutput) -> String {
+    use std::fmt::Write;
+    let added = outcome.added.values().filter(|c| !c.disable).count();
+    let added_disabled = outcome.added.values().filter(|c| c.disable).count();
+
+    let mut publish_detail = format!(
+        "auto-discover changes ({} added, {} modified, {} removed",
+        added,
+        outcome.modified.len(),
+        outcome.removed.len(),
+    );
+    if added_disabled > 0 {
+        write!(&mut publish_detail, ", {added_disabled} added (disabled)").unwrap();
+    }
+    publish_detail.push(')');
+    publish_detail
 }
 
 fn record_outcome(status: &mut AutoDiscoverStatus, outcome: AutoDiscoverOutcome) {

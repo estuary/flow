@@ -368,8 +368,10 @@ pub fn merge_collections(
             modified = true;
         }
 
-        if modified {
-            *is_touch = false;
+        *is_touch = !modified;
+        // Only consider the collection modified if the live spec already
+        // exists. Otherwise, it will have already been counted as added.
+        if modified && live.get_by_key(&target).is_some() {
             modified_collections.insert(
                 resource_path,
                 Changed {
@@ -792,25 +794,9 @@ mod tests {
         ]
         "###);
 
-        insta::assert_debug_snapshot!(modified, @r###"
+        insta::assert_debug_snapshot!(modified, @r#"
         Ok(
             {
-                [
-                    "1",
-                ]: Changed {
-                    target: Collection(
-                        "case/1",
-                    ),
-                    disable: false,
-                },
-                [
-                    "2",
-                ]: Changed {
-                    target: Collection(
-                        "case/2",
-                    ),
-                    disable: false,
-                },
                 [
                     "3",
                 ]: Changed {
@@ -820,22 +806,6 @@ mod tests {
                     disable: false,
                 },
                 [
-                    "4",
-                ]: Changed {
-                    target: Collection(
-                        "case/4",
-                    ),
-                    disable: true,
-                },
-                [
-                    "5",
-                ]: Changed {
-                    target: Collection(
-                        "case/5",
-                    ),
-                    disable: true,
-                },
-                [
                     "6",
                 ]: Changed {
                     target: Collection(
@@ -843,25 +813,9 @@ mod tests {
                     ),
                     disable: true,
                 },
-                [
-                    "7",
-                ]: Changed {
-                    target: Collection(
-                        "case/7",
-                    ),
-                    disable: false,
-                },
-                [
-                    "8",
-                ]: Changed {
-                    target: Collection(
-                        "case/8",
-                    ),
-                    disable: false,
-                },
             },
         )
-        "###);
+        "#);
     }
 
     #[test]
