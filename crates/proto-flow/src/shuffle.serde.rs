@@ -753,9 +753,6 @@ impl serde::Serialize for queue_request::Enqueue {
         if !self.journal_name_suffix.is_empty() {
             len += 1;
         }
-        if self.begin_offset != 0 {
-            len += 1;
-        }
         if self.binding != 0 {
             len += 1;
         }
@@ -763,6 +760,9 @@ impl serde::Serialize for queue_request::Enqueue {
             len += 1;
         }
         if self.read_delay != 0 {
+            len += 1;
+        }
+        if self.begin_offset != 0 {
             len += 1;
         }
         if self.producer != 0 {
@@ -787,11 +787,6 @@ impl serde::Serialize for queue_request::Enqueue {
         if !self.journal_name_suffix.is_empty() {
             struct_ser.serialize_field("journalNameSuffix", &self.journal_name_suffix)?;
         }
-        if self.begin_offset != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("beginOffset", ToString::to_string(&self.begin_offset).as_str())?;
-        }
         if self.binding != 0 {
             struct_ser.serialize_field("binding", &self.binding)?;
         }
@@ -802,6 +797,11 @@ impl serde::Serialize for queue_request::Enqueue {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("readDelay", ToString::to_string(&self.read_delay).as_str())?;
+        }
+        if self.begin_offset != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("beginOffset", ToString::to_string(&self.begin_offset).as_str())?;
         }
         if self.producer != 0 {
             #[allow(clippy::needless_borrow)]
@@ -840,12 +840,12 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
             "journalNameTruncateDelta",
             "journal_name_suffix",
             "journalNameSuffix",
-            "begin_offset",
-            "beginOffset",
             "binding",
             "priority",
             "read_delay",
             "readDelay",
+            "begin_offset",
+            "beginOffset",
             "producer",
             "clock",
             "packed_key",
@@ -859,10 +859,10 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
         enum GeneratedField {
             JournalNameTruncateDelta,
             JournalNameSuffix,
-            BeginOffset,
             Binding,
             Priority,
             ReadDelay,
+            BeginOffset,
             Producer,
             Clock,
             PackedKey,
@@ -891,10 +891,10 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                         match value {
                             "journalNameTruncateDelta" | "journal_name_truncate_delta" => Ok(GeneratedField::JournalNameTruncateDelta),
                             "journalNameSuffix" | "journal_name_suffix" => Ok(GeneratedField::JournalNameSuffix),
-                            "beginOffset" | "begin_offset" => Ok(GeneratedField::BeginOffset),
                             "binding" => Ok(GeneratedField::Binding),
                             "priority" => Ok(GeneratedField::Priority),
                             "readDelay" | "read_delay" => Ok(GeneratedField::ReadDelay),
+                            "beginOffset" | "begin_offset" => Ok(GeneratedField::BeginOffset),
                             "producer" => Ok(GeneratedField::Producer),
                             "clock" => Ok(GeneratedField::Clock),
                             "packedKey" | "packed_key" => Ok(GeneratedField::PackedKey),
@@ -921,10 +921,10 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
             {
                 let mut journal_name_truncate_delta__ = None;
                 let mut journal_name_suffix__ = None;
-                let mut begin_offset__ = None;
                 let mut binding__ = None;
                 let mut priority__ = None;
                 let mut read_delay__ = None;
+                let mut begin_offset__ = None;
                 let mut producer__ = None;
                 let mut clock__ = None;
                 let mut packed_key__ = None;
@@ -945,14 +945,6 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                                 return Err(serde::de::Error::duplicate_field("journalNameSuffix"));
                             }
                             journal_name_suffix__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::BeginOffset => {
-                            if begin_offset__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("beginOffset"));
-                            }
-                            begin_offset__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
                         }
                         GeneratedField::Binding => {
                             if binding__.is_some() {
@@ -975,6 +967,14 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                                 return Err(serde::de::Error::duplicate_field("readDelay"));
                             }
                             read_delay__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::BeginOffset => {
+                            if begin_offset__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("beginOffset"));
+                            }
+                            begin_offset__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1021,10 +1021,10 @@ impl<'de> serde::Deserialize<'de> for queue_request::Enqueue {
                 Ok(queue_request::Enqueue {
                     journal_name_truncate_delta: journal_name_truncate_delta__.unwrap_or_default(),
                     journal_name_suffix: journal_name_suffix__.unwrap_or_default(),
-                    begin_offset: begin_offset__.unwrap_or_default(),
                     binding: binding__.unwrap_or_default(),
                     priority: priority__.unwrap_or_default(),
                     read_delay: read_delay__.unwrap_or_default(),
+                    begin_offset: begin_offset__.unwrap_or_default(),
                     producer: producer__.unwrap_or_default(),
                     clock: clock__.unwrap_or_default(),
                     packed_key: packed_key__.unwrap_or_default(),

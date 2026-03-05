@@ -43,8 +43,8 @@ pub mod task {
 /// ProducerFrontier is the frontier state of a single producer within a journal.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProducerFrontier {
-    /// Producer ID, extracted from document UUID.
-    #[prost(sfixed64, tag = "1")]
+    /// Producer ID, extracted from document UUID. Only the low 6 bytes are used.
+    #[prost(int64, tag = "1")]
     pub producer: i64,
     /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
     #[prost(fixed64, tag = "2")]
@@ -62,6 +62,13 @@ pub struct ProducerFrontier {
 /// JournalFrontier is the frontier state for a single journal under a specific binding.
 /// It uses delta-encoding for journal names: given a preceding journal name,
 /// truncate `journal_name_truncate_delta` bytes then append `journal_name_suffix`.
+///
+/// At a given time, the set of distinct producers writing to a journal is small.
+/// However, Producer IDs come and go over time, and the historical set of producers
+/// who have EVER written to a journal may be large.
+///
+/// Most JournalFrontier focuses on *deltas* of frontier state, and have few producers.
+/// The exception is when a Coordinator client is streaming in a resume checkpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalFrontier {
     /// Binding index under which the journal is read.
@@ -94,12 +101,28 @@ pub struct FrontierChunk {
 pub struct SessionRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<session_request::Open>,
-    /// The resume checkpoint: the frontier from which the session resumes.
-    /// It's streamed by the Coordinator after reading SessionResponse.Opened.
-    /// Producers with non-zero `hinted_commit` represent read-through state:
+    /// The resume checkpoint: the non-delta frontier from which the
+    /// session is to resume. It's streamed by the Coordinator client after reading
+    /// SessionResponse.Opened.
+    ///
+    /// This is a comprehensive checkpoint, reflecting all journals and producers
+    /// which have committed transactions. There may be a *lot* of historical producers
+    /// in long-lived tasks, and the Coordinator should employ regular "pruning" to
+    /// remove producers having a `last_commit` clock which is far older than the
+    /// latest `last_commit` of a peer journal producer. Such producers are assumed
+    /// to have been retired and will produce no further transactions.
+    ///
+    /// Resume checkpoint producers use `hinted_commit` to represent read-through state:
     /// transactions that were prepared but not yet committed during the previous
     /// session. The Session will read through these and emit the read-through
     /// frontier as the first NextCheckpoint response.
+    ///
+    /// The Coordinator should use a last unfinished NextCheckpoint of a prior
+    /// Session to initialize `hinted_commit` of its resume checkpoint, by mapping
+    /// an incomplete producer `last_commit` to `hinted_commit`. This ensures that
+    /// the first NextCheckpoint of the current session will match the last
+    /// unfinished NextCheckpoint of its prior session, which enables the transaction
+    /// to be idempotent.
     #[prost(message, optional, tag = "2")]
     pub resume_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
     #[prost(message, optional, tag = "4")]
@@ -124,8 +147,8 @@ pub mod session_request {
     }
     /// NextCheckpoint requests the next available checkpoint delta.
     /// This is a blocking request: the Session only responds when progress is
-    /// available. The client requests a next checkpoint at times of its choosing
-    /// (e.g., after completing processing of the previous checkpoint).
+    /// available. The Coordinator client requests a next checkpoint at times of
+    /// its choosing (e.g., after completing processing of the previous checkpoint).
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NextCheckpoint {}
 }
@@ -138,6 +161,11 @@ pub struct SessionResponse {
     /// of a transaction which is ready to be processed. It's sent in response to
     /// SessionRequest.NextCheckpoint, and is never empty (though the Session may
     /// block indefinitely until progress is available).
+    ///
+    /// The Coordinator client should retain this checkpoint and use it to initialize
+    /// `hinted_commit` of future session resume checkpoint. Then, upon it's durable
+    /// completion of all downstream processing related to the NextCheckpoint,
+    /// it should merge it into its base checkpoint.
     #[prost(message, optional, tag = "2")]
     pub next_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
 }
@@ -297,22 +325,22 @@ pub mod queue_request {
         /// Suffix to append to the preceding, truncated name.
         #[prost(string, tag = "2")]
         pub journal_name_suffix: ::prost::alloc::string::String,
-        /// Begin offset (inclusive) of the document within the journal.
-        #[prost(int64, tag = "3")]
-        pub begin_offset: i64,
         /// Binding index for this document.
-        #[prost(uint32, tag = "4")]
+        #[prost(uint32, tag = "3")]
         pub binding: u32,
         /// Priority of this binding.
-        #[prost(uint32, tag = "5")]
+        #[prost(uint32, tag = "4")]
         pub priority: u32,
         /// Read delay of the binding, as a uuid::Clock duration.
         /// Queue computes adjusted_clock = clock + read_delay for merge ordering.
         /// Zero (the common case) means no delay.
-        #[prost(uint64, tag = "6")]
+        #[prost(uint64, tag = "5")]
         pub read_delay: u64,
+        /// Begin offset (inclusive) of the document within the journal.
+        #[prost(int64, tag = "6")]
+        pub begin_offset: i64,
         /// Producer of the document, extracted from its UUID.
-        #[prost(sfixed64, tag = "7")]
+        #[prost(int64, tag = "7")]
         pub producer: i64,
         /// Publication clock of the document, extracted from its UUID.
         #[prost(fixed64, tag = "8")]

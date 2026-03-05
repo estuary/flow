@@ -7,6 +7,19 @@ use tokio::sync::mpsc;
 
 type SliceRx = BoxStream<'static, tonic::Result<shuffle::QueueRequest>>;
 
+/// QueueActor implements the main event loop of a shuffle Queue RPC.
+///
+/// Notes on back-pressure: when a Slice sends an Enqueue, its rx stream is
+/// parked in `slice_enqueues` until the heap pops that entry (lowest priority
+/// in the select loop). Given a parked rx stream, and knowing that a Queue RPC
+/// is constrained by the HTTP/2 stream flow-control window (64KB), this means
+/// that the Slice is itself back-pressured, and will in-turn back-pressure to
+/// its journal reads (the journal Read RPC sits idle in a SliceActor's ReadyRead).
+///
+/// This creates the conditions for system-wide priority enforcement:
+/// QueueActors drain high-priority, earlier-clock documents first, which back-pressures
+/// to Slices and journals that are producing lower-priority or higher-clock documents.
+/// The overall rate of progress is bounded by the write throughput of the slowest Queue.
 pub struct QueueActor {
     /// Immutable session topology: identity and member configuration.
     pub topology: super::state::Topology,

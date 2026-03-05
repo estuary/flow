@@ -2,6 +2,7 @@ use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
 
+/// SessionActor implements the main event loop of a shuffle Session RPC.
 pub struct SessionActor {
     /// Immutable session configuration: topology, bindings, resume checkpoint.
     pub topology: super::state::Topology,

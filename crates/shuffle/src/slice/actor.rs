@@ -10,6 +10,7 @@ use proto_flow::shuffle;
 use proto_gazette::{broker, uuid};
 use tokio::sync::mpsc;
 
+/// SliceActor implements the main event loop of a shuffle Slice RPC.
 #[allow(dead_code)]
 pub struct SliceActor {
     /// Immutable slice configuration: topology, bindings, journal clients.
@@ -767,12 +768,12 @@ impl SliceActor {
                 enqueue: Some(shuffle::queue_request::Enqueue {
                     journal_name_truncate_delta,
                     journal_name_suffix,
-                    begin_offset: *begin_offset,
                     binding: binding.index,
                     priority: binding.priority,
+                    read_delay: binding.read_delay.as_u64(),
+                    begin_offset: *begin_offset,
                     producer: producer.as_i64(),
                     clock: clock.as_u64(),
-                    read_delay: binding.read_delay.as_u64(),
                     packed_key: packed_key.clone(),
                     doc_archived: doc.bytes().clone(),
                     valid: ready_read.meta.is_schema_valid(),

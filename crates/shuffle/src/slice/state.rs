@@ -30,6 +30,14 @@ pub struct Topology {
 /// The caller is responsible for building the frontier (from reads + causal hints)
 /// and passing it to `start`. When a cycle completes, `on_flushed` returns the
 /// completed frontier for the caller to reduce into accumulated progress.
+///
+/// Flush and progress reporting (see `ProgressState`) are deliberately decoupled
+/// for latency pipelining: Slices flush autonomously after each commit without
+/// waiting for a Session progress request. Multiple flush cycles can complete
+/// while the Session processes the previous progress delta. When the Session sends
+/// a Progress request, the accumulated flushed frontiers are often already
+/// available, reducing end-to-end latency from flush_time + round_trip to
+/// approximately max(flush_time, round_trip).
 pub struct FlushState {
     /// Monotonically increasing sequence number for flush cycles.
     pub seq: u64,
@@ -352,6 +360,19 @@ pub fn sequence_document(
 /// guarantees no collection is a prefix of another, at most one distinct prefix
 /// can match a given journal name — so lookup is a single binary search plus
 /// a linear scan of adjacent entries sharing that prefix.
+///
+/// Hints are filtered to the ACK's cohort because cohorts (unique (priority,
+/// read_delay) tuples) have independent visibility semantics. If a producer
+/// writes to journals spanning multiple read cohorts within one of its transactions,
+/// we only want to gate progress on reading commits from journals matching
+/// the ACK's cohort.
+///
+/// If we didn't filter in this way, then progress of a journal read in real-time
+/// could be blocked by the read-delay applied to a hinted journal. Or similarly,
+/// a high-priority journal could be blocked by a low-priority hinted journal.
+///
+/// Hinted journals of other cohorts will have their own ACKs, and will project to
+/// hints internal to their own cohort's progress tracking.
 pub struct HintIndex(Vec<(Box<str>, u32, u32, PartitionFilter)>); // (prefix, binding_index, cohort, filter)
 
 impl HintIndex {
