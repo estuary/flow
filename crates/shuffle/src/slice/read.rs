@@ -2,6 +2,11 @@ use super::producer::{ProducerMap, ProducerState};
 use proto_gazette::{broker, uuid};
 
 /// State about an active read, indexed by its `read.id()`.
+///
+/// Each ReadState represents one (journal, binding) pair and is the
+/// complete sequencing context for all producers in that journal.
+/// Producer lifecycle events — begin span, extend span, commit,
+/// rollback — are self-contained within the ReadState's producer maps.
 #[derive(Debug)]
 pub struct ReadState {
     /// Index of the binding within `SliceActor::bindings`.

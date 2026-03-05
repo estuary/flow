@@ -62,7 +62,7 @@ impl Shuffle {
             ::shuffle::Service::new(peer_addr_even.clone(), Box::new(auth_fn.clone()));
         let service_odd = ::shuffle::Service::new(peer_addr_odd.clone(), Box::new(auth_fn.clone()));
 
-        let server_even = service_even.build_tonic_server();
+        let server_even = service_even.clone().build_tonic_server();
         let server_odd = service_odd.build_tonic_server();
 
         let listener_even = tokio::net::TcpListener::bind(&bind_addr_even)
@@ -113,7 +113,7 @@ impl Shuffle {
         );
 
         let mut client = ::shuffle::SessionClient::open(
-            &peer_addr_even,
+            &service_even,
             session_id,
             task,
             members,

@@ -39,7 +39,18 @@ impl std::hash::Hasher for ProducerHasherState {
 /// already uniformly distributed random values, so we skip rehashing.
 pub type ProducerMap<V> = std::collections::HashMap<Producer, V, ProducerHasher>;
 
-/// Per-producer sequencing state within a single journal.
+/// Per-producer sequencing state.
+///
+/// It's scoped to a single (binding, journal) tuple because an ACK_TXN in
+/// journal J commits only that producer's preceding CONTINUE_TXN documents in J.
+/// It does NOT commit the same producer's documents in other journals, which
+/// will have their own ACKs. Cross-journal commit visibility is coordinated at
+/// the Session level via causal hints extracted from ACK documents
+/// (see [`extract_causal_hints`]).
+///
+/// It's additionally binding-scoped because we create an independent ReadState
+/// for each (binding, journal) tuple, and separately track producer states
+/// for each one.
 ///
 /// `offset` encodes journal position using the same sign convention as the
 /// wire format (`ProducerFrontier.offset`):

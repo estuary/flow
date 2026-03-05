@@ -45,6 +45,11 @@ impl Service {
         )
     }
 
+    /// Return endpoint of this service as seen by peers.
+    pub fn peer_endpoint(&self) -> &str {
+        &self.peer_endpoint
+    }
+
     pub fn spawn_session<R>(
         &self,
         request_rx: R,

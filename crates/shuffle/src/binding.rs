@@ -14,7 +14,20 @@ pub struct Binding {
     /// Source collection name (for logging/debugging).
     pub collection: models::Collection,
     /// Should documents be filtered on their r-clocks?
-    /// Only true for read-only derivation transforms.
+    ///
+    /// Intuitively, the purpose of r-clock filtering is to enable scale-out of
+    /// CQRS workflows. Suppose a large collection L being joined with a small one S.
+    /// L is high volume, so we want to divide work across many task shards.
+    /// Each would split using the same, full key range, but non-overlapping r-clock spans.
+    ///
+    /// * A read/write transform of S would broadcast to all shards and update
+    ///   internal derivation state of each (e.x., indexing on a join key).
+    ///
+    /// * A read-only transform of L would route to a *single* shard on its r-clock.
+    ///   That shard would query internal state (on the join key) to publish an
+    ///   enriched document.
+    ///
+    /// This field is only true for read-only derivation transforms.
     pub filter_r_clocks: bool,
     /// Path metadata suffix attached to journals read by this binding.
     /// Used to uniquely identify journal read checkpoints.

@@ -10,6 +10,7 @@ use proto_flow::shuffle;
 use proto_gazette::{broker, uuid};
 use tokio::sync::mpsc;
 
+/// SliceActor implements the main event loop of a shuffle Slice RPC.
 #[allow(dead_code)]
 pub struct SliceActor {
     /// Immutable slice configuration: topology, bindings, journal clients.
@@ -583,6 +584,12 @@ impl SliceActor {
 
             if sequenced.is_commit {
                 if flags == uuid::Flags::ACK_TXN {
+                    // This ACK is (binding, journal)-scoped: it commits only
+                    // this producer's documents in this binding's read of this journal.
+                    // But, it may contain causal hints of *other* journals which
+                    // committed with this one. Extract and project so we can propagate
+                    // to the Session, which is tasked with gating checkpoints for
+                    // atomic cross-journal visibility.
                     state::extract_causal_hints(
                         &self.topology.hint_index,
                         &read_state.journal,
@@ -767,12 +774,12 @@ impl SliceActor {
                 enqueue: Some(shuffle::queue_request::Enqueue {
                     journal_name_truncate_delta,
                     journal_name_suffix,
-                    begin_offset: *begin_offset,
                     binding: binding.index,
                     priority: binding.priority,
+                    read_delay: binding.read_delay.as_u64(),
+                    begin_offset: *begin_offset,
                     producer: producer.as_i64(),
                     clock: clock.as_u64(),
-                    read_delay: binding.read_delay.as_u64(),
                     packed_key: packed_key.clone(),
                     doc_archived: doc.bytes().clone(),
                     valid: ready_read.meta.is_schema_valid(),

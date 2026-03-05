@@ -88,7 +88,7 @@ flowchart TB
 
 **Cohorts**: Journals are grouped into cohorts based on their shuffle configuration (priority and read-delay). Cohorts are the unit of transaction visibility coordination: causal hints are only tracked within a cohort, allowing different cohorts to make progress independently. Each binding carries an explicit `cohort` field computed during binding construction: ascending integers assigned by walking task bindings in binding-index order and identifying unique `(priority, read_delay)` tuples. The Session and Slice RPCs use the binding's cohort field to facilitate filtering and projection of hinted journals to bindings, and bindings to cohorts.
 
-**Complete Frontier**: The Session tracks a *complete frontier* per (cohort, producer)—the highest transaction clock through which all that producer's cross-journal transactions are confirmed complete within the cohort. A transaction is complete when all hinted journals within the cohort have reported the producer committed at that clock. The complete frontier determines transaction visibility in NextCheckpoint: a producer's commits are only visible up to its complete frontier, even if raw progress shows later commits. Producers with no pending cross-journal hints have their commits immediately complete. See Checkpoint Semantics for full details.
+**Causal Hint Resolution**: When a Slice reports an ACK with causal hints (references to other journals in the same transaction), the Session records a pending entry for each hinted journal. A pending entry is resolved when a Slice reports that the hinted journal's producer committed at or past the hinted clock. All pending entries from a batch of progress must resolve before that batch is promoted to a checkpoint—this is a batch-level gate, not per-producer. Producers with no pending cross-journal hints have their commits promoted immediately. See Checkpoint Semantics for full details.
 
 **Delta-Encoded Journal Names**: Frontiers and progress deltas reference journals by name, but names can be long (200+ chars) and repetitive within an ordered sequence. Portions of the protocol use delta-encoding: sequenced protocol messages encode a truncation count and suffix relative to the preceding journal name. Within a binding group, consecutive journal names typically share long common prefixes.
 
@@ -117,14 +117,11 @@ flowchart TB
 
 **`resume_checkpoint`**: The fully committed frontier from which the session resumes. All reads resume from this point. Producers with non-zero `hinted_commit` represent read-through state: transactions that were prepared but not yet committed during the previous session. On recovery, the Session waits until Slices have reported raw progress such that every (journal, producer) pair with a `hinted_commit` has a committed clock reaching or exceeding that hint. The completion condition is evaluated purely in terms of producer clocks—offsets are advisory and used only to establish a read-from position on next startup. Once this condition is met, the Session emits the read-through frontier as the first NextCheckpoint, bypassing the Producer Frontier Model for that one checkpoint. This enables idempotent transaction retry: the consumer replays the exact same prepared transaction. Subsequent NextCheckpoints use the normal frontier model. Recovery relies on re-reading data already written to journals (guaranteed by the conservative read strategy), not on producers being alive or producing new data.
 
-**`NextCheckpoint`**: A sparse delta containing only journals with progress since last checkpoint. Client merges this into their base checkpoint. NextCheckpoint reflects aggregate progress available at poll time; Session does not await Slices beyond what it has already received from outstanding ProgressRequests (except blocking until at least one Slice has responded if no progress has yet occurred).
+**`NextCheckpoint`**: A sparse delta containing only journals with progress since last checkpoint. Client merges this into their base checkpoint. NextCheckpoint reflects aggregate progress available at poll time; Session does not await Slices beyond what it has already received from outstanding ProgressRequests.
 
-**Producer Frontier Model**: Session tracks a "complete frontier" per (cohort, producer)—the highest transaction clock through which all that producer's cross-journal transactions are confirmed complete. A transaction is complete when all hinted journals within the cohort have reported the producer committed at that clock. When generating NextCheckpoint:
-- Journal offsets reflect actual flushed read progress (not filtered by the frontier)
-- Producer commit states are filtered by complete frontier: a producer appears committed only up to its complete frontier, even if raw progress shows later commits
-- Transactions after the complete frontier appear as uncommitted, with begin_offset from the oldest pending transaction
+**Causal Hint Resolution Model**: The Session's `CheckpointPipeline` accumulates progress from Slices into a `progressed` frontier, then promotes it through an `unresolved` stage (where causal hints are resolved against incoming progress) before it becomes `ready` for the client. This is a batch-level gate: all unresolved hints in a batch must resolve before any of that batch promotes to `ready`. Progress arriving while a batch is unresolved accumulates separately and promotes in the next cycle.
 
-This model allows unrelated producers to make independent progress. If producer P has a pending cross-journal transaction while producer Q (writing only to one journal) commits, Q's commit is immediately visible in NextCheckpoint—P's pending state doesn't block Q. Producers with no pending cross-journal hints (including those writing to only one journal) have their commits immediately complete—no hints means no journals to await.
+This means a producer with pending cross-journal hints can delay visibility of other producers' progress within the same batch. In practice, hints resolve quickly (bounded by the time for all journals in a transaction to report their ACKs), so the window is small. Producers with no cross-journal hints have their commits promoted immediately (no hints means nothing to resolve).
 
 ## Key Design Decisions
 
@@ -134,10 +131,9 @@ This model allows unrelated producers to make independent progress. If producer 
 
 **Cross-journal coordination via causal hints**: When a Slice observes an ACK, it extracts these hints and reports them to the Session alongside its ProgressDelta. The Session uses hints to coordinate visibility:
 
-1. When producer P commits in journal A with hints [B, C], Session records a pending transaction for (cohort, P) awaiting confirmation from B and C
-2. As Slices report P committed in B and C, Session marks those journals confirmed
-3. Once all hinted journals confirm, the transaction is complete and P's complete frontier advances
-4. NextCheckpoint generation filters producer states by complete frontier
+1. When producer P commits in journal A with hints [B, C], Session records pending entries for B and C in the `unresolved` frontier
+2. As Slices report P committed in B and C, Session resolves those entries via `Frontier::resolve_hints`
+3. Once all pending entries in the batch resolve, the batch promotes to `ready` for the next NextCheckpoint
 
 **Hint filtering**: Slices filter hints before reporting:
 - Only journals in the same cohort (different cohorts make progress independently)
