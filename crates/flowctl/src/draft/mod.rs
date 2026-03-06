@@ -376,6 +376,9 @@ pub async fn publish(
         id: models::Id,
         logs_token: String,
     }
+    // Add the flowctl version to the detail, so we can tell when a publication
+    // was created by an old version.
+    let detail = format!("Published via flowctl ({})", env!("CARGO_PKG_VERSION"));
     let Row { id, logs_token } = api_exec(
         ctx.client
             .from("publications")
@@ -383,7 +386,7 @@ pub async fn publish(
             .insert(
                 serde_json::json!({
                     "data_plane_name": init_data_plane.unwrap_or_default(),
-                    "detail": &format!("Published via flowctl"),
+                    "detail": detail,
                     "draft_id": draft_id,
                     "dry_run": dry_run,
                 })
