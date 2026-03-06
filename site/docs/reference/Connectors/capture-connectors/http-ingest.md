@@ -124,9 +124,7 @@ Under **Endpoint Config**, you can set [CORS](https://developer.mozilla.org/en-U
 
 ### Webhook signature verification
 
-This connector supports ECDSA P-256 signature verification for webhook providers. Verification is always disabled by default. When enabled, requests with missing or invalid signatures will be rejected with a 401 Unauthorized response.
-
-Configuration varies by provider.
+This connector supports ECDSA P-256 signature verification for webhook providers. Verification is always disabled by default. When enabled, requests with missing or invalid signatures will be rejected with a 401 Unauthorized response. Configuration varies by provider.
 
 #### Twilio SendGrid
 
@@ -136,7 +134,7 @@ For Twilio SendGrid webhooks, use the streamlined configuration that only requir
 {
   "signatureConfig": {
     "provider": "twilio",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGnYX92sAfrAoZadSDc/qKMHph36YMMhXUbkrle5edS+hTngTe5x3ZziwHv/JE5R7f7YCmrQFlIWM+ghy4Lr1zA=="
   }
 }
 ```
@@ -152,7 +150,21 @@ For other webhook providers that use ECDSA P-256 signatures, use the "custom" co
   "signatureConfig": {
     "provider": "custom",
     "algorithm": "ecdsa",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGnYX92sAfrAoZadSDc/qKMHph36Y\nMMhXUbkrle5edS+hTngTe5x3ZziwHv/JE5R7f7YCmrQFlIWM+ghy4Lr1zA==\n-----END PUBLIC KEY-----",
+    "signatureHeader": "X-Custom-Signature",
+    "timestampHeader": "X-Custom-Timestamp"
+  }
+}
+```
+
+The `publicKey` also accepts a base64-encoded SPKI DER string:
+
+```json
+{
+  "signatureConfig": {
+    "provider": "custom",
+    "algorithm": "ecdsa",
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGnYX92sAfrAoZadSDc/qKMHph36YMMhXUbkrle5edS+hTngTe5x3ZziwHv/JE5R7f7YCmrQFlIWM+ghy4Lr1zA==",
     "signatureHeader": "X-Custom-Signature",
     "timestampHeader": "X-Custom-Timestamp"
   }
@@ -161,7 +173,7 @@ For other webhook providers that use ECDSA P-256 signatures, use the "custom" co
 
 - **provider**: Set to `"custom"` for custom configuration
 - **algorithm**: The signature algorithm (currently only `"ecdsa"` is supported)
-- **publicKey**: PEM-encoded ECDSA P-256 public key from your webhook provider
+- **publicKey**: ECDSA P-256 public key from your webhook provider, in PEM format or as a base64-encoded SPKI DER string
 - **signatureHeader**: HTTP header containing the base64-encoded DER signature
 - **timestampHeader**: (optional) HTTP header containing the timestamp to prepend to the body before verification
 
@@ -201,7 +213,7 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/signatureConfig/provider` |  | Provider identifier | string | Required (`"twilio"`) |
-| `/signatureConfig/publicKey` | Verification Key | PEM-encoded ECDSA public key from Twilio SendGrid Event Webhook settings. | string | Required |
+| `/signatureConfig/publicKey` | Verification Key | Verification key from Twilio SendGrid Event Webhook settings. | string | Required |
 
 ### Signature Config: Custom
 
