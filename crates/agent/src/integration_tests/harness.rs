@@ -1013,7 +1013,9 @@ impl TestHarness {
                 cj.error,
                 ls.data_plane_id as "data_plane_id: Id",
                 dp.data_plane_name as "data_plane_name?: String",
-                (cs.flow_document->>'ts')::timestamptz as "last_connector_status_ts?: DateTime<Utc>"
+                (cs.flow_document->>'ts')::timestamptz as "last_connector_status_ts?: DateTime<Utc>",
+                null::timestamptz as "last_data_movement_ts?: DateTime<Utc>",
+                null::timestamptz as "last_user_pub_at?: DateTime<Utc>"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
             left outer join data_planes dp on ls.data_plane_id = dp.id
@@ -1113,9 +1115,11 @@ impl TestHarness {
             let Some(task_id) = ran else {
                 break;
             };
-            let controller_state = crate::controllers::fetch_controller_state(task_id, &self.pool)
-                .await
-                .expect("failed to fetch controller state");
+            let system_user_id = self.control_plane().inner.system_user_id;
+            let controller_state =
+                crate::controllers::fetch_controller_state(task_id, system_user_id, &self.pool)
+                    .await
+                    .expect("failed to fetch controller state");
             if let Some(s) = controller_state {
                 states.push(s);
             } else {
@@ -1909,6 +1913,10 @@ pub fn get_collection_generation_id(state: &ControllerState) -> models::Id {
 
 #[async_trait::async_trait]
 impl ControlPlane for TestControlPlane {
+    fn system_user_id(&self) -> sqlx::types::Uuid {
+        self.inner.system_user_id
+    }
+
     fn can_auto_discover(&self) -> bool {
         self.auto_discover_enabled
     }

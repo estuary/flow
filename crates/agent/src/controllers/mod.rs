@@ -88,17 +88,24 @@ pub struct ControllerState {
     pub live_dependency_hash: Option<String>,
     /// The most recent connector status emission timestamp, if any.
     pub last_connector_status_ts: Option<DateTime<Utc>>,
+    /// The most recent day in which data was moved by or through this spec,
+    /// within the last 60 days.
+    pub last_data_movement_ts: Option<DateTime<Utc>>,
+    /// The most recent publication by a non-system user.
+    pub last_user_pub_at: Option<DateTime<Utc>>,
 }
 
 /// Returns a struct with all of the initial state that's needed to run a
 /// controller.
 pub async fn fetch_controller_state(
     controller_task_id: Id,
+    system_user_id: uuid::Uuid,
     db: impl sqlx::PgExecutor<'static>,
 ) -> anyhow::Result<Option<ControllerState>> {
-    let maybe_job = control_plane_api::controllers::fetch_controller_job(controller_task_id, db)
-        .await
-        .context("fetching controller job")?;
+    let maybe_job =
+        control_plane_api::controllers::fetch_controller_job(controller_task_id, system_user_id, db)
+            .await
+            .context("fetching controller job")?;
 
     let Some(job) = maybe_job else {
         return Ok(None);
@@ -186,6 +193,8 @@ impl ControllerState {
             data_plane_name: job.data_plane_name.clone(),
             live_dependency_hash: job.live_dependency_hash.clone(),
             last_connector_status_ts: job.last_connector_status_ts,
+            last_data_movement_ts: job.last_data_movement_ts,
+            last_user_pub_at: job.last_user_pub_at,
         };
         Ok(controller_state)
     }

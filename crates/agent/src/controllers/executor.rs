@@ -157,7 +157,9 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let Some(controller_state) = fetch_controller_state(task_id, pool).await? else {
+        let Some(controller_state) =
+            fetch_controller_state(task_id, self.control_plane.system_user_id(), pool).await?
+        else {
             tracing::info!(?task_id, ?inbox, "no controller state found for task");
             inbox.clear();
             return Ok(Outcome {

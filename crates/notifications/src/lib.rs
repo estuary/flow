@@ -6,8 +6,10 @@ mod free_trial_ending;
 mod free_trial_stalled;
 mod missing_payment_method;
 mod shard_failed;
-mod task_abandoned;
-mod task_auto_disabled;
+mod task_auto_disabled_failing;
+mod task_auto_disabled_idle;
+mod task_chronically_failing;
+mod task_idle;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -143,8 +145,10 @@ impl Renderer {
         free_trial_ending::register_templates(&mut hb)?;
         missing_payment_method::register_templates(&mut hb)?;
         shard_failed::register_templates(&mut hb)?;
-        task_abandoned::register_templates(&mut hb)?;
-        task_auto_disabled::register_templates(&mut hb)?;
+        task_chronically_failing::register_templates(&mut hb)?;
+        task_auto_disabled_failing::register_templates(&mut hb)?;
+        task_idle::register_templates(&mut hb)?;
+        task_auto_disabled_idle::register_templates(&mut hb)?;
 
         Ok(Renderer {
             dashboard_base_url,
@@ -947,9 +951,9 @@ mod tests {
     }
 
     #[test]
-    fn test_task_abandoned_fired() {
+    fn test_task_chronically_failing_fired() {
         let email = test_single_email(
-            AlertType::TaskAbandoned,
+            AlertType::TaskChronicallyFailing,
             "acmeCo/test/capture",
             json!({
                 "recipients": [user_a()],
@@ -966,15 +970,15 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: capture acmeCo/test/capture appears abandoned",
+            "Estuary Flow: capture acmeCo/test/capture is chronically failing",
         );
-        insta::assert_snapshot!("task_abandoned_fired_body", email.body);
+        insta::assert_snapshot!("task_chronically_failing_fired_body", email.body);
     }
 
     #[test]
-    fn test_task_abandoned_fired_never_primary() {
+    fn test_task_chronically_failing_fired_never_primary() {
         let email = test_single_email(
-            AlertType::TaskAbandoned,
+            AlertType::TaskChronicallyFailing,
             "acmeCo/test/capture",
             json!({
                 "recipients": [user_a()],
@@ -990,7 +994,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: capture acmeCo/test/capture appears abandoned",
+            "Estuary Flow: capture acmeCo/test/capture is chronically failing",
         );
         assert!(
             email.body.contains("since it was created"),
@@ -1003,9 +1007,9 @@ mod tests {
     }
 
     #[test]
-    fn test_task_abandoned_resolved() {
+    fn test_task_chronically_failing_resolved() {
         expect_no_email(
-            AlertType::TaskAbandoned,
+            AlertType::TaskChronicallyFailing,
             "acmeCo/test/capture",
             json!({
                 "recipients": [user_b()],

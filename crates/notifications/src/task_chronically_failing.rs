@@ -3,13 +3,13 @@ use anyhow::Context;
 
 pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyhow::Result<()> {
     let (fired_subject, fired_body) =
-        template_names(models::status::AlertType::TaskAbandoned, false);
+        template_names(models::status::AlertType::TaskChronicallyFailing, false);
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: {{arguments.spec_type}} {{catalog_name}} appears abandoned"#,
+            r#"Estuary Flow: {{arguments.spec_type}} {{catalog_name}} is chronically failing"#,
         )
-        .context("registering task_abandoned-fired-subject template")?;
+        .context("registering task_chronically_failing-fired-subject template")?;
 
     registry
         .register_template_string(
@@ -25,7 +25,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     <li>If you need help, reach out to our team via Slack (#support) or reply to this email.</li>
 </ul>"#,
         )
-        .context("registering task_abandoned-fired-body template")?;
+        .context("registering task_chronically_failing-fired-body template")?;
 
     // No resolved templates: resolution (via recovery or disable) completes
     // silently without sending an email.

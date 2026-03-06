@@ -161,7 +161,6 @@ pub async fn update<C: ControlPlane>(
 
     let abandon_result = Ok(abandon::evaluate_abandoned(
         alerts,
-        activation,
         state,
         control_plane.current_time(),
     ));

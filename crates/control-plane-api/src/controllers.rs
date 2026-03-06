@@ -54,10 +54,13 @@ pub struct ControllerJob {
     pub data_plane_name: Option<String>,
     pub live_dependency_hash: Option<String>,
     pub last_connector_status_ts: Option<DateTime<Utc>>,
+    pub last_data_movement_ts: Option<DateTime<Utc>>,
+    pub last_user_pub_at: Option<DateTime<Utc>>,
 }
 
 pub async fn fetch_controller_job(
     controller_task_id: Id,
+    system_user_id: Uuid,
     db: impl sqlx::PgExecutor<'static>,
 ) -> sqlx::Result<Option<ControllerJob>> {
     sqlx::query_as!(
@@ -81,14 +84,33 @@ pub async fn fetch_controller_job(
             cj.error,
             ls.data_plane_id as "data_plane_id: Id",
             dp.data_plane_name as "data_plane_name?: String",
-            (cs.flow_document->>'ts')::timestamptz as "last_connector_status_ts?: DateTime<Utc>"
+            (cs.flow_document->>'ts')::timestamptz as "last_connector_status_ts?: DateTime<Utc>",
+            cdm.last_data_movement_ts as "last_data_movement_ts?: DateTime<Utc>",
+            lup.last_user_pub_at as "last_user_pub_at?: DateTime<Utc>"
         from internal.tasks t
         join live_specs ls on t.task_id = ls.controller_task_id
         join controller_jobs cj on ls.id = cj.live_spec_id
         left outer join data_planes dp on ls.data_plane_id = dp.id
         left outer join connector_status cs on ls.catalog_name = cs.catalog_name
+        left join lateral (
+            select max(ts) as last_data_movement_ts
+            from catalog_stats_daily
+            where catalog_name = ls.catalog_name
+                and ts > now() - interval '60 days'
+                and (bytes_written_by_me + bytes_read_by_me
+                   + bytes_written_to_me + bytes_read_from_me) > 0
+        ) cdm on true
+        left join lateral (
+            select ps.published_at as last_user_pub_at
+            from publication_specs ps
+            where ps.live_spec_id = ls.id
+                and ps.user_id != $2
+            order by ps.pub_id desc
+            limit 1
+        ) lup on true
         where t.task_id = $1::flowid;"#,
         controller_task_id as Id,
+        system_user_id as Uuid,
     )
     .fetch_optional(db)
     .await

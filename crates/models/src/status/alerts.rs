@@ -45,13 +45,18 @@ pub enum AlertType {
     /// continue to make progress in between failures, but at a minimum, performance will
     /// be degraded. And in many scenarios, the task will be unable to process data at all.
     ShardFailed,
-    /// Triggers when an enabled task has had no sustained PRIMARY shard status and no
-    /// recent connector status updates for a prolonged period, indicating it may be
-    /// abandoned by the user while still consuming data-plane resources.
-    TaskAbandoned,
-    /// Triggers when a task is automatically disabled after the TaskAbandoned alert
+    /// Triggers when an enabled task has been chronically failing: no sustained PRIMARY
+    /// shard status and no recent connector status updates for a prolonged period.
+    TaskChronicallyFailing,
+    /// Triggers when a task is automatically disabled after the TaskChronicallyFailing
+    /// alert has been firing for a configured grace period without recovery.
+    TaskAutoDisabledFailing,
+    /// Triggers when an enabled task has not moved data for a prolonged period,
+    /// indicating it may be idle and consuming data-plane resources unnecessarily.
+    TaskIdle,
+    /// Triggers when a task is automatically disabled after the TaskIdle alert
     /// has been firing for a configured grace period without recovery.
-    TaskAutoDisabled,
+    TaskAutoDisabledIdle,
     /// Triggers when an automated background process needs to publish a spec,
     /// but is unable to because of publication errors. Background publications
     /// are peformed on all specs for a variety of reasons. For example,
@@ -77,8 +82,10 @@ impl AlertType {
             AlertType::FreeTrialEnding => "free_trial_ending",
             AlertType::FreeTrialStalled => "free_trial_stalled",
             AlertType::MissingPaymentMethod => "missing_payment_method",
-            AlertType::TaskAbandoned => "task_abandoned",
-            AlertType::TaskAutoDisabled => "task_auto_disabled",
+            AlertType::TaskChronicallyFailing => "task_chronically_failing",
+            AlertType::TaskAutoDisabledFailing => "task_auto_disabled_failing",
+            AlertType::TaskIdle => "task_idle",
+            AlertType::TaskAutoDisabledIdle => "task_auto_disabled_idle",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
         }
     }
@@ -87,8 +94,10 @@ impl AlertType {
         &[
             AlertType::AutoDiscoverFailed,
             AlertType::ShardFailed,
-            AlertType::TaskAbandoned,
-            AlertType::TaskAutoDisabled,
+            AlertType::TaskChronicallyFailing,
+            AlertType::TaskAutoDisabledFailing,
+            AlertType::TaskIdle,
+            AlertType::TaskAutoDisabledIdle,
             AlertType::DataMovementStalled,
             AlertType::FreeTrial,
             AlertType::FreeTrialEnding,
@@ -109,8 +118,10 @@ impl AlertType {
             AlertType::FreeTrialStalled => Some("tenant_alerts"),
             AlertType::MissingPaymentMethod => Some("tenant_alerts"),
             AlertType::ShardFailed => None,
-            AlertType::TaskAbandoned => None,
-            AlertType::TaskAutoDisabled => None,
+            AlertType::TaskChronicallyFailing => None,
+            AlertType::TaskAutoDisabledFailing => None,
+            AlertType::TaskIdle => None,
+            AlertType::TaskAutoDisabledIdle => None,
             AlertType::BackgroundPublicationFailed => None,
         }
     }

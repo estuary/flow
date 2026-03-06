@@ -121,260 +121,155 @@ async fn test_abandoned_task_detection_and_resolution() {
     ];
 
     for (catalog_name, task_type) in tasks {
-        tracing::info!(%catalog_name, "starting abandoned task scenarios");
+        tracing::info!(%catalog_name, "starting chronically failing scenarios");
 
-        test_stale_primary_fires(&mut harness, *task_type, *catalog_name).await;
-        test_recent_connector_status_prevents_firing(&mut harness, *task_type, *catalog_name).await;
-        test_recent_primary_prevents_firing(&mut harness, *task_type, *catalog_name).await;
-        test_alert_resolves_on_sustained_primary(&mut harness, *task_type, *catalog_name).await;
-        test_auto_disable_fires_after_grace_period(&mut harness, *task_type, *catalog_name).await;
-        test_disable_clears_alert(&mut harness, *task_type, *catalog_name).await;
+        test_shard_failed_under_threshold_no_alert(&mut harness, *task_type, *catalog_name).await;
+        test_shard_failed_over_threshold_fires(&mut harness, *task_type, *catalog_name).await;
+        test_shard_failed_resolves_clears_alerts(&mut harness, *task_type, *catalog_name).await;
+        test_chronically_failing_auto_disable_fires(&mut harness, *task_type, *catalog_name).await;
+        test_disable_clears_all_alerts(&mut harness, *task_type, *catalog_name).await;
     }
+
+    // Idle detection tests only on capture (doesn't depend on task type)
+    test_idle_fires_when_no_data_and_old(&mut harness, CatalogType::Capture, "pandas/capture")
+        .await;
+    test_idle_suppressed_by_shard_failed(&mut harness, CatalogType::Capture, "pandas/capture")
+        .await;
 }
 
-/// Scenario 3: Old task with stale PRIMARY fires TaskAbandoned.
-async fn test_stale_primary_fires(
+/// ShardFailed firing for < 30 days does NOT trigger TaskChronicallyFailing.
+async fn test_shard_failed_under_threshold_no_alert(
     harness: &mut TestHarness,
     task_type: CatalogType,
     catalog_name: &str,
 ) {
-    tracing::info!(%catalog_name, "scenario 3: stale PRIMARY fires");
+    tracing::info!(%catalog_name, "shard_failed under threshold");
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
-    push_back_created_at(catalog_name, chrono::Duration::days(20), harness).await;
-    set_last_sustained_primary_ts(
-        catalog_name,
-        Some(chrono::Utc::now() - chrono::Duration::days(20)),
-        harness,
-    )
-    .await;
-    set_restarts_since_last_primary(catalog_name, 12, harness).await;
-    delete_connector_status(catalog_name, harness).await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    // Trigger a real ShardFailed alert, then backdate it to 10 days ago (under 30-day threshold).
+    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(10), harness).await;
 
+    // Run the controller again so the abandon logic evaluates the backdated ShardFailed.
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    let _state = harness.run_pending_controller(catalog_name).await;
+
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskChronicallyFailing)
+        .await;
+}
+
+/// ShardFailed firing for > 30 days triggers TaskChronicallyFailing.
+async fn test_shard_failed_over_threshold_fires(
+    harness: &mut TestHarness,
+    task_type: CatalogType,
+    catalog_name: &str,
+) {
+    tracing::info!(%catalog_name, "shard_failed over threshold fires");
+    publish_and_await_ready(harness, task_type, catalog_name).await;
+
+    // Trigger a real ShardFailed alert, then backdate it to 35 days ago (over 30-day threshold).
+    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(35), harness).await;
+
+    // Run the controller again so the abandon logic evaluates the backdated ShardFailed.
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
     let _state = harness.run_pending_controller(catalog_name).await;
 
     let alert = harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
+        .assert_alert_firing(catalog_name, AlertType::TaskChronicallyFailing)
         .await;
 
-    // Verify extra fields in the alert_history arguments
     let extra = &alert.alert.arguments.0;
     assert!(
         extra.get("disable_at").and_then(|v| v.as_str()).is_some(),
-        "expected disable_at date in alert arguments, got: {extra:?}"
-    );
-    // last_primary_ts should be present because last_sustained_primary_ts was Some
-    assert!(
-        extra.get("last_primary_ts").is_some(),
-        "expected last_primary_ts in alert arguments, got: {extra:?}"
+        "expected disable_at in alert arguments, got: {extra:?}"
     );
 }
 
-/// Scenario 4: Recent connector status prevents firing.
-async fn test_recent_connector_status_prevents_firing(
+/// When ShardFailed resolves, TaskChronicallyFailing and TaskAutoDisabledFailing clear.
+async fn test_shard_failed_resolves_clears_alerts(
     harness: &mut TestHarness,
     task_type: CatalogType,
     catalog_name: &str,
 ) {
-    tracing::info!(%catalog_name, "scenario 4: recent connector status prevents firing");
+    tracing::info!(%catalog_name, "shard_failed resolves clears alerts");
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
-    // Make PRIMARY stale, but insert fresh connector status.
-    push_back_created_at(catalog_name, chrono::Duration::days(20), harness).await;
-    set_last_sustained_primary_ts(
-        catalog_name,
-        Some(chrono::Utc::now() - chrono::Duration::days(20)),
-        harness,
-    )
-    .await;
-    let state = harness.get_controller_state(catalog_name).await;
-    upsert_connector_status_at(catalog_name, state.last_build_id, chrono::Utc::now(), harness)
-        .await;
+    // Trigger ShardFailed > 30 days, fire TaskChronicallyFailing.
+    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(35), harness).await;
     override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
-    let _state = harness.run_pending_controller(catalog_name).await;
-
-    harness
-        .assert_alert_clear(catalog_name, AlertType::TaskAbandoned)
-        .await;
-}
-
-/// Scenario 5: Recent PRIMARY prevents firing.
-async fn test_recent_primary_prevents_firing(
-    harness: &mut TestHarness,
-    task_type: CatalogType,
-    catalog_name: &str,
-) {
-    tracing::info!(%catalog_name, "scenario 5: recent PRIMARY prevents firing");
-    publish_and_await_ready(harness, task_type, catalog_name).await;
-
-    push_back_created_at(catalog_name, chrono::Duration::days(20), harness).await;
-    set_last_sustained_primary_ts(
-        catalog_name,
-        Some(chrono::Utc::now() - chrono::Duration::days(3)),
-        harness,
-    )
-    .await;
-    delete_connector_status(catalog_name, harness).await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
-    let _state = harness.run_pending_controller(catalog_name).await;
-
-    harness
-        .assert_alert_clear(catalog_name, AlertType::TaskAbandoned)
-        .await;
-}
-
-/// Scenario 6: Alert resolves on sustained PRIMARY.
-///
-/// Re-publishes to reset shard_status.count to 0, then fires the alert,
-/// then runs 3 consecutive Primary health checks to trigger
-/// `update_sustained_primary`, which resolves the alert.
-async fn test_alert_resolves_on_sustained_primary(
-    harness: &mut TestHarness,
-    task_type: CatalogType,
-    catalog_name: &str,
-) {
-    tracing::info!(%catalog_name, "scenario 6: alert resolves on sustained PRIMARY");
-
-    // Re-publish to get a fresh activation with shard_status.count = 0.
-    // We don't use the full publish_and_await_ready here because we need
-    // the task in an abandoned state, not a healthy Ok state.
-    republish_spec(harness, task_type, catalog_name).await;
-
-    // Set up abandoned conditions: no sustained primary, old created_at, no connector status.
-    set_last_sustained_primary_ts(catalog_name, None, harness).await;
-    push_back_created_at(catalog_name, chrono::Duration::days(20), harness).await;
-    delete_connector_status(catalog_name, harness).await;
-
-    // Mock Backfill so the first health check produces Pending (not Ok),
-    // preventing update_sustained_primary from firing prematurely.
-    harness
-        .control_plane()
-        .mock_shard_status(catalog_name, vec![replica_status::Code::Backfill]);
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
     let _state = harness.run_pending_controller(catalog_name).await;
     harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
+        .assert_alert_firing(catalog_name, AlertType::TaskChronicallyFailing)
         .await;
 
-    // Now mock PRIMARY and run 3 consecutive health checks.
-    // The activation controller needs SUSTAINED_PRIMARY_MIN_CHECKS (default 3)
-    // consecutive Ok statuses to set last_sustained_primary_ts.
-    // After re-publish, shard_status.count was 0. The Backfill check above
-    // set it to Pending/count=1. Switching to Primary will transition
-    // Pending -> Ok (count=1), then Ok -> Ok (count=2), then Ok -> Ok (count=3).
+    // Simulate shard recovery: mock Primary and remove the ShardFailed alert.
     harness
         .control_plane()
         .mock_shard_status(catalog_name, vec![replica_status::Code::Primary]);
+    remove_alert_from_status(catalog_name, AlertType::ShardFailed, harness).await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    let _state = harness.run_pending_controller(catalog_name).await;
 
-    for i in 0..3 {
-        override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-        let state = harness.run_pending_controller(catalog_name).await;
-        let activation = state
-            .current_status
-            .activation_status()
-            .expect("expected activation status");
-        let shard_check = activation.shard_status.as_ref().expect("expected shard status");
-        tracing::info!(
-            %catalog_name,
-            check = i,
-            count = shard_check.count,
-            status = ?shard_check.status,
-            last_sustained_primary_ts = ?activation.last_sustained_primary_ts,
-            "health check cycle"
-        );
-    }
-
-    // Verify last_sustained_primary_ts is now set.
-    let final_state = harness.get_controller_state(catalog_name).await;
-    let activation = final_state
-        .current_status
-        .activation_status()
-        .expect("expected activation status");
-    assert!(
-        activation.last_sustained_primary_ts.is_some(),
-        "expected last_sustained_primary_ts to be set after 3 consecutive Ok checks"
-    );
-
-    // The abandon stage should have resolved the alert since sustained PRIMARY is recent.
     harness
-        .assert_alert_clear(catalog_name, AlertType::TaskAbandoned)
+        .assert_alert_clear(catalog_name, AlertType::TaskChronicallyFailing)
         .await;
 }
 
-/// Scenario: TaskAutoDisabled fires after the grace period expires.
-///
-/// Re-publishes to reset shard_status.count to 0, uses Backfill mock to
-/// prevent `update_sustained_primary` from overriding `last_sustained_primary_ts`.
-async fn test_auto_disable_fires_after_grace_period(
+/// TaskAutoDisabledFailing fires after the grace period expires.
+async fn test_chronically_failing_auto_disable_fires(
     harness: &mut TestHarness,
     task_type: CatalogType,
     catalog_name: &str,
 ) {
-    tracing::info!(%catalog_name, "scenario: auto-disable fires after grace period");
-    republish_spec(harness, task_type, catalog_name).await;
-
-    // Set up abandoned conditions.
-    push_back_created_at(catalog_name, chrono::Duration::days(30), harness).await;
-    set_last_sustained_primary_ts(catalog_name, None, harness).await;
-    delete_connector_status(catalog_name, harness).await;
-
-    // Mock Backfill so health checks produce Pending (not Ok), preventing
-    // update_sustained_primary from overriding last_sustained_primary_ts.
-    harness
-        .control_plane()
-        .mock_shard_status(catalog_name, vec![replica_status::Code::Backfill]);
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
-    // First run: TaskAbandoned fires, but grace period just started.
-    let _state = harness.run_pending_controller(catalog_name).await;
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
-        .await;
-    harness
-        .assert_alert_clear(catalog_name, AlertType::TaskAutoDisabled)
-        .await;
-
-    // Push back the TaskAbandoned alert's first_ts past the 7-day grace period.
-    push_back_alert_first_ts(catalog_name, AlertType::TaskAbandoned, chrono::Duration::days(10), harness).await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
-    // Second run: grace period has expired, TaskAutoDisabled fires.
-    let _state = harness.run_pending_controller(catalog_name).await;
-
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAutoDisabled)
-        .await;
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
-        .await;
-}
-
-/// Scenario: Disabling a task clears both TaskAbandoned and TaskAutoDisabled (silently, no email).
-async fn test_disable_clears_alert(
-    harness: &mut TestHarness,
-    task_type: CatalogType,
-    catalog_name: &str,
-) {
-    tracing::info!(%catalog_name, "scenario 7: disable leaves alert firing");
-
-    // Start from a clean state and make the alert fire.
+    tracing::info!(%catalog_name, "auto-disable fires after grace period");
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
-    set_last_sustained_primary_ts(catalog_name, None, harness).await;
-    push_back_created_at(catalog_name, chrono::Duration::days(20), harness).await;
-    delete_connector_status(catalog_name, harness).await;
+    // Trigger ShardFailed > 30 days, fire TaskChronicallyFailing.
+    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(35), harness).await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    let _state = harness.run_pending_controller(catalog_name).await;
+    harness
+        .assert_alert_firing(catalog_name, AlertType::TaskChronicallyFailing)
+        .await;
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskAutoDisabledFailing)
+        .await;
+
+    // Push back TaskChronicallyFailing first_ts past the 7-day grace period.
+    push_back_alert_first_ts(
+        catalog_name,
+        AlertType::TaskChronicallyFailing,
+        chrono::Duration::days(10),
+        harness,
+    )
+    .await;
     override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
 
     let _state = harness.run_pending_controller(catalog_name).await;
+
     harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAbandoned)
+        .assert_alert_firing(catalog_name, AlertType::TaskAutoDisabledFailing)
+        .await;
+}
+
+/// Disabling a task clears all abandon alerts silently.
+async fn test_disable_clears_all_alerts(
+    harness: &mut TestHarness,
+    task_type: CatalogType,
+    catalog_name: &str,
+) {
+    tracing::info!(%catalog_name, "disable clears all alerts");
+    publish_and_await_ready(harness, task_type, catalog_name).await;
+
+    // Fire TaskChronicallyFailing via ShardFailed > 30 days.
+    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(35), harness).await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    let _state = harness.run_pending_controller(catalog_name).await;
+    harness
+        .assert_alert_firing(catalog_name, AlertType::TaskChronicallyFailing)
         .await;
 
-    // Publish with shards disabled.
+    // Disable the task.
     let start = harness.get_controller_state(catalog_name).await;
     let mut draft = tables::DraftCatalog::default();
     let mut spec = start.live_spec.clone().unwrap();
@@ -405,13 +300,11 @@ async fn test_disable_clears_alert(
 
     let _disabled_state = harness.run_pending_controller(catalog_name).await;
 
-    // The alert should be cleared from controller status. No resolution
-    // email is sent because TaskAbandoned has no resolved template.
     harness
-        .assert_alert_clear(catalog_name, AlertType::TaskAbandoned)
+        .assert_alert_clear(catalog_name, AlertType::TaskChronicallyFailing)
         .await;
 
-    // Re-enable the task so the next task-type iteration starts clean.
+    // Re-enable for next iteration.
     let start = harness.get_controller_state(catalog_name).await;
     let mut draft = tables::DraftCatalog::default();
     let mut spec = start.live_spec.clone().unwrap();
@@ -449,6 +342,58 @@ async fn test_disable_clears_alert(
         );
 }
 
+/// Idle detection: old task with no data movement and no user publication.
+/// In the test DB, catalog_stats_daily is empty and all publications use the
+/// system user, so both last_data_movement_ts and last_user_pub_at are NULL.
+/// Combined with old created_at, this should trigger TaskIdle.
+async fn test_idle_fires_when_no_data_and_old(
+    harness: &mut TestHarness,
+    task_type: CatalogType,
+    catalog_name: &str,
+) {
+    tracing::info!(%catalog_name, "idle fires for old task with no data");
+    publish_and_await_ready(harness, task_type, catalog_name).await;
+
+    // Make the task old enough (past IDLE_THRESHOLD).
+    push_back_created_at(catalog_name, chrono::Duration::days(45), harness).await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+
+    let _state = harness.run_pending_controller(catalog_name).await;
+
+    let alert = harness
+        .assert_alert_firing(catalog_name, AlertType::TaskIdle)
+        .await;
+
+    let extra = &alert.alert.arguments.0;
+    assert!(
+        extra.get("disable_at").and_then(|v| v.as_str()).is_some(),
+        "expected disable_at in alert arguments, got: {extra:?}"
+    );
+}
+
+/// Idle detection is suppressed when ShardFailed is active.
+async fn test_idle_suppressed_by_shard_failed(
+    harness: &mut TestHarness,
+    task_type: CatalogType,
+    catalog_name: &str,
+) {
+    tracing::info!(%catalog_name, "idle suppressed by shard_failed");
+    publish_and_await_ready(harness, task_type, catalog_name).await;
+
+    push_back_created_at(catalog_name, chrono::Duration::days(45), harness).await;
+    // Trigger a real ShardFailed alert (recent, under chronically-failing threshold).
+    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(5), harness).await;
+
+    // Run the controller again so the abandon logic evaluates.
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    let _state = harness.run_pending_controller(catalog_name).await;
+
+    // Idle should be suppressed due to active ShardFailed.
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskIdle)
+        .await;
+}
+
 // -- Helper functions --
 
 fn shard_ref(build_id: models::Id, name: &str) -> ShardRef {
@@ -460,17 +405,11 @@ fn shard_ref(build_id: models::Id, name: &str) -> ShardRef {
     }
 }
 
-/// Re-publishes the current spec (no changes), triggering a fresh activation
-/// that resets shard_status.count to 0. Then advances the task through
-/// Backfill -> Primary -> Ok with fresh connector status.
-/// This is the canonical reset function: every scenario should call this
-/// (or `republish_spec`) before setting up its conditions.
 async fn publish_and_await_ready(
     harness: &mut TestHarness,
     task_type: CatalogType,
     catalog_name: &str,
 ) -> ControllerState {
-    // Add a stale connector status so the controller waits for fresh status.
     harness
         .upsert_connector_status(
             catalog_name,
@@ -485,8 +424,6 @@ async fn publish_and_await_ready(
 
     republish_spec(harness, task_type, catalog_name).await;
 
-    // After re-publish: shard_status = Pending, count = 0.
-    // Advance through Backfill -> Primary -> Ok with fresh connector status.
     harness
         .control_plane()
         .mock_shard_status(catalog_name, vec![replica_status::Code::Backfill]);
@@ -519,8 +456,6 @@ async fn publish_and_await_ready(
     ok_state
 }
 
-/// Re-publishes the current spec unchanged, triggering a fresh activation
-/// that resets shard_status.count to 0. Does NOT advance to Ok state.
 async fn republish_spec(
     harness: &mut TestHarness,
     task_type: CatalogType,
@@ -596,67 +531,55 @@ async fn push_back_created_at(
     .expect("failed to push back created_at");
 }
 
-async fn set_last_sustained_primary_ts(
+/// Triggers a real ShardFailed alert by inserting shard failure events and
+/// running the controller to process them. Then pushes back the alert's
+/// first_ts to simulate it being `age` old.
+async fn trigger_shard_failed_alert(
     catalog_name: &str,
-    ts: Option<chrono::DateTime<chrono::Utc>>,
+    age: chrono::Duration,
     harness: &mut TestHarness,
 ) {
-    match ts {
-        Some(ts) => {
-            let ts_str = ts.to_rfc3339();
-            sqlx::query!(
-                r#"update controller_jobs set
-                status = jsonb_set(status::jsonb, '{activation, last_sustained_primary_ts}', to_jsonb($2::text))::json
-                where live_spec_id = (select id from live_specs where catalog_name = $1)
-                returning 1 as "must_exist: bool";"#,
-                catalog_name,
-                ts_str,
-            )
-            .fetch_one(&harness.pool)
-            .await
-            .expect("failed to set last_sustained_primary_ts");
-        }
-        None => {
-            sqlx::query!(
-                r#"update controller_jobs set
-                status = (status::jsonb #- '{activation, last_sustained_primary_ts}')::json
-                where live_spec_id = (select id from live_specs where catalog_name = $1)
-                returning 1 as "must_exist: bool";"#,
-                catalog_name,
-            )
-            .fetch_one(&harness.pool)
-            .await
-            .expect("failed to remove last_sustained_primary_ts");
-        }
+    let state = harness.get_controller_state(catalog_name).await;
+    let shard = shard_ref(state.last_build_id, catalog_name);
+
+    // Insert enough failures to trigger the alert (ALERT_AFTER_SHARD_FAILURES = 3)
+    for _ in 0..3 {
+        harness.fail_shard(&shard).await;
     }
+
+    // Run the controller to process the failures and fire ShardFailed.
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    let _state = harness.run_pending_controller(catalog_name).await;
+
+    // Verify ShardFailed is now firing.
+    let controller_state = harness.get_controller_state(catalog_name).await;
+    let alerts = controller_state.current_status.alerts_status().unwrap();
+    assert!(
+        alerts.contains_key(&AlertType::ShardFailed),
+        "expected ShardFailed to be firing after injecting failures for {catalog_name}"
+    );
+
+    // Push back the first_ts to simulate the alert being `age` old.
+    push_back_alert_first_ts(catalog_name, AlertType::ShardFailed, age, harness).await;
 }
 
-async fn set_restarts_since_last_primary(
+/// Removes an alert from the controller status JSONB.
+async fn remove_alert_from_status(
     catalog_name: &str,
-    count: u32,
+    alert_type: AlertType,
     harness: &mut TestHarness,
 ) {
-    sqlx::query!(
-        r#"update controller_jobs set
-        status = jsonb_set(status::jsonb, '{activation, restarts_since_last_primary}', to_jsonb($2::int))::json
-        where live_spec_id = (select id from live_specs where catalog_name = $1)
-        returning 1 as "must_exist: bool";"#,
-        catalog_name,
-        count as i32,
-    )
-    .fetch_one(&harness.pool)
-    .await
-    .expect("failed to set restarts_since_last_primary");
-}
-
-async fn delete_connector_status(catalog_name: &str, harness: &mut TestHarness) {
-    sqlx::query!(
-        r#"delete from connector_status where catalog_name = $1;"#,
-        catalog_name,
-    )
-    .execute(&harness.pool)
-    .await
-    .expect("failed to delete connector_status");
+    let alert_key = alert_type.name();
+    let query = format!(
+        "update controller_jobs set \
+         status = (status::jsonb #- '{{alerts,{alert_key}}}')::json \
+         where live_spec_id = (select id from live_specs where catalog_name = $1)"
+    );
+    sqlx::query(&query)
+        .bind(catalog_name)
+        .execute(&harness.pool)
+        .await
+        .expect("failed to remove alert from status");
 }
 
 async fn push_back_alert_first_ts(
@@ -668,7 +591,6 @@ async fn push_back_alert_first_ts(
     let alert_key = alert_type.name();
     let new_ts = (chrono::Utc::now() - by_duration).to_rfc3339();
 
-    // The alerts map is at {alerts, <alert_type_name>, first_ts} in the controller status JSON.
     let query = format!(
         "update controller_jobs set \
          status = jsonb_set(status::jsonb, '{{alerts,{alert_key},first_ts}}', to_jsonb($2::text))::json \
@@ -686,23 +608,4 @@ async fn push_back_alert_first_ts(
         result.rows_affected() > 0,
         "push_back_alert_first_ts for {catalog_name}/{alert_key} updated 0 rows"
     );
-}
-
-async fn upsert_connector_status_at(
-    catalog_name: &str,
-    build_id: models::Id,
-    ts: chrono::DateTime<chrono::Utc>,
-    harness: &mut TestHarness,
-) {
-    harness
-        .upsert_connector_status(
-            catalog_name,
-            models::status::ConnectorStatus {
-                shard: shard_ref(build_id, catalog_name),
-                ts,
-                message: "connector ok".to_string(),
-                fields: Default::default(),
-            },
-        )
-        .await;
 }
