@@ -77,7 +77,7 @@ This connector supports ECDSA P-256 signature verification. For Twilio SendGrid 
 {
   "signatureConfig": {
     "provider": "twilio",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGnYX92sAfrAoZadSDc/qKMHph36YMMhXUbkrle5edS+hTngTe5x3ZziwHv/JE5R7f7YCmrQFlIWM+ghy4Lr1zA=="
   }
 }
 ```
@@ -103,10 +103,10 @@ When configured, the connector verifies the `X-Twilio-Email-Event-Webhook-Signat
 
 ### Signature Config: Twilio SendGrid
 
-| Property                     | Title            | Description                                                               | Type   | Required/Default      |
-| ---------------------------- | ---------------- | ------------------------------------------------------------------------- | ------ | --------------------- |
-| `/signatureConfig/provider`  |                  | Provider identifier                                                       | string | Required (`"twilio"`) |
-| `/signatureConfig/publicKey` | Verification Key | PEM-encoded ECDSA public key from Twilio SendGrid Event Webhook settings. | string | Required              |
+| Property                     | Title            | Description                                                   | Type   | Required/Default      |
+| ---------------------------- | ---------------- | ------------------------------------------------------------- | ------ | --------------------- |
+| `/signatureConfig/provider`  |                  | Provider identifier                                           | string | Required (`"twilio"`) |
+| `/signatureConfig/publicKey` | Verification Key | Verification key from Twilio SendGrid Event Webhook settings. | string | Required              |
 
 ## Resource configuration
 
