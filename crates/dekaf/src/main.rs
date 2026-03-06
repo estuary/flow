@@ -141,6 +141,14 @@ pub struct Cli {
     /// can be up to 130K in size.
     #[arg(long, env = "READ_BUFFER_CHUNK_LIMIT", default_value = "20")]
     read_buffer_chunk_limit: usize,
+    /// Total byte budget for all partitions in a single Fetch request.
+    /// Divided evenly across fetched partitions to cap per-partition reads.
+    #[arg(
+        long,
+        env = "COMBINED_PARTITION_FETCH_LIMIT",
+        default_value = "52428800"
+    )]
+    combined_partition_fetch_limit: usize,
 
     #[command(flatten)]
     tls: Option<TlsArgs>,
@@ -393,6 +401,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                                 upstream_kafka_urls.clone(),
                                 upstream_auth.clone(),
                                 cli.read_buffer_chunk_limit,
+                                cli.combined_partition_fetch_limit,
                             ),
                             socket,
                             tls_acceptor.clone(),
