@@ -1,3 +1,4 @@
+#![recursion_limit = "256"] // needed to avoid error E0275 when resolving trait requirements
 // Links in the allocator crate, which sets the global allocator to jemalloc
 extern crate allocator;
 
