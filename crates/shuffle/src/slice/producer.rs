@@ -1,5 +1,38 @@
 use proto_gazette::uuid::{Clock, Producer};
 
+/// Axis-aligned bounding box in (key_hash, r_clock) space.
+///
+/// Tracks the extents of documents enqueued by a single producer during
+/// a transaction. Used to route ACK_TXN documents to all Queue members
+/// that may have received the producer's CONTINUE_TXN documents.
+#[derive(Debug, Clone, Copy)]
+pub struct BoundingBox {
+    pub key_hash_min: u32,
+    pub key_hash_max: u32,
+    pub r_clock_min: u32,
+    pub r_clock_max: u32,
+}
+
+impl BoundingBox {
+    pub const EMPTY: Self = Self {
+        key_hash_min: u32::MAX,
+        key_hash_max: 0,
+        r_clock_min: u32::MAX,
+        r_clock_max: 0,
+    };
+
+    pub fn is_empty(&self) -> bool {
+        self.key_hash_min > self.key_hash_max
+    }
+
+    pub fn widen(&mut self, key_hash: u32, r_clock: u32) {
+        self.key_hash_min = self.key_hash_min.min(key_hash);
+        self.key_hash_max = self.key_hash_max.max(key_hash);
+        self.r_clock_min = self.r_clock_min.min(r_clock);
+        self.r_clock_max = self.r_clock_max.max(r_clock);
+    }
+}
+
 /// A `BuildHasher` for `Producer`-keyed maps that passes through the
 /// raw bytes as the hash value. Producer IDs are already uniformly
 /// distributed random values, so rehashing them with SipHash is wasted work.
@@ -65,6 +98,9 @@ pub struct ProducerState {
     pub max_continue: Clock,
     /// Journal byte offset, sign-encoded (see struct docs).
     pub offset: i64,
+    /// Bounding box of (key_hash, r_clock) for documents enqueued in the
+    /// current transaction. Reset to EMPTY on commit (ACK or OUTSIDE_TXN).
+    pub bbox: BoundingBox,
 }
 
 impl Default for ProducerState {
@@ -73,10 +109,11 @@ impl Default for ProducerState {
             last_commit: Clock::zero(),
             max_continue: Clock::zero(),
             offset: 0,
+            bbox: BoundingBox::EMPTY,
         }
     }
 }
-const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
+const _: () = assert!(std::mem::size_of::<ProducerState>() == 40);
 
 /// Build a [`crate::Frontier`] by reducing read-derived producer state with
 /// causal hints.
@@ -186,6 +223,7 @@ mod test {
                     last_commit: Clock::from_u64(last_commit),
                     max_continue: Clock::zero(),
                     offset,
+                    bbox: BoundingBox::EMPTY,
                 },
             );
         }
@@ -297,5 +335,30 @@ mod test {
             .collect::<Vec<_>>();
 
         insta::assert_debug_snapshot!(snap);
+    }
+
+    #[test]
+    fn test_bounding_box() {
+        let mut bbox = BoundingBox::EMPTY;
+        assert!(bbox.is_empty());
+
+        bbox.widen(100, 200);
+        assert!(!bbox.is_empty());
+        assert_eq!(bbox.key_hash_min, 100);
+        assert_eq!(bbox.key_hash_max, 100);
+        assert_eq!(bbox.r_clock_min, 200);
+        assert_eq!(bbox.r_clock_max, 200);
+
+        bbox.widen(50, 300);
+        assert_eq!(bbox.key_hash_min, 50);
+        assert_eq!(bbox.key_hash_max, 100);
+        assert_eq!(bbox.r_clock_min, 200);
+        assert_eq!(bbox.r_clock_max, 300);
+
+        bbox.widen(200, 100);
+        assert_eq!(bbox.key_hash_min, 50);
+        assert_eq!(bbox.key_hash_max, 200);
+        assert_eq!(bbox.r_clock_min, 100);
+        assert_eq!(bbox.r_clock_max, 300);
     }
 }

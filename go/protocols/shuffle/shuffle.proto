@@ -265,9 +265,9 @@ message QueueRequest {
     int64 producer = 7;
     // Publication clock of the document, extracted from its UUID.
     fixed64 clock = 8;
-    // Packed shuffle key of the document.
+    // Packed shuffle key of the document. Empty if this is an ACK.
     bytes packed_key = 9;
-    // Document content as transcoded ArchivedNode bytes.
+    // Document content as transcoded ArchivedNode bytes. Empty if ACK.
     bytes doc_archived = 10;
     // Whether the document passed schema validation.
     bool valid = 11;

@@ -33,6 +33,33 @@ pub fn route_to_members(
     })
 }
 
+/// Find which member(s) overlap a bounding box in (key_hash, r_clock) space.
+///
+/// Used to route ACK_TXN documents to all Queue members that may have received
+/// the producer's preceding CONTINUE_TXN documents.
+pub fn route_to_members_by_bbox<'a>(
+    bbox: &'a super::producer::BoundingBox,
+    filter_r_clocks: bool,
+    members: &'a [shuffle::Member],
+) -> impl Iterator<Item = usize> + 'a {
+    let bbox = *bbox;
+    members.iter().enumerate().filter_map(move |(i, member)| {
+        let range = member.range.as_ref()?;
+
+        // Check key_hash range overlap.
+        if bbox.key_hash_max < range.key_begin || bbox.key_hash_min > range.key_end {
+            return None;
+        }
+        // Check r_clock range overlap (when filtering is enabled).
+        if filter_r_clocks
+            && (bbox.r_clock_max < range.r_clock_begin || bbox.r_clock_min > range.r_clock_end)
+        {
+            return None;
+        }
+        Some(i)
+    })
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -116,6 +143,108 @@ mod test {
         // Without r-clock filtering, both match.
         let out: Vec<_> =
             route_to_members(0x50000000, 0x90000000, false, &members_rclock).collect();
+        assert_eq!(out.as_slice(), &[0, 1]);
+    }
+
+    #[test]
+    fn test_route_to_members_by_bbox() {
+        use super::super::producer::BoundingBox;
+
+        let members = vec![
+            shuffle::Member {
+                range: Some(flow::RangeSpec {
+                    key_begin: 0,
+                    key_end: 0x7FFFFFFF,
+                    r_clock_begin: 0,
+                    r_clock_end: 0xFFFFFFFF,
+                }),
+                ..Default::default()
+            },
+            shuffle::Member {
+                range: Some(flow::RangeSpec {
+                    key_begin: 0x80000000,
+                    key_end: 0xFFFFFFFF,
+                    r_clock_begin: 0,
+                    r_clock_end: 0xFFFFFFFF,
+                }),
+                ..Default::default()
+            },
+        ];
+
+        // Bbox entirely in member 0's key range.
+        let bbox = BoundingBox {
+            key_hash_min: 0x10000000,
+            key_hash_max: 0x20000000,
+            r_clock_min: 0,
+            r_clock_max: 0,
+        };
+        let out: Vec<_> = route_to_members_by_bbox(&bbox, false, &members).collect();
+        assert_eq!(out.as_slice(), &[0]);
+
+        // Bbox spanning both members' key ranges.
+        let bbox = BoundingBox {
+            key_hash_min: 0x70000000,
+            key_hash_max: 0x90000000,
+            r_clock_min: 0,
+            r_clock_max: 0,
+        };
+        let out: Vec<_> = route_to_members_by_bbox(&bbox, false, &members).collect();
+        assert_eq!(out.as_slice(), &[0, 1]);
+
+        // Empty bbox routes to no members.
+        let out: Vec<_> = route_to_members_by_bbox(&BoundingBox::EMPTY, false, &members).collect();
+        assert_eq!(out.as_slice(), &[] as &[usize]);
+
+        // Bbox with r_clock filtering.
+        let members_rclock = vec![
+            shuffle::Member {
+                range: Some(flow::RangeSpec {
+                    key_begin: 0,
+                    key_end: 0xFFFFFFFF,
+                    r_clock_begin: 0,
+                    r_clock_end: 0x7FFFFFFF,
+                }),
+                ..Default::default()
+            },
+            shuffle::Member {
+                range: Some(flow::RangeSpec {
+                    key_begin: 0,
+                    key_end: 0xFFFFFFFF,
+                    r_clock_begin: 0x80000000,
+                    r_clock_end: 0xFFFFFFFF,
+                }),
+                ..Default::default()
+            },
+        ];
+
+        // Bbox r_clock range only overlaps member 0.
+        let bbox = BoundingBox {
+            key_hash_min: 0,
+            key_hash_max: 0xFFFFFFFF,
+            r_clock_min: 0x10000000,
+            r_clock_max: 0x20000000,
+        };
+        let out: Vec<_> = route_to_members_by_bbox(&bbox, true, &members_rclock).collect();
+        assert_eq!(out.as_slice(), &[0]);
+
+        // Bbox r_clock range spans both members.
+        let bbox = BoundingBox {
+            key_hash_min: 0,
+            key_hash_max: 0xFFFFFFFF,
+            r_clock_min: 0x70000000,
+            r_clock_max: 0x90000000,
+        };
+        let out: Vec<_> = route_to_members_by_bbox(&bbox, true, &members_rclock).collect();
+        assert_eq!(out.as_slice(), &[0, 1]);
+
+        // Without r_clock filtering, both match regardless of r_clock range.
+        let bbox = BoundingBox {
+            key_hash_min: 0,
+            key_hash_max: 0xFFFFFFFF,
+            r_clock_min: 0x10000000,
+            r_clock_max: 0x20000000,
+        };
+        let out: Vec<_> = route_to_members_by_bbox(&bbox, false, &members_rclock).collect();
         assert_eq!(out.as_slice(), &[0, 1]);
     }
 }

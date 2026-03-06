@@ -24,8 +24,8 @@ impl SessionClient {
     ) -> anyhow::Result<Self> {
         let verify = crate::verify("SessionResponse", "Opened", "(in-process)", 0);
         let (request_tx, request_rx) = crate::new_channel::<shuffle::SessionRequest>();
-        let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx)
-            .map(Ok::<_, tonic::Status>);
+        let request_rx =
+            tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Ok::<_, tonic::Status>);
 
         let mut response_rx = service.spawn_session(request_rx);
 

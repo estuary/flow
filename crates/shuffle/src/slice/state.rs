@@ -171,12 +171,25 @@ impl std::fmt::Debug for ProgressState {
 /// after successful I/O.
 #[derive(Debug)]
 pub struct SequencedDoc {
-    /// Whether the document should be enqueued to queue members.
-    pub is_enqueue: bool,
-    /// Whether this document completed a transaction (triggers flush cycle).
-    pub is_commit: bool,
+    /// What action to take for this document.
+    pub action: SequenceAction,
     /// Updated producer state to commit on successful enqueue.
     pub producer_state: ProducerState,
+}
+
+/// Disposition of a sequenced document.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SequenceAction {
+    /// Enqueue the document to queue members (CONTINUE_TXN or OUTSIDE_TXN).
+    /// `is_commit` is true for OUTSIDE_TXN (triggers flush).
+    Enqueue { is_commit: bool },
+    /// Enqueue an ACK_TXN barrier to queue members (always commits, always flushes).
+    EnqueueAck,
+    /// Commit-only: the document is filtered by notBefore/notAfter but still
+    /// triggers a flush cycle (OUTSIDE_TXN that fell outside the time window).
+    CommitOnly,
+    /// Skip entirely: duplicates or filtered CONTINUE_TXN documents.
+    Skip,
 }
 
 /// Gate on `adjusted_clock` relative to `now`: if the clock is in the future,
@@ -242,6 +255,7 @@ pub fn resolve_checkpoint(
                 last_commit,
                 max_continue: uuid::Clock::zero(),
                 offset,
+                bbox: super::producer::BoundingBox::EMPTY,
             },
         );
     }
@@ -296,19 +310,33 @@ pub fn sequence_document(
         )
     })?;
 
-    // Match over `outcome` to update `producer_state` and determine enqueue/commit.
-    let (is_enqueue, is_commit) = match outcome {
+    // Match over `outcome` to update `producer_state` and determine action.
+    let action = match outcome {
         uuid::SequenceOutcome::OutsideCommit => {
             producer_state.offset = -*end_offset;
-            (true, true)
+            if *clock >= binding.not_before && *clock < binding.not_after {
+                SequenceAction::Enqueue { is_commit: true }
+            } else {
+                SequenceAction::CommitOnly
+            }
         }
-        uuid::SequenceOutcome::OutsideDuplicate => (false, false),
+        uuid::SequenceOutcome::OutsideDuplicate => SequenceAction::Skip,
         uuid::SequenceOutcome::ContinueBeginSpan => {
             producer_state.offset = *begin_offset;
-            (true, false)
+            if *clock >= binding.not_before && *clock < binding.not_after {
+                SequenceAction::Enqueue { is_commit: false }
+            } else {
+                SequenceAction::Skip
+            }
         }
-        uuid::SequenceOutcome::ContinueExtendSpan => (true, false),
-        uuid::SequenceOutcome::ContinueDuplicate => (false, false),
+        uuid::SequenceOutcome::ContinueExtendSpan => {
+            if *clock >= binding.not_before && *clock < binding.not_after {
+                SequenceAction::Enqueue { is_commit: false }
+            } else {
+                SequenceAction::Skip
+            }
+        }
+        uuid::SequenceOutcome::ContinueDuplicate => SequenceAction::Skip,
         uuid::SequenceOutcome::AckDeepRollback => {
             tracing::warn!(
                 binding=%binding.state_key(),
@@ -319,7 +347,7 @@ pub fn sequence_document(
                 "detected rollback prior to last committed clock of the producer (possible loss of exactly-once guarantees)",
             );
             producer_state.offset = -*end_offset;
-            (false, true)
+            SequenceAction::EnqueueAck
         }
         uuid::SequenceOutcome::AckCommit
         | uuid::SequenceOutcome::AckEmpty
@@ -329,14 +357,10 @@ pub fn sequence_document(
             // visibility for the same producer transaction is handled separately
             // via `extract_causal_hints`.
             producer_state.offset = -*end_offset;
-            (false, true)
+            SequenceAction::EnqueueAck
         }
-        uuid::SequenceOutcome::AckDuplicate => (false, false),
+        uuid::SequenceOutcome::AckDuplicate => SequenceAction::Skip,
     };
-
-    // A `notBefore` or `notAfter` suppresses document enqueue, but doesn't impact
-    // the propagation of flush and progress reporting.
-    let is_enqueue = is_enqueue && *clock >= binding.not_before && *clock < binding.not_after;
 
     tracing::trace!(
         journal = %read_state.journal,
@@ -345,14 +369,12 @@ pub fn sequence_document(
         ?clock,
         begin_offset,
         ?outcome,
-        is_enqueue,
-        is_commit,
+        ?action,
         "sequenced document"
     );
 
     Ok(SequencedDoc {
-        is_enqueue,
-        is_commit,
+        action,
         producer_state,
     })
 }
@@ -545,8 +567,13 @@ mod test {
             _ = self.reads[read_id]
                 .pending
                 .insert(producer, seq.producer_state);
-            if seq.is_commit {
-                self.flush.set_ready();
+            match seq.action {
+                SequenceAction::Enqueue { is_commit: true }
+                | SequenceAction::EnqueueAck
+                | SequenceAction::CommitOnly => {
+                    self.flush.set_ready();
+                }
+                _ => {}
             }
         }
     }
@@ -641,37 +668,46 @@ mod test {
             pending: Default::default(),
         });
 
-        // Clock before notBefore: suppresses enqueue but not commit.
+        // Clock before notBefore: CommitOnly (suppresses enqueue but not commit).
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_u64(50), OUTSIDE, 0, 50),
         )
         .unwrap();
-        assert!(!seq.is_enqueue, "before notBefore → no enqueue");
-        assert!(seq.is_commit, "before notBefore → commit still propagates");
+        assert_eq!(
+            seq.action,
+            SequenceAction::CommitOnly,
+            "before notBefore → CommitOnly"
+        );
         s.commit(0, p1, seq);
 
-        // Clock within range: normal enqueue.
+        // Clock within range: normal enqueue with commit.
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_u64(200), OUTSIDE, 50, 100),
         )
         .unwrap();
-        assert!(seq.is_enqueue, "within range → enqueue");
-        assert!(seq.is_commit, "within range → commit");
+        assert_eq!(
+            seq.action,
+            SequenceAction::Enqueue { is_commit: true },
+            "within range → Enqueue+commit"
+        );
         s.commit(0, p1, seq);
 
-        // Clock at notAfter boundary: suppresses enqueue (notAfter is exclusive).
+        // Clock at notAfter boundary: CommitOnly (notAfter is exclusive).
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_u64(500), OUTSIDE, 100, 150),
         )
         .unwrap();
-        assert!(!seq.is_enqueue, "at notAfter → no enqueue");
-        assert!(seq.is_commit, "at notAfter → commit still propagates");
+        assert_eq!(
+            seq.action,
+            SequenceAction::CommitOnly,
+            "at notAfter → CommitOnly"
+        );
     }
 
     #[test]
@@ -831,8 +867,7 @@ mod test {
             &meta(p1, Clock::from_unix(10, 0), CONTINUE, 100, 150),
         )
         .unwrap();
-        assert!(seq.is_enqueue);
-        assert!(!seq.is_commit);
+        assert_eq!(seq.action, SequenceAction::Enqueue { is_commit: false });
         assert_eq!(
             seq.producer_state.offset, 100,
             "offset = begin of uncommitted span"
@@ -846,8 +881,7 @@ mod test {
             &meta(p1, Clock::from_unix(20, 0), CONTINUE, 150, 200),
         )
         .unwrap();
-        assert!(seq.is_enqueue);
-        assert!(!seq.is_commit);
+        assert_eq!(seq.action, SequenceAction::Enqueue { is_commit: false });
         assert_eq!(seq.producer_state.offset, 100, "offset unchanged on extend");
         s.commit(0, p1, seq);
 
@@ -858,33 +892,38 @@ mod test {
             &meta(p1, Clock::from_unix(15, 0), CONTINUE, 200, 250),
         )
         .unwrap();
-        assert!(!seq.is_enqueue);
-        assert!(!seq.is_commit);
+        assert_eq!(seq.action, SequenceAction::Skip);
 
-        // AckCommit: not enqueued, triggers commit/flush, offset becomes committed.
+        // AckCommit: enqueued as ACK barrier, triggers flush, offset becomes committed.
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_unix(20, 0), ACK, 250, 300),
         )
         .unwrap();
-        assert!(!seq.is_enqueue, "ACKs are never enqueued");
-        assert!(seq.is_commit, "AckCommit triggers flush");
+        assert_eq!(
+            seq.action,
+            SequenceAction::EnqueueAck,
+            "AckCommit → EnqueueAck"
+        );
         assert_eq!(
             seq.producer_state.offset, -300,
             "offset = negated committed end"
         );
         s.commit(0, p1, seq);
 
-        // AckDuplicate: no enqueue, no commit (no spurious flush).
+        // AckDuplicate: skip (no spurious flush).
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_unix(20, 0), ACK, 300, 350),
         )
         .unwrap();
-        assert!(!seq.is_enqueue);
-        assert!(!seq.is_commit, "AckDuplicate must not trigger flush");
+        assert_eq!(
+            seq.action,
+            SequenceAction::Skip,
+            "AckDuplicate must not trigger flush"
+        );
 
         // Start a new CONTINUE span, then clean rollback (ACK at last_commit clock).
         let seq = sequence_document(
@@ -893,7 +932,7 @@ mod test {
             &meta(p1, Clock::from_unix(30, 0), CONTINUE, 350, 400),
         )
         .unwrap();
-        assert!(seq.is_enqueue);
+        assert_eq!(seq.action, SequenceAction::Enqueue { is_commit: false });
         assert_eq!(seq.producer_state.offset, 350, "new span begin");
         s.commit(0, p1, seq);
 
@@ -903,8 +942,11 @@ mod test {
             &meta(p1, Clock::from_unix(20, 0), ACK, 400, 450),
         )
         .unwrap();
-        assert!(!seq.is_enqueue);
-        assert!(seq.is_commit, "AckCleanRollback triggers flush");
+        assert_eq!(
+            seq.action,
+            SequenceAction::EnqueueAck,
+            "AckCleanRollback → EnqueueAck"
+        );
         assert_eq!(
             seq.producer_state.offset, -450,
             "rollback yields committed offset"

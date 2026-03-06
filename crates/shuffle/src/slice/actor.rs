@@ -1,8 +1,9 @@
 use super::{
     heap::{ReadyReadEntry, ReadyReadHeap},
+    producer::BoundingBox,
     read::{Meta, ReadState, ReadyRead, map_read_error, probe_write_head},
     routing,
-    state::{self, FlushState, ProgressState, Topology},
+    state::{self, FlushState, ProgressState, SequenceAction, Topology},
 };
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, stream};
@@ -542,21 +543,57 @@ impl SliceActor {
                 )));
             }
 
-            let sequenced = state::sequence_document(read_state, binding, meta)?;
+            let mut sequenced = state::sequence_document(read_state, binding, meta)?;
 
-            // If this is an Enqueue, attempt to send it to the appropriate member(s).
-            if sequenced.is_enqueue {
-                if let Err(tx) = Self::try_queue_request_enqueue_tx(
-                    binding,
-                    buffers,
-                    &read_state.journal,
-                    &self.topology.members,
-                    &mut self.queue_prev_journal,
-                    &self.queue_request_tx,
-                    ready_read,
-                ) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+            match sequenced.action {
+                SequenceAction::Enqueue { .. } => {
+                    // Attempt to send the document to the appropriate member(s).
+                    let (key_hash, r_clock) = match Self::try_queue_request_enqueue_doc_tx(
+                        binding,
+                        buffers,
+                        &read_state.journal,
+                        &self.topology.members,
+                        &mut self.queue_prev_journal,
+                        &self.queue_request_tx,
+                        ready_read,
+                    ) {
+                        Ok(routed) => routed,
+                        Err(tx) => {
+                            return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+                        }
+                    };
+
+                    // Widen the producer's bbox with the routed coordinates,
+                    // reading from the speculative state (not yet committed).
+                    sequenced.producer_state.bbox.widen(key_hash, r_clock);
                 }
+                SequenceAction::EnqueueAck => {
+                    // Read bbox from the speculative producer state *before* uuid::sequence()
+                    // mutated it. The bbox is untouched by sequence(); it reflects the
+                    // bounding box accumulated during CONTINUE_TXN enqueues.
+                    //
+                    // We need to look up the pre-mutation state because `sequenced.producer_state`
+                    // has already been through uuid::sequence() which resets commit/continue clocks.
+                    // However, bbox is NOT modified by uuid::sequence(), so we can read it from
+                    // `sequenced.producer_state` directly.
+                    let bbox = sequenced.producer_state.bbox;
+
+                    if !bbox.is_empty() {
+                        if let Err(tx) = Self::try_queue_request_enqueue_ack_tx(
+                            binding,
+                            buffers,
+                            &read_state.journal,
+                            &self.topology.members,
+                            &mut self.queue_prev_journal,
+                            &self.queue_request_tx,
+                            &bbox,
+                            ready_read,
+                        ) {
+                            return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+                        }
+                    }
+                }
+                SequenceAction::CommitOnly | SequenceAction::Skip => {}
             }
 
             // Pop the heap entry now that any Enqueue requests have been sent.
@@ -582,7 +619,14 @@ impl SliceActor {
                 mut meta_tail,
             } = *ready_read;
 
-            if sequenced.is_commit {
+            let is_commit = matches!(
+                sequenced.action,
+                SequenceAction::Enqueue { is_commit: true }
+                    | SequenceAction::EnqueueAck
+                    | SequenceAction::CommitOnly
+            );
+
+            if is_commit {
                 if flags == uuid::Flags::ACK_TXN {
                     // This ACK is (binding, journal)-scoped: it commits only
                     // this producer's documents in this binding's read of this journal.
@@ -603,10 +647,14 @@ impl SliceActor {
                 self.flush.set_ready();
             }
 
+            // Reset bbox on commit so the next transaction starts fresh.
+            let mut producer_state = sequenced.producer_state;
+            if is_commit {
+                producer_state.bbox = BoundingBox::EMPTY;
+            }
+
             // Step producer state forward to reflect the enqueue.
-            _ = read_state
-                .pending
-                .insert(producer, sequenced.producer_state);
+            _ = read_state.pending.insert(producer, producer_state);
 
             // Advance doc_tail and meta_tail in lock-step (guaranteed equal length).
             match (doc_tail.next(), meta_tail.next()) {
@@ -682,9 +730,9 @@ impl SliceActor {
         Ok(())
     }
 
-    /// Try to send Enqueue requests to target queue channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_queue_request_enqueue_tx(
+    /// Try to send Enqueue requests for a document to target queue channels (all-or-nothing).
+    /// Returns `Ok((key_hash, r_clock))` on success, or `Err(tx)` with the sender that lacked capacity.
+    fn try_queue_request_enqueue_doc_tx(
         binding: &crate::Binding,
         buffers: &mut Buffers,
         journal: &str,
@@ -692,7 +740,7 @@ impl SliceActor {
         queue_prev_journal: &mut [String],
         queue_request_tx: &[mpsc::Sender<shuffle::QueueRequest>],
         ready_read: &ReadyRead,
-    ) -> Result<(), mpsc::Sender<shuffle::QueueRequest>> {
+    ) -> Result<(u32, u32), mpsc::Sender<shuffle::QueueRequest>> {
         let Buffers {
             packed_key,
             permits,
@@ -705,6 +753,7 @@ impl SliceActor {
                 Meta {
                     begin_offset,
                     clock,
+                    flags,
                     producer,
                     ..
                 },
@@ -783,6 +832,102 @@ impl SliceActor {
                     packed_key: packed_key.clone(),
                     doc_archived: doc.bytes().clone(),
                     valid: ready_read.meta.is_schema_valid(),
+                    flags: flags.0 as u32,
+                }),
+                ..Default::default()
+            });
+        }
+
+        Ok((key_hash, r_clock))
+    }
+
+    /// Try to send ACK_TXN Enqueue requests to queue members overlapping the
+    /// producer's bounding box (all-or-nothing).
+    /// Returns `Err(tx)` with the sender that lacked capacity.
+    fn try_queue_request_enqueue_ack_tx(
+        binding: &crate::Binding,
+        buffers: &mut Buffers,
+        journal: &str,
+        members: &[shuffle::Member],
+        queue_prev_journal: &mut [String],
+        queue_request_tx: &[mpsc::Sender<shuffle::QueueRequest>],
+        bbox: &BoundingBox,
+        ready_read: &ReadyRead,
+    ) -> Result<(), mpsc::Sender<shuffle::QueueRequest>> {
+        let Buffers {
+            permits, targets, ..
+        } = buffers;
+
+        let ReadyRead {
+            meta:
+                Meta {
+                    begin_offset,
+                    clock,
+                    flags,
+                    producer,
+                    ..
+                },
+            ..
+        } = ready_read;
+
+        targets.clear();
+        targets.extend(routing::route_to_members_by_bbox(
+            bbox,
+            binding.filter_r_clocks,
+            members,
+        ));
+
+        tracing::trace!(
+            %journal,
+            binding = binding.state_key(),
+            ?producer,
+            ?clock,
+            begin_offset,
+            ?bbox,
+            ?targets,
+            "enqueuing ACK to members by bbox"
+        );
+
+        // Safety: `permits` is always cleared prior to return (retaining only capacity).
+        let permits: &mut Vec<_> =
+            unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
+
+        // All-or-nothing: reserve permits for every target channel.
+        for &target in targets.iter() {
+            let Ok(permit) = queue_request_tx[target].try_reserve() else {
+                permits.clear();
+                return Err(queue_request_tx[target].clone());
+            };
+            permits.push(permit);
+        }
+
+        for (&target, permit) in targets.iter().zip(permits.drain(..)) {
+            let prev_journal = &mut queue_prev_journal[target];
+
+            let (journal_name_truncate_delta, journal_name_suffix) =
+                gazette::delta::encode(prev_journal, journal);
+            let journal_name_suffix = journal_name_suffix.to_string();
+
+            gazette::delta::decode(
+                &mut queue_prev_journal[target],
+                journal_name_truncate_delta,
+                &journal_name_suffix,
+            );
+
+            permit.send(shuffle::QueueRequest {
+                enqueue: Some(shuffle::queue_request::Enqueue {
+                    journal_name_truncate_delta,
+                    journal_name_suffix,
+                    binding: binding.index,
+                    priority: binding.priority,
+                    read_delay: binding.read_delay.as_u64(),
+                    begin_offset: *begin_offset,
+                    producer: producer.as_i64(),
+                    clock: clock.as_u64(),
+                    packed_key: bytes::Bytes::new(),
+                    doc_archived: bytes::Bytes::new(),
+                    valid: false,
+                    flags: flags.0 as u32,
                 }),
                 ..Default::default()
             });

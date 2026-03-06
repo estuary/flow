@@ -345,10 +345,10 @@ pub mod queue_request {
         /// Publication clock of the document, extracted from its UUID.
         #[prost(fixed64, tag = "8")]
         pub clock: u64,
-        /// Packed shuffle key of the document.
+        /// Packed shuffle key of the document. Empty if this is an ACK.
         #[prost(bytes = "bytes", tag = "9")]
         pub packed_key: ::prost::bytes::Bytes,
-        /// Document content as transcoded ArchivedNode bytes.
+        /// Document content as transcoded ArchivedNode bytes. Empty if ACK.
         #[prost(bytes = "bytes", tag = "10")]
         pub doc_archived: ::prost::bytes::Bytes,
         /// Whether the document passed schema validation.
