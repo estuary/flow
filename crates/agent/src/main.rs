@@ -1,3 +1,4 @@
+#![recursion_limit = "256"] // Rust 1.94 fails to compile agent without this
 // Links in the allocator crate, which sets the global allocator to jemalloc
 extern crate allocator;
 
