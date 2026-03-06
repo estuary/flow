@@ -9,6 +9,7 @@ mod alerts;
 mod data_planes;
 pub(crate) use data_planes::parse_data_plane_name;
 pub mod id;
+mod invite_links;
 mod live_spec_refs;
 mod live_specs;
 mod prefixes;
@@ -41,6 +42,7 @@ pub struct QueryRoot(
 pub struct MutationRoot(
     storage_mappings::StorageMappingsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
+    invite_links::InviteLinksMutation,
 );
 
 pub fn create_schema() -> GraphQLSchema {
