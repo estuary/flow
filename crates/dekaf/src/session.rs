@@ -64,6 +64,8 @@ pub struct Session {
     upstream_auth: KafkaClientAuth,
     // Number of ReadResponses to buffer in PendingReads
     read_buffer_size: usize,
+    // Total byte budget for a Fetch, divided evenly across partitions to cap per-partition reads.
+    combined_partition_fetch_limit: usize,
 }
 
 impl Session {
@@ -73,6 +75,7 @@ impl Session {
         broker_urls: Vec<String>,
         upstream_auth: KafkaClientAuth,
         read_buffer_size: usize,
+        combined_partition_fetch_limit: usize,
     ) -> Self {
         Self {
             app,
@@ -80,6 +83,7 @@ impl Session {
             broker_urls,
             upstream_auth,
             read_buffer_size,
+            combined_partition_fetch_limit,
             reads: HashMap::new(),
             auth: None,
             secret,
@@ -630,6 +634,9 @@ impl Session {
 
         let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
+        let total_partitions: usize = topic_requests.iter().map(|t| t.partitions.len()).sum();
+        let per_partition_limit = self.combined_partition_fetch_limit / total_partitions.max(1);
+
         // Start reads for all partitions which aren't already pending.
         for topic_request in topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
@@ -939,7 +946,8 @@ impl Session {
                                 .await?
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
-                                        partition_request.partition_max_bytes as usize,
+                                        (partition_request.partition_max_bytes as usize)
+                                            .min(per_partition_limit),
                                     ),
                                     timeout,
                                 ),
@@ -1078,6 +1086,15 @@ impl Session {
                     }
                 };
 
+                let batch_bytes = batch.as_ref().map_or(0, |b| b.len());
+                metrics::histogram!(
+                    "dekaf_fetch_partition_bytes",
+                    "topic_name" => key.0.to_string(),
+                    "partition_index" => key.1.to_string(),
+                    "task_name" => task_name.to_string(),
+                )
+                .record(batch_bytes as f64);
+
                 let mut partition_data = PartitionData::default()
                     .with_partition_index(partition_request.partition)
                     // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
@@ -1094,12 +1111,15 @@ impl Session {
                         pending.last_write_head = read.last_write_head;
                         pending.last_accessed = std::time::Instant::now();
                         pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                            propagate_task_forwarder(read.next_batch(
-                                crate::read::ReadTarget::Bytes(
-                                    partition_request.partition_max_bytes as usize,
+                            propagate_task_forwarder(
+                                read.next_batch(
+                                    crate::read::ReadTarget::Bytes(
+                                        (partition_request.partition_max_bytes as usize)
+                                            .min(per_partition_limit),
+                                    ),
+                                    timeout,
                                 ),
-                                timeout,
-                            )),
+                            ),
                         ));
 
                         partition_data = partition_data
