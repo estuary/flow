@@ -74,9 +74,9 @@ so they remain lexically sortable. For example, a set of files may be materializ
 given collection:
 
 ```
-bucket/prefix/path/v0000000000/00000000000000000000.csv
-bucket/prefix/path/v0000000000/00000000000000000001.csv
-bucket/prefix/path/v0000000000/00000000000000000002.csv
+bucket/prefix/path/v0000000000/00000000000000000000.csv.gz
+bucket/prefix/path/v0000000000/00000000000000000001.csv.gz
+bucket/prefix/path/v0000000000/00000000000000000002.csv.gz
 ```
 
 Here the values for **bucket** and **prefix** are from your endpoint configuration. The **path** is
