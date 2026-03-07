@@ -89,6 +89,7 @@ const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 pub fn build_flush_frontier(
     reads: &[super::read::ReadState],
     hints: impl Iterator<Item = ((Box<str>, u32), Vec<(Producer, Clock)>)>,
+    member_count: usize,
 ) -> crate::Frontier {
     // Build JournalFrontier entries from read-derived pending producers.
     let mut by_journal: Vec<(&str, u32, Vec<crate::ProducerFrontier>)> = Vec::new();
@@ -125,6 +126,7 @@ pub fn build_flush_frontier(
                 },
             )
             .collect(),
+        flushed_lsn: vec![0; member_count],
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -162,6 +164,7 @@ pub fn build_flush_frontier(
 
     reads_frontier.reduce(crate::Frontier {
         journals: hint_journals,
+        flushed_lsn: vec![],
     })
 }
 
@@ -291,7 +294,7 @@ mod test {
         let snap = cases
             .into_iter()
             .map(|(name, reads, hints)| {
-                let f = build_flush_frontier(&reads, hints.into_iter());
+                let f = build_flush_frontier(&reads, hints.into_iter(), 3);
                 (name, f)
             })
             .collect::<Vec<_>>();

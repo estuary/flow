@@ -34,7 +34,11 @@ pub struct LogActor {
     /// Ordered heap of references to Some `slice_appends` items.
     pub append_heap: AppendHeap,
     /// Completed flush IOs awaiting send of their Flushed response.
-    pub pending_flushed: Vec<(usize, u64)>,
+    /// Each entry is (member_index, cycle, flushed_lsn).
+    pub pending_flushed: Vec<(usize, u64, i64)>,
+    /// Monotonically increasing write-head position (placeholder: total bytes "appended").
+    /// Reported as `flushed_lsn` in each Flushed response.
+    pub write_head: i64,
 }
 
 impl LogActor {
@@ -90,9 +94,9 @@ impl LogActor {
 
                 // Second priority: complete a pending IO, queuing the Flushed for send.
                 Some(result) = pending_io.next() => {
-                    let (member_index, cycle) = result?;
-                    tracing::debug!(member_index, cycle, "flush IO completed");
-                    self.pending_flushed.push((member_index, cycle));
+                    let (member_index, cycle, flushed_lsn) = result?;
+                    tracing::debug!(member_index, cycle, flushed_lsn, "flush IO completed");
+                    self.pending_flushed.push((member_index, cycle, flushed_lsn));
                 }
 
                 // Third priority: wake when a blocked log_response_tx has capacity.
@@ -124,7 +128,7 @@ impl LogActor {
 
         // This loop may head-of-line block if we're unable to send a LIFO Flushed.
         // We accept this property for implementation simplicity.
-        while let Some(&(member_index, cycle)) = self.pending_flushed.last() {
+        while let Some(&(member_index, cycle, flushed_lsn)) = self.pending_flushed.last() {
             let tx = &self.log_response_tx[member_index];
 
             let Ok(permit) = tx.try_reserve() else {
@@ -133,10 +137,15 @@ impl LogActor {
             self.pending_flushed.pop();
 
             permit.send(Ok(shuffle::LogResponse {
-                flushed: Some(shuffle::log_response::Flushed { cycle }),
+                flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
                 ..Default::default()
             }));
-            tracing::debug!(member_index, cycle, "sent Flushed response to Slice");
+            tracing::debug!(
+                member_index,
+                cycle,
+                flushed_lsn,
+                "sent Flushed response to Slice"
+            );
         }
 
         Ok(idle)
@@ -155,7 +164,7 @@ impl LogActor {
     ) -> anyhow::Result<
         Option<(
             SliceRx,
-            impl Future<Output = anyhow::Result<(usize, u64)>> + 'static,
+            impl Future<Output = anyhow::Result<(usize, u64, i64)>> + 'static,
         )>,
     > {
         let Some(log_request) = log_request else {
@@ -219,15 +228,21 @@ impl LogActor {
         &mut self,
         flush: shuffle::log_request::Flush,
         member_index: usize,
-    ) -> impl Future<Output = anyhow::Result<(usize, u64)>> + 'static {
+    ) -> impl Future<Output = anyhow::Result<(usize, u64, i64)>> + 'static {
         let shuffle::log_request::Flush { cycle } = flush;
+        let flushed_lsn = self.write_head;
 
-        tracing::debug!(member_index, cycle, "received Flush from Slice");
+        tracing::debug!(
+            member_index,
+            cycle,
+            flushed_lsn,
+            "received Flush from Slice"
+        );
 
         // Emulate disk IO latency.
         async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            Ok((member_index, cycle))
+            Ok((member_index, cycle, flushed_lsn))
         }
     }
 
@@ -241,6 +256,8 @@ impl LogActor {
         let (append, rx) = self.slice_appends[member_index]
             .take()
             .expect("slice_appends must be Some for a heap entry");
+
+        self.write_head += append.doc_archived.len() as i64;
 
         gazette::delta::decode(
             &mut self.slice_prev_journal[member_index],

@@ -29,4 +29,5 @@ Frontier {
             ],
         },
     ],
+    flushed_lsn: [],
 }

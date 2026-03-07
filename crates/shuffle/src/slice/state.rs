@@ -84,12 +84,14 @@ impl FlushState {
     }
 
     /// Record a Flushed response from a log member.
-    /// Returns the completed frontier when all members have flushed.
-    pub fn on_flushed(&mut self, member_index: usize) -> Option<crate::Frontier> {
+    /// Returns the completed frontier (with per-member flushed LSNs) when all
+    /// members have flushed.
+    pub fn on_flushed(&mut self, member_index: usize, flushed_lsn: i64) -> Option<crate::Frontier> {
         let Some(in_flight) = self.in_flight.get_mut(member_index) else {
             return None;
         };
         *in_flight = false;
+        self.flushing.flushed_lsn[member_index] = flushed_lsn;
 
         if self.in_flight.iter().any(|pending| *pending) {
             return None;
@@ -716,7 +718,8 @@ mod test {
         s.commit(0, p3, seq);
 
         // Build frontier and start flush with 3 members.
-        let frontier = super::super::producer::build_flush_frontier(&s.reads, std::iter::empty());
+        let frontier =
+            super::super::producer::build_flush_frontier(&s.reads, std::iter::empty(), 3);
         for read in s.reads.iter_mut() {
             read.settled.extend(read.pending.drain());
         }
@@ -728,12 +731,18 @@ mod test {
         assert!(s.reads[0].pending.is_empty(), "pending drained to settled");
 
         // Partial flushed: still in flight.
-        assert!(s.flush.on_flushed(0).is_none(), "still in flight after 1/3");
-        assert!(s.flush.on_flushed(2).is_none(), "still in flight after 2/3");
+        assert!(
+            s.flush.on_flushed(0, 100).is_none(),
+            "still in flight after 1/3"
+        );
+        assert!(
+            s.flush.on_flushed(2, 300).is_none(),
+            "still in flight after 2/3"
+        );
 
         // All flushed: returns completed frontier. Cycle advances so that
         // a duplicate Flushed with the old cycle is rejected as a protocol violation.
-        let completed = s.flush.on_flushed(1).expect("all flushed");
+        let completed = s.flush.on_flushed(1, 200).expect("all flushed");
         assert_eq!(
             s.flush.cycle, 2,
             "cycle incremented after all members flushed"
@@ -768,6 +777,7 @@ mod test {
                     offset: -500,
                 }],
             }],
+            flushed_lsn: vec![],
         };
 
         // Request + flushed → Some(frontier), both cleared.

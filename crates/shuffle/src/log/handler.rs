@@ -118,6 +118,7 @@ where
         slice_prev_journal: vec![String::new(); member_count],
         slice_appends: std::iter::repeat_with(|| None).take(member_count).collect(),
         pending_flushed: Vec::new(),
+        write_head: 0,
         log_response_tx,
     }
     .serve(log_request_rx)

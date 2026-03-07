@@ -79,6 +79,10 @@ message JournalFrontier {
 // A final empty chunk (empty `journals`) represents end-of-sequence.
 message FrontierChunk {
   repeated JournalFrontier journals = 1;
+  // Per-member flushed LSN, indexed by member_index.
+  // Populated only on the terminal (empty-journals) chunk of a
+  // Progressed or NextCheckpoint sequence. Empty otherwise.
+  repeated int64 flushed_lsn = 2;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.
@@ -296,6 +300,10 @@ message LogResponse {
   message Flushed {
     // Cycle number from the corresponding Flush request.
     uint64 cycle = 1;
+    // Log head position after all preceding appends are durable.
+    // The consumer must read through this LSN to observe all
+    // documents appended before this flush.
+    int64 flushed_lsn = 2;
   }
   Flushed flushed = 2;
 }

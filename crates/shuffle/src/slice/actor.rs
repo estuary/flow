@@ -477,10 +477,10 @@ impl SliceActor {
 
         match log_response {
             shuffle::LogResponse {
-                flushed: Some(shuffle::log_response::Flushed { cycle }),
+                flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
                 ..
             } if cycle == self.flush.cycle => {
-                if let Some(completed) = self.flush.on_flushed(member_index) {
+                if let Some(completed) = self.flush.on_flushed(member_index, flushed_lsn) {
                     self.progress.on_flush_completed(completed);
                 }
                 Ok(())
@@ -658,9 +658,13 @@ impl SliceActor {
         }
 
         // Build the frontier from pending producers and causal hints,
-        // and drain pending→settled.
-        let frontier =
-            super::producer::build_flush_frontier(&self.reads, self.causal_hints.drain());
+        // and then drain pending→settled.
+        let frontier = super::producer::build_flush_frontier(
+            &self.reads,
+            self.causal_hints.drain(),
+            self.topology.members.len(),
+        );
+
         for read in self.reads.iter_mut() {
             read.settled.extend(read.pending.drain());
         }

@@ -96,8 +96,8 @@ where
             request => return Err(verify.fail(request)),
         };
     }
-    let resume_checkpoint =
-        crate::Frontier::new(resume_checkpoint).context("validating resume_checkpoint frontier")?;
+    let resume_checkpoint = crate::Frontier::new(resume_checkpoint, Vec::new())
+        .context("validating resume_checkpoint frontier")?;
 
     // Send Start to all Slices.
     // Non-blocking capacity: first message of `slice_request_tx`.

@@ -55,12 +55,17 @@ PipelineSnapshot {
                 ],
             },
         ],
+        flushed_lsn: [
+            3000,
+        ],
     },
     unresolved: Frontier {
         journals: [],
+        flushed_lsn: [],
     },
     unresolved_count: 0,
     progressed: Frontier {
         journals: [],
+        flushed_lsn: [],
     },
 }
