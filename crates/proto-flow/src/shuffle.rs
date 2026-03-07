@@ -135,7 +135,7 @@ pub mod session_request {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Unique identifier for this session instance.
-        /// Used to correlate Slice and Queue RPCs, and to name queue files.
+        /// Used to correlate Slice and Log RPCs, and to name log files.
         #[prost(fixed64, tag = "1")]
         pub session_id: u64,
         /// Task for which we're performing shuffles.
@@ -191,7 +191,7 @@ pub struct SliceRequest {
 /// Nested message and enum types in `SliceRequest`.
 pub mod slice_request {
     /// Open initiates the Slice.
-    /// The Slice opens Queue RPCs to all members before responding Opened.
+    /// The Slice opens Log RPCs to all members before responding Opened.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Session ID from SessionRequest.Open.
@@ -251,7 +251,7 @@ pub struct SliceResponse {
     pub opened: ::core::option::Option<slice_response::Opened>,
     #[prost(message, optional, tag = "2")]
     pub listing_added: ::core::option::Option<slice_response::ListingAdded>,
-    /// Progressed reports the frontier of queue progress since the last Progressed.
+    /// Progressed reports the frontier of log progress since the last Progressed.
     /// It's sent in response to a Request.Progress, and only once at least one
     /// flush cycle has completed since the prior Progressed.
     #[prost(message, optional, tag = "3")]
@@ -260,7 +260,7 @@ pub struct SliceResponse {
 /// Nested message and enum types in `SliceResponse`.
 pub mod slice_response {
     /// Opened confirms the Slice is ready.
-    /// Sent after all Queue RPCs have responded Opened.
+    /// Sent after all Log RPCs have responded Opened.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -282,25 +282,25 @@ pub mod slice_response {
         pub route: ::core::option::Option<::proto_gazette::broker::Route>,
     }
 }
-/// QueueRequest is sent by Slices to each member's Queue.
+/// LogRequest is sent by Slices to each member's Log.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct QueueRequest {
+pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
-    pub open: ::core::option::Option<queue_request::Open>,
+    pub open: ::core::option::Option<log_request::Open>,
     #[prost(message, optional, tag = "2")]
-    pub enqueue: ::core::option::Option<queue_request::Enqueue>,
+    pub append: ::core::option::Option<log_request::Append>,
     #[prost(message, optional, tag = "3")]
-    pub flush: ::core::option::Option<queue_request::Flush>,
+    pub flush: ::core::option::Option<log_request::Flush>,
 }
-/// Nested message and enum types in `QueueRequest`.
-pub mod queue_request {
-    /// Open initiates the Queue RPC.
-    /// Multiple Slices open Queue RPCs to the same member, and the Queue
+/// Nested message and enum types in `LogRequest`.
+pub mod log_request {
+    /// Open initiates the Log RPC.
+    /// Multiple Slices open Log RPCs to the same member, and the Log
     /// task joins these streams and processes documents in merged order.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Session ID for correlating streams from the same session.
-        /// Combined with member_index to deterministically name the queue file.
+        /// Combined with member_index to deterministically name the log file.
         #[prost(fixed64, tag = "1")]
         pub session_id: u64,
         /// Members participating in this shuffle session.
@@ -310,14 +310,14 @@ pub mod queue_request {
         /// Index of the source Slice member within the session's member list.
         #[prost(uint32, tag = "3")]
         pub slice_member_index: u32,
-        /// Index of the target Queue member within the session's member list.
+        /// Index of the target Log member within the session's member list.
         #[prost(uint32, tag = "4")]
-        pub queue_member_index: u32,
+        pub log_member_index: u32,
     }
-    /// Enqueue sends a document to be written to the queue.
-    /// The Queue merges across Slice streams, ordering by (priority, clock).
+    /// Append sends a document to be written to the log.
+    /// The Log actor merges across Slice streams, ordering by (priority, clock).
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Enqueue {
+    pub struct Append {
         /// Number of bytes to truncate from the preceding name.
         /// Must align with a UTF-8 code point boundary.
         #[prost(int32, tag = "1")]
@@ -332,7 +332,7 @@ pub mod queue_request {
         #[prost(uint32, tag = "4")]
         pub priority: u32,
         /// Read delay of the binding, as a uuid::Clock duration.
-        /// Queue computes adjusted_clock = clock + read_delay for merge ordering.
+        /// The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
         /// Zero (the common case) means no delay.
         #[prost(uint64, tag = "5")]
         pub read_delay: u64,
@@ -358,33 +358,33 @@ pub mod queue_request {
     /// Flush requests a durability barrier.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flush {
-        /// Sequence number for correlating Flush with Flushed response.
+        /// Cycle number for correlating Flush with Flushed response.
         /// Allows pipelining if we later want multiple in-flight flushes.
         #[prost(uint64, tag = "1")]
-        pub seq: u64,
+        pub cycle: u64,
     }
 }
-/// QueueResponse is sent by the Queue back to each Slice.
+/// LogResponse is sent by the Log actor back to each Slice.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct QueueResponse {
+pub struct LogResponse {
     #[prost(message, optional, tag = "1")]
-    pub opened: ::core::option::Option<queue_response::Opened>,
+    pub opened: ::core::option::Option<log_response::Opened>,
     #[prost(message, optional, tag = "2")]
-    pub flushed: ::core::option::Option<queue_response::Flushed>,
+    pub flushed: ::core::option::Option<log_response::Flushed>,
 }
-/// Nested message and enum types in `QueueResponse`.
-pub mod queue_response {
-    /// Opened confirms the Queue is ready to receive documents.
-    /// Sent after the Queue has joined over the member's queue file.
+/// Nested message and enum types in `LogResponse`.
+pub mod log_response {
+    /// Opened confirms the Log is ready to receive documents.
+    /// Sent after this Log RPC has joined over the member's single session Log actor.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
     /// Flushed confirms all preceding documents are visible for dequeue.
-    /// Only after receiving Flushed from ALL Queues can a Slice safely
+    /// Only after receiving Flushed from ALL Log RPCs can a Slice safely
     /// report ProgressDelta to the Session.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flushed {
-        /// Sequence number from the corresponding Flush request.
+        /// Cycle number from the corresponding Flush request.
         #[prost(uint64, tag = "1")]
-        pub seq: u64,
+        pub cycle: u64,
     }
 }

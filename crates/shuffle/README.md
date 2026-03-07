@@ -1,22 +1,24 @@
 # Shuffle
 
-Shuffle coordinates reading documents from Gazette journals across
-distributed task shards, routing each document to the correct shard
-based on its shuffle key, and delivering documents in globally-ordered
-queues for downstream processing.
+Shuffle coordinates reading documents from Gazette journals across distributed
+task members, routing read documents to correct members based on a document key,
+merging documents into processing-order logs hosted at each task member,
+and reporting available transactional progress back upwards to an external coordinator.
 
-It serves derivation transforms, materialization bindings,
-and ad-hoc collection reads. In each case, the problem is the same:
-source collection journals are partitioned across brokers, but the
-task processing those documents is sharded by a (potentially different)
-key. Shuffle bridges that gap.
+Then, once each task member is told by the coordinator of a specific checkpoint to
+process (through a messaging mechanism which is NOT part of this crate),
+members are able to efficiently identify and extract transaction-visible documents
+already available in their local log, as part of processing a distributed transaction.
+
+Shuffles serve derivation transforms, materialization bindings,
+and ad-hoc collection reads.
 
 ## Architecture
 
 The system is built from three layered gRPC RPCs, defined in
 `go/protocols/shuffle/shuffle.proto`, each implemented as an async actor
 and forming a hierarchy. For M members, the system uses M Slice
-streams and M² Queue streams (each Slice opens one Queue to every member):
+streams and M² Log streams (each Slice opens one Log RPC to every member):
 
 ```
 Coordinator (external caller, typically runs on shard-000)
@@ -24,15 +26,15 @@ Coordinator (external caller, typically runs on shard-000)
    ▼
   Session (one per task)
      |
-     ├─▶ Slice 0 ─┬─▶  Queue 0  (in-process)
-     │            ├─▶  Queue 1  (remote)
-     │            └─▶  Queue 2  (remote)
-     ├─▶ Slice 1 ─┬─▶  Queue 0  (remote)
-     │            ├─▶  Queue 1  (in-process)
-     │            └─▶  Queue 2  (remote)
-     └─▶ Slice 2 ─┬─▶  Queue 0  (remote)
-                  ├─▶  Queue 1  (remote)
-                  └─▶  Queue 2  (in-process)
+     ├─▶ Slice 0 ─┬─▶  Log 0  (in-process)
+     │            ├─▶  Log 1  (remote)
+     │            └─▶  Log 2  (remote)
+     ├─▶ Slice 1 ─┬─▶  Log 0  (remote)
+     │            ├─▶  Log 1  (in-process)
+     │            └─▶  Log 2  (remote)
+     └─▶ Slice 2 ─┬─▶  Log 0  (remote)
+                  ├─▶  Log 1  (remote)
+                  └─▶  Log 2  (in-process)
 ```
 
 **Session** (`session/`): Top-level coordinator-facing RPC. Opened by the
@@ -43,15 +45,15 @@ and aggregates progress into checkpoints.
 **Slice** (`slice/`): Per-member RPC opened by the Session. Each Slice
 watches journal listings for its assigned bindings, reads documents from
 journals, sequences them, validates them, extracts shuffle keys, and routes
-documents to the appropriate Queue(s) based on key hash.
+documents to the appropriate Log RPC(s) based on key hash.
 
-**Queue** (`queue/`): Per-member RPC opened by each Slice. All Slices
-targeting the same member join into a single QueueActor, which merges
+**Log** (`log/`): Per-member RPC opened by each Slice. All Slices
+targeting the same member join into a single LogActor, which merges
 documents across Slices in (priority DESC, adjusted_clock ASC) order
-and writes them to local on-disk queue storage.
+and writes them to local on-disk storage.
 
 Once started, the distributed shuffle runs continuously to read journals,
-transcode documents, map them to members, and write them into on-disk Queues.
+transcode documents, map them to members, and write them into on-disk log segments.
 At the same time progress frontiers are reported upwards and aggregated at the
 Session, which seeks to maintain a frequently-updated checkpoint of progress
 available right now.
@@ -59,17 +61,17 @@ available right now.
 The Coordinator, an external application using a shuffled read, will then choose
 its own cadence for polling the Session to fetch the next ready checkpoint.
 It distributes the checkpoint amongst its member workers, and each consumes
-from their local Queue for downstream processing and reclaims space.
+from its local log for downstream processing and reclaims space.
 
 The recovery model is fail-fast: if a terminal error occurs with a component of
-any member, the entire topology is torn down and all Queues are discarded,
+any member, the entire topology is torn down and all logs are discarded,
 to be rebuilt anew on a next Session.
 
 ### Concepts
 
 **Member Topology**: A session has N **members**, each owning a disjoint range of the 2D
 (key_hash, r_clock) space. Members tile the full `[0, 0xFFFFFFFF]` range
-in both dimensions. Each member runs one Slice actor and one Queue actor.
+in both dimensions. Each member runs one Slice RPC actor and one Log RPC actor.
 
 **Causal Hints**: ACKs are documents written to journals by a producer, and contain
 a clock that acknowledges or rolls back preceding lesser-clock documents from that
@@ -101,14 +103,14 @@ committed data on startup if producers have long-running uncommitted transaction
 **Per-shard RPCs → shared streams**: The legacy system starts an RPC per
 (shard, journal) pair, which doesn't scale: at M=10 shards with N=100k
 journals, that's up to M×N = 1M concurrent RPCs, and each ACK is broadcast
-to every shard. This implementation uses M + M² streams total (M Slice + M²
-Queue), independent of journal count. At M=10 with N=100k, that's 110 streams
+to every shard. This implementation uses M + M² streams total (M Slice RPCs + M²
+Log RPCs), independent of journal count. At M=10 with N=100k, that's 110 streams
 instead of 1M. Listing watches are also distributed across members (each
 watches ~B/M bindings) rather than duplicated on every shard.
 
-**In-memory staging → disk-backed queues**: The legacy system holds shuffled
+**In-memory staging → disk-backed logs**: The legacy system holds shuffled
 documents in memory buffers, limiting how far reads can progress ahead of
-downstream processing. This implementation writes to on-disk queue files,
+downstream processing. This implementation writes to on-disk log files,
 allowing reads to run well ahead without memory pressure.
 
 **Independent checkpoints → coordinated checkpoints**: The legacy system
@@ -117,10 +119,11 @@ This implementation produces coordinated `NextCheckpoint` deltas that
 represent data available across all shards, enabling coordinated multi-shard
 transactions with idempotent recovery.
 
-## End-to-End Walkthrough
+## Linear Walkthrough
 
-What follows is a linear trace of a document's journey through the
-shuffle system, from journal to enqueued output.
+What follows is a trace of a document's journey through the
+shuffle system, from reading journals to appending to local member log,
+and back upwards through progress reporting.
 
 ### 1. Session Open
 
@@ -147,7 +150,7 @@ the Slice sends a `ListingAdded` response to the Session.
 
 The Session receives `ListingAdded` and routes the journal to a member.
 This routing is designed to minimize data movement by maximizing the likelihood
-that the selected member will *also* be responsible queuing a journal document.
+that the selected member will *also* be responsible for storing the document in its local log.
 Exact routing depends on the binding's shuffle configuration:
 
 - **Partition-field routing**: If the shuffle key is fully covered by
@@ -194,37 +197,37 @@ cross-transform ordering guarantees.
 The top document is sequenced against per-producer state using
 `uuid::sequence()`, which classifies it as one of:
 
-- **ContinueBeginSpan / ContinueExtendSpan**: Part of an uncommitted
-  transaction. Enqueued, no flush triggered.
-- **OutsideCommit**: A single-document transaction. Enqueued and
-  triggers a flush.
-- **AckCommit / AckCleanRollback / AckDeepRollback**: Transaction
-  boundary. Not enqueued, but triggers a flush. For ACK_TXN documents,
-  causal hints are extracted.
+- **ContinueBeginSpan / ContinueExtendSpan**: Part of an uncommitted transaction.
+  Appended to a log, and no flush cycle is triggered.
+- **OutsideCommit**: A single-document transaction.
+  Appended to a log and triggers a flush.
+- **AckCommit / AckCleanRollback / AckDeepRollback**: Transaction boundary.
+  Not appended to a log, but triggers a flush.
+  For ACK_TXN documents, causal hints are extracted.
 - **Duplicates**: Already-seen documents. Silently dropped.
 
-`notBefore` / `notAfter` bounds suppress enqueue but not flush/progress.
+`notBefore` / `notAfter` bounds suppress log appends but not flush cycles and progress reporting.
 
-### 7. Key Extraction and Enqueue Routing
+### 7. Key Extraction and Append Routing
 
-For enqueued documents, the Slice extracts the packed shuffle key,
-computes its hash, and routes to target Queue member(s) using
+For Appended documents, the Slice extracts the packed shuffle key,
+computes its hash, and routes to target Log member(s) using
 `route_to_members()`. For read-only derivation transforms,
 `filter_r_clocks` additionally filters by the rotated clock value,
 distributing reads across members in the r_clock dimension.
 
 The document, its packed key, metadata, and journal context are sent
-as an `Enqueue` message to each target Queue. Journal names are
+as an `Append` message to each target Log. Journal names are
 delta-encoded across consecutive sends to minimize wire overhead.
 
-### 8. Queue Merge and Output
+### 8. Log Merge and Output
 
-Each QueueActor receives Enqueue messages from all Slices. Received
-enqueues are placed in a min-heap ordered by (priority DESC,
+Each LogActor receives Append messages from all Slices. Received
+appends are placed in a min-heap ordered by (priority DESC,
 adjusted_clock ASC). The actor pops entries one at a time, writing
-documents to its on-disk queue file in globally-merged order.
+documents to its on-disk log files in a globally-merged order.
 
-Back-pressure is enforced through HTTP/2 flow control: when the Queue
+Back-pressure is enforced through HTTP/2 flow control: when the Log actor
 can't drain fast enough, Slice sends block, which blocks journal reads,
 creating system-wide priority enforcement. High-priority, earlier-clock
 documents flow through first.
@@ -237,9 +240,9 @@ in-flight), the Slice:
 
 1. Builds a `Frontier` from pending producer state and accumulated
    causal hints, then drains pending into settled.
-2. Sends `Flush { seq }` to all Queue members.
-3. Each Queue performs its durability IO and responds `Flushed { seq }`.
-4. When all Queues respond, the flush cycle completes and the frontier
+2. Sends `Flush { cycle }` to all Log members.
+3. Each Log performs its durability IO and responds `Flushed { cycle }`.
+4. When all Logs respond, the flush cycle completes and the frontier
    is reduced into the Slice's accumulated progress.
 
 Flush and progress reporting are deliberately decoupled for latency
@@ -278,7 +281,7 @@ checkpoint is exactly the hinted frontier and no more (or less).
 ### 12. Coordinator Receives Checkpoint
 
 The coordinator receives `NextCheckpoint` chunks, reassembles the
-frontier, and processes the transaction: dequeuing documents from Queue
+frontier, and processes the transaction: reading documents from Log
 files up to each producer's `last_commit` clock. After completing
 downstream processing, it merges the delta into its base checkpoint and
 requests the next one.
@@ -297,20 +300,20 @@ requests the next one.
   providing structured open/next_checkpoint/close methods.
 
 - `Service` (`service.rs`): gRPC service implementation that spawns
-  Session, Slice, and Queue actors.
+  Session, Slice, and Log actors.
 
 ## Modules
 
 - `session/`: Session actor, checkpoint pipeline, journal routing.
 - `slice/`: Slice actor, journal reading, document sequencing, key
-  extraction, Enqueue routing, flush/progress state machines.
+  extraction, Append routing, flush/progress state machines.
   - `listing.rs`: Gazette journal listing subscriber.
   - `producer.rs`: Per-producer state tracking and flush frontier
     construction.
   - `read.rs`: ReadState, document metadata extraction, journal probing.
   - `routing.rs`: Clock rotation and member routing.
   - `heap.rs`: Priority heap for ready reads.
-- `queue/`: Queue actor, enqueue merge heap, flush IO.
+- `log/`: Log actor, append merge heap, flush IO.
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
 - `binding.rs`: Binding configuration, partition filtering.

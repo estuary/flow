@@ -1,5 +1,5 @@
 /// Integration tests for the shuffle crate, exercising the full
-/// Session→Slice→Queue pipeline against real published documents.
+/// Session→Slice→Log pipeline against real published documents.
 ///
 /// The fixture defines three collections (apples, bananas, cherries) shared
 /// between a capture and a materialization. Tests build the shuffle task from
@@ -146,7 +146,7 @@ async fn shuffle_scenarios() {
         .await
         .expect("DataPlane start");
 
-    // Start a shuffle gRPC server so that multi-member Slice/Queue RPCs
+    // Start a shuffle gRPC server so that multi-member Slice/Log RPCs
     // can dial back to us.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

@@ -21,23 +21,23 @@ pub struct SliceActor {
     pub reads: Vec<ReadState>,
     /// Causal hints accumulated from consumed ACK documents. Drained during flush.
     pub causal_hints: super::CausalHints,
-    /// State machine for tracking flush cycles with Queue members.
+    /// State machine for tracking flush cycles with Log members.
     pub flush: FlushState,
     /// State machine for tracking progress reporting with the Session.
     pub progress: ProgressState,
     /// Channel for sends to parent Session.
     pub slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
-    /// Channels for sends to member Queue RPCs, indexed by member index.
-    pub queue_request_tx: Vec<mpsc::Sender<shuffle::QueueRequest>>,
-    /// Previous journal name sent to each Queue member, for delta encoding.
-    pub queue_prev_journal: Vec<String>,
+    /// Channels for sends to member Log RPCs, indexed by member index.
+    pub log_request_tx: Vec<mpsc::Sender<shuffle::LogRequest>>,
+    /// Previous journal name sent to each Log member, for delta encoding.
+    pub log_prev_journal: Vec<String>,
     /// Pending Journal write-head probes for newly started reads.
     pub pending_probes:
         stream::FuturesUnordered<future::BoxFuture<'static, anyhow::Result<super::ReadLines>>>,
     /// Reads that are awaiting more data from Gazette brokers.
     pub pending_reads: stream::FuturesUnordered<stream::StreamFuture<super::ReadLines>>,
     /// Number of pending reads that are caught up to their journal write head.
-    /// We defer sending Enqueue requests until all pending reads are tailing,
+    /// We defer sending Append requests until all pending reads are tailing,
     /// ensuring no pending read has content that could preempt the current heap top.
     pub tailing_reads: usize,
     /// Shard parser for transcoding documents from LinesBatch.
@@ -51,7 +51,7 @@ pub struct SliceActor {
 struct Buffers {
     packed_key: bytes::BytesMut,
     targets: Vec<usize>,
-    permits: Vec<mpsc::Permit<'static, shuffle::QueueRequest>>,
+    permits: Vec<mpsc::Permit<'static, shuffle::LogRequest>>,
 }
 
 impl SliceActor {
@@ -67,7 +67,7 @@ impl SliceActor {
     pub async fn serve<R>(
         mut self,
         mut slice_request_rx: R,
-        queue_response_rx: Vec<stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>>,
+        log_response_rx: Vec<stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>>,
     ) -> anyhow::Result<()>
     where
         R: futures::Stream<Item = tonic::Result<shuffle::SliceRequest>> + Send + Unpin + 'static,
@@ -75,11 +75,11 @@ impl SliceActor {
         let cancel = tokens::CancellationToken::new();
         let _drop_guard = cancel.clone().drop_guard();
 
-        // Build a Stream over receive Futures for every Queue RPC.
-        let mut queue_response_rx: stream::FuturesUnordered<_> = queue_response_rx
+        // Build a Stream over receive Futures for every Log RPC.
+        let mut log_response_rx: stream::FuturesUnordered<_> = log_response_rx
             .into_iter()
             .enumerate()
-            .map(next_queue_rx)
+            .map(next_log_rx)
             .collect();
 
         // Await Start from the Session RPC.
@@ -128,7 +128,7 @@ impl SliceActor {
                 "SliceActor::serve iteration"
             );
             // First, attempt non-blocking sends.
-            let wake_queue_request_tx = self.try_queue_request_tx(&mut buffers, &mut now)?;
+            let wake_log_request_tx = self.try_log_request_tx(&mut buffers, &mut now)?;
             let wake_slice_response_tx = self.try_slice_response_tx()?;
 
             // Then, wait for a blocking future to resolve.
@@ -143,20 +143,20 @@ impl SliceActor {
                             tracing::debug!(
                                 loop_count,
                                 total_reads = self.reads.len(),
-                                flush_seq = self.flush.seq,
+                                flush_cycle = self.flush.cycle,
                                 "SliceActor::serve exiting on Session EOF"
                             );
                             break Ok(());
                         }
                     }
                 }
-                Some((member_index, queue_response, rx)) = queue_response_rx.next() => {
-                    self.on_queue_response(member_index, queue_response)?;
-                    queue_response_rx.push(next_queue_rx((member_index, rx)));
+                Some((member_index, log_response, rx)) = log_response_rx.next() => {
+                    self.on_log_response(member_index, log_response)?;
+                    log_response_rx.push(next_log_rx((member_index, rx)));
                 }
 
                 // Next priority is draining ready-to-send messages.
-                true = wake_queue_request_tx => {}
+                true = wake_log_request_tx => {}
                 true = wake_slice_response_tx => {}
 
                 // Lowest priority is processing journal listings and reads.
@@ -462,24 +462,24 @@ impl SliceActor {
         Ok(())
     }
 
-    fn on_queue_response(
+    fn on_log_response(
         &mut self,
         member_index: usize,
-        queue_response: Option<tonic::Result<shuffle::QueueResponse>>,
+        log_response: Option<tonic::Result<shuffle::LogResponse>>,
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
-            "QueueResponse",
+            "LogResponse",
             "Flushed",
             &self.topology.members[member_index].endpoint,
             member_index,
         );
-        let queue_response = verify.not_eof(queue_response)?;
+        let log_response = verify.not_eof(log_response)?;
 
-        match queue_response {
-            shuffle::QueueResponse {
-                flushed: Some(shuffle::queue_response::Flushed { seq }),
+        match log_response {
+            shuffle::LogResponse {
+                flushed: Some(shuffle::log_response::Flushed { cycle }),
                 ..
-            } if seq == self.flush.seq => {
+            } if cycle == self.flush.cycle => {
                 if let Some(completed) = self.flush.on_flushed(member_index) {
                     self.progress.on_flush_completed(completed);
                 }
@@ -490,7 +490,7 @@ impl SliceActor {
         }
     }
 
-    fn try_queue_request_tx(
+    fn try_log_request_tx(
         &mut self,
         buffers: &mut Buffers,
         now: &mut uuid::Clock,
@@ -502,10 +502,10 @@ impl SliceActor {
         let idle = future::Either::Right(future::Either::Right(std::future::ready(false)));
 
         loop {
-            // A flush cycle takes priority over sending Enqueue requests.
-            // We'll await capacity for Flushes even if the next Enqueue member has capacity.
+            // A flush cycle takes priority over sending Append requests.
+            // We'll await capacity for Flushes even if the next Append member has capacity.
             if self.flush.should_flush() {
-                if let Err(tx) = self.try_queue_request_flush_tx(buffers) {
+                if let Err(tx) = self.try_log_request_flush_tx(buffers) {
                     return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
                 }
             }
@@ -516,7 +516,7 @@ impl SliceActor {
                 return Ok(idle);
             }
 
-            // Do we have a document ready for enqueue?
+            // Do we have a document ready for append?
             let Some(ReadyReadEntry {
                 adjusted_clock,
                 inner: ready_read,
@@ -544,22 +544,22 @@ impl SliceActor {
 
             let sequenced = state::sequence_document(read_state, binding, meta)?;
 
-            // If this is an Enqueue, attempt to send it to the appropriate member(s).
-            if sequenced.is_enqueue {
-                if let Err(tx) = Self::try_queue_request_enqueue_tx(
+            // If this is an Append, attempt to send it to the appropriate member(s).
+            if sequenced.is_append {
+                if let Err(tx) = Self::try_log_request_append_tx(
                     binding,
                     buffers,
                     &read_state.journal,
                     &self.topology.members,
-                    &mut self.queue_prev_journal,
-                    &self.queue_request_tx,
+                    &mut self.log_prev_journal,
+                    &self.log_request_tx,
                     ready_read,
                 ) {
                     return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
                 }
             }
 
-            // Pop the heap entry now that any Enqueue requests have been sent.
+            // Pop the heap entry now that any Append requests have been sent.
             // Crucially: we now cannot fail to consume this document.
             let ReadyReadEntry {
                 priority,
@@ -603,7 +603,7 @@ impl SliceActor {
                 self.flush.set_ready();
             }
 
-            // Step producer state forward to reflect the enqueue.
+            // Step producer state forward to reflect the append.
             _ = read_state
                 .pending
                 .insert(producer, sequenced.producer_state);
@@ -636,20 +636,20 @@ impl SliceActor {
         }
     }
 
-    /// Try to send Flush requests to all queue channels (all-or-nothing).
+    /// Try to send Flush requests to all log channels (all-or-nothing).
     /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_queue_request_flush_tx(
+    fn try_log_request_flush_tx(
         &mut self,
         buffers: &mut Buffers,
-    ) -> Result<(), mpsc::Sender<shuffle::QueueRequest>> {
+    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
         let Buffers { permits, .. } = buffers;
 
         // Safety: `permits` is always empty on return (retaining only capacity).
         let permits: &mut Vec<_> =
             unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
 
-        // Collect permits to send to all queue channels (all-or-nothing).
-        for tx in &self.queue_request_tx {
+        // Collect permits to send to all log channels (all-or-nothing).
+        for tx in &self.log_request_tx {
             let Ok(permit) = tx.try_reserve() else {
                 permits.clear();
                 return Err(tx.clone());
@@ -664,35 +664,35 @@ impl SliceActor {
         for read in self.reads.iter_mut() {
             read.settled.extend(read.pending.drain());
         }
-        let flush_seq = self.flush.start(self.queue_request_tx.len(), frontier);
+        let flush_cycle = self.flush.start(self.log_request_tx.len(), frontier);
 
         for permit in permits.drain(..) {
-            permit.send(shuffle::QueueRequest {
-                flush: Some(shuffle::queue_request::Flush { seq: flush_seq }),
+            permit.send(shuffle::LogRequest {
+                flush: Some(shuffle::log_request::Flush { cycle: flush_cycle }),
                 ..Default::default()
             });
         }
 
         tracing::debug!(
-            members = self.queue_request_tx.len(),
-            seq = flush_seq,
-            "sent Flush to all queues"
+            members = self.log_request_tx.len(),
+            cycle = flush_cycle,
+            "sent Flush to all logs"
         );
 
         Ok(())
     }
 
-    /// Try to send Enqueue requests to target queue channels (all-or-nothing).
+    /// Try to send Append requests to target log channels (all-or-nothing).
     /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_queue_request_enqueue_tx(
+    fn try_log_request_append_tx(
         binding: &crate::Binding,
         buffers: &mut Buffers,
         journal: &str,
         members: &[shuffle::Member],
-        queue_prev_journal: &mut [String],
-        queue_request_tx: &[mpsc::Sender<shuffle::QueueRequest>],
+        log_prev_journal: &mut [String],
+        log_request_tx: &[mpsc::Sender<shuffle::LogRequest>],
         ready_read: &ReadyRead,
-    ) -> Result<(), mpsc::Sender<shuffle::QueueRequest>> {
+    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
         let Buffers {
             packed_key,
             permits,
@@ -712,7 +712,7 @@ impl SliceActor {
         } = ready_read;
 
         // Extract into `packed_key` and hash to route the document.
-        // Compute member index `targets` to receive an Enqueue of this document.
+        // Compute member index `targets` to receive an Append of this document.
         packed_key.clear();
         doc::Extractor::extract_all(doc.get(), &binding.key_extractors, packed_key);
 
@@ -737,7 +737,7 @@ impl SliceActor {
             valid = ready_read.meta.is_schema_valid(),
             r_clock,
             ?targets,
-            "enqueuing document to members"
+            "appending document to members"
         );
 
         // Safety: `permits` is always cleared prior to return (retaining only capacity).
@@ -746,9 +746,9 @@ impl SliceActor {
 
         // All-or-nothing: reserve permits for every target channel.
         for &target in targets.iter() {
-            let Ok(permit) = queue_request_tx[target].try_reserve() else {
+            let Ok(permit) = log_request_tx[target].try_reserve() else {
                 permits.clear();
-                return Err(queue_request_tx[target].clone());
+                return Err(log_request_tx[target].clone());
             };
             permits.push(permit);
         }
@@ -757,7 +757,7 @@ impl SliceActor {
         let packed_key = packed_key.split().freeze();
 
         for (&target, permit) in targets.iter().zip(permits.drain(..)) {
-            let prev_journal = &mut queue_prev_journal[target];
+            let prev_journal = &mut log_prev_journal[target];
 
             let (journal_name_truncate_delta, journal_name_suffix) =
                 gazette::delta::encode(prev_journal, journal);
@@ -765,13 +765,13 @@ impl SliceActor {
 
             // Update `prev_journal` for next iteration.
             gazette::delta::decode(
-                &mut queue_prev_journal[target],
+                &mut log_prev_journal[target],
                 journal_name_truncate_delta,
                 &journal_name_suffix,
             );
 
-            permit.send(shuffle::QueueRequest {
-                enqueue: Some(shuffle::queue_request::Enqueue {
+            permit.send(shuffle::LogRequest {
+                append: Some(shuffle::log_request::Append {
                     journal_name_truncate_delta,
                     journal_name_suffix,
                     binding: binding.index,
@@ -824,16 +824,16 @@ impl SliceActor {
     }
 }
 
-// Helper which builds a future that yields the next response from a member's Slice RPC.
-async fn next_queue_rx(
+// Helper which builds a future that yields the next response from a member's Log RPC.
+async fn next_log_rx(
     (member_index, mut rx): (
         usize,
-        stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>,
+        stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
     ),
 ) -> (
-    usize,                                                             // Member index.
-    Option<tonic::Result<shuffle::QueueResponse>>,                     // Response.
-    stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>, // Stream.
+    usize,                                                           // Member index.
+    Option<tonic::Result<shuffle::LogResponse>>,                     // Response.
+    stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>, // Stream.
 ) {
     (member_index, rx.next().await, rx)
 }

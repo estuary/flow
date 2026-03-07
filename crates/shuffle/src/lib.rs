@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 mod binding;
 mod client;
 pub mod frontier;
-mod queue;
+mod log;
 mod service;
 mod session;
 mod slice;

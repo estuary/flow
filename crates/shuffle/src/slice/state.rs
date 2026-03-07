@@ -25,7 +25,7 @@ pub struct Topology {
     pub hint_index: HintIndex,
 }
 
-/// Flush cycle state machine, tracking in-flight flushes to Queue members.
+/// Flush cycle state machine, tracking in-flight flushes to Log members.
 ///
 /// The caller is responsible for building the frontier (from reads + causal hints)
 /// and passing it to `start`. When a cycle completes, `on_flushed` returns the
@@ -39,8 +39,8 @@ pub struct Topology {
 /// available, reducing end-to-end latency from flush_time + round_trip to
 /// approximately max(flush_time, round_trip).
 pub struct FlushState {
-    /// Monotonically increasing sequence number for flush cycles.
-    pub seq: u64,
+    /// Monotonically increasing flush cycle number.
+    pub cycle: u64,
     /// Whether a commit has been observed since the last flush cycle started.
     ready: bool,
     /// Per-member in-flight tracking. Non-empty while a cycle is active.
@@ -52,7 +52,7 @@ pub struct FlushState {
 impl FlushState {
     pub fn new() -> Self {
         Self {
-            seq: 1,
+            cycle: 1,
             ready: false,
             in_flight: Vec::new(),
             flushing: Default::default(),
@@ -70,7 +70,7 @@ impl FlushState {
     }
 
     /// Begin a flush cycle with the given pre-built frontier.
-    /// Returns the new flush sequence number.
+    /// Returns the flush cycle number.
     pub fn start(&mut self, member_count: usize, frontier: crate::Frontier) -> u64 {
         assert!(
             self.in_flight.is_empty(),
@@ -80,10 +80,10 @@ impl FlushState {
         self.ready = false;
         self.in_flight.resize(member_count, true);
         self.flushing = frontier;
-        self.seq
+        self.cycle
     }
 
-    /// Record a Flushed response from a queue member.
+    /// Record a Flushed response from a log member.
     /// Returns the completed frontier when all members have flushed.
     pub fn on_flushed(&mut self, member_index: usize) -> Option<crate::Frontier> {
         let Some(in_flight) = self.in_flight.get_mut(member_index) else {
@@ -94,12 +94,12 @@ impl FlushState {
         if self.in_flight.iter().any(|pending| *pending) {
             return None;
         }
-        tracing::debug!(seq = self.seq, "all members Flushed");
+        tracing::debug!(cycle = self.cycle, "all members Flushed");
 
-        // We increment `seq` now to ensure we'll clearly reject a duplicate
-        // Flushed from a Queue (which would be a protocol violation).
+        // We increment `cycle` now to ensure we'll clearly reject a duplicate
+        // Flushed from a Log (which would be a protocol violation).
         self.in_flight.clear();
-        self.seq += 1;
+        self.cycle += 1;
 
         Some(std::mem::take(&mut self.flushing))
     }
@@ -150,7 +150,7 @@ impl ProgressState {
 impl std::fmt::Debug for FlushState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FlushState")
-            .field("seq", &self.seq)
+            .field("cycle", &self.cycle)
             .field("ready", &self.ready)
             .field("in_flight", &self.in_flight.iter().filter(|p| **p).count())
             .finish()
@@ -171,11 +171,11 @@ impl std::fmt::Debug for ProgressState {
 /// after successful I/O.
 #[derive(Debug)]
 pub struct SequencedDoc {
-    /// Whether the document should be enqueued to queue members.
-    pub is_enqueue: bool,
+    /// Whether the document should be appended via Log RPCs.
+    pub is_append: bool,
     /// Whether this document completed a transaction (triggers flush cycle).
     pub is_commit: bool,
-    /// Updated producer state to commit on successful enqueue.
+    /// Updated producer state to commit after processing this document.
     pub producer_state: ProducerState,
 }
 
@@ -296,8 +296,8 @@ pub fn sequence_document(
         )
     })?;
 
-    // Match over `outcome` to update `producer_state` and determine enqueue/commit.
-    let (is_enqueue, is_commit) = match outcome {
+    // Match over `outcome` to update `producer_state` and determine append/commit.
+    let (is_append, is_commit) = match outcome {
         uuid::SequenceOutcome::OutsideCommit => {
             producer_state.offset = -*end_offset;
             (true, true)
@@ -334,9 +334,9 @@ pub fn sequence_document(
         uuid::SequenceOutcome::AckDuplicate => (false, false),
     };
 
-    // A `notBefore` or `notAfter` suppresses document enqueue, but doesn't impact
+    // A `notBefore` or `notAfter` suppresses document append, but doesn't impact
     // the propagation of flush and progress reporting.
-    let is_enqueue = is_enqueue && *clock >= binding.not_before && *clock < binding.not_after;
+    let is_append = is_append && *clock >= binding.not_before && *clock < binding.not_after;
 
     tracing::trace!(
         journal = %read_state.journal,
@@ -345,13 +345,13 @@ pub fn sequence_document(
         ?clock,
         begin_offset,
         ?outcome,
-        is_enqueue,
+        is_append,
         is_commit,
         "sequenced document"
     );
 
     Ok(SequencedDoc {
-        is_enqueue,
+        is_append,
         is_commit,
         producer_state,
     })
@@ -641,36 +641,36 @@ mod test {
             pending: Default::default(),
         });
 
-        // Clock before notBefore: suppresses enqueue but not commit.
+        // Clock before notBefore: suppresses append but not commit.
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_u64(50), OUTSIDE, 0, 50),
         )
         .unwrap();
-        assert!(!seq.is_enqueue, "before notBefore → no enqueue");
+        assert!(!seq.is_append, "before notBefore → no append");
         assert!(seq.is_commit, "before notBefore → commit still propagates");
         s.commit(0, p1, seq);
 
-        // Clock within range: normal enqueue.
+        // Clock within range: normal append.
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_u64(200), OUTSIDE, 50, 100),
         )
         .unwrap();
-        assert!(seq.is_enqueue, "within range → enqueue");
+        assert!(seq.is_append, "within range → append");
         assert!(seq.is_commit, "within range → commit");
         s.commit(0, p1, seq);
 
-        // Clock at notAfter boundary: suppresses enqueue (notAfter is exclusive).
+        // Clock at notAfter boundary: suppresses append (notAfter is exclusive).
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_u64(500), OUTSIDE, 100, 150),
         )
         .unwrap();
-        assert!(!seq.is_enqueue, "at notAfter → no enqueue");
+        assert!(!seq.is_append, "at notAfter → no append");
         assert!(seq.is_commit, "at notAfter → commit still propagates");
     }
 
@@ -722,8 +722,8 @@ mod test {
         }
         assert!(!frontier.journals.is_empty(), "flushing frontier built");
 
-        let flush_seq = s.flush.start(3, frontier);
-        assert_eq!(flush_seq, 1, "flush_seq is the current seq for this cycle");
+        let flush_cycle = s.flush.start(3, frontier);
+        assert_eq!(flush_cycle, 1, "flush_cycle is the current cycle");
         assert!(!s.flush.should_flush(), "not ready after start");
         assert!(s.reads[0].pending.is_empty(), "pending drained to settled");
 
@@ -731,10 +731,13 @@ mod test {
         assert!(s.flush.on_flushed(0).is_none(), "still in flight after 1/3");
         assert!(s.flush.on_flushed(2).is_none(), "still in flight after 2/3");
 
-        // All flushed: returns completed frontier. Seq advances so that
-        // a duplicate Flushed with the old seq is rejected as a protocol violation.
+        // All flushed: returns completed frontier. Cycle advances so that
+        // a duplicate Flushed with the old cycle is rejected as a protocol violation.
         let completed = s.flush.on_flushed(1).expect("all flushed");
-        assert_eq!(s.flush.seq, 2, "seq incremented after all members flushed");
+        assert_eq!(
+            s.flush.cycle, 2,
+            "cycle incremented after all members flushed"
+        );
         s.progress.on_flush_completed(completed);
 
         insta::assert_debug_snapshot!("flush_state_machine", &s.progress.flushed);
@@ -831,7 +834,7 @@ mod test {
             &meta(p1, Clock::from_unix(10, 0), CONTINUE, 100, 150),
         )
         .unwrap();
-        assert!(seq.is_enqueue);
+        assert!(seq.is_append);
         assert!(!seq.is_commit);
         assert_eq!(
             seq.producer_state.offset, 100,
@@ -846,7 +849,7 @@ mod test {
             &meta(p1, Clock::from_unix(20, 0), CONTINUE, 150, 200),
         )
         .unwrap();
-        assert!(seq.is_enqueue);
+        assert!(seq.is_append);
         assert!(!seq.is_commit);
         assert_eq!(seq.producer_state.offset, 100, "offset unchanged on extend");
         s.commit(0, p1, seq);
@@ -858,7 +861,7 @@ mod test {
             &meta(p1, Clock::from_unix(15, 0), CONTINUE, 200, 250),
         )
         .unwrap();
-        assert!(!seq.is_enqueue);
+        assert!(!seq.is_append);
         assert!(!seq.is_commit);
 
         // AckCommit: not enqueued, triggers commit/flush, offset becomes committed.
@@ -868,7 +871,7 @@ mod test {
             &meta(p1, Clock::from_unix(20, 0), ACK, 250, 300),
         )
         .unwrap();
-        assert!(!seq.is_enqueue, "ACKs are never enqueued");
+        assert!(!seq.is_append, "ACKs are never appended");
         assert!(seq.is_commit, "AckCommit triggers flush");
         assert_eq!(
             seq.producer_state.offset, -300,
@@ -876,14 +879,14 @@ mod test {
         );
         s.commit(0, p1, seq);
 
-        // AckDuplicate: no enqueue, no commit (no spurious flush).
+        // AckDuplicate: no append, no commit (no spurious flush).
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
             &meta(p1, Clock::from_unix(20, 0), ACK, 300, 350),
         )
         .unwrap();
-        assert!(!seq.is_enqueue);
+        assert!(!seq.is_append);
         assert!(!seq.is_commit, "AckDuplicate must not trigger flush");
 
         // Start a new CONTINUE span, then clean rollback (ACK at last_commit clock).
@@ -893,7 +896,7 @@ mod test {
             &meta(p1, Clock::from_unix(30, 0), CONTINUE, 350, 400),
         )
         .unwrap();
-        assert!(seq.is_enqueue);
+        assert!(seq.is_append);
         assert_eq!(seq.producer_state.offset, 350, "new span begin");
         s.commit(0, p1, seq);
 
@@ -903,7 +906,7 @@ mod test {
             &meta(p1, Clock::from_unix(20, 0), ACK, 400, 450),
         )
         .unwrap();
-        assert!(!seq.is_enqueue);
+        assert!(!seq.is_append);
         assert!(seq.is_commit, "AckCleanRollback triggers flush");
         assert_eq!(
             seq.producer_state.offset, -450,
