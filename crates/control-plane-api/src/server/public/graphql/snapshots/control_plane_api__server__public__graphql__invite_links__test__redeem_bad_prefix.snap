@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: bad_prefix_response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "Requested prefix 'somethingElse/' is not within the invite link's prefix 'aliceCo/data/'",
+      "path": [
+        "redeemInviteLink"
+      ]
+    }
+  ]
+}
