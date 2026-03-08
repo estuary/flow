@@ -135,7 +135,7 @@ where
 #[tracing::instrument(level = "debug", skip(service, members), err(Debug, level = "warn"))]
 async fn open_log_rpc(
     service: &crate::Service,
-    session_id: u64,
+    session_id: u32,
     slice_member_index: u32,
     members: &[shuffle::Member],
     log_member_index: u32,

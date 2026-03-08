@@ -18,11 +18,13 @@ where
         .context("expected Open request")?
         .map_err(crate::status_to_anyhow)?;
 
-    let shuffle::session_request::Open {
-        session_id,
-        task,
-        members,
-    } = open.open.context("first message must be Open")?;
+    let shuffle::session_request::Open { task, members } =
+        open.open.context("first message must be Open")?;
+
+    let session_id: u32 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u32;
 
     if members.first().map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
         anyhow::bail!(
@@ -143,7 +145,7 @@ where
 )]
 pub async fn open_slice_rpc(
     service: &crate::Service,
-    session_id: u64,
+    session_id: u32,
     task: &shuffle::Task,
     members: &[shuffle::Member],
     slice_member_index: u32,

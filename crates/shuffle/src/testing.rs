@@ -58,7 +58,8 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_begin: 0,
                 r_clock_end: 0xffffffff,
             }),
-            ..Default::default()
+            endpoint: String::new(),
+            directory: "/test/log/member-0".to_string(),
         },
         shuffle::Member {
             range: Some(flow::RangeSpec {
@@ -67,7 +68,8 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_begin: 0,
                 r_clock_end: 0xffffffff,
             }),
-            ..Default::default()
+            endpoint: String::new(),
+            directory: "/test/log/member-1".to_string(),
         },
         shuffle::Member {
             range: Some(flow::RangeSpec {
@@ -76,7 +78,8 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_begin: 0,
                 r_clock_end: 0xffffffff,
             }),
-            ..Default::default()
+            endpoint: String::new(),
+            directory: "/test/log/member-2".to_string(),
         },
     ]
 }

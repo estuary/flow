@@ -56,3 +56,4 @@ e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+tempfile = { workspace = true }

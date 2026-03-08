@@ -17,7 +17,6 @@ impl SessionClient {
     /// checkpoint, then waiting for the Opened response.
     pub async fn open(
         service: &crate::Service,
-        session_id: u64,
         task: shuffle::Task,
         members: Vec<shuffle::Member>,
         resume_checkpoint: crate::Frontier,
@@ -34,7 +33,6 @@ impl SessionClient {
             &request_tx,
             shuffle::SessionRequest {
                 open: Some(shuffle::session_request::Open {
-                    session_id,
                     task: Some(task),
                     members,
                 }),

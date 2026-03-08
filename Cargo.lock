@@ -7695,6 +7695,7 @@ dependencies = [
  "simd-doc",
  "superslice",
  "tables",
+ "tempfile",
  "thiserror 2.0.17",
  "tokens",
  "tokio",

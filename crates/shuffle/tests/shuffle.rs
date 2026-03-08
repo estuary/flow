@@ -23,7 +23,7 @@ fn build_task(spec: &flow::MaterializationSpec) -> proto::Task {
 }
 
 /// Build an N-member topology with all members sharing a single endpoint.
-fn build_members(count: u32, endpoint: &str) -> Vec<proto::Member> {
+fn build_members(count: u32, endpoint: &str, directory: &str) -> Vec<proto::Member> {
     (0..count)
         .map(|i| {
             let key_begin = if i == 0 {
@@ -45,6 +45,7 @@ fn build_members(count: u32, endpoint: &str) -> Vec<proto::Member> {
                     r_clock_end: u32::MAX,
                 }),
                 endpoint: endpoint.to_string(),
+                directory: directory.to_string(),
             }
         })
         .collect()
@@ -170,6 +171,9 @@ async fn shuffle_scenarios() {
             .expect("shuffle server error")
     });
 
+    let log_dir = tempfile::tempdir().expect("create temp dir for log segments");
+    let log_dir = log_dir.path().to_str().unwrap();
+
     // Run test scenarios sequentially, resetting the data-plane between each
     // to ensure clean journal state.
     single_producer_outside_txn(
@@ -177,6 +181,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
     data_plane.reset().await.expect("reset");
@@ -186,6 +191,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
     data_plane.reset().await.expect("reset");
@@ -195,6 +201,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
     data_plane.reset().await.expect("reset");
@@ -204,6 +211,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
     data_plane.reset().await.expect("reset");
@@ -213,6 +221,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
     data_plane.reset().await.expect("reset");
@@ -222,6 +231,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
     data_plane.reset().await.expect("reset");
@@ -231,6 +241,7 @@ async fn shuffle_scenarios() {
         &capture_spec,
         &data_plane.journal_client,
         &service,
+        log_dir,
     )
     .await;
 
@@ -253,6 +264,7 @@ async fn single_producer_outside_txn(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut pub_ = make_publisher(capture_spec, journal_client, producer);
@@ -279,9 +291,8 @@ async fn single_producer_outside_txn(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        100,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await
@@ -300,6 +311,7 @@ async fn continue_then_ack(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut pub_ = make_publisher(capture_spec, journal_client, producer);
@@ -331,9 +343,8 @@ async fn continue_then_ack(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        200,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await
@@ -353,6 +364,7 @@ async fn multi_member_routing(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut pub_ = make_publisher(capture_spec, journal_client, producer);
@@ -381,9 +393,8 @@ async fn multi_member_routing(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        300,
         build_task(materialization_spec),
-        build_members(3, service.peer_endpoint()),
+        build_members(3, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await
@@ -402,6 +413,7 @@ async fn multiple_producers(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
@@ -449,9 +461,8 @@ async fn multiple_producers(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        400,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await
@@ -475,6 +486,7 @@ async fn resume_from_checkpoint(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
@@ -503,9 +515,8 @@ async fn resume_from_checkpoint(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        500,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await
@@ -543,9 +554,8 @@ async fn resume_from_checkpoint(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        501,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         phase1_frontier,
     )
     .await
@@ -568,6 +578,7 @@ async fn multi_partition_transaction(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut pub_ = make_publisher(capture_spec, journal_client, producer);
@@ -616,9 +627,8 @@ async fn multi_partition_transaction(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        600,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await
@@ -640,6 +650,7 @@ async fn partition_filtered_hints(
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
+    log_dir: &str,
 ) {
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut pub_ = make_publisher(capture_spec, journal_client, producer);
@@ -706,9 +717,8 @@ async fn partition_filtered_hints(
 
     let mut session = shuffle::SessionClient::open(
         service,
-        700,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint()),
+        build_members(1, service.peer_endpoint(), log_dir),
         Default::default(),
     )
     .await

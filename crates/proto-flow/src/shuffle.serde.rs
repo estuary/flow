@@ -906,9 +906,7 @@ impl serde::Serialize for log_request::Open {
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogRequest.Open", len)?;
         if self.session_id != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sessionId", ToString::to_string(&self.session_id).as_str())?;
+            struct_ser.serialize_field("sessionId", &self.session_id)?;
         }
         if !self.members.is_empty() {
             struct_ser.serialize_field("members", &self.members)?;
@@ -1347,12 +1345,18 @@ impl serde::Serialize for Member {
         if !self.endpoint.is_empty() {
             len += 1;
         }
+        if !self.directory.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.Member", len)?;
         if let Some(v) = self.range.as_ref() {
             struct_ser.serialize_field("range", v)?;
         }
         if !self.endpoint.is_empty() {
             struct_ser.serialize_field("endpoint", &self.endpoint)?;
+        }
+        if !self.directory.is_empty() {
+            struct_ser.serialize_field("directory", &self.directory)?;
         }
         struct_ser.end()
     }
@@ -1366,12 +1370,14 @@ impl<'de> serde::Deserialize<'de> for Member {
         const FIELDS: &[&str] = &[
             "range",
             "endpoint",
+            "directory",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Range,
             Endpoint,
+            Directory,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1395,6 +1401,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                         match value {
                             "range" => Ok(GeneratedField::Range),
                             "endpoint" => Ok(GeneratedField::Endpoint),
+                            "directory" => Ok(GeneratedField::Directory),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1416,6 +1423,7 @@ impl<'de> serde::Deserialize<'de> for Member {
             {
                 let mut range__ = None;
                 let mut endpoint__ = None;
+                let mut directory__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Range => {
@@ -1430,11 +1438,18 @@ impl<'de> serde::Deserialize<'de> for Member {
                             }
                             endpoint__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Directory => {
+                            if directory__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("directory"));
+                            }
+                            directory__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(Member {
                     range: range__,
                     endpoint: endpoint__.unwrap_or_default(),
+                    directory: directory__.unwrap_or_default(),
                 })
             }
         }
@@ -1807,9 +1822,6 @@ impl serde::Serialize for session_request::Open {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.session_id != 0 {
-            len += 1;
-        }
         if self.task.is_some() {
             len += 1;
         }
@@ -1817,11 +1829,6 @@ impl serde::Serialize for session_request::Open {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.SessionRequest.Open", len)?;
-        if self.session_id != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sessionId", ToString::to_string(&self.session_id).as_str())?;
-        }
         if let Some(v) = self.task.as_ref() {
             struct_ser.serialize_field("task", v)?;
         }
@@ -1838,15 +1845,12 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "session_id",
-            "sessionId",
             "task",
             "members",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            SessionId,
             Task,
             Members,
         }
@@ -1870,7 +1874,6 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
                         E: serde::de::Error,
                     {
                         match value {
-                            "sessionId" | "session_id" => Ok(GeneratedField::SessionId),
                             "task" => Ok(GeneratedField::Task),
                             "members" => Ok(GeneratedField::Members),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1892,19 +1895,10 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut session_id__ = None;
                 let mut task__ = None;
                 let mut members__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::SessionId => {
-                            if session_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sessionId"));
-                            }
-                            session_id__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                         GeneratedField::Task => {
                             if task__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("task"));
@@ -1920,7 +1914,6 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
                     }
                 }
                 Ok(session_request::Open {
-                    session_id: session_id__.unwrap_or_default(),
                     task: task__,
                     members: members__.unwrap_or_default(),
                 })
@@ -2274,9 +2267,7 @@ impl serde::Serialize for slice_request::Open {
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.SliceRequest.Open", len)?;
         if self.session_id != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sessionId", ToString::to_string(&self.session_id).as_str())?;
+            struct_ser.serialize_field("sessionId", &self.session_id)?;
         }
         if let Some(v) = self.task.as_ref() {
             struct_ser.serialize_field("task", v)?;

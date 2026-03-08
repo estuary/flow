@@ -17,8 +17,8 @@ pub struct ServiceImpl {
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
-    /// Keyed by (session_id, log_member_index).
-    pub(crate) log_joins: std::sync::Mutex<HashMap<(u64, u32), log::LogJoin>>,
+    /// Keyed by (session_id, directory, log_member_index).
+    pub(crate) log_joins: std::sync::Mutex<HashMap<(u32, String, u32), log::LogJoin>>,
 }
 
 /// JournalClientFactory is a boxed closure which builds and returns a Gazette

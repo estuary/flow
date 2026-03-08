@@ -26,40 +26,46 @@ where
         log_member_index,
     } = open.open.context("first message must be Open")?;
 
+    let directory = members
+        .get(log_member_index as usize)
+        .map(|m| m.directory.as_str())
+        .unwrap_or_default();
+
     tracing::info!(
         session_id,
         members = members.len(),
         slice_member_index,
         log_member_index,
+        %directory,
         "Log received Open"
     );
-    let join_key = (session_id, log_member_index);
+    let join_key = (session_id, directory.to_string(), log_member_index);
 
     // Scope `guard` to prove it's not held across await points.
     let connections = {
         let mut guard = service.log_joins.lock().unwrap();
 
-        let join = guard.entry(join_key).or_insert_with(|| LogJoin {
+        let join = guard.entry(join_key.clone()).or_insert_with(|| LogJoin {
             members: std::iter::repeat_with(|| None)
                 .take(members.len())
                 .collect(),
         });
         if join.members.len() != members.len() {
             anyhow::bail!(
-                "Log member_index {log_member_index} in session {session_id} expected member_count {} but got {}",
+                "Log member_index {log_member_index} directory {directory} in session {session_id} expected member_count {} but got {}",
                 join.members.len(),
                 members.len(),
             );
         }
         if slice_member_index as usize >= join.members.len() {
             anyhow::bail!(
-                "Log member_index {log_member_index} in session {session_id}: slice_member_index {slice_member_index} out of range (member_count {})",
+                "Log member_index {log_member_index} directory {directory} in session {session_id}: slice_member_index {slice_member_index} out of range (member_count {})",
                 join.members.len(),
             );
         }
         if join.members[slice_member_index as usize].is_some() {
             anyhow::bail!(
-                "Log member_index {log_member_index} in session {session_id} received duplicate Slice connection from {slice_member_index}",
+                "Log member_index {log_member_index} directory {directory} in session {session_id} received duplicate Slice connection from {slice_member_index}",
             );
         }
         join.members[slice_member_index as usize] = Some((request_rx.boxed(), response_tx));
