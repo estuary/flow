@@ -35,12 +35,14 @@ md5 = { workspace = true }
 memchr = { workspace = true }
 pbjson-types = { workspace = true }
 pin-project-lite = { workspace = true }
+rkyv = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 superslice = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
@@ -52,3 +54,5 @@ uuid = { workspace = true }
 build = { path = "../build" }
 e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
