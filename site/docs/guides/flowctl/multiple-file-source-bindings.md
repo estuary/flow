@@ -18,7 +18,7 @@ This is useful when you need to:
 
 ## Option A: Multiple paths into the same collection
 
-This is the simpler approach. You add extra bindings that capture from different paths but write to the same target collection.
+Add extra bindings that capture from different paths but write to the same target collection.
 
 ### 1. Pull the capture specification
 
@@ -230,9 +230,7 @@ For Google Drive, the `stream` value in each binding is the **Google Drive folde
 
 Each binding can point to a different folder. The `folderUrl` in the endpoint config is the folder used during initial discovery, but bindings are not limited to that folder.
 
-:::caution
-The `folderUrl` must use the format `https://drive.google.com/drive/folders/FOLDER_ID`. URLs with `/u/0/` or `/u/1/` (from Google's multi-account switcher) will be rejected. Remove the `/u/N` segment if present.
-:::
+The `folderUrl` must use the format `https://drive.google.com/drive/folders/FOLDER_ID`. URLs with `/u/0/` or `/u/1/` (from Google's multi-account switcher) will be rejected — remove the `/u/N` segment if present.
 
 ### SFTP
 
