@@ -186,6 +186,11 @@ impl Executor {
         let sleep = match state_ref.status {
             Status::Idle => self.on_idle(state_ref, inbox, releases, row_state).await?,
             status => {
+                // Refresh private_links from the current DB row on every poll,
+                // so that retries pick up changes made to the data_planes table.
+                state_ref.stack.config.model.private_links =
+                    row_state.stack.config.model.private_links;
+
                 // For all non-Idle statuses, dispatch to service worker.
                 let action =
                     Action::from_status(status).context("cannot convert status to action")?;
