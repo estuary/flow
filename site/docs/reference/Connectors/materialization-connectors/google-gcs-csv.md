@@ -7,7 +7,7 @@ description: This connector materializes delta updates of Estuary collections in
 This connector materializes [delta updates](/concepts/materialization/#delta-updates) of
 Estuary collections into files in a GCS bucket per the CSV format described in
 [RFC-4180](https://www.rfc-editor.org/rfc/rfc4180.html). The CSV files are compressed using Gzip
-compression.
+compression and written to GCS as `.csv.gz` files.
 
 The delta updates are batched within Estuary, converted to CSV files, and then pushed to the S3 bucket
 at a time interval that you set. Files are limited to a configurable maximum size. Each materialized
@@ -74,9 +74,9 @@ so they remain lexically sortable. For example, a set of files may be materializ
 given collection:
 
 ```
-bucket/prefix/path/v0000000000/00000000000000000000.csv
-bucket/prefix/path/v0000000000/00000000000000000001.csv
-bucket/prefix/path/v0000000000/00000000000000000002.csv
+bucket/prefix/path/v0000000000/00000000000000000000.csv.gz
+bucket/prefix/path/v0000000000/00000000000000000001.csv.gz
+bucket/prefix/path/v0000000000/00000000000000000002.csv.gz
 ```
 
 Here the values for **bucket** and **prefix** are from your endpoint configuration. The **path** is
