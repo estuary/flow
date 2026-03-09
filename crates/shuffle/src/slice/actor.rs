@@ -4,6 +4,7 @@ use super::{
     routing,
     state::{self, FlushState, ProgressState, Topology},
 };
+use crate::log;
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, stream};
 use proto_flow::shuffle;
@@ -480,6 +481,8 @@ impl SliceActor {
                 flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
                 ..
             } if cycle == self.flush.cycle => {
+                let flushed_lsn = log::Lsn::from_u64(flushed_lsn);
+
                 if let Some(completed) = self.flush.on_flushed(member_index, flushed_lsn) {
                     self.progress.on_flush_completed(completed);
                 }

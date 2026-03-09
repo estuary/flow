@@ -126,7 +126,7 @@ pub fn build_flush_frontier(
                 },
             )
             .collect(),
-        flushed_lsn: vec![0; member_count],
+        flushed_lsn: vec![crate::log::Lsn::ZERO; member_count],
     };
 
     // Build a Frontier from causal hints via single-pass iteration.

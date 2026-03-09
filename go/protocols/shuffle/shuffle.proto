@@ -1,11 +1,12 @@
 syntax = "proto3";
 
 package shuffle;
-option go_package = "github.com/estuary/flow/go/protocols/shuffle";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
+
+option go_package = "github.com/estuary/flow/go/protocols/shuffle";
 
 // Member represents a participant in the shuffle topology (e.x. a task shard).
 message Member {
@@ -86,7 +87,7 @@ message FrontierChunk {
   // Per-member flushed LSN, indexed by member_index.
   // Populated only on the terminal (empty-journals) chunk of a
   // Progressed or NextCheckpoint sequence. Empty otherwise.
-  repeated int64 flushed_lsn = 2;
+  repeated uint64 flushed_lsn = 2;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.
@@ -303,7 +304,7 @@ message LogResponse {
     // Log head position after all preceding appends are durable.
     // The consumer must read through this LSN to observe all
     // documents appended before this flush.
-    int64 flushed_lsn = 2;
+    uint64 flushed_lsn = 2;
   }
   Flushed flushed = 2;
 }

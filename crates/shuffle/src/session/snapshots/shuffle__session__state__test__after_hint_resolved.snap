@@ -20,7 +20,7 @@ PipelineSnapshot {
             },
         ],
         flushed_lsn: [
-            1000,
+            0/1000,
         ],
     },
     unresolved: Frontier {
@@ -56,7 +56,7 @@ PipelineSnapshot {
             },
         ],
         flushed_lsn: [
-            1000,
+            0/1000,
         ],
     },
 }

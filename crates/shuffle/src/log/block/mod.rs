@@ -11,7 +11,14 @@ mod fuzz;
 /// Fields are factored for efficient zero-copy access: fixed-size metadata
 /// is separate from variable-size documents, and journal names are
 /// deduplicated with delta encoding.
+///
+/// Outside of tests we never actually use `Block` directly. We DO use its
+/// rkyv-derived ArchivedBlock for zero-copy access within encoded block buffers.
+///
+/// Instead of encoding a Block through rkyv, encode() produces a bit-for-bit
+/// equivalent encoding using pre-serialized ArchivedNode bytes.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
+#[allow(dead_code)]
 pub struct Block<'a> {
     /// Deduplicated, delta-encoded journal names sorted by full journal name.
     /// Each entry carries a `journal_bid` (block-internal ID) that documents
@@ -132,14 +139,15 @@ pub fn encode(
         meta,
         docs,
     };
+    let encoded_size = encoding::encoded_size(&bytes_block);
 
     let buf = rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(
         &bytes_block,
-        rkyv::util::AlignedVec::with_capacity(encoding::encoded_size(&bytes_block)),
+        rkyv::util::AlignedVec::with_capacity(encoded_size),
     )
     .unwrap();
 
-    debug_assert_eq!(buf.len(), encoding::encoded_size(&bytes_block));
+    debug_assert_eq!(buf.len(), encoded_size);
     buf
 }
 

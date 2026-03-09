@@ -103,8 +103,8 @@ pub struct FrontierChunk {
     /// Per-member flushed LSN, indexed by member_index.
     /// Populated only on the terminal (empty-journals) chunk of a
     /// Progressed or NextCheckpoint sequence. Empty otherwise.
-    #[prost(int64, repeated, tag = "2")]
-    pub flushed_lsn: ::prost::alloc::vec::Vec<i64>,
+    #[prost(uint64, repeated, tag = "2")]
+    pub flushed_lsn: ::prost::alloc::vec::Vec<u64>,
 }
 /// SessionRequest is sent by the Coordinator to manage the shuffle session.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -394,7 +394,7 @@ pub mod log_response {
         /// Log head position after all preceding appends are durable.
         /// The consumer must read through this LSN to observe all
         /// documents appended before this flush.
-        #[prost(int64, tag = "2")]
-        pub flushed_lsn: i64,
+        #[prost(uint64, tag = "2")]
+        pub flushed_lsn: u64,
     }
 }

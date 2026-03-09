@@ -1,4 +1,7 @@
+use super::Lsn;
 use super::heap::{self, AppendHeap};
+use super::state::{BlockState, FlushState};
+use super::writer::Writer;
 use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
 use proto_gazette::uuid;
@@ -33,12 +36,13 @@ pub struct LogActor {
     pub slice_prev_journal: Vec<String>,
     /// Ordered heap of references to Some `slice_appends` items.
     pub append_heap: AppendHeap,
-    /// Completed flush IOs awaiting send of their Flushed response.
-    /// Each entry is (member_index, cycle, flushed_lsn).
-    pub pending_flushed: Vec<(usize, u64, i64)>,
-    /// Monotonically increasing write-head position (placeholder: total bytes "appended").
-    /// Reported as `flushed_lsn` in each Flushed response.
-    pub write_head: i64,
+    /// Log segment writer. `None` while a background flush is in-flight
+    /// (the Writer has been moved into a `spawn_blocking` task).
+    pub writer: Option<Writer>,
+    /// Block accumulation state: journals, producers, entries, byte tracking.
+    pub block: BlockState,
+    /// Flush lifecycle state: pending requests, in-flight tracking, completed responses.
+    pub flush: FlushState,
 }
 
 impl LogActor {
@@ -56,25 +60,39 @@ impl LogActor {
         log_request_rx: Vec<BoxStream<'static, tonic::Result<shuffle::LogRequest>>>,
     ) -> anyhow::Result<()> {
         // Build rx futures for the next LogRequest from each Slice.
-        let mut pending_slices: futures::stream::FuturesUnordered<_> = log_request_rx
+        let mut pending_slice_rx: futures::stream::FuturesUnordered<_> = log_request_rx
             .into_iter()
             .enumerate()
             .map(next_log_rx)
             .collect();
 
-        // Pending IO futures (e.g. disk writes) that must complete before
-        // we send the corresponding Flushed response.
-        let mut pending_io = futures::stream::FuturesUnordered::new();
+        // Handle for a single in-flight background flush.
+        let mut flush_handle: Option<tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn)>>> = None;
 
         let mut loop_count: u64 = 0;
         loop {
             loop_count += 1;
+
+            // We may buffer a min-heap Append into the next block if we're under cap.
+            let may_buffer = !self.append_heap.is_empty() && !self.block.is_full();
+
+            // We may begin a non-empty block flush if one isn't underway, and either:
+            // - We've been asked to flush by a slice, OR
+            // - The block has reached capacity.
+            // Invariant: pending flushes always have a non-empty block to flush,
+            // because on_flush immediately resolves when the block is empty.
+            let may_flush = !self.flush.flush_in_flight()
+                && !self.block.is_empty()
+                && (self.flush.has_pending_flush() || self.block.is_full());
+
             tracing::debug!(
                 loop_count,
-                pending_slices = pending_slices.len(),
-                pending_io = pending_io.len(),
-                pending_flushed = self.pending_flushed.len(),
+                block = ?self.block,
+                flush = ?self.flush,
                 heap_size = self.append_heap.len(),
+                may_buffer,
+                may_flush,
+                pending_slice_rx = pending_slice_rx.len(),
                 "LogActor::serve iteration"
             );
 
@@ -82,33 +100,47 @@ impl LogActor {
             let wake_log_response_tx = self.try_log_response_tx()?;
 
             tokio::select! {
+                // Arms have a deliberate ordering designed to service IO first
+                // (reads, then writes), and to encourage larger block aggregation.
                 biased;
 
-                // First priority: read a ready LogRequest from pending slices.
-                Some((member_index, log_request, rx)) = pending_slices.next() => {
-                    if let Some((rx, flush_fut)) = self.on_log_request(member_index, log_request, rx)? {
-                        pending_slices.push(next_log_rx((member_index, rx)));
-                        pending_io.push(flush_fut);
+                // Read a ready LogRequest from pending slices.
+                Some((member_index, log_request, rx)) = pending_slice_rx.next() => {
+                    if let Some(rx) = self.on_log_request(member_index, log_request, rx)? {
+                        pending_slice_rx.push(next_log_rx((member_index, rx)));
                     }
                 }
 
-                // Second priority: complete a pending IO, queuing the Flushed for send.
-                Some(result) = pending_io.next() => {
-                    let (member_index, cycle, flushed_lsn) = result?;
-                    tracing::debug!(member_index, cycle, flushed_lsn, "flush IO completed");
-                    self.pending_flushed.push((member_index, cycle, flushed_lsn));
+                // Read the completion of an in-flight flush.
+                Some(result) = futures::future::OptionFuture::from(flush_handle.as_mut()) => {
+                    let result = match result {
+                        Ok(r) => r,
+                        Err(err) if err.is_cancelled() => break Ok(()),
+                        Err(err) => std::panic::resume_unwind(err.into_panic()),
+                    };
+                    let (writer, flushed_lsn) = result?;
+                    self.writer = Some(writer);
+                    self.flush.on_flushed(flushed_lsn);
+                    flush_handle = None;
                 }
 
-                // Third priority: wake when a blocked log_response_tx has capacity.
+                // Wake when a blocked log_response_tx has capacity.
                 true = wake_log_response_tx => {}
 
-                // Fourth priority: drain one entry from the heap.
-                _ = std::future::ready(()), if !self.append_heap.is_empty() => {
+                // Drain a ready entry from the heap into the buffering block.
+                true = std::future::ready(may_buffer) => {
                     let pending = self.on_append_pop();
-                    pending_slices.push(next_log_rx(pending));
+                    pending_slice_rx.push(next_log_rx(pending));
+                }
+
+                // Start a flush of the buffering block.
+                true = std::future::ready(may_flush) => {
+                    self.start_flush(&mut flush_handle);
                 }
 
                 // All slices EOF'd, heap drained, IO complete, and flushes sent.
+                // No pending flushes can remain: they imply a non-empty block,
+                // which would have triggered may_flush above.
                 else => {
                     tracing::debug!(loop_count, "LogActor::serve exiting, all slices EOF");
                     break Ok(());
@@ -128,22 +160,25 @@ impl LogActor {
 
         // This loop may head-of-line block if we're unable to send a LIFO Flushed.
         // We accept this property for implementation simplicity.
-        while let Some(&(member_index, cycle, flushed_lsn)) = self.pending_flushed.last() {
+        while let Some(&(member_index, cycle, flushed_lsn)) = self.flush.peek_pending_flushed() {
             let tx = &self.log_response_tx[member_index];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
-            self.pending_flushed.pop();
+            self.flush.pop_pending_flushed();
 
             permit.send(Ok(shuffle::LogResponse {
-                flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
+                flushed: Some(shuffle::log_response::Flushed {
+                    cycle,
+                    flushed_lsn: flushed_lsn.as_u64(),
+                }),
                 ..Default::default()
             }));
             tracing::debug!(
                 member_index,
                 cycle,
-                flushed_lsn,
+                ?flushed_lsn,
                 "sent Flushed response to Slice"
             );
         }
@@ -154,19 +189,13 @@ impl LogActor {
     /// Handle a ready slice: verify the request and dispatch to on_append or on_flush.
     ///
     /// Returns `None` on clean EOF or when the Append and rx are parked in
-    /// `slice_ready`. Returns `Some` with the stream to re-push and the
-    /// `(member_index, cycle)` flush IO to start.
+    /// `slice_appends`. Returns `Some(rx)` for Flush (rx re-pushed immediately).
     fn on_log_request(
         &mut self,
         member_index: usize,
         log_request: Option<tonic::Result<shuffle::LogRequest>>,
         rx: SliceRx,
-    ) -> anyhow::Result<
-        Option<(
-            SliceRx,
-            impl Future<Output = anyhow::Result<(usize, u64, i64)>> + 'static,
-        )>,
-    > {
+    ) -> anyhow::Result<Option<SliceRx>> {
         let Some(log_request) = log_request else {
             return Ok(None); // Clean EOF of this member Slice's Log RPC.
         };
@@ -190,7 +219,13 @@ impl LogActor {
 
             shuffle::LogRequest {
                 flush: Some(flush), ..
-            } => Ok(Some((rx, self.on_flush(flush, member_index)))),
+            } => {
+                let shuffle::log_request::Flush { cycle } = flush;
+                let empty = self.block.is_empty();
+                tracing::debug!(member_index, cycle, empty, "received Flush from Slice");
+                self.flush.on_flush(member_index, cycle, empty);
+                Ok(Some(rx))
+            }
 
             request => Err(verify.fail(request)),
         }
@@ -224,28 +259,7 @@ impl LogActor {
         });
     }
 
-    fn on_flush(
-        &mut self,
-        flush: shuffle::log_request::Flush,
-        member_index: usize,
-    ) -> impl Future<Output = anyhow::Result<(usize, u64, i64)>> + 'static {
-        let shuffle::log_request::Flush { cycle } = flush;
-        let flushed_lsn = self.write_head;
-
-        tracing::debug!(
-            member_index,
-            cycle,
-            flushed_lsn,
-            "received Flush from Slice"
-        );
-
-        // Emulate disk IO latency.
-        async move {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            Ok((member_index, cycle, flushed_lsn))
-        }
-    }
-
+    /// Pop the top append from the heap and accumulate it into the current block.
     fn on_append_pop(&mut self) -> (usize, SliceRx) {
         let heap::AppendEntry {
             priority,
@@ -257,24 +271,44 @@ impl LogActor {
             .take()
             .expect("slice_appends must be Some for a heap entry");
 
-        self.write_head += append.doc_archived.len() as i64;
-
+        // Delta-decode the journal name.
         gazette::delta::decode(
             &mut self.slice_prev_journal[member_index],
             append.journal_name_truncate_delta,
             &append.journal_name_suffix,
         );
 
+        let journal = &self.slice_prev_journal[member_index];
+        let producer = uuid::Producer::from_i64(append.producer);
+        self.block.accumulate(journal, producer, &append);
+
         tracing::trace!(
             member_index,
-            journal = self.slice_prev_journal[member_index],
+            journal,
             priority,
+            ?producer,
             ?adjusted_clock,
             doc_bytes = append.doc_archived.len(),
             "drained Append from heap"
         );
 
         (member_index, rx)
+    }
+
+    /// Move the writer and accumulated block state into a background blocking
+    /// task that encodes and writes the block.
+    fn start_flush(
+        &mut self,
+        flush_handle: &mut Option<tokio::task::JoinHandle<anyhow::Result<(Writer, super::Lsn)>>>,
+    ) {
+        self.flush.start_flush();
+        let mut writer = self.writer.take().expect("writer must be present when no flush is in-flight");
+        let (journals, producers, entries) = self.block.take();
+
+        *flush_handle = Some(tokio::task::spawn_blocking(move || {
+            let flushed_lsn = writer.append_block(&journals, &producers, &entries)?;
+            Ok((writer, flushed_lsn))
+        }));
     }
 }
 

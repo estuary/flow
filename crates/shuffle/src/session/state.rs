@@ -511,7 +511,7 @@ mod test {
     fn ingest_progressed(
         pipeline: &mut CheckpointPipeline,
         journals: Vec<crate::JournalFrontier>,
-        flushed_lsn: Vec<i64>,
+        flushed_lsn: Vec<u64>,
     ) {
         let chunk = crate::JournalFrontier::encode(&journals);
         assert!(!pipeline.on_progressed_chunk(0, chunk).unwrap());

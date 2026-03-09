@@ -1,4 +1,4 @@
-use super::LogJoin;
+use super::{LogJoin, state, writer::Writer};
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
@@ -113,6 +113,7 @@ where
     }
 
     let member_count = members.len();
+    let writer = Writer::new(std::path::Path::new(directory), log_member_index)?;
 
     super::actor::LogActor {
         topology: super::state::Topology {
@@ -123,8 +124,9 @@ where
         append_heap: super::heap::AppendHeap::new(),
         slice_prev_journal: vec![String::new(); member_count],
         slice_appends: std::iter::repeat_with(|| None).take(member_count).collect(),
-        pending_flushed: Vec::new(),
-        write_head: 0,
+        writer: Some(writer),
+        block: state::BlockState::new(),
+        flush: state::FlushState::new(),
         log_response_tx,
     }
     .serve(log_request_rx)

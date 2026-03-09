@@ -1,3 +1,4 @@
+use crate::log;
 use proto_flow::shuffle;
 use proto_gazette::uuid::{Clock, Producer};
 
@@ -201,14 +202,16 @@ pub struct Frontier {
     pub journals: Vec<JournalFrontier>,
     /// Per-member flushed LSN (log read-through barrier), indexed by member_index.
     /// Empty when not applicable (e.g. resume checkpoints).
-    pub flushed_lsn: Vec<i64>,
+    pub flushed_lsn: Vec<log::Lsn>,
 }
 
 impl Frontier {
     /// Construct a `Frontier` from journal entries and per-member flushed LSNs,
     /// validating that entries are sorted and unique on `(binding, journal)` and
     /// that producers within each entry are sorted and unique on `producer`.
-    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<i64>) -> anyhow::Result<Self> {
+    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> anyhow::Result<Self> {
+        let flushed_lsn = flushed_lsn.into_iter().map(log::Lsn::from_u64).collect();
+
         for (index, window) in journals.windows(2).enumerate() {
             let (prev, curr) = (&window[0], &window[1]);
             match prev
@@ -261,7 +264,7 @@ impl Frontier {
 
     /// Element-wise max of two per-member `flushed_lsn` vectors.
     /// Extends the shorter vector with zeros.
-    pub fn merge_flushed_lsn(a: Vec<i64>, b: Vec<i64>) -> Vec<i64> {
+    pub fn merge_flushed_lsn(a: Vec<log::Lsn>, b: Vec<log::Lsn>) -> Vec<log::Lsn> {
         if a.is_empty() {
             return b;
         } else if b.is_empty() {
@@ -270,8 +273,8 @@ impl Frontier {
         let len = a.len().max(b.len());
         (0..len)
             .map(|i| {
-                let va = a.get(i).copied().unwrap_or(0);
-                let vb = b.get(i).copied().unwrap_or(0);
+                let va = a.get(i).copied().unwrap_or(log::Lsn::ZERO);
+                let vb = b.get(i).copied().unwrap_or(log::Lsn::ZERO);
                 va.max(vb)
             })
             .collect()
@@ -501,7 +504,10 @@ impl Drain {
         let mut chunk = JournalFrontier::encode(&self.frontier.journals[self.offset..end]);
 
         if chunk.journals.is_empty() {
-            chunk.flushed_lsn = std::mem::take(&mut self.frontier.flushed_lsn);
+            chunk.flushed_lsn = std::mem::take(&mut self.frontier.flushed_lsn)
+                .into_iter()
+                .map(|lsn| lsn.as_u64())
+                .collect();
             self.frontier = Default::default(); // Release memory.
             self.offset = usize::MAX;
         } else {
@@ -529,6 +535,7 @@ impl std::fmt::Debug for Drain {
 mod test {
     use super::*;
     use crate::testing::{jf, pf, pf_tuple};
+    use log::Lsn;
 
     #[test]
     fn test_producer_frontier_reduce() {
@@ -568,14 +575,14 @@ mod test {
                     vec![pf(0x03, 200, 0, -1000), pf(0x05, 50, 0, -200)],
                 ),
             ],
-            flushed_lsn: vec![10, 50, 3],
+            flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
         };
         let hints = Frontier {
             journals: vec![
                 jf("journal/B", 0, vec![pf(0x03, 0, 300, 0)]),
                 jf("journal/C", 1, vec![pf(0x03, 0, 300, 0)]),
             ],
-            flushed_lsn: vec![40, 20, 30],
+            flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
         };
         let r = reads.reduce(hints);
 
@@ -630,21 +637,21 @@ mod test {
         "#);
         assert_eq!(
             r.flushed_lsn,
-            vec![40, 50, 30],
+            vec![Lsn::from_u64(40), Lsn::from_u64(50), Lsn::from_u64(30)],
             "element-wise max of flushed_lsn"
         );
 
         // Identity: empty reduces are no-ops and preserve flushed_lsn.
         let f = Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
-            flushed_lsn: vec![10, 20],
+            flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
         };
         let r = f.clone().reduce(Frontier::default());
         assert_eq!(r.journals.len(), 1);
-        assert_eq!(r.flushed_lsn, vec![10, 20]);
+        assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
         let r = Frontier::default().reduce(f);
         assert_eq!(r.journals.len(), 1);
-        assert_eq!(r.flushed_lsn, vec![10, 20]);
+        assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
         assert!(
             Frontier::default()
                 .reduce(Frontier::default())
@@ -658,30 +665,39 @@ mod test {
         // Both empty.
         assert_eq!(
             Frontier::merge_flushed_lsn(vec![], vec![]),
-            Vec::<i64>::new()
+            Vec::<log::Lsn>::new()
         );
         // One empty: returns the other.
         assert_eq!(
-            Frontier::merge_flushed_lsn(vec![10, 20], vec![]),
-            vec![10, 20]
+            Frontier::merge_flushed_lsn(vec![Lsn::from_u64(10), Lsn::from_u64(20)], vec![],),
+            vec![Lsn::from_u64(10), Lsn::from_u64(20)]
         );
         assert_eq!(
-            Frontier::merge_flushed_lsn(vec![], vec![30, 40]),
-            vec![30, 40]
+            Frontier::merge_flushed_lsn(vec![], vec![Lsn::from_u64(30), Lsn::from_u64(40)],),
+            vec![Lsn::from_u64(30), Lsn::from_u64(40)]
         );
         // Same length: element-wise max.
         assert_eq!(
-            Frontier::merge_flushed_lsn(vec![10, 50, 30], vec![40, 20, 60]),
-            vec![40, 50, 60]
+            Frontier::merge_flushed_lsn(
+                vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(30)],
+                vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(60)],
+            ),
+            vec![Lsn::from_u64(40), Lsn::from_u64(50), Lsn::from_u64(60)]
         );
         // Different lengths: shorter extended with zeros.
         assert_eq!(
-            Frontier::merge_flushed_lsn(vec![10, 20], vec![5, 25, 30]),
-            vec![10, 25, 30]
+            Frontier::merge_flushed_lsn(
+                vec![Lsn::from_u64(10), Lsn::from_u64(20)],
+                vec![Lsn::from_u64(5), Lsn::from_u64(25), Lsn::from_u64(30)],
+            ),
+            vec![Lsn::from_u64(10), Lsn::from_u64(25), Lsn::from_u64(30)]
         );
         assert_eq!(
-            Frontier::merge_flushed_lsn(vec![10, 20, 30], vec![5]),
-            vec![10, 20, 30]
+            Frontier::merge_flushed_lsn(
+                vec![Lsn::from_u64(10), Lsn::from_u64(20), Lsn::from_u64(30)],
+                vec![Lsn::from_u64(5)],
+            ),
+            vec![Lsn::from_u64(10), Lsn::from_u64(20), Lsn::from_u64(30)]
         );
     }
 

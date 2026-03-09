@@ -13,6 +13,9 @@ pub struct Shuffle {
     /// Number of members in the shuffle topology.
     #[clap(long, default_value = "1")]
     members: u32,
+    /// Directory for log segment files. If omitted, a temporary directory is used.
+    #[clap(long)]
+    directory: Option<std::path::PathBuf>,
 }
 
 impl Shuffle {
@@ -21,6 +24,7 @@ impl Shuffle {
             name,
             port,
             members: member_count,
+            directory,
         } = self;
 
         // Fetch the task spec from the control plane.
@@ -95,17 +99,31 @@ impl Shuffle {
                 .context("shuffle server (odd) error")
         });
 
-        // Create member topology: even-indexed members use even server, odd use odd.
-        let members = build_member_topology(*member_count, &peer_addr_even, &peer_addr_odd);
+        // Use the provided directory or create a temporary one for log segment files.
+        let _tmp_dir; // Hold the TempDir so it isn't dropped until the session ends.
+        let log_dir_str = if let Some(dir) = directory {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("creating log directory {dir:?}"))?;
+            _tmp_dir = None;
+            dir.to_string_lossy().into_owned()
+        } else {
+            let td = tempfile::tempdir().context("creating temp directory for log segments")?;
+            let s = td.path().to_string_lossy().into_owned();
+            _tmp_dir = Some(td);
+            s
+        };
 
-        // Generate a unique session ID.
-        let session_id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
+        tracing::info!(log_dir = %log_dir_str, "using log directory");
+
+        // Create member topology: even-indexed members use even server, odd use odd.
+        let members = build_member_topology(
+            *member_count,
+            &peer_addr_even,
+            &peer_addr_odd,
+            &log_dir_str,
+        );
 
         tracing::info!(
-            session_id,
             addr_even = %peer_addr_even,
             addr_odd = %peer_addr_odd,
             member_count,
@@ -114,7 +132,6 @@ impl Shuffle {
 
         let mut client = ::shuffle::SessionClient::open(
             &service_even,
-            session_id,
             task,
             members,
             ::shuffle::Frontier::default(),
@@ -122,11 +139,11 @@ impl Shuffle {
         .await
         .context("opening session")?;
 
-        tracing::info!(session_id, "session opened, requesting checkpoints");
+        tracing::info!("session opened, requesting checkpoints");
 
         for i in 0..15 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            tracing::info!(i, session_id, "requesting NextCheckpoint");
+            tracing::info!(i, "requesting NextCheckpoint");
 
             let frontier = client
                 .next_checkpoint()
@@ -170,7 +187,7 @@ impl Shuffle {
 
         client.close().await.context("closing session")?;
 
-        tracing::info!(session_id, "shuffle test completed successfully");
+        tracing::info!("shuffle test completed successfully");
 
         server_handle_even.abort();
         server_handle_odd.abort();
@@ -237,7 +254,12 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
 
 /// Build a member topology with `count` members, splitting the key space evenly.
 /// Even-indexed members use `addr_even`, odd-indexed members use `addr_odd`.
-fn build_member_topology(count: u32, addr_even: &str, addr_odd: &str) -> Vec<proto::Member> {
+fn build_member_topology(
+    count: u32,
+    addr_even: &str,
+    addr_odd: &str,
+    directory: &str,
+) -> Vec<proto::Member> {
     let mut members = Vec::with_capacity(count as usize);
 
     for i in 0..count {
@@ -263,6 +285,7 @@ fn build_member_topology(count: u32, addr_even: &str, addr_odd: &str) -> Vec<pro
                 r_clock_end: u32::MAX,
             }),
             endpoint: endpoint.to_string(),
+            directory: directory.to_string(),
         });
     }
 

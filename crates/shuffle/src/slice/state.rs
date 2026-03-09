@@ -1,6 +1,7 @@
 use super::producer::{ProducerMap, ProducerState};
 use super::read::ReadState;
 use crate::binding::PartitionFilter;
+use crate::log;
 use anyhow::Context;
 use proto_flow::shuffle;
 use proto_gazette::uuid;
@@ -87,7 +88,11 @@ impl FlushState {
     /// Record a Flushed response from a log member.
     /// Returns the completed frontier (with per-member flushed LSNs) when all
     /// members have flushed.
-    pub fn on_flushed(&mut self, member_index: usize, flushed_lsn: i64) -> Option<crate::Frontier> {
+    pub fn on_flushed(
+        &mut self,
+        member_index: usize,
+        flushed_lsn: log::Lsn,
+    ) -> Option<crate::Frontier> {
         let Some(in_flight) = self.in_flight.get_mut(member_index) else {
             return None;
         };
@@ -733,17 +738,20 @@ mod test {
 
         // Partial flushed: still in flight.
         assert!(
-            s.flush.on_flushed(0, 100).is_none(),
+            s.flush.on_flushed(0, log::Lsn::new(0, 100)).is_none(),
             "still in flight after 1/3"
         );
         assert!(
-            s.flush.on_flushed(2, 300).is_none(),
+            s.flush.on_flushed(2, log::Lsn::new(0, 300)).is_none(),
             "still in flight after 2/3"
         );
 
         // All flushed: returns completed frontier. Cycle advances so that
         // a duplicate Flushed with the old cycle is rejected as a protocol violation.
-        let completed = s.flush.on_flushed(1, 200).expect("all flushed");
+        let completed = s
+            .flush
+            .on_flushed(1, log::Lsn::new(0, 200))
+            .expect("all flushed");
         assert_eq!(
             s.flush.cycle, 2,
             "cycle incremented after all members flushed"

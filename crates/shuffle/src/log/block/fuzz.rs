@@ -3,8 +3,6 @@ use quickcheck::Arbitrary;
 
 #[derive(Clone, Debug)]
 struct FuzzInput {
-    /// Number of entries in the block (clamped to a small range).
-    num_entries: u8,
     /// Per-entry metadata variations.
     entries: Vec<FuzzEntry>,
 }
@@ -25,10 +23,7 @@ impl Arbitrary for FuzzInput {
         let num_entries = u8::arbitrary(g) % 8;
         let entries = (0..num_entries).map(|_| FuzzEntry::arbitrary(g)).collect();
 
-        FuzzInput {
-            num_entries,
-            entries,
-        }
+        FuzzInput { entries }
     }
 }
 
