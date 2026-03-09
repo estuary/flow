@@ -5,10 +5,16 @@ pub use bumpalo::Bump as Allocator;
 // This crate has two implementations of json::AsNode: a mutable HeapNode,
 // and an ArchivedNode serialized by the `rkyv` crate.
 // The serde_json::Value implementation lives in the json crate.
-mod archived;
-pub use archived::{ArchivedField, ArchivedNode};
 pub mod heap;
 pub use heap::{HeapField, HeapNode};
+
+mod archived;
+pub use archived::{ArchivedField, ArchivedNode};
+
+// Embedded representations of a pre-serialized ArchivedNode tree,
+// backed by heap or archived buffers.
+pub mod embedded;
+pub use embedded::{ArchivedEmbedded, HeapEmbedded};
 
 // BumpStr is a low-level String type built upon a Bump allocator.
 mod bump_str;

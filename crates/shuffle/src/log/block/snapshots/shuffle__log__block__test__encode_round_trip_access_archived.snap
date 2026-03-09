@@ -76,7 +76,9 @@ ArchivedBlock {
                 95,
                 95,
             ],
-            doc: "{\"key\":\"val1\"}",
+            doc: ArchivedEmbedded(
+                40,
+            ),
         },
         ArchivedBlockDoc {
             offset: 200,
@@ -98,7 +100,9 @@ ArchivedBlock {
                 95,
                 95,
             ],
-            doc: "{\"key\":\"val2\"}",
+            doc: ArchivedEmbedded(
+                40,
+            ),
         },
     ],
 }

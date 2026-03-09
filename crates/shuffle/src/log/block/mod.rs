@@ -16,10 +16,10 @@ mod fuzz;
 /// rkyv-derived ArchivedBlock for zero-copy access within encoded block buffers.
 ///
 /// Instead of encoding a Block through rkyv, encode() produces a bit-for-bit
-/// equivalent encoding using pre-serialized ArchivedNode bytes.
+/// equivalent encoding using pre-serialized `doc::ArchivedEmbedded` bytes.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
 #[allow(dead_code)]
-pub struct Block<'a> {
+pub struct Block<'alloc> {
     /// Deduplicated, delta-encoded journal names sorted by full journal name.
     /// Each entry carries a `journal_bid` (block-internal ID) that documents
     /// reference via `BlockMeta::journal_bid`.
@@ -31,7 +31,7 @@ pub struct Block<'a> {
     /// Per-document metadata, 1:1 with `docs`.
     pub meta: Vec<BlockMeta>,
     /// Per-document content with offset and key prefix.
-    pub docs: Vec<BlockDoc<'a>>,
+    pub docs: Vec<BlockDoc<'alloc>>,
 }
 
 /// A delta-encoded journal entry within a block.
@@ -84,13 +84,13 @@ pub struct BlockMeta {
 
 /// Per-document content with its journal offset and packed key prefix.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
-pub struct BlockDoc<'a> {
+pub struct BlockDoc<'alloc> {
     /// Journal byte offset where this document begins.
     pub offset: i64,
     /// Leading prefix of the packed key, zero-padded if shorter than 16 bytes.
     pub packed_key_prefix: [u8; 16],
-    /// The document content.
-    pub doc: doc::HeapNode<'a>,
+    /// Pre-serialized document content as an embedded ArchivedNode buffer.
+    pub doc: doc::HeapEmbedded<'alloc>,
 }
 
 impl std::fmt::Debug for ArchivedBlock<'_> {
@@ -106,18 +106,10 @@ impl std::fmt::Debug for ArchivedBlock<'_> {
 
 impl std::fmt::Debug for ArchivedBlockDoc<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Safety: ArchivedNode's lifetime parameter is meaningless for archived
-        // data (see doc::archived module). Transmute to 'static to satisfy
-        // SerPolicy::on's lifetime bounds.
-        let doc: &doc::ArchivedNode = unsafe {
-            std::mem::transmute::<&doc::heap::ArchivedNode<'_>, &doc::ArchivedNode>(&self.doc)
-        };
-        let doc = serde_json::to_string(&doc::SerPolicy::debug().on(doc)).unwrap();
-
         f.debug_struct("ArchivedBlockDoc")
             .field("offset", &self.offset)
             .field("packed_key_prefix", &self.packed_key_prefix)
-            .field("doc", &doc)
+            .field("doc", &self.doc)
             .finish()
     }
 }

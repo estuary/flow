@@ -106,10 +106,23 @@ fn round_trip(input: FuzzInput) -> bool {
             bytes::Bytes::from(doc_bytes.to_vec()),
         ));
 
+        // Allocate the archive bytes as u64-aligned in the bump allocator
+        // and wrap in HeapEmbedded for the reference Block path.
+        let embedded_doc = unsafe {
+            let buffer = core::slice::from_raw_parts(
+                doc_bytes.as_ptr() as *const doc::embedded::U64Le,
+                doc_bytes.len() / 8,
+            );
+            // Copy to bump allocator, as we'll drop `doc_bytes`.
+            let buffer = alloc.alloc_slice_copy(buffer);
+
+            doc::HeapEmbedded::from_buffer(buffer)
+        };
+
         heap_docs.push(BlockDoc {
             offset: entry.offset,
             packed_key_prefix,
-            doc: heap_doc,
+            doc: embedded_doc,
         });
     }
 

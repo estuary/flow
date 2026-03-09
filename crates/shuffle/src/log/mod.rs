@@ -39,7 +39,10 @@ impl Lsn {
 
     /// Return the LSN of the next block in the same segment.
     pub fn next_block(self) -> Self {
-        debug_assert!(self.block() < u16::MAX, "block number overflow; segment should have rolled");
+        debug_assert!(
+            self.block() < u16::MAX,
+            "block number overflow; segment should have rolled"
+        );
         Self::new(self.segment(), self.block() + 1)
     }
 
@@ -76,8 +79,9 @@ mod actor;
 mod block;
 mod handler;
 mod heap;
+pub mod reader;
 mod state;
-mod writer;
+pub mod writer;
 
 pub(crate) use handler::serve_log;
 

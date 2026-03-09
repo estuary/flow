@@ -302,7 +302,12 @@ impl LogActor {
         flush_handle: &mut Option<tokio::task::JoinHandle<anyhow::Result<(Writer, super::Lsn)>>>,
     ) {
         self.flush.start_flush();
-        let mut writer = self.writer.take().expect("writer must be present when no flush is in-flight");
+
+        let mut writer = self
+            .writer
+            .take()
+            .expect("writer must be present when no flush is in-flight");
+
         let (journals, producers, entries) = self.block.take();
 
         *flush_handle = Some(tokio::task::spawn_blocking(move || {

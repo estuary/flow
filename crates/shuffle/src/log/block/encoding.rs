@@ -15,10 +15,8 @@ pub struct BytesBlock {
 /// BytesDoc is like BlockDoc, but holds a pre-serialized doc as Bytes.
 ///
 /// It implements rkyv's Serialize and Archive traits to produce the same byte
-/// layout as `BlockDoc`. During serialize, the `doc_bytes` sub-data (everything
-/// before the trailing 16-byte root) is written verbatim. During resolve,
-/// other fixed fields are written and the root bytes are copied with relative
-/// offsets adjusted to account for the new distance between root and sub-data.
+/// layout as `BlockDoc`. The complete `doc_bytes` buffer is written as opaque
+/// sub-data behind an `ArchivedVec<u64>` (via `ArchivedEmbedded`).
 pub struct BytesDoc {
     pub offset: i64,
     pub packed_key_prefix: [u8; 16],
@@ -34,30 +32,29 @@ where
     S: rkyv::ser::Writer + rkyv::ser::Allocator + rkyv::rancor::Fallible + ?Sized,
     <S as rkyv::rancor::Fallible>::Error: rkyv::rancor::Source,
 {
-    fn serialize(&self, serializer: &mut S) -> Result<usize, <S as rkyv::rancor::Fallible>::Error> {
-        const NODE_SIZE: usize = size_of::<doc::ArchivedNode>();
-        let child_len = self.doc_bytes.len().saturating_sub(NODE_SIZE);
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<rkyv::vec::VecResolver, <S as rkyv::rancor::Fallible>::Error> {
+        use rkyv::ser::WriterExt;
 
         // This is far from exhaustive, but will catch simple wiring errors.
-        if self.doc_bytes.len() < NODE_SIZE || self.doc_bytes.len() % 8 != 0 {
+        if self.doc_bytes.len() < size_of::<doc::ArchivedNode>() || self.doc_bytes.len() % 8 != 0 {
             rkyv::rancor::fail!(DocBytesMalformed);
         }
 
+        serializer.align_for::<u64>()?;
         let pos = serializer.pos();
-        serializer.write(&self.doc_bytes[..child_len])?;
-        Ok(pos)
+        serializer.write(&self.doc_bytes)?;
+        Ok(rkyv::vec::VecResolver::from_pos(pos))
     }
 }
 
 impl rkyv::Archive for BytesDoc {
     type Archived = ArchivedBlockDoc<'static>;
-    /// The serializer position where this doc's sub-data was written.
-    type Resolver = usize;
+    type Resolver = rkyv::vec::VecResolver;
 
-    fn resolve(&self, sub_data_pos: usize, out: rkyv::Place<Self::Archived>) {
-        const NODE_SIZE: usize = size_of::<doc::ArchivedNode>();
-        let child_len = self.doc_bytes.len().saturating_sub(NODE_SIZE);
-
+    fn resolve(&self, resolver: rkyv::vec::VecResolver, out: rkyv::Place<Self::Archived>) {
         unsafe {
             let ptr = out.ptr();
 
@@ -76,16 +73,14 @@ impl rkyv::Archive for BytesDoc {
                 ),
             );
 
-            // Resolve the doc field: copy root bytes with adjusted relative offsets.
+            // Resolve the doc field as ArchivedVec<U64Le> via ArchivedEmbedded.
             let doc_out =
                 rkyv::Place::from_field_unchecked(out, core::ptr::addr_of_mut!((*ptr).doc));
-            let root_pos = doc_out.pos();
-            let delta = (sub_data_pos + child_len) as i64 - root_pos as i64;
-
-            let mut adjusted = [0u8; 16];
-            adjusted[..NODE_SIZE].copy_from_slice(&self.doc_bytes[child_len..]);
-            adjust_archived_node_root(&mut adjusted, delta as i32);
-            core::ptr::copy_nonoverlapping(adjusted.as_ptr(), doc_out.ptr() as *mut u8, NODE_SIZE);
+            let vec_out = rkyv::Place::new_unchecked(
+                doc_out.pos(),
+                doc_out.ptr() as *mut rkyv::vec::ArchivedVec<doc::embedded::U64Le>,
+            );
+            rkyv::vec::ArchivedVec::resolve_from_len(self.doc_bytes.len() / 8, resolver, vec_out);
         }
     }
 }
@@ -119,12 +114,10 @@ pub fn encoded_size(parts: &BytesBlock) -> usize {
     pos = align_up(pos, align_of::<ArchivedBlockMeta>());
     pos += parts.meta.len() * size_of::<ArchivedBlockMeta>();
 
-    // Docs: pre-serialized sub-data bytes, then aligned doc array.
+    // Docs: complete pre-serialized buffers (u64-aligned per doc), then aligned doc array.
     for d in &parts.docs {
-        pos += d
-            .doc_bytes
-            .len()
-            .saturating_sub(size_of::<doc::ArchivedNode>());
+        pos = align_up(pos, align_of::<u64>());
+        pos += d.doc_bytes.len();
     }
     pos = align_up(pos, align_of::<ArchivedBlockDoc<'static>>());
     pos += parts.docs.len() * size_of::<ArchivedBlockDoc<'static>>();
@@ -134,53 +127,6 @@ pub fn encoded_size(parts: &BytesBlock) -> usize {
     pos += size_of::<ArchivedBlock<'static>>();
 
     pos
-}
-
-/// Adjust relative offsets within an ArchivedNode's 16-byte root representation.
-///
-/// When a root is relocated relative to its sub-data, every relative offset
-/// must be adjusted by `delta = sub_data_end_pos - new_root_pos`.
-///
-/// Scalar variants (Bool, Float, NegInt, Null, PosInt) and inline strings
-/// have no relative offsets and are unaffected.
-fn adjust_archived_node_root(root: &mut [u8; 16], delta: i32) {
-    if delta == 0 {
-        return;
-    }
-
-    let discriminant = root[0];
-
-    // Determine which 4-byte i32 field (if any) contains a relative offset.
-    //   Array(i32, ArchivedVec):  vec RelPtr at bytes 8..12
-    //   Bool(bool):               no offset
-    //   Bytes(ArchivedVec):       vec RelPtr at bytes 4..8
-    //   Float/NegInt/PosInt:      no offset
-    //   Null:                     no offset
-    //   Object(i32, ArchivedVec): vec RelPtr at bytes 8..12
-    //   String(ArchivedString):   out-of-line offset at bytes 8..12 (if not inline)
-    let offset_pos: Option<usize> = match discriminant {
-        0 | 6 => Some(8), // Array, Object
-        2 => Some(4),     // Bytes
-        8 => {
-            // String: ArchivedStringRepr at bytes 4..12.
-            // Inline when first byte (bytes[4]) has bits [7:6] != 0b10.
-            if root[4] & 0xc0 == 0x80 {
-                Some(8) // Out-of-line
-            } else {
-                None // Inline
-            }
-        }
-        1 | 3 | 4 | 5 | 7 => None,
-        _ => panic!("invalid ArchivedNode discriminant: {discriminant}"),
-    };
-
-    if let Some(pos) = offset_pos {
-        let bytes: [u8; 4] = root[pos..pos + 4].try_into().unwrap();
-        let adjusted = i32::from_le_bytes(bytes)
-            .checked_add(delta)
-            .expect("relative offset overflow");
-        root[pos..pos + 4].copy_from_slice(&adjusted.to_le_bytes());
-    }
 }
 
 #[cfg(test)]
@@ -295,7 +241,8 @@ mod test {
             let heap_doc = doc::HeapNode::from_serde(val, &alloc).unwrap();
 
             // Encode via BytesDoc (the custom path).
-            let doc_bytes = bytes::Bytes::from(heap_doc.to_archive().to_vec());
+            let archive_buf = heap_doc.to_archive();
+            let doc_bytes = bytes::Bytes::from(archive_buf.to_vec());
             let bytes_doc = BytesDoc {
                 offset: 42,
                 packed_key_prefix: [0xAB; 16],
@@ -310,10 +257,17 @@ mod test {
             let custom = serialize_bytes_block(&block);
 
             // Encode via rkyv derive (the reference path).
+            let embedded_doc = unsafe {
+                let buffer = core::slice::from_raw_parts(
+                    archive_buf.as_ptr() as *const doc::embedded::U64Le,
+                    archive_buf.len() / 8,
+                );
+                doc::HeapEmbedded::from_buffer(buffer)
+            };
             let block_doc = crate::log::block::BlockDoc {
                 offset: 42,
                 packed_key_prefix: [0xAB; 16],
-                doc: heap_doc,
+                doc: embedded_doc,
             };
             let ref_block = crate::log::block::Block {
                 journals: vec![],
