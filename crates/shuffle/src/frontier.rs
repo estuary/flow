@@ -40,8 +40,8 @@ impl ProducerFrontier {
 /// Frontier state for a single journal under a specific binding.
 #[derive(Debug, Clone)]
 pub struct JournalFrontier {
-    /// Binding under which the journal is read.
-    pub binding: u32,
+    /// Binding index under which the journal is read.
+    pub binding: u16,
     /// Journal name.
     pub journal: Box<str>,
     /// Producers of this journal.
@@ -138,7 +138,7 @@ impl JournalFrontier {
                 &jf.journal_name_suffix,
             );
             JournalFrontier {
-                binding: jf.binding,
+                binding: jf.binding as u16,
                 journal: journal_name.clone().into_boxed_str(),
                 producers: jf
                     .producers
@@ -170,7 +170,7 @@ impl JournalFrontier {
                 prev_journal = jf.journal.as_ref();
 
                 shuffle::JournalFrontier {
-                    binding: jf.binding,
+                    binding: jf.binding as u32,
                     journal_name_truncate_delta: truncate_delta,
                     journal_name_suffix: suffix.to_string(),
                     producers: jf
@@ -195,6 +195,15 @@ impl JournalFrontier {
 }
 
 /// Frontier tracks journal progress including causal hints.
+///
+/// A Frontier may represent either a cumulative checkpoint (full state of all
+/// journals and producers) or a checkpoint delta (only journals and producers
+/// that progressed since the last checkpoint). The `reduce` method merges a
+/// delta into a cumulative base: new journals from the delta are added, base
+/// journals absent from the delta are preserved, and matching entries are
+/// reduced by maximizing clocks.
+///
+/// See the CheckpointPipeline (README §11) for how deltas are produced.
 #[derive(Debug, Clone, Default)]
 pub struct Frontier {
     /// Journals which constitute the frontier.
@@ -280,10 +289,12 @@ impl Frontier {
             .collect()
     }
 
-    /// Reduce two Frontiers by sorted-merging their journal lists.
-    /// Matching (binding, journal) entries are reduced via `JournalFrontier::reduce`;
-    /// unmatched entries pass through. Both inputs may contain non-unique keys,
-    /// which are reduced to single entries.
+    /// Merge two Frontiers by sorted-merging their journal lists.
+    /// Typically used to merge a checkpoint delta into a cumulative base:
+    /// new journals from the delta are added, base journals absent from the
+    /// delta are preserved unchanged, and matching `(binding, journal)` entries
+    /// are reduced via `JournalFrontier::reduce` (maximizing clocks).
+    /// Both inputs may contain non-unique keys, which are reduced to single entries.
     pub fn reduce(self, other: Self) -> Self {
         let flushed_lsn = Self::merge_flushed_lsn(self.flushed_lsn, other.flushed_lsn);
 
@@ -338,7 +349,7 @@ impl Frontier {
     }
 
     /// Look up a journal entry by `(binding, journal)`.
-    pub fn find_journal(&self, binding: u32, journal: &str) -> Option<&JournalFrontier> {
+    pub fn find_journal(&self, binding: u16, journal: &str) -> Option<&JournalFrontier> {
         self.journals
             .binary_search_by(|jf| {
                 jf.binding

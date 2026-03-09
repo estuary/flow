@@ -37,4 +37,4 @@ pub type ReadLines = std::pin::Pin<
 /// Accumulated causal hints from ACK documents, keyed by (journal name, binding index).
 /// Drained into the flush frontier each flush cycle.
 pub type CausalHints =
-    std::collections::HashMap<(Box<str>, u32), Vec<(uuid::Producer, uuid::Clock)>>;
+    std::collections::HashMap<(Box<str>, u16), Vec<(uuid::Producer, uuid::Clock)>>;

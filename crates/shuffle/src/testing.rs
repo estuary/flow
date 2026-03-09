@@ -26,7 +26,7 @@ pub fn pf(id: u8, last_commit: u64, hinted_commit: u64, offset: i64) -> crate::P
 
 pub fn jf(
     journal: &str,
-    binding: u32,
+    binding: u16,
     producers: Vec<crate::ProducerFrontier>,
 ) -> crate::JournalFrontier {
     crate::JournalFrontier {
@@ -86,7 +86,7 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
 
 /// Build a minimal Binding with just the fields used by on_listing_added.
 pub fn test_binding(
-    index: u32,
+    index: u16,
     uses_source_key: bool,
     partition_fields: Option<Vec<String>>,
     journal_read_suffix: &str,

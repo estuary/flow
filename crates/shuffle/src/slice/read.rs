@@ -10,7 +10,7 @@ use proto_gazette::{broker, uuid};
 #[derive(Debug)]
 pub struct ReadState {
     /// Index of the binding within `SliceActor::bindings`.
-    pub binding_index: u32,
+    pub binding_index: u16,
     /// The journal name (canonical, without the `;suffix` read metadata).
     pub journal: Box<str>,
     /// Producers whose state is settled: either from the initial checkpoint

@@ -385,18 +385,18 @@ pub fn sequence_document(
 ///
 /// Hinted journals of other cohorts will have their own ACKs, and will project to
 /// hints internal to their own cohort's progress tracking.
-pub struct HintIndex(Vec<(Box<str>, u32, u32, PartitionFilter)>); // (prefix, binding_index, cohort, filter)
+pub struct HintIndex(Vec<(Box<str>, u16, u32, PartitionFilter)>); // (prefix, binding_index, cohort, filter)
 
 impl HintIndex {
-    pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u32, u32, PartitionFilter)>) -> Self {
-        let mut index: Vec<(&str, u32, u32, PartitionFilter)> = entries.collect();
+    pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u16, u32, PartitionFilter)>) -> Self {
+        let mut index: Vec<(&str, u16, u32, PartitionFilter)> = entries.collect();
 
         index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
         // Now that we've sorted, re-allocate partition name prefixes extended with a trailing slash.
         // This ensures we don't match "acmeCo/anvils/..." to "acmeCo/anvils-two/...",
         // and also aligns memory locality and ordering with our query pattern.
-        let owned: Vec<(Box<str>, u32, u32, PartitionFilter)> = index
+        let owned: Vec<(Box<str>, u16, u32, PartitionFilter)> = index
             .into_iter()
             .map(|(prefix, idx, cohort, filter)| {
                 (Box::from(format!("{prefix}/")), idx, cohort, filter)
@@ -422,7 +422,7 @@ impl HintIndex {
     ///
     /// Because no collection prefix is a prefix of another, there is at most
     /// one matching prefix for any journal name.
-    pub fn lookup(&self, journal: &str, cohort: u32, out: &mut Vec<u32>) -> anyhow::Result<()> {
+    pub fn lookup(&self, journal: &str, cohort: u32, out: &mut Vec<u16>) -> anyhow::Result<()> {
         out.clear();
 
         // Find the first entry whose partition name prefix is > journal.
@@ -959,7 +959,7 @@ mod test {
             },
         );
 
-        let cases: Vec<(Vec<(&str, u32, u32, PartitionFilter)>, &str, u32, Vec<u32>)> = vec![
+        let cases: Vec<(Vec<(&str, u16, u32, PartitionFilter)>, &str, u32, Vec<u16>)> = vec![
             // Prefix match: anvils has 1 partition field, bananas has 0.
             (
                 vec![

@@ -10,7 +10,7 @@ use proto_gazette::{broker, uuid};
 #[derive(Debug)]
 pub struct Binding {
     /// Index of this Binding within the task.
-    pub index: u32,
+    pub index: u16,
     /// Source collection name (for logging/debugging).
     pub collection: models::Collection,
     /// Should documents be filtered on their r-clocks?
@@ -94,7 +94,7 @@ impl Binding {
                     .iter()
                     .enumerate()
                     .map(|(index, transform)| {
-                        Self::from_derivation_transform(index as u32, transform)
+                        Self::from_derivation_transform(index as u16, transform)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -113,7 +113,7 @@ impl Binding {
                     .iter()
                     .enumerate()
                     .map(|(index, binding)| {
-                        Self::from_materialization_binding(index as u32, binding)
+                        Self::from_materialization_binding(index as u16, binding)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -170,7 +170,7 @@ impl Binding {
     }
 
     fn from_derivation_transform(
-        index: u32,
+        index: u16,
         spec: &flow::collection_spec::derivation::Transform,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::collection_spec::derivation::Transform {
@@ -265,7 +265,7 @@ impl Binding {
     }
 
     fn from_materialization_binding(
-        index: u32,
+        index: u16,
         spec: &flow::materialization_spec::Binding,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::materialization_spec::Binding {

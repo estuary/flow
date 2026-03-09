@@ -314,6 +314,7 @@ requests the next one.
   - `routing.rs`: Clock rotation and member routing.
   - `heap.rs`: Priority heap for ready reads.
 - `log/`: Log actor, append merge heap, flush IO.
+  - `log/block/`: Zero-copy types for working with segmented log blocks.
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
 - `binding.rs`: Binding configuration, partition filtering.

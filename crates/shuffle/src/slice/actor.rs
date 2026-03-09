@@ -183,8 +183,8 @@ impl SliceActor {
 
         for binding in &self.topology.bindings {
             // Use modulo round-robin to assign bindings to slice members.
-            if binding.index % self.topology.members.len() as u32
-                != self.topology.slice_member_index
+            if binding.index % self.topology.members.len() as u16
+                != self.topology.slice_member_index as u16
             {
                 continue;
             }
@@ -296,7 +296,7 @@ impl SliceActor {
         let binding_state_key = binding.state_key().to_string();
         let read_id = self.reads.len() as u32;
         self.reads.push(ReadState {
-            binding_index,
+            binding_index: binding_index as u16,
             journal,
             settled: producers,
             pending: Default::default(),
@@ -781,7 +781,7 @@ impl SliceActor {
                 append: Some(shuffle::log_request::Append {
                     journal_name_truncate_delta,
                     journal_name_suffix,
-                    binding: binding.index,
+                    binding: binding.index as u32,
                     priority: binding.priority,
                     read_delay: binding.read_delay.as_u64(),
                     begin_offset: *begin_offset,

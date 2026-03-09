@@ -76,7 +76,7 @@ fn make_publisher(
 /// non-negative = pending begin.
 fn snapshot_frontier(
     frontier: &shuffle::Frontier,
-) -> Vec<(&str, u32, Vec<(&str, (u64, u32), (u64, u32), i64)>)> {
+) -> Vec<(&str, u16, Vec<(&str, (u64, u32), (u64, u32), i64)>)> {
     frontier
         .journals
         .iter()

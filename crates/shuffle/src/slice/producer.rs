@@ -88,11 +88,11 @@ const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 /// Both inputs may arrive in arbitrary order; outputs are sorted.
 pub fn build_flush_frontier(
     reads: &[super::read::ReadState],
-    hints: impl Iterator<Item = ((Box<str>, u32), Vec<(Producer, Clock)>)>,
+    hints: impl Iterator<Item = ((Box<str>, u16), Vec<(Producer, Clock)>)>,
     member_count: usize,
 ) -> crate::Frontier {
     // Build JournalFrontier entries from read-derived pending producers.
-    let mut by_journal: Vec<(&str, u32, Vec<crate::ProducerFrontier>)> = Vec::new();
+    let mut by_journal: Vec<(&str, u16, Vec<crate::ProducerFrontier>)> = Vec::new();
 
     for read_state in reads.iter() {
         if read_state.pending.is_empty() {
@@ -178,7 +178,7 @@ mod test {
 
     fn read_state(
         journal: &str,
-        binding: u32,
+        binding: u16,
         pending: &[(u8, u64, i64)],
     ) -> super::super::read::ReadState {
         let mut map = ProducerMap::default();
@@ -202,9 +202,9 @@ mod test {
 
     fn hint(
         journal: &str,
-        binding: u32,
+        binding: u16,
         producers: &[(u8, u64)],
-    ) -> ((Box<str>, u32), Vec<(Producer, Clock)>) {
+    ) -> ((Box<str>, u16), Vec<(Producer, Clock)>) {
         (
             (journal.into(), binding),
             producers
@@ -220,7 +220,7 @@ mod test {
         let cases: Vec<(
             &str,
             Vec<super::super::read::ReadState>,
-            Vec<((Box<str>, u32), Vec<(Producer, Clock)>)>,
+            Vec<((Box<str>, u16), Vec<(Producer, Clock)>)>,
         )> = vec![
             // Both empty.
             ("empty", vec![], vec![]),

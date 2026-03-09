@@ -143,7 +143,7 @@ impl Topology {
         // Extract the checkpoint for this journal from `resume_checkpoint`.
         let checkpoint = self
             .resume_checkpoint
-            .find_journal(binding.index as u32, journal_name)
+            .find_journal(binding.index, journal_name)
             .map(|jf| {
                 jf.producers
                     .iter()
