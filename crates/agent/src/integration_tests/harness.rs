@@ -478,6 +478,9 @@ impl TestHarness {
             del_role_grants as (
                 delete from role_grants
             ),
+            del_invite_links as (
+                delete from internal.invite_links
+            ),
             del_directives as (
                 delete from directives
             ),
