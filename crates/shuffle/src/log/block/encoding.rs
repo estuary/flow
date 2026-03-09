@@ -97,10 +97,10 @@ pub fn encoded_size(parts: &BytesBlock) -> usize {
 
     let mut pos = 0usize;
 
-    // Journals: out-of-line suffix bytes, then aligned journal array.
+    // Journals: out-of-line name bytes, then aligned journal array.
     for j in &parts.journals {
-        if j.suffix.len() > rkyv::string::repr::INLINE_CAPACITY {
-            pos += j.suffix.len();
+        if j.name.len() > rkyv::string::repr::INLINE_CAPACITY {
+            pos += j.name.len();
         }
     }
     pos = align_up(pos, align_of::<ArchivedBlockJournal>());
@@ -173,13 +173,11 @@ mod test {
             journals: vec![
                 crate::log::block::BlockJournal {
                     journal_bid: 0,
-                    truncate_delta: 0,
-                    suffix: "short".to_string(), // inline
+                    name: "short".to_string(), // inline
                 },
                 crate::log::block::BlockJournal {
                     journal_bid: 1,
-                    truncate_delta: 5,
-                    suffix: "a".repeat(rkyv::string::repr::INLINE_CAPACITY + 10), // out-of-line
+                    name: "a".repeat(rkyv::string::repr::INLINE_CAPACITY + 10), // out-of-line
                 },
             ],
             producers: vec![

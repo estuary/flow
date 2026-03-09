@@ -116,12 +116,8 @@ impl Shuffle {
         tracing::info!(log_dir = %log_dir_str, "using log directory");
 
         // Create member topology: even-indexed members use even server, odd use odd.
-        let members = build_member_topology(
-            *member_count,
-            &peer_addr_even,
-            &peer_addr_odd,
-            &log_dir_str,
-        );
+        let members =
+            build_member_topology(*member_count, &peer_addr_even, &peer_addr_odd, &log_dir_str);
 
         tracing::info!(
             addr_even = %peer_addr_even,
@@ -141,6 +137,14 @@ impl Shuffle {
 
         tracing::info!("session opened, requesting checkpoints");
 
+        // Create a Reader per member to consume log entries.
+        let log_dir = std::path::Path::new(&log_dir_str);
+        let mut readers: Vec<::shuffle::log::reader::Reader> = (0..*member_count)
+            .map(|i| ::shuffle::log::reader::Reader::new(log_dir, i))
+            .collect();
+
+        let mut total_entries: usize = 0;
+
         for i in 0..15 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             tracing::info!(i, "requesting NextCheckpoint");
@@ -156,6 +160,7 @@ impl Shuffle {
                 i,
                 journals = frontier.journals.len(),
                 total_producers,
+                flushed_lsn = ?frontier.flushed_lsn,
                 "received NextCheckpoint"
             );
 
@@ -183,11 +188,40 @@ impl Shuffle {
                     );
                 }
             }
+
+            // Read committed entries from each member's log files.
+            let mut checkpoint_entries: usize = 0;
+            for (member_index, reader) in readers.iter_mut().enumerate() {
+                reader
+                    .read_checkpoint(&frontier, |entry| {
+                        checkpoint_entries += 1;
+                        total_entries += 1;
+
+                        tracing::info!(
+                            member = member_index,
+                            binding = entry.binding,
+                            journal = entry.journal_name,
+                            ?entry.producer,
+                            ?entry.clock,
+                            flags = entry.flags,
+                            offset = entry.offset,
+                            "log entry"
+                        );
+                    })
+                    .with_context(|| format!("reading checkpoint for member {member_index}"))?;
+            }
+
+            tracing::info!(
+                i,
+                checkpoint_entries,
+                total_entries,
+                "read log entries for checkpoint"
+            );
         }
 
         client.close().await.context("closing session")?;
 
-        tracing::info!("shuffle test completed successfully");
+        tracing::info!(total_entries, "shuffle test completed successfully");
 
         server_handle_even.abort();
         server_handle_odd.abort();

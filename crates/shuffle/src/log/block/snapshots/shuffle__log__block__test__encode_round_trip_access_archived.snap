@@ -6,13 +6,11 @@ ArchivedBlock {
     journals: [
         ArchivedBlockJournal {
             journal_bid: 1,
-            truncate_delta: 0,
-            suffix: "acme/gadgets",
+            name: "acme/gadgets",
         },
         ArchivedBlockJournal {
             journal_bid: 0,
-            truncate_delta: 7,
-            suffix: "widgets",
+            name: "acme/widgets",
         },
     ],
     producers: [

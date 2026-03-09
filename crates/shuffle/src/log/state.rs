@@ -19,9 +19,6 @@ pub struct Topology {
 /// Target ceiling for accumulated doc bytes before forcing a block flush.
 const BLOCK_BYTES_THRESHOLD: usize = 1024 * 1024;
 
-/// Maximum number of distinct journals or producers per block (u16 BID space).
-const MAX_BIDS: usize = u16::MAX as usize;
-
 /// Accumulates document entries into a block, assigning block-internal IDs
 /// for journals and producers as they are encountered.
 pub struct BlockState {
@@ -73,12 +70,10 @@ impl BlockState {
     }
 
     /// Whether the block has reached capacity and should be flushed.
-    /// True when accumulated bytes exceed the threshold, or when either
-    /// the journal or producer BID space is exhausted.
+    /// True when accumulated bytes exceed the threshold (common), or when entries
+    /// hits the 65,536 length cap (rare or never, requires tiny documents).
     pub fn is_full(&self) -> bool {
-        self.entries_bytes >= BLOCK_BYTES_THRESHOLD
-            || self.journals.len() >= MAX_BIDS
-            || self.producers.len() >= MAX_BIDS
+        self.entries_bytes >= BLOCK_BYTES_THRESHOLD || self.entries.len() == 1 << 16
     }
 
     /// Accumulate an append into the current block.
@@ -337,9 +332,9 @@ mod test {
         block.accumulate("j/a", prod_1, &append(0, 2, true, 0, b"x"));
         assert!(block.is_full());
 
-        // BID-space exhaustion also triggers is_full.
+        // Entry and BID-space exhaustion also triggers is_full.
         let mut block = BlockState::new();
-        for i in 0..MAX_BIDS {
+        for i in 0..(1 << 16) {
             block.accumulate(&format!("j/{i}"), prod_1, &append(0, 1, true, 0, b"x"));
         }
         assert!(block.is_full());

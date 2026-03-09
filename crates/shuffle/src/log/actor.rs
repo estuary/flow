@@ -311,7 +311,7 @@ impl LogActor {
         let (journals, producers, entries) = self.block.take();
 
         *flush_handle = Some(tokio::task::spawn_blocking(move || {
-            let flushed_lsn = writer.append_block(&journals, &producers, &entries)?;
+            let flushed_lsn = writer.append_block(journals, producers, entries)?;
             Ok((writer, flushed_lsn))
         }));
     }

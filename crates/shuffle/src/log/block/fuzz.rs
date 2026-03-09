@@ -126,8 +126,8 @@ fn round_trip(input: FuzzInput) -> bool {
         });
     }
 
-    let journals = super::encode_journals(&journal_map);
-    let producers = super::encode_producers(&producer_map);
+    let journals = super::encode_journals(journal_map.clone());
+    let producers = super::encode_producers(producer_map.clone());
 
     let heap = Block {
         journals,
@@ -137,7 +137,7 @@ fn round_trip(input: FuzzInput) -> bool {
     };
 
     // Encode via BytesBlock path.
-    let custom_encoding = encode(&journal_map, &producer_map, &encode_entries);
+    let custom_encoding = encode(journal_map, producer_map, encode_entries);
     // Encode via rkyv derive on Block.
     let rkyv_encoding = rkyv::to_bytes::<rkyv::rancor::Error>(&heap).unwrap();
 

@@ -47,9 +47,9 @@ impl Writer {
     /// but no fsync or fdatasync is performed (given our fail-fast failure model).
     pub fn append_block(
         &mut self,
-        journals: &HashMap<String, u16>,
-        producers: &HashMap<uuid::Producer, u16>,
-        entries: &[(BlockMeta, i64, bytes::Bytes, bytes::Bytes)],
+        journals: HashMap<String, u16>,
+        producers: HashMap<uuid::Producer, u16>,
+        entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
     ) -> anyhow::Result<Lsn> {
         let block_lsn = self.next_lsn;
         let raw = block::encode(journals, producers, entries);
@@ -169,9 +169,7 @@ mod test {
             doc_bytes,
         )];
 
-        let lsn = writer
-            .append_block(&journals, &producers, &entries)
-            .unwrap();
+        let lsn = writer.append_block(journals, producers, entries).unwrap();
         assert_eq!(lsn, Lsn::new(1, 0));
         assert_eq!(writer.next_lsn, Lsn::new(1, 1));
 

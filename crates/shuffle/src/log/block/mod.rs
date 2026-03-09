@@ -10,17 +10,19 @@ mod fuzz;
 ///
 /// Fields are factored for efficient zero-copy access: fixed-size metadata
 /// is separate from variable-size documents, and journal names are
-/// deduplicated with delta encoding.
+/// deduplicated and sorted by name.
 ///
 /// Outside of tests we never actually use `Block` directly. We DO use its
 /// rkyv-derived ArchivedBlock for zero-copy access within encoded block buffers.
 ///
 /// Instead of encoding a Block through rkyv, encode() produces a bit-for-bit
 /// equivalent encoding using pre-serialized `doc::ArchivedEmbedded` bytes.
+///
+/// A Block (and all columns thereof) is constrained to having at most 65,536 entries.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
 #[allow(dead_code)]
 pub struct Block<'alloc> {
-    /// Deduplicated, delta-encoded journal names sorted by full journal name.
+    /// Deduplicated, sorted journal names.
     /// Each entry carries a `journal_bid` (block-internal ID) that documents
     /// reference via `BlockMeta::journal_bid`.
     pub journals: Vec<BlockJournal>,
@@ -34,9 +36,9 @@ pub struct Block<'alloc> {
     pub docs: Vec<BlockDoc<'alloc>>,
 }
 
-/// A delta-encoded journal entry within a block.
+/// A journal entry within a block.
 ///
-/// Journals are sorted by full name for efficient frontier matching.
+/// Journals are sorted by name for efficient frontier matching.
 /// The `journal_bid` is the block-internal ID that `BlockMeta` references,
 /// assigned during block construction as journals are encountered.
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize)]
@@ -44,12 +46,8 @@ pub struct Block<'alloc> {
 pub struct BlockJournal {
     /// Block-internal ID for this journal, referenced by `BlockMeta::journal_bid`.
     pub journal_bid: u16,
-    /// Bytes to truncate from the preceding journal name before appending
-    /// `suffix`. Zero for the first entry (which is the full name).
-    pub truncate_delta: i32,
-    /// Suffix to append to the truncated preceding name to
-    /// reconstruct the full journal name.
-    pub suffix: String,
+    /// Full journal name.
+    pub name: String,
 }
 
 /// A deduplicated producer entry within a block.
@@ -118,11 +116,17 @@ impl std::fmt::Debug for ArchivedBlockDoc<'_> {
 ///
 /// Journals are sorted by name and delta-encoded. Producers are sorted by
 /// their 6-byte value. Entries are split into the `meta` and `docs` columns.
+///
+/// Panics if any of `journals`, `producers`, or `entries` exceeds 65,536 items.
 pub fn encode(
-    journals: &HashMap<String, u16>,
-    producers: &HashMap<uuid::Producer, u16>,
-    entries: &[(BlockMeta, i64, bytes::Bytes, bytes::Bytes)],
+    journals: HashMap<String, u16>,
+    producers: HashMap<uuid::Producer, u16>,
+    entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
 ) -> rkyv::util::AlignedVec {
+    assert!(journals.len() <= 1 << 16);
+    assert!(producers.len() <= 1 << 16);
+    assert!(entries.len() <= 1 << 16);
+
     let (meta, docs) = encode_entries(entries);
 
     let bytes_block = encoding::BytesBlock {
@@ -143,58 +147,50 @@ pub fn encode(
     buf
 }
 
-fn encode_producers(producers: &HashMap<uuid::Producer, u16>) -> Vec<BlockProducer> {
-    // Sort producers by their 6-byte value.
-    let mut sorted_producers: Vec<_> = producers.iter().collect();
-    sorted_producers.sort_by_key(|(p, _)| *p);
+fn encode_producers(producers: HashMap<uuid::Producer, u16>) -> Vec<BlockProducer> {
+    let mut producers: Vec<_> = producers.into_iter().collect();
+    producers.sort();
 
-    sorted_producers
-        .iter()
+    producers
+        .into_iter()
         .map(|(producer, bid)| BlockProducer {
-            producer_bid: **bid,
+            producer_bid: bid,
             producer: producer.0,
         })
         .collect()
 }
 
-fn encode_journals(journals: &HashMap<String, u16>) -> Vec<BlockJournal> {
-    // Sort journals by name and delta-encode.
-    let mut sorted_journals: Vec<_> = journals.iter().collect();
-    sorted_journals.sort_by_key(|(name, _)| name.as_str());
+fn encode_journals(journals: HashMap<String, u16>) -> Vec<BlockJournal> {
+    let mut journals: Vec<_> = journals.into_iter().collect();
+    journals.sort();
 
-    let mut journal_entries = Vec::with_capacity(sorted_journals.len());
-    let mut prev_name = String::new();
-    for (name, bid) in &sorted_journals {
-        let (truncate_delta, suffix) = gazette::delta::encode(&prev_name, name);
-
-        journal_entries.push(BlockJournal {
-            journal_bid: **bid,
-            truncate_delta,
-            suffix: suffix.to_string(),
-        });
-        gazette::delta::decode(&mut prev_name, truncate_delta, suffix);
-    }
-
-    journal_entries
+    journals
+        .into_iter()
+        .map(|(name, bid)| BlockJournal {
+            journal_bid: bid,
+            name: name.to_string(),
+        })
+        .collect()
 }
 
 fn encode_entries(
-    entries: &[(BlockMeta, i64, bytes::Bytes, bytes::Bytes)],
+    entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
 ) -> (Vec<BlockMeta>, Vec<encoding::BytesDoc>) {
-    // Split entries into meta and docs columns.
+    // Split entries into `meta` and `docs` columns.
     let mut meta = Vec::with_capacity(entries.len());
     let mut docs = Vec::with_capacity(entries.len());
+
     for (block_meta, offset, packed_key, doc_bytes) in entries {
-        meta.push(*block_meta);
+        meta.push(block_meta);
 
         let mut packed_key_prefix = [0u8; 16];
         let copy_len = packed_key.len().min(16);
         packed_key_prefix[..copy_len].copy_from_slice(&packed_key[..copy_len]);
 
         docs.push(encoding::BytesDoc {
-            offset: *offset,
+            offset,
             packed_key_prefix,
-            doc_bytes: doc_bytes.clone(),
+            doc_bytes,
         });
     }
     (meta, docs)
@@ -215,9 +211,8 @@ mod test {
     }
 
     #[test]
-    fn test_encode_journals_delta_encoding_and_sorting() {
-        // Note `journal_map` will randomize ordering.
-        let journal_map: HashMap<String, u16> = [
+    fn test_encode_journals_sorting() {
+        let input: HashMap<String, u16> = [
             ("acme/alpha/one", 0),
             ("acme/alpha/three", 1),
             ("acme/beta/seven", 3),
@@ -228,45 +223,40 @@ mod test {
         .map(|(k, v)| (k.to_string(), v))
         .collect();
 
-        // Expected after sorting by name and delta-encoding against predecessor.
-        // truncate = prev.len() - common_prefix_len:
-        //   prev=""                 → "acme/alpha/one":   truncate 0,  suffix "acme/alpha/one"
-        //   prev="acme/alpha/one"   → "acme/alpha/three": truncate 3,  suffix "three"   (common "acme/alpha/", drop "one")
-        //   prev="acme/alpha/three" → "acme/beta/seven":  truncate 11, suffix "beta/seven" (common "acme/", drop "alpha/three")
-        //   prev="acme/beta/seven"  → "acme/beta/two":    truncate 5,  suffix "two"      (common "acme/beta/", drop "seven")
-        //   prev="acme/beta/two"    → "other/journal":    truncate 13, suffix "other/journal" (no common prefix)
-        let expected: Vec<(&str, i32, u16)> = vec![
-            ("acme/alpha/one", 0, 0),
-            ("three", 3, 1),
-            ("beta/seven", 11, 3),
-            ("two", 5, 4),
-            ("other/journal", 13, 2),
+        let expected: Vec<(&str, u16)> = vec![
+            ("acme/alpha/one", 0),
+            ("acme/alpha/three", 1),
+            ("acme/beta/seven", 3),
+            ("acme/beta/two", 4),
+            ("other/journal", 2),
         ];
 
-        let actual = encode_journals(&journal_map);
+        let actual = encode_journals(input);
         assert_eq!(actual.len(), expected.len());
 
-        for (got, (suffix, truncate, bid)) in actual.iter().zip(&expected) {
-            assert_eq!(got.suffix, *suffix, "suffix mismatch");
-            assert_eq!(got.truncate_delta, *truncate, "truncate mismatch");
+        for (got, (name, bid)) in actual.iter().zip(&expected) {
+            assert_eq!(got.name, *name, "name mismatch");
             assert_eq!(got.journal_bid, *bid, "bid mismatch");
         }
     }
 
     #[test]
     fn test_encode_producers_sorting_and_bids() {
-        let input = vec![
+        let input: HashMap<uuid::Producer, u16> = [
             (uuid::Producer([0xff, 0, 0, 0, 0, 0]), 2),
             (uuid::Producer([0, 0, 0, 0, 0, 1]), 0),
             (uuid::Producer([0x80, 0, 0, 0, 0, 0]), 1),
-        ];
+        ]
+        .into_iter()
+        .collect();
+
         let expected = vec![
             ([0, 0, 0, 0, 0, 1], 0),
             ([0x80, 0, 0, 0, 0, 0], 1),
             ([0xff, 0, 0, 0, 0, 0], 2),
         ];
 
-        let actual = encode_producers(&input.into_iter().collect());
+        let actual = encode_producers(input);
         assert_eq!(actual.len(), expected.len());
 
         for (got, (prod, bid)) in actual.iter().zip(&expected) {
@@ -279,12 +269,12 @@ mod test {
     fn test_encode_round_trip_access_archived() {
         let alloc = doc::HeapNode::new_allocator();
 
-        let journal_map: HashMap<String, u16> = [
+        let journals: HashMap<String, u16> = [
             ("acme/widgets".to_string(), 0u16),
             ("acme/gadgets".to_string(), 1),
         ]
         .into();
-        let producer_map: HashMap<uuid::Producer, u16> = [
+        let producers: HashMap<uuid::Producer, u16> = [
             (uuid::Producer([0, 0, 0, 0, 0, 1]), 0u16),
             (uuid::Producer([0, 0, 0, 0, 0, 2]), 1),
         ]
@@ -308,7 +298,7 @@ mod test {
             ),
         ];
 
-        let buf = encode(&journal_map, &producer_map, &entries);
+        let buf = encode(journals, producers, entries);
         let archived = rkyv::access::<ArchivedBlock, rkyv::rancor::Error>(&buf).unwrap();
 
         insta::assert_debug_snapshot!(archived);
@@ -316,7 +306,7 @@ mod test {
 
     #[test]
     fn test_encode_empty_block() {
-        let buf = encode(&HashMap::new(), &HashMap::new(), &[]);
+        let buf = encode(HashMap::new(), HashMap::new(), Vec::new());
         let archived = rkyv::access::<ArchivedBlock, rkyv::rancor::Error>(&buf).unwrap();
         assert_eq!(archived.journals.len(), 0);
         assert_eq!(archived.producers.len(), 0);
