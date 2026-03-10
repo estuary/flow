@@ -86,29 +86,31 @@ The verification key can be found in your [SendGrid Event Webhook settings](http
 
 When configured, the connector verifies the `X-Twilio-Email-Event-Webhook-Signature` and `X-Twilio-Email-Event-Webhook-Timestamp` headers on each incoming request. Requests missing valid signatures are rejected with a 401 Unauthorized response.
 
-## Endpoint Configuration
+## Configuration
+
+### Endpoint properties
 
 | Property              | Title                  | Description                                                                                                                                                                                                             | Type         | Required/Default       |
 | --------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------------------- |
 | \*\*\*\*              | EndpointConfig         |                                                                                                                                                                                                                         | object       | Required               |
-| `/require_auth_token` |                        | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections.                              | null, string | `null`                 |
+| `/requireAuthToken` |                        | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections.                              | null, string | `null`                 |
 | `/paths`              | URL Paths              | List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null`                 |
 | `/signatureConfig`    | Signature Verification | Configuration for verifying webhook signatures.                                                                                                                                                                         | object       | `{"provider": "none"}` |
 
-### Signature Config: None
+#### Signature Config: None
 
 | Property                    | Title | Description         | Type   | Required/Default    |
 | --------------------------- | ----- | ------------------- | ------ | ------------------- |
 | `/signatureConfig/provider` |       | Provider identifier | string | Required (`"none"`) |
 
-### Signature Config: Twilio SendGrid
+#### Signature Config: Twilio SendGrid
 
 | Property                     | Title            | Description                                                   | Type   | Required/Default      |
 | ---------------------------- | ---------------- | ------------------------------------------------------------- | ------ | --------------------- |
 | `/signatureConfig/provider`  |                  | Provider identifier                                           | string | Required (`"twilio"`) |
 | `/signatureConfig/publicKey` | Verification Key | Verification key from Twilio SendGrid Event Webhook settings. | string | Required              |
 
-## Resource configuration
+### Resource properties
 
 | Property        | Title          | Description                                                                                                                                                                                                                                                                                             | Type         | Required/Default |
 | --------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------------- |
@@ -116,3 +118,24 @@ When configured, the connector verifies the `X-Twilio-Email-Event-Webhook-Signat
 | `/idFromHeader` |                | Set the &#x2F;\_meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;\_meta&#x2F;webhookId&#x60;. | null, string |                  |
 | `/path`         |                | The URL path to use for adding documents to this binding. Defaults to the name of the collection.                                                                                                                                                                                                       | null, string |                  |
 | `/stream`       |                | The name of the binding, which is used as a merge key when doing Discovers.                                                                                                                                                                                                                             | null, string |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-twilio-ingest:v1
+        config:
+          paths:
+            - /webhook-data
+          signatureConfig:
+            provider: twilio
+            publicKey: verification-key
+    bindings:
+      - resource:
+          path: /webhook-data
+          stream: /webhook-data
+        target: ${PREFIX}/${COLLECTION_NAME}
+```

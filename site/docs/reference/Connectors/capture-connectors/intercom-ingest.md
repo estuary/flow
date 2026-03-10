@@ -64,18 +64,40 @@ The connector can optionally require each request to present an authentication t
 
 Intercom webhooks use HMAC-SHA1 signatures. This verification scheme is not yet supported by this connector. If this is a requirement for your use case, please contact [`support@estuary.dev`](mailto://support@estuary.dev) and let us know.
 
-## Endpoint Configuration
+## Configuration
+
+### Endpoint properties
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **** | EndpointConfig |  | object | Required |
-| `/require_auth_token` |  | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
+| `/requireAuthToken` |  | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
 | `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
 
-## Resource configuration
+### Resource properties
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **** | ResourceConfig |  | object | Required |
 | `/idFromHeader` |  | Set the &#x2F;&#x5F;meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;&#x5F;meta&#x2F;webhookId&#x60;. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-intercom-ingest:v1
+        config:
+          paths:
+            - /webhook-data
+          signatureConfig:
+            provider: none
+    bindings:
+      - resource:
+          path: /webhook-data
+          stream: /webhook-data
+        target: ${PREFIX}/${COLLECTION_NAME}
+```

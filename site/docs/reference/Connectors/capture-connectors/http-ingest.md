@@ -193,29 +193,32 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 - Add random jitter to prevent thundering herd issues
 - Queue failed payloads locally if all retries fail and retry later
 
-## Endpoint Configuration
+## Configuration
+
+### Endpoint properties
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **** | EndpointConfig |  | object | Required |
-| `/require_auth_token` | Authentication token | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
+| `/requireAuthToken` | Authentication token | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
 | `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
+| `/allowedCorsOrigins` | CORS Allowed Origins | List of allowed CORS origins. If empty, CORS will be disabled. | string array | `[]` |
 | `/signatureConfig` | Signature Verification | Configuration for verifying webhook signatures. | object | `{"provider": "none"}` |
 
-### Signature Config: None
+#### Signature Config: None
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/signatureConfig/provider` |  | Provider identifier | string | Required (`"none"`) |
 
-### Signature Config: Twilio SendGrid
+#### Signature Config: Twilio SendGrid
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/signatureConfig/provider` |  | Provider identifier | string | Required (`"twilio"`) |
 | `/signatureConfig/publicKey` | Verification Key | Verification key from Twilio SendGrid Event Webhook settings. | string | Required |
 
-### Signature Config: Custom
+#### Signature Config: Custom
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
@@ -225,7 +228,7 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 | `/signatureConfig/signatureHeader` | Signature Header | HTTP header containing the base64-encoded signature. | string | Required |
 | `/signatureConfig/timestampHeader` | Timestamp Header | Optional HTTP header containing the timestamp. | string | `null` |
 
-## Resource configuration
+### Resource properties
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
@@ -233,3 +236,24 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 | `/idFromHeader` |  | Set the &#x2F;&#x5F;meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;&#x5F;meta&#x2F;webhookId&#x60;. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
 | `/stream` |  | The name of the binding, which is used as a merge key when doing Discovers. | null, string |  |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-http-ingest:v1
+        config:
+          paths:
+            - /webhook-data
+          requireAuthToken: <secret>
+          signatureConfig:
+            provider: none
+    bindings:
+      - resource:
+          path: /webhook-data
+          stream: /webhook-data
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
