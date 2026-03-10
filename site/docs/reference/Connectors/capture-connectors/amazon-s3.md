@@ -81,6 +81,10 @@ See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access
 [IAM create-user]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html
 [IAM create-policy]: https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html#access_policies_create-json-editor
 
+:::tip Capture from multiple prefixes
+This connector supports multiple bindings to capture from different S3 prefixes within a single capture task. See [Capture Multiple Paths with File Source Connectors](/guides/flowctl/multiple-file-source-bindings) for a step-by-step guide.
+:::
+
 ## Configuration
 
 You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
