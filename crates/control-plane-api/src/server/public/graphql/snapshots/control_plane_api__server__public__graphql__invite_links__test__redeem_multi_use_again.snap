@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+assertion_line: 467
+expression: redeem_again
+---
+{
+  "data": {
+    "redeemInviteLink": {
+      "capability": "write",
+      "catalogPrefix": "aliceCo/"
+    }
+  }
+}

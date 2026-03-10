@@ -17,7 +17,7 @@ comment on column internal.invite_links.single_use is
     'If true, the row is deleted upon redemption.';
 
 create index idx_invite_links_catalog_prefix on internal.invite_links
-    (catalog_prefix text_pattern_ops);
+    using spgist ((catalog_prefix::text));
 
 ------------ TRANSITIONAL LOGIC - TO BE REMOVED AFTER UI ADOPTS GQL API -------------
 

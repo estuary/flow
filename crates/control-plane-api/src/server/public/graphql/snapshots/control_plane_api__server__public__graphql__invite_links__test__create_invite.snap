@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: create_response
+---
+{
+  "data": {
+    "createInviteLink": {
+      "capability": "write",
+      "catalogPrefix": "aliceCo/",
+      "token": "[token]"
+    }
+  }
+}

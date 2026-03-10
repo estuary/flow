@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT catalog_prefix AS \"catalog_prefix!: String\"\n            FROM internal.invite_links\n            WHERE token = $1\n            FOR UPDATE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "83073e2244900c747a9ac07921111dfb37bc055ceb88479ca664d0d95de8020d"
+}
