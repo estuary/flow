@@ -255,6 +255,10 @@ type AutoDiscoverStatus {
 	failure: AutoDiscoverFailure
 }
 
+input BoolFilter {
+	eq: Boolean
+}
+
 """
 Capability within the Estuary role-based access control (RBAC) authorization system.
 """
@@ -526,6 +530,66 @@ type InferredSchemaStatus {
 }
 
 """
+An invite link that grants access to a catalog prefix.
+"""
+type InviteLink {
+	"""
+	The secret token for this invite link.
+	"""
+	token: UUID!
+	"""
+	The catalog prefix this invite link grants access to.
+	"""
+	catalogPrefix: Prefix!
+	"""
+	The capability level granted by this invite link.
+	"""
+	capability: Capability!
+	"""
+	Whether this invite link can only be used once.
+	"""
+	singleUse: Boolean!
+	"""
+	Optional description of this invite link.
+	"""
+	detail: String
+	"""
+	When this invite link was created.
+	"""
+	createdAt: DateTime!
+}
+
+type InviteLinkConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [InviteLinkEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type InviteLinkEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: InviteLink!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input InviteLinksFilter {
+	singleUse: BoolFilter
+	catalogPrefix: PrefixFilter
+}
+
+"""
 A scalar that can represent any JSON value.
 """
 scalar JSON
@@ -743,6 +807,24 @@ type MutationRoot {
 	Delete an alert subscription that exactly matches the given prefix and email.
 	"""
 	deleteAlertSubscription(prefix: Prefix!, email: String!): AlertSubscription!
+	"""
+	Create an invite link that grants access to a catalog prefix.
+	
+	The caller must have admin capability on the catalog prefix.
+	Share the returned token with the intended recipient out-of-band.
+	"""
+	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
+	"""
+	Redeem an invite link token, granting the caller access to the associated
+	catalog prefix with the specified capability.
+	"""
+	redeemInviteLink(token: UUID!): RedeemInviteLinkResult!
+	"""
+	Delete an invite link, revoking it so it can no longer be redeemed.
+	
+	The caller must have admin capability on the invite link's catalog prefix.
+	"""
+	deleteInviteLink(token: UUID!): Boolean!
 }
 
 scalar Name
@@ -782,6 +864,10 @@ type PendingConfigUpdateStatus {
 }
 
 scalar Prefix
+
+input PrefixFilter {
+	startsWith: String
+}
 
 """
 A prefix to which the user is authorized.
@@ -937,6 +1023,27 @@ type QueryRoot {
 	Only data planes the user has at least read capability to are returned.
 	"""
 	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
+	"""
+	List invite links the caller has admin access to.
+	
+	Returns invite links under all prefixes where the caller has admin
+	capability, optionally narrowed by a prefix filter.
+	"""
+	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
+}
+
+"""
+Result of redeeming an invite link.
+"""
+type RedeemInviteLinkResult {
+	"""
+	The catalog prefix that was granted.
+	"""
+	catalogPrefix: Prefix!
+	"""
+	The capability level that was granted.
+	"""
+	capability: Capability!
 }
 
 type RepublishRequested {

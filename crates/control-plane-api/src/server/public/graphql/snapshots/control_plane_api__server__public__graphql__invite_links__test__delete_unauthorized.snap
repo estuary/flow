@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: unauthorized_delete
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/' with required capability admin",
+      "path": [
+        "deleteInviteLink"
+      ]
+    }
+  ]
+}
