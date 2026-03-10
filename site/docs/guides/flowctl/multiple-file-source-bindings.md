@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Capture Multiple Paths with File Source Connectors
 
-File source connectors like Amazon S3, Google Cloud Storage, SFTP, Google Drive, Azure Blob Storage, Dropbox, and HTTP File all support capturing from multiple paths within a single capture task. However, the Estuary web app only creates a single binding during initial setup. To add additional paths, you can use flowctl to manually configure extra bindings.
+File source connectors like Amazon S3, Google Cloud Storage, SFTP, Google Drive, Azure Blob Storage, Dropbox, and HTTP File all support capturing from multiple paths within a single capture task. However, the Estuary web app only creates a single binding during initial setup. To add additional paths, you can use flowctl or the Advanced Specification Editor to manually configure extra bindings.
 
 This is useful when you need to:
 
@@ -14,11 +14,13 @@ This is useful when you need to:
 ## Prerequisites
 
 - An existing file source capture created through the Estuary web app.
-- [flowctl installed and authenticated](/guides/get-started-with-flowctl).
+- [flowctl installed and authenticated](/guides/get-started-with-flowctl) (for Options A and B via CLI).
 
 ## Option A: Multiple paths into the same collection
 
 Add extra bindings that capture from different paths but write to the same target collection.
+
+You can also make this change directly in the web app using the **Advanced Specification Editor** instead of flowctl. Edit your capture, open the Advanced Specification Editor, and add new entries to the `bindings` array with a different `stream` value but the same `target` collection. This only works for Option A — Option B requires creating new collections via flowctl.
 
 ### 1. Pull the capture specification
 

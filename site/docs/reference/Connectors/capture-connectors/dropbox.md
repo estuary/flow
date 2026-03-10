@@ -1,4 +1,3 @@
-
 # Dropbox
 
 This connector captures data from a Dropbox account into an Estuary collection.
@@ -7,7 +6,7 @@ It is available for use in the Estuary web application. For local development or
 
 ## Supported data types
 
-This connector automatically captures the data within the specified Dropbox folder into a single Estuary collection.
+This connector captures data from one or more Dropbox folders into Estuary collections.
 
 The following file types are supported:
 
@@ -30,7 +29,9 @@ If necessary, you can specify the correct file type, compression, and other prop
 
 To use this connector, make sure you have an active Dropbox account. Authentication is handled using OAuth2 in the Estuary web app.
 
-**Note:** This connector is designed for files located in a specific Dropbox folder.
+:::tip Capture from multiple folders
+This connector supports multiple bindings to capture from different Dropbox folders within a single capture task. See [Capture Multiple Paths with File Source Connectors](/guides/flowctl/multiple-file-source-bindings) for a step-by-step guide.
+:::
 
 ## Configuration
 
@@ -49,8 +50,8 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/advanced` | Advanced       | Options for advanced users. You should not typically need to modify these. | object |  |
 | `/advanced/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors. | boolean | `false` |
 | `/parser` | Parser Configuration | Configures how files are parsed (optional, see below) | object |  |
-| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
-| `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
+| `/parser/compression` | Compression | Determines how to decompress the contents. The default, 'Auto', will try to determine the compression automatically. | null, string | `null` |
+| `/parser/format` | Format | Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
 | `/parser/format/type` | Type |  | string |  |
 
 #### Bindings

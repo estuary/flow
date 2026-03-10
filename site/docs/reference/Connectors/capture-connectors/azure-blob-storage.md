@@ -1,4 +1,3 @@
-
 # Azure Blob Storage
 
 This connector captures data from an Azure Blob Storage Account.
@@ -32,6 +31,10 @@ These values can be obtained from the portal, here's the instructions:
     5. Go to Certificates & secrets and click New client secret. Fill in a Description, choose a Secret value type and length, then click Add to save the secret. A pop-up will appear with your new client secret value; copy it immediately as you won't be able to view it again.
     6. Go back to Overview page and copy the Directory (tenant) ID under Properties.
     7. Your service principal is now created, and you have its Application (client) ID, Directory (tenant) ID, and a client secret key. Use these values when configuring your application or service to interact with Azure services that require authentication through AAD.
+
+:::tip Capture from multiple containers
+This connector supports multiple bindings to capture from different Azure Blob Storage containers within a single capture task. See [Capture Multiple Paths with File Source Connectors](/guides/flowctl/multiple-file-source-bindings) for a step-by-step guide.
+:::
 
 ## **Configuration**
 
