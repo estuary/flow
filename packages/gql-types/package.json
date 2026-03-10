@@ -1,0 +1,41 @@
+{
+  "name": "@estuarydev/gql-types",
+  "version": "0.1.0",
+  "description": "GraphQL schema and TypeScript types for the Estuary control plane API",
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/estuary/flow",
+    "directory": "packages/gql-types"
+  },
+  "types": "dist/types.d.ts",
+  "files": [
+    "dist/",
+    "schema/"
+  ],
+  "scripts": {
+    "codegen": "graphql-codegen",
+    "build": "graphql-codegen && tsc"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/typescript": "^4.0.0",
+    "graphql": "^16.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "graphql": "^16.0.0"
+  },
+  "peerDependenciesMeta": {
+    "graphql": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": "^10"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

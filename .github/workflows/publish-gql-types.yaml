@@ -1,0 +1,59 @@
+name: Publish GraphQL Types Package
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - packages/gql-types/package.json
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Check if version already published
+        id: check
+        working-directory: packages/gql-types
+        run: |
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+
+          if npm view "@estuarydev/gql-types@$LOCAL_VERSION" version 2>/dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL_VERSION already published, skipping."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL_VERSION not yet published, will publish."
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Build package
+        if: steps.check.outputs.published == 'false'
+        working-directory: packages/gql-types
+        run: |
+          cp ../../crates/flow-client/control-plane-api.graphql schema/
+          npm install
+          npx graphql-codegen
+          npx tsc
+
+      - name: Publish
+        if: steps.check.outputs.published == 'false'
+        working-directory: packages/gql-types
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
