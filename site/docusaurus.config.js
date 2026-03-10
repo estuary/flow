@@ -94,10 +94,6 @@ const config = {
       {
         redirects: [
           {
-            from: '/reference/Connectors/materialization-connectors/apache-iceberg/',
-            to: '/reference/Connectors/materialization-connectors/apache-iceberg/',
-          },
-          {
             from: '/guides/create-derivation/',
             to: '/guides/flowctl/create-derivation/',
           },

@@ -53,6 +53,9 @@ In the future, other open-source materialization connectors from third parties c
 * Azure SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:v2
+* Bauplan
+  * [Configuration](./apache-iceberg/bauplan.md)
+  * Package - ghcr.io/estuary/materialize-bauplan:v1
 * Bytewax
   * [Configuration](./Dekaf/bytewax.md)
 * ClickHouse
