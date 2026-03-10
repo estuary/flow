@@ -170,7 +170,7 @@ user, for example by attaching a policy to the user like this:
    integration settings**, ensure **Allow external engines to access data in
    Amazon S3 locations with full table access** is **enabled** by checking the
    box for it.
-![Configuring Lake Formation application integration settings](../connector-images/materialize-iceberg-lf-application-integration.png)
+![Configuring Lake Formation application integration settings](../../connector-images/materialize-iceberg-lf-application-integration.png)
 
 4) Grant `DATA_LOCATION_ACCESS` to the registered location for the catalog user:
 ```
