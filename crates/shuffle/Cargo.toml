@@ -31,6 +31,7 @@ tuple = { path = "../tuple" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+highway = { workspace = true }
 lz4 = { workspace = true }
 md5 = { workspace = true }
 memchr = { workspace = true }

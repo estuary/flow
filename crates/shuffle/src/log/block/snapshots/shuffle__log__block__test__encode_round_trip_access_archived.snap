@@ -37,6 +37,14 @@ ArchivedBlock {
             ],
         },
     ],
+    journals_reverse: [
+        1,
+        0,
+    ],
+    producers_reverse: [
+        0,
+        1,
+    ],
     meta: [
         ArchivedBlockMeta {
             binding: 0,

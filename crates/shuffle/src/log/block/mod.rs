@@ -30,6 +30,10 @@ pub struct Block<'alloc> {
     /// carries a `producer_bid` that documents reference via
     /// `BlockMeta::producer_bid`.
     pub producers: Vec<BlockProducer>,
+    /// Reverse mapping from `journal_bid` => offset in `journals`.
+    pub journals_reverse: Vec<u16>,
+    /// Reverse mapping from `producer_bid` => offset in `producers`.
+    pub producers_reverse: Vec<u16>,
     /// Per-document metadata, 1:1 with `docs`.
     pub meta: Vec<BlockMeta>,
     /// Per-document content with offset and key prefix.
@@ -96,6 +100,8 @@ impl std::fmt::Debug for ArchivedBlock<'_> {
         f.debug_struct("ArchivedBlock")
             .field("journals", &self.journals)
             .field("producers", &self.producers)
+            .field("journals_reverse", &self.journals_reverse)
+            .field("producers_reverse", &self.producers_reverse)
             .field("meta", &self.meta)
             .field("docs", &self.docs)
             .finish()
@@ -129,9 +135,17 @@ pub fn encode(
 
     let (meta, docs) = encode_entries(entries);
 
+    let journals = encode_journals(journals);
+    let producers = encode_producers(producers);
+
+    let journals_reverse = build_bid_reverse(&journals, |j| j.journal_bid);
+    let producers_reverse = build_bid_reverse(&producers, |p| p.producer_bid);
+
     let bytes_block = encoding::BytesBlock {
-        journals: encode_journals(journals),
-        producers: encode_producers(producers),
+        journals,
+        producers,
+        journals_reverse,
+        producers_reverse,
         meta,
         docs,
     };
@@ -145,6 +159,15 @@ pub fn encode(
 
     debug_assert_eq!(buf.len(), encoded_size);
     buf
+}
+
+/// Build a reverse mapping from bid → sorted index.
+fn build_bid_reverse<T>(items: &[T], bid: impl Fn(&T) -> u16) -> Vec<u16> {
+    let mut reverse = vec![0u16; items.len()];
+    for (sorted_idx, item) in items.iter().enumerate() {
+        reverse[bid(item) as usize] = sorted_idx as u16;
+    }
+    reverse
 }
 
 fn encode_producers(producers: HashMap<uuid::Producer, u16>) -> Vec<BlockProducer> {

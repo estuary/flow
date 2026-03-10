@@ -83,6 +83,9 @@ pub mod reader;
 mod state;
 pub mod writer;
 
+pub use reader::{FrontierScan, Reader, Remainder};
+pub use writer::Writer;
+
 pub(crate) use handler::serve_log;
 
 /// LogJoin coordinates multiple Slice streams connecting to the same Log.

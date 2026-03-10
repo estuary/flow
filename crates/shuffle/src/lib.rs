@@ -1,5 +1,10 @@
 use tokio::sync::mpsc;
 
+/// Re-export of `proto_flow::shuffle` so that dependents can refer to
+/// protocol message types as `shuffle::proto::*`, avoiding the naming
+/// conflict between this crate and the protobuf module.
+pub use proto_flow::shuffle as proto;
+
 mod binding;
 mod client;
 pub mod frontier;

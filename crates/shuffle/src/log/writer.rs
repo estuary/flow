@@ -26,11 +26,30 @@ pub struct Writer {
     segment_file: std::fs::File,
     // Number of bytes written to the current segment file.
     segment_bytes: u64,
+    // Blocks larger than this are LZ4-compressed.
+    compress_threshold: usize,
+    // Segment files roll after exceeding this many bytes.
+    segment_threshold: u64,
 }
 
 impl Writer {
     /// Create a new Writer, opening the first segment file.
     pub fn new(directory: &std::path::Path, member_index: u32) -> anyhow::Result<Self> {
+        Self::with_thresholds(
+            directory,
+            member_index,
+            DEFAULT_COMPRESS_THRESHOLD,
+            DEFAULT_SEGMENT_THRESHOLD,
+        )
+    }
+
+    /// Create a Writer with explicit compression and segment-roll thresholds.
+    pub fn with_thresholds(
+        directory: &std::path::Path,
+        member_index: u32,
+        compress_threshold: usize,
+        segment_threshold: u64,
+    ) -> anyhow::Result<Self> {
         let file = create_segment(directory, member_index, 1)?;
         Ok(Self {
             directory: directory.to_owned(),
@@ -38,6 +57,8 @@ impl Writer {
             next_lsn: Lsn::new(1, 0),
             segment_file: file,
             segment_bytes: 0,
+            compress_threshold,
+            segment_threshold,
         })
     }
 
@@ -54,7 +75,7 @@ impl Writer {
         let block_lsn = self.next_lsn;
         let raw = block::encode(journals, producers, entries);
 
-        let (payload, raw_len, lz4_len) = if raw.len() > COMPRESS_THRESHOLD {
+        let (payload, raw_len, lz4_len) = if raw.len() > self.compress_threshold {
             let mut lz4_buf = Vec::with_capacity(lz4::block::compress_bound(raw.len())?);
 
             // Safety: extend to capacity so compress_to_buffer has a &mut [u8] to write into.
@@ -88,7 +109,7 @@ impl Writer {
 
         // Roll to a new segment if we've exceeded the byte threshold
         // or exhausted the u16 block number space.
-        if self.segment_bytes >= SEGMENT_THRESHOLD || self.next_lsn.block() == u16::MAX {
+        if self.segment_bytes >= self.segment_threshold || self.next_lsn.block() == u16::MAX {
             self.next_lsn = self.next_lsn.next_segment();
             self.segment_file =
                 create_segment(&self.directory, self.member_index, self.next_lsn.segment())?;
@@ -129,9 +150,12 @@ fn create_segment(
         })
 }
 
+/// The block header is composed of a u32_le (raw length, lz4 length) by
 const BLOCK_HEADER_LEN: usize = 8;
-const COMPRESS_THRESHOLD: usize = 64 * 1024;
-const SEGMENT_THRESHOLD: u64 = 64 * 1024 * 1024;
+/// The default LZ4 compression threshold is 64k.
+const DEFAULT_COMPRESS_THRESHOLD: usize = 64 * 1024;
+/// Then default segment file size threshold is 64MB.
+const DEFAULT_SEGMENT_THRESHOLD: u64 = 64 * 1024 * 1024;
 
 #[cfg(test)]
 mod test {

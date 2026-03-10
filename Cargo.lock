@@ -7671,6 +7671,7 @@ dependencies = [
  "flow-client-next",
  "futures",
  "gazette",
+ "highway",
  "insta",
  "json",
  "labels",

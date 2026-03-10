@@ -6,7 +6,7 @@
 /// the MaterializationSpec (exercising `Binding::from_materialization_binding`)
 /// and construct the publisher from the CaptureSpec (exercising
 /// `Binding::from_capture_spec`).
-use proto_flow::{flow, shuffle as proto};
+use proto_flow::flow;
 use proto_gazette::uuid;
 use std::sync::Arc;
 
@@ -16,14 +16,18 @@ use std::sync::Arc;
 
 /// Build a Materialization task from a built MaterializationSpec.
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
-fn build_task(spec: &flow::MaterializationSpec) -> proto::Task {
-    proto::Task {
-        task: Some(proto::task::Task::Materialization(spec.clone())),
+fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
+    shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
     }
 }
 
 /// Build an N-member topology with all members sharing a single endpoint.
-fn build_members(count: u32, endpoint: &str, directory: &std::path::Path) -> Vec<proto::Member> {
+fn build_members(
+    count: u32,
+    endpoint: &str,
+    directory: &std::path::Path,
+) -> Vec<shuffle::proto::Member> {
     (0..count)
         .map(|i| {
             let key_begin = if i == 0 {
@@ -37,7 +41,7 @@ fn build_members(count: u32, endpoint: &str, directory: &std::path::Path) -> Vec
                 (((i + 1) as u64 * (u32::MAX as u64 + 1)) / count as u64 - 1) as u32
             };
 
-            proto::Member {
+            shuffle::proto::Member {
                 range: Some(flow::RangeSpec {
                     key_begin,
                     key_end,

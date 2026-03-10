@@ -4,10 +4,13 @@ use super::{
 };
 
 /// BytesBlock is like Block, with `docs` as BytesDoc instead of BlockDoc.
+/// Field order must match `Block` exactly for identical rkyv archive layout.
 #[derive(rkyv::Archive, rkyv::Serialize)]
 pub struct BytesBlock {
     pub journals: Vec<BlockJournal>,
     pub producers: Vec<BlockProducer>,
+    pub journals_reverse: Vec<u16>,
+    pub producers_reverse: Vec<u16>,
     pub meta: Vec<BlockMeta>,
     pub docs: Vec<BytesDoc>,
 }
@@ -110,6 +113,14 @@ pub fn encoded_size(parts: &BytesBlock) -> usize {
     pos = align_up(pos, align_of::<ArchivedBlockProducer>());
     pos += parts.producers.len() * size_of::<ArchivedBlockProducer>();
 
+    // journals_reverse: plain u16 array.
+    pos = align_up(pos, align_of::<u16>());
+    pos += parts.journals_reverse.len() * size_of::<u16>();
+
+    // producers_reverse: plain u16 array.
+    pos = align_up(pos, align_of::<u16>());
+    pos += parts.producers_reverse.len() * size_of::<u16>();
+
     // Meta: no sub-data, just the aligned array.
     pos = align_up(pos, align_of::<ArchivedBlockMeta>());
     pos += parts.meta.len() * size_of::<ArchivedBlockMeta>();
@@ -142,6 +153,8 @@ mod test {
         let block = BytesBlock {
             journals: vec![],
             producers: vec![],
+            journals_reverse: vec![],
+            producers_reverse: vec![],
             meta: vec![],
             docs: vec![],
         };
@@ -190,6 +203,9 @@ mod test {
                     producer: [0xff; 6],
                 },
             ],
+            // bids happen to equal sorted indices in this test case.
+            journals_reverse: vec![0, 1],
+            producers_reverse: vec![0, 1],
             meta: vec![
                 crate::log::block::BlockMeta {
                     binding: 0,
@@ -249,6 +265,8 @@ mod test {
             let block = BytesBlock {
                 journals: vec![],
                 producers: vec![],
+                journals_reverse: vec![],
+                producers_reverse: vec![],
                 meta: vec![],
                 docs: vec![bytes_doc],
             };
@@ -270,6 +288,8 @@ mod test {
             let ref_block = crate::log::block::Block {
                 journals: vec![],
                 producers: vec![],
+                journals_reverse: vec![],
+                producers_reverse: vec![],
                 meta: vec![],
                 docs: vec![block_doc],
             };

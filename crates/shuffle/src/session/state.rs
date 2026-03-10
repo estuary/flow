@@ -246,6 +246,12 @@ impl CheckpointPipeline {
         }
 
         let ready = std::mem::take(&mut self.ready);
+        // Retain flushed_lsn as a floor for future checkpoints: different
+        // Slices observe Log flushed_lsn at different times, so a later
+        // Progressed could carry a lower flushed_lsn than one already
+        // emitted. Keeping the floor in `self.ready` ensures that
+        // `reduce()` (which uses element-wise max) prevents regression.
+        self.ready.flushed_lsn = ready.flushed_lsn.clone();
         self.requested = false;
 
         tracing::debug!(

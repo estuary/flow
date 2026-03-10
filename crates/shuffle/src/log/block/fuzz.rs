@@ -129,9 +129,14 @@ fn round_trip(input: FuzzInput) -> bool {
     let journals = super::encode_journals(journal_map.clone());
     let producers = super::encode_producers(producer_map.clone());
 
+    let journals_reverse = super::build_bid_reverse(&journals, |j| j.journal_bid);
+    let producers_reverse = super::build_bid_reverse(&producers, |p| p.producer_bid);
+
     let heap = Block {
         journals,
         producers,
+        journals_reverse,
+        producers_reverse,
         meta: heap_meta,
         docs: heap_docs,
     };

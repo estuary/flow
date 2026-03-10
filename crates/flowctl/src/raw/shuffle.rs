@@ -1,5 +1,5 @@
 use anyhow::Context;
-use proto_flow::{flow, shuffle as proto};
+use proto_flow::flow;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -16,6 +16,12 @@ pub struct Shuffle {
     /// Directory for log segment files. If omitted, a temporary directory is used.
     #[clap(long)]
     directory: Option<std::path::PathBuf>,
+    /// Minimum interval between transaction checkpoints, in milliseconds.
+    #[clap(long, default_value = "500")]
+    interval: u64,
+    /// Number of checkpoints to process before exiting.
+    #[clap(long, default_value = "20")]
+    checkpoints: usize,
 }
 
 impl Shuffle {
@@ -25,6 +31,8 @@ impl Shuffle {
             port,
             members: member_count,
             directory,
+            interval,
+            checkpoints,
         } = self;
 
         // Fetch the task spec from the control plane.
@@ -62,9 +70,8 @@ impl Shuffle {
             )
         };
 
-        let service_even =
-            ::shuffle::Service::new(peer_addr_even.clone(), Box::new(auth_fn.clone()));
-        let service_odd = ::shuffle::Service::new(peer_addr_odd.clone(), Box::new(auth_fn.clone()));
+        let service_even = shuffle::Service::new(peer_addr_even.clone(), Box::new(auth_fn.clone()));
+        let service_odd = shuffle::Service::new(peer_addr_odd.clone(), Box::new(auth_fn.clone()));
 
         let server_even = service_even.clone().build_tonic_server();
         let server_odd = service_odd.build_tonic_server();
@@ -126,28 +133,48 @@ impl Shuffle {
             "opening session"
         );
 
-        let mut client = ::shuffle::SessionClient::open(
+        let mut client = shuffle::SessionClient::open(
             &service_even,
             task,
             members,
-            ::shuffle::Frontier::default(),
+            shuffle::Frontier::default(),
         )
         .await
         .context("opening session")?;
 
         tracing::info!("session opened, requesting checkpoints");
 
-        // Create a Reader per member to consume log entries.
+        // Per-member reader state, taken during each scan and returned after.
         let log_dir = std::path::Path::new(&log_dir_str);
-        let mut readers: Vec<::shuffle::log::reader::Reader> = (0..*member_count)
-            .map(|i| ::shuffle::log::reader::Reader::new(log_dir, i))
+        type MemberState = (
+            shuffle::log::reader::Reader,
+            std::collections::VecDeque<shuffle::log::reader::Remainder>,
+        );
+        let mut member_state: Vec<Option<MemberState>> = (0..*member_count)
+            .map(|i| {
+                Some((
+                    shuffle::log::reader::Reader::new(log_dir, i),
+                    std::collections::VecDeque::new(),
+                ))
+            })
             .collect();
 
-        let mut total_entries: usize = 0;
+        let ser_policy = doc::SerPolicy::noop();
+        let mut total_docs: usize = 0;
+        let mut total_bytes: usize = 0;
 
-        for i in 0..15 {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            tracing::info!(i, "requesting NextCheckpoint");
+        let interval = std::time::Duration::from_millis(*interval);
+        let start = std::time::Instant::now();
+        let mut next_txn_time = start + interval;
+
+        for i in 0..*checkpoints {
+            let now = std::time::Instant::now();
+
+            // Run no more frequently than once every interval.
+            tokio::time::sleep(next_txn_time.saturating_duration_since(now)).await;
+            next_txn_time = now + interval;
+
+            tracing::debug!(i, "requesting NextCheckpoint");
 
             let frontier = client
                 .next_checkpoint()
@@ -156,7 +183,7 @@ impl Shuffle {
 
             let total_producers: usize = frontier.journals.iter().map(|j| j.producers.len()).sum();
 
-            tracing::info!(
+            tracing::debug!(
                 i,
                 journals = frontier.journals.len(),
                 total_producers,
@@ -164,64 +191,68 @@ impl Shuffle {
                 "received NextCheckpoint"
             );
 
-            for ::shuffle::JournalFrontier {
-                journal,
-                binding,
-                producers,
-            } in &frontier.journals
-            {
-                for ::shuffle::ProducerFrontier {
-                    producer,
-                    last_commit,
-                    hinted_commit,
-                    offset,
-                } in producers
+            // Scan committed entries from each member's log.
+            let mut stdout = std::io::stdout();
+            let mut buf = Vec::new();
+            let mut checkpoint_docs: usize = 0;
+            let mut checkpoint_bytes: usize = 0;
+
+            for (member_index, state_slot) in member_state.iter_mut().enumerate() {
+                let (reader, remainders) = state_slot.take().expect("member state must be present");
+
+                let mut scan = shuffle::log::reader::FrontierScan::new(
+                    frontier.clone(),
+                    reader,
+                    remainders,
+                )
+                .with_context(|| format!("creating FrontierScan for member {member_index}"))?;
+
+                while scan
+                    .advance_block()
+                    .with_context(|| format!("advancing block for member {member_index}"))?
                 {
-                    tracing::debug!(
-                        journal,
-                        binding,
-                        ?producer,
-                        ?last_commit,
-                        ?hinted_commit,
-                        offset,
-                        "producer frontier"
-                    );
+                    for entry in scan.block_iter() {
+                        let node = entry.doc.doc.get();
+                        serde_json::to_writer(&mut buf, &ser_policy.on(node))
+                            .context("writing NDJSON")?;
+                        buf.push(b'\n');
+
+                        checkpoint_docs += 1;
+                        total_docs += 1;
+                    }
+                    std::io::Write::write_all(&mut stdout, &buf)
+                        .context("flushing NDJSON to stdout")?;
+
+                    checkpoint_bytes += buf.len();
+                    total_bytes += buf.len();
+
+                    buf.clear();
                 }
-            }
 
-            // Read committed entries from each member's log files.
-            let mut checkpoint_entries: usize = 0;
-            for (member_index, reader) in readers.iter_mut().enumerate() {
-                reader
-                    .read_checkpoint(&frontier, |entry| {
-                        checkpoint_entries += 1;
-                        total_entries += 1;
-
-                        tracing::info!(
-                            member = member_index,
-                            binding = entry.binding,
-                            journal = entry.journal_name,
-                            ?entry.producer,
-                            ?entry.clock,
-                            flags = entry.flags,
-                            offset = entry.offset,
-                            "log entry"
-                        );
-                    })
-                    .with_context(|| format!("reading checkpoint for member {member_index}"))?;
+                let (_, reader, remainders) = scan.into_parts();
+                *state_slot = Some((reader, remainders));
             }
 
             tracing::info!(
                 i,
-                checkpoint_entries,
-                total_entries,
-                "read log entries for checkpoint"
+                checkpoint_docs,
+                checkpoint_bytes,
+                total_docs,
+                total_bytes,
+                "scanned checkpoint"
             );
         }
+        let elapsed = start.elapsed();
 
         client.close().await.context("closing session")?;
 
-        tracing::info!(total_entries, "shuffle test completed successfully");
+        tracing::info!(
+            total_docs,
+            total_bytes,
+            doc_rate = total_docs as f64 / elapsed.as_secs_f64(),
+            mb_rate = total_bytes as f64 / (elapsed.as_secs_f64() * 1000f64 * 1000f64),
+            "shuffle test completed successfully"
+        );
 
         server_handle_even.abort();
         server_handle_odd.abort();
@@ -230,7 +261,10 @@ impl Shuffle {
     }
 }
 
-async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Result<proto::Task> {
+async fn fetch_task_spec(
+    ctx: &mut crate::CliContext,
+    name: &str,
+) -> anyhow::Result<shuffle::proto::Task> {
     let builder = ctx
         .client
         .from("live_specs")
@@ -254,8 +288,8 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
         "materialization" => {
             let spec: flow::MaterializationSpec = serde_json::from_value(row.built_spec)?;
             tracing::info!(name = spec.name, "fetched materialization");
-            proto::Task {
-                task: Some(proto::task::Task::Materialization(spec)),
+            shuffle::proto::Task {
+                task: Some(shuffle::proto::task::Task::Materialization(spec)),
             }
         }
         "collection" => {
@@ -263,16 +297,16 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
 
             if spec.derivation.is_some() {
                 tracing::info!(name = spec.name, "fetched derivation");
-                proto::Task {
-                    task: Some(proto::task::Task::Derivation(spec)),
+                shuffle::proto::Task {
+                    task: Some(shuffle::proto::task::Task::Derivation(spec)),
                 }
             } else {
                 tracing::info!(name = spec.name, "fetched collection");
                 let partition_selector = Some(assemble::journal_selector(&spec, None));
 
-                proto::Task {
-                    task: Some(proto::task::Task::CollectionPartitions(
-                        proto::CollectionPartitions {
+                shuffle::proto::Task {
+                    task: Some(shuffle::proto::task::Task::CollectionPartitions(
+                        shuffle::proto::CollectionPartitions {
                             collection: Some(spec),
                             partition_selector,
                         },
@@ -293,7 +327,7 @@ fn build_member_topology(
     addr_even: &str,
     addr_odd: &str,
     directory: &str,
-) -> Vec<proto::Member> {
+) -> Vec<shuffle::proto::Member> {
     let mut members = Vec::with_capacity(count as usize);
 
     for i in 0..count {
@@ -311,7 +345,7 @@ fn build_member_topology(
 
         let endpoint = if i % 2 == 0 { addr_even } else { addr_odd };
 
-        members.push(proto::Member {
+        members.push(shuffle::proto::Member {
             range: Some(flow::RangeSpec {
                 key_begin,
                 key_end,
