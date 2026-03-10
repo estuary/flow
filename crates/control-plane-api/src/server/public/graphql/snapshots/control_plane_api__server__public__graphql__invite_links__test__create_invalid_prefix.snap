@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+assertion_line: 522
+expression: invalid_prefix
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "invalid catalog prefix: : noTrailingSlash doesn't match pattern ([\\p{Letter}\\p{Number}\\-_\\.]+/)* (unmatched portion is: noTrailingSlash)",
+      "path": [
+        "createInviteLink"
+      ]
+    }
+  ]
+}
