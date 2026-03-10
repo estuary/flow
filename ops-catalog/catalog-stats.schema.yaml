@@ -52,6 +52,12 @@ properties:
         default: 0
         reduce:
           strategy: sum
+      lastPublishedAt:
+        description: The most recent publish timestamp of documents in this collection.
+        type: string
+        format: date-time
+        reduce:
+          strategy: maximize
     reduce:
       strategy: merge
   taskStats:

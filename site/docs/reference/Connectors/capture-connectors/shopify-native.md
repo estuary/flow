@@ -37,13 +37,27 @@ By default, each resource is mapped to an Estuary collection through a separate 
 
 ## Prerequisites
 
-* Store ID of your Shopify account. This is the prefix of your admin URL. For example, `https://{store_id}.myshopify.com/admin`
+* One or more Shopify store IDs. Each store ID is the prefix of your admin URL. For example, `https://{store_id}.myshopify.com/admin`
 
-You can authenticate your account either via OAuth or with a Shopify [access token](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin).
+You can authenticate each store via OAuth, with a Shopify [access token](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin), or with [client credentials](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant).
 
-### Access Token Permissions
+### Authentication Methods
 
-If authenticating with an access token, ensure the following permissions are granted:
+#### Private App Credentials (Access Token)
+
+For existing custom apps with static access tokens (`shpat_*` tokens). The access token is configured directly in the connector and does not expire.
+
+:::note
+Shopify has deprecated the creation of legacy custom apps. Existing access tokens continue to work, but new apps must use Client Credentials. See [Shopify's custom app documentation](https://help.shopify.com/en/manual/apps/app-types/custom-apps) for details.
+:::
+
+#### Client Credentials
+
+For custom apps created through the [Shopify Dev Dashboard](https://help.shopify.com/en/manual/apps/app-types/custom-apps). Uses `client_id` and `client_secret` to obtain short-lived access tokens (~24 hours) that auto-refresh at runtime. This is the recommended authentication method for new integrations.
+
+### Required Permissions
+
+When authenticating with an access token or client credentials, ensure the following permissions are granted:
 * `read_assigned_fulfillment_orders`
 * `read_checkouts`
 * `read_customers`
@@ -78,11 +92,27 @@ you'll sign in directly and won't need the access token.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/store`** | Store ID | Your Shopify Store ID. Use the prefix of your admin URL e.g. `https://{store_id}.myshopify.com/admin`.  | string | Required |
-| `/start_date` | Start date | UTC date and time in the format 2025-01-16T00:00:00Z. Any data before this date will not be replicated. | string | 30 days before the present date |
-| **`/credentials/access_token`** | Access Token | Shopify access token. | string | Required |
-| **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required |
-| `/advanced/window_size` | Window size | Window size for incremental streams in ISO 8601 format. ex: P30D means 30 days, PT6H means 6 hours. Typically left as the default unless more frequent checkpoints are desired. | string | P30D |
+| **`/stores`** | Shopify Stores | One or more Shopify stores to capture. Each store requires its own credentials. | array | Required |
+| **`/stores/[]/store`** | Store Name | Store name (the prefix of your admin URL, e.g., `mystore` for `mystore.myshopify.com`) | string | Required |
+| **`/stores/[]/credentials`** | Authentication | Store credentials. See [Authentication Methods](#authentication-methods). | object | Required |
+| `/start_date` | Start Date | UTC date and time in the format YYYY-MM-DDTHH:MM:SSZ. Any data before this date will not be replicated. | string | 30 days before the present date |
+| `/advanced/window_size` | Window Size | Window size for incremental streams in ISO 8601 format (e.g., P30D means 30 days, PT6H means 6 hours). | string | P30D |
+| `/advanced/should_use_composite_key` | Use Composite Key | Include store identifier (`/_meta/store`) in collection keys. Enabled by default for new captures. Set to `true` and backfill all bindings before adding stores to a legacy capture. | boolean | `true` (new) / `false` (legacy) |
+
+**Credential properties for Private App Credentials:**
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/stores/[]/credentials/credentials_title`** | Credentials Title | Must be `Private App Credentials` | string | Required |
+| **`/stores/[]/credentials/access_token`** | Access Token | Shopify access token | string | Required |
+
+**Credential properties for Client Credentials:**
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/stores/[]/credentials/credentials_title`** | Credentials Title | Must be `Client Credentials` | string | Required |
+| **`/stores/[]/credentials/client_id`** | Client ID | OAuth2 client ID | string | Required |
+| **`/stores/[]/credentials/client_secret`** | Client Secret | OAuth2 client secret | string | Required |
 
 #### Bindings
 
@@ -101,18 +131,45 @@ captures:
       connector:
         image: ghcr.io/estuary/source-shopify-native:v2
         config:
-            advanced:
-                window_size: P30D
-            credentials:
+          stores:
+            - store: primary-store
+              credentials:
                 credentials_title: Private App Credentials
                 access_token: <secret>
-            start_date: "2025-01-16T12:00:00Z"
-            store: <store ID>
+            - store: secondary-store
+              credentials:
+                credentials_title: Client Credentials
+                client_id: <client_id>
+                client_secret: <secret>
+          start_date: "2025-01-16T12:00:00Z"
     bindings:
       - resource:
           name: products
         target: ${PREFIX}/products
+      - resource:
+          name: orders
+        target: ${PREFIX}/orders
 ```
+
+## Multi-Store Captures
+
+This connector supports capturing data from multiple Shopify stores in a single capture task. Each store authenticates independently and can use different credential types.
+
+### How it works
+
+- Configure multiple stores in the `stores` array, each with its own store name and credentials
+- All documents include a `/_meta/store` field identifying which store they originated from
+- Resources from all stores are captured into the same collections
+- Collection keys include the store identifier (`/_meta/store`) to ensure uniqueness across stores
+
+### Adding stores to an existing capture
+
+If you have an existing single-store capture created before multi-store support was added, the `should_use_composite_key` advanced option will be set to `false`. To add additional stores:
+
+1. Set `/advanced/should_use_composite_key` to `true`
+2. Perform a backfill and dataflow reset for all bindings
+
+This is required because the collection key structure must include the store identifier (`/_meta/store`) to ensure uniqueness between documents.
 
 ## Limitations with Custom App Access Tokens
 

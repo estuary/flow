@@ -1,4 +1,3 @@
-
 # HTTP File
 
 This connector captures data from an HTTP endpoint into an Estuary collection.
@@ -40,6 +39,10 @@ Use [this online tool](https://reqbin.com/req/c-tmyvmbgu/curl-head-request-examp
 Some HTTP endpoints require credentials for access.
 If this is the case, have your username and password ready.
 
+:::tip Capture from multiple URLs
+This connector supports multiple bindings to capture from different HTTP URLs within a single capture task. See [Capture Multiple Paths with File Source Connectors](/guides/flowctl/multiple-file-source-bindings) for a step-by-step guide.
+:::
+
 ## Configuration
 
 You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
@@ -59,8 +62,8 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | _`/headers/items/-/key`_ | Header Key |  | string |  |
 | _`/headers/items/-/value`_ | Header Value |  | string |  |
 | `/parser` | Parser Configuration | Configures how files are parsed | object |  |
-| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
-| `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
+| `/parser/compression` | Compression | Determines how to decompress the contents. The default, 'Auto', will try to determine the compression automatically. | null, string | `null` |
+| `/parser/format` | Format | Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
 | `/parser/format/type` | Type |  | string |  |
 | **`/url`** | HTTP File URL | A valid HTTP url for downloading the source file. | string | Required |
 

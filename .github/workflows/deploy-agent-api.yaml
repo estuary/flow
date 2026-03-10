@@ -1,7 +1,12 @@
 name: Deploy agent-api
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Container image tag to deploy, e.g. g71fbcda6 (must already exist in Artifact Registry)"
+        required: true
+        type: string
 
 jobs:
   deploy:
@@ -13,15 +18,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required for git describe to find tags
 
       - name: Get image tag
         id: image-tag
         run: |
-          TAG=$(git describe --tags --always)
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/control-plane-agent:${TAG}" >> $GITHUB_OUTPUT
+          TAG="${{ github.event.inputs.tag }}"
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/control-plane-agent:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate with GCP Workload Identity Federation
         uses: google-github-actions/auth@v2

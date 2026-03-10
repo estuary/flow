@@ -14,6 +14,7 @@ The following data resources are supported through the Intercom API:
 * [Contacts](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/searchcontacts)
 * [Contact attributes](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/data-attributes/lisdataattributes)
 * [Conversations](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/conversations/searchconversations)
+* [Conversation attributes](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/data-attributes/lisdataattributes)
 * [Conversation parts](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/conversations/retrieveconversatio)
 * [Segments](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/segments/listsegments)
 * [Tags](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/tags/listtags)
@@ -87,6 +88,9 @@ captures:
       - resource:
           name: conversations
         target: ${PREFIX}/conversations
+      - resource:
+          name: conversation_attributes
+        target: ${PREFIX}/conversation_attributes
       - resource:
           name: conversation_parts
         target: ${PREFIX}/conversationparts

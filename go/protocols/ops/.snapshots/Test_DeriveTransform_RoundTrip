@@ -1,0 +1,9 @@
+{
+	"bytesBehind": 5432,
+	"input": {
+		"bytesTotal": 100,
+		"docsTotal": 10
+	},
+	"lastSourcePublishedAt": "2023-11-14T22:13:20.789Z",
+	"source": "acmeCo/orders"
+}

@@ -36,6 +36,10 @@ As an example, consider a directory structure like the following with a data fil
 
 Setting `Ascending Keys` is only recommended if you have strict control over the naming of files and can ensure they are added in increasing lexical ordering.
 
+:::tip Capture from multiple directories
+This connector supports multiple bindings to capture from different directories within a single capture task. See [Capture Multiple Paths with File Source Connectors](/guides/flowctl/multiple-file-source-bindings) for a step-by-step guide.
+:::
+
 ## Configuration
 
 You configure connectors either in the Estuary web app, or by directly editing the catalog specification file. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SFTP source connector.

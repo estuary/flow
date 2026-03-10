@@ -157,14 +157,18 @@ pub struct Stats {
     pub txn_count: u32,
     /// Capture metrics.
     #[prost(btree_map = "string, message", tag = "6")]
-    pub capture:
-        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, stats::Binding>,
+    pub capture: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        stats::CaptureBinding,
+    >,
     #[prost(message, optional, tag = "7")]
     pub derive: ::core::option::Option<stats::Derive>,
     /// Materialization metrics.
     #[prost(btree_map = "string, message", tag = "8")]
-    pub materialize:
-        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, stats::Binding>,
+    pub materialize: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        stats::MaterializeBinding,
+    >,
     #[prost(message, optional, tag = "9")]
     pub interval: ::core::option::Option<stats::Interval>,
 }
@@ -179,22 +183,33 @@ pub mod stats {
         #[prost(uint64, tag = "2")]
         pub bytes_total: u64,
     }
-    /// Binding represents counts of JSON documents and their
-    /// cumulative total size in bytes, passing through the binding
-    /// of a capture or materialization.
+    /// MaterializeBinding represents stats for a single binding of a materialization task.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Binding {
+    pub struct MaterializeBinding {
         #[prost(message, optional, tag = "1")]
         pub left: ::core::option::Option<DocsAndBytes>,
         #[prost(message, optional, tag = "2")]
         pub right: ::core::option::Option<DocsAndBytes>,
         #[prost(message, optional, tag = "3")]
         pub out: ::core::option::Option<DocsAndBytes>,
-        /// For materializations, this is most recent publish timestamp from the
-        /// source documents that were read for this binding. This field is
-        /// currently unused for captures.
+        /// The most recent publish timestamp from the source documents that were
+        /// read by this binding.
         #[prost(message, optional, tag = "4")]
         pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// Total bytes behind across all source journals of this binding.
+        #[prost(uint64, tag = "5")]
+        pub bytes_behind: u64,
+    }
+    /// CaptureBinding represents stats for a single binding of a capture task.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CaptureBinding {
+        #[prost(message, optional, tag = "1")]
+        pub right: ::core::option::Option<DocsAndBytes>,
+        #[prost(message, optional, tag = "2")]
+        pub out: ::core::option::Option<DocsAndBytes>,
+        /// The most recent publish timestamp of documents captured by this binding.
+        #[prost(message, optional, tag = "3")]
+        pub last_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     /// Derivation metrics.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -211,6 +226,9 @@ pub mod stats {
         /// Documents written to the derived collection, after combining over published documents.
         #[prost(message, optional, tag = "3")]
         pub out: ::core::option::Option<DocsAndBytes>,
+        /// The most recent publish timestamp of documents written to the derived collection.
+        #[prost(message, optional, tag = "4")]
+        pub last_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     /// Nested message and enum types in `Derive`.
     pub mod derive {
@@ -225,6 +243,9 @@ pub mod stats {
             /// The most recent publish timestamp from the source documents that were read by this transform.
             #[prost(message, optional, tag = "3")]
             pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
+            /// Total bytes behind across all source journals of this transform.
+            #[prost(uint64, tag = "4")]
+            pub bytes_behind: u64,
         }
     }
     /// Interval metrics are emitted at regular intervals.

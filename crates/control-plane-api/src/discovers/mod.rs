@@ -122,7 +122,6 @@ impl DiscoverOutput {
             let changed_collections = added
                 .values()
                 .chain(modified.values())
-                .filter(|changed| !changed.disable)
                 .map(|changed| &changed.target)
                 .collect::<HashSet<&models::Collection>>();
 
@@ -134,9 +133,6 @@ impl DiscoverOutput {
                 retain
             });
         }
-        // Remove any modification changes that correspond to disabled bindings,
-        // since we've just removed the collection specs themselves.
-        self.modified.retain(|_, changed| !changed.disable);
         pruned_count
     }
 }

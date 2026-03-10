@@ -90,7 +90,10 @@ tests:
                 tenant/test/collection:
                   right: { docsTotal: 1, bytesTotal: 15 }
                   out: { docsTotal: 2, bytesTotal: 20 }
+                  lastPublishedAt: "2022-04-03T02:02:03Z"
                 # Capture task with multiple bound collections.
+                # No lastPublishedAt on this binding, simulating a legacy capture
+                # that predates progress tracking.
                 tenant/test/otherCaptureCollection:
                   right: { docsTotal: 5, bytesTotal: 55 }
                   out: { docsTotal: 6, bytesTotal: 65 }
@@ -107,6 +110,7 @@ tests:
                 tenant/test/collection:
                   right: { docsTotal: 3, bytesTotal: 35 }
                   out: { docsTotal: 4, bytesTotal: 45 }
+                  lastPublishedAt: "2022-04-03T03:02:03Z"
               txnCount: 2
               openSecondsTotal: 0.012
 
@@ -122,7 +126,9 @@ tests:
               materialize:
                 tenant/test/collection:
                   right: { docsTotal: 10, bytesTotal: 150 }
+                  bytesBehind: 500
                 # Materialization task with multiple bound collections.
+                # No bytesBehind on this binding, which implies it is fully caught up.
                 tenant/test/otherMaterializationCollection:
                   right: { docsTotal: 5, bytesTotal: 75 }
               txnCount: 2
@@ -140,22 +146,26 @@ tests:
                   transform1:
                     source: "tenant/test/source-collection1" # This collection is read from.
                     input: { docsTotal: 5, bytesTotal: 20 }
+                    bytesBehind: 100
                     update:
                       out: { docsTotal: 1, bytesTotal: 1 }
                       secondsTotal: 1
                   transform2:
                     source: "tenant/test/source-collection2" # This collection is also read from.
                     input: { docsTotal: 6, bytesTotal: 30 }
+                    bytesBehind: 200
                     publish:
                       out: { docsTotal: 2, bytesTotal: 2 }
                       secondsTotal: 2
                   transform3:
                     source: "tenant/test/source-collection1" # Different transform, reading from the same collection as another one.
                     input: { docsTotal: 7, bytesTotal: 40 }
+                    bytesBehind: 150
                     publish:
                       out: { docsTotal: 2, bytesTotal: 2 }
                       secondsTotal: 2
                 out: { docsTotal: 7, bytesTotal: 75 } # What was written to the collection.
+                lastPublishedAt: "2022-04-05T05:12:23Z"
               txnCount: 2
               openSecondsTotal: 0.012
 
@@ -198,6 +208,7 @@ tests:
             - catalogName: tenant/
               grain: daily
               statsSummary:
+                lastPublishedAt: "2022-04-03T03:02:03Z"
                 errors: 1
                 failures: 1
                 txnCount: 4
@@ -223,6 +234,7 @@ tests:
             - catalogName: tenant/
               grain: daily
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -240,6 +252,7 @@ tests:
             - catalogName: tenant/
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-03T02:02:03Z"
                 errors: 1
                 failures: 1
                 txnCount: 2
@@ -254,6 +267,7 @@ tests:
             - catalogName: tenant/
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-03T03:02:03Z"
                 txnCount: 2
                 writtenByMe:
                   bytesTotal: 45
@@ -276,6 +290,7 @@ tests:
             - catalogName: tenant/
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -293,6 +308,7 @@ tests:
             - catalogName: tenant/
               grain: monthly
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 errors: 1
                 failures: 1
                 readByMe:
@@ -313,6 +329,7 @@ tests:
             - catalogName: tenant/test/
               grain: daily
               statsSummary:
+                lastPublishedAt: "2022-04-03T03:02:03Z"
                 errors: 1
                 failures: 1
                 txnCount: 4
@@ -338,6 +355,7 @@ tests:
             - catalogName: tenant/test/
               grain: daily
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -355,6 +373,7 @@ tests:
             - catalogName: tenant/test/
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-03T02:02:03Z"
                 errors: 1
                 failures: 1
                 txnCount: 2
@@ -369,6 +388,7 @@ tests:
             - catalogName: tenant/test/
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-03T03:02:03Z"
                 txnCount: 2
                 writtenByMe:
                   bytesTotal: 45
@@ -391,6 +411,7 @@ tests:
             - catalogName: tenant/test/
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -408,6 +429,7 @@ tests:
             - catalogName: tenant/test/
               grain: monthly
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 errors: 1
                 failures: 1
                 readByMe:
@@ -438,6 +460,7 @@ tests:
               taskStats:
                 capture:
                   tenant/test/collection:
+                    lastPublishedAt: "2022-04-03T03:02:03Z"
                     out:
                       bytesTotal: 65
                       docsTotal: 6
@@ -465,6 +488,7 @@ tests:
               taskStats:
                 capture:
                   tenant/test/collection:
+                    lastPublishedAt: "2022-04-03T02:02:03Z"
                     out:
                       bytesTotal: 20
                       docsTotal: 2
@@ -489,6 +513,7 @@ tests:
               taskStats:
                 capture:
                   tenant/test/collection:
+                    lastPublishedAt: "2022-04-03T03:02:03Z"
                     out:
                       bytesTotal: 45
                       docsTotal: 4
@@ -509,6 +534,7 @@ tests:
               taskStats:
                 capture:
                   tenant/test/collection:
+                    lastPublishedAt: "2022-04-03T03:02:03Z"
                     out:
                       bytesTotal: 65
                       docsTotal: 6
@@ -526,6 +552,7 @@ tests:
             - catalogName: tenant/test/collection
               grain: daily
               statsSummary:
+                lastPublishedAt: "2022-04-03T03:02:03Z"
                 writtenToMe:
                   bytesTotal: 65
                   docsTotal: 6
@@ -540,6 +567,7 @@ tests:
             - catalogName: tenant/test/collection
               grain: daily
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -552,11 +580,13 @@ tests:
                   docsTotal: 7
               taskStats:
                 derive:
+                  lastPublishedAt: "2022-04-05T05:12:23Z"
                   out:
                     bytesTotal: 75
                     docsTotal: 7
                   transforms:
                     transform1:
+                      bytesBehind: 100
                       input:
                         bytesTotal: 20
                         docsTotal: 5
@@ -567,6 +597,7 @@ tests:
                           docsTotal: 1
                         secondsTotal: 1
                     transform2:
+                      bytesBehind: 200
                       input:
                         bytesTotal: 30
                         docsTotal: 6
@@ -577,6 +608,7 @@ tests:
                         secondsTotal: 2
                       source: tenant/test/source-collection2
                     transform3:
+                      bytesBehind: 150
                       input:
                         bytesTotal: 40
                         docsTotal: 7
@@ -590,6 +622,7 @@ tests:
             - catalogName: tenant/test/collection
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-03T02:02:03Z"
                 writtenToMe:
                   bytesTotal: 20
                   docsTotal: 2
@@ -597,6 +630,7 @@ tests:
             - catalogName: tenant/test/collection
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-03T03:02:03Z"
                 writtenToMe:
                   bytesTotal: 45
                   docsTotal: 4
@@ -611,6 +645,7 @@ tests:
             - catalogName: tenant/test/collection
               grain: hourly
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -623,11 +658,13 @@ tests:
                   docsTotal: 7
               taskStats:
                 derive:
+                  lastPublishedAt: "2022-04-05T05:12:23Z"
                   out:
                     bytesTotal: 75
                     docsTotal: 7
                   transforms:
                     transform1:
+                      bytesBehind: 100
                       input:
                         bytesTotal: 20
                         docsTotal: 5
@@ -638,6 +675,7 @@ tests:
                           docsTotal: 1
                         secondsTotal: 1
                     transform2:
+                      bytesBehind: 200
                       input:
                         bytesTotal: 30
                         docsTotal: 6
@@ -648,6 +686,7 @@ tests:
                         secondsTotal: 2
                       source: tenant/test/source-collection2
                     transform3:
+                      bytesBehind: 150
                       input:
                         bytesTotal: 40
                         docsTotal: 7
@@ -661,6 +700,7 @@ tests:
             - catalogName: tenant/test/collection
               grain: monthly
               statsSummary:
+                lastPublishedAt: "2022-04-05T05:12:23Z"
                 readByMe:
                   bytesTotal: 90
                   docsTotal: 18
@@ -676,11 +716,13 @@ tests:
                   docsTotal: 13
               taskStats:
                 derive:
+                  lastPublishedAt: "2022-04-05T05:12:23Z"
                   out:
                     bytesTotal: 75
                     docsTotal: 7
                   transforms:
                     transform1:
+                      bytesBehind: 100
                       input:
                         bytesTotal: 20
                         docsTotal: 5
@@ -691,6 +733,7 @@ tests:
                           docsTotal: 1
                         secondsTotal: 1
                     transform2:
+                      bytesBehind: 200
                       input:
                         bytesTotal: 30
                         docsTotal: 6
@@ -701,6 +744,7 @@ tests:
                         secondsTotal: 2
                       source: tenant/test/source-collection2
                     transform3:
+                      bytesBehind: 150
                       input:
                         bytesTotal: 40
                         docsTotal: 7
@@ -721,6 +765,7 @@ tests:
               taskStats:
                 materialize:
                   tenant/test/collection:
+                    bytesBehind: 500
                     right:
                       bytesTotal: 150
                       docsTotal: 10
@@ -739,6 +784,7 @@ tests:
               taskStats:
                 materialize:
                   tenant/test/collection:
+                    bytesBehind: 500
                     right:
                       bytesTotal: 150
                       docsTotal: 10
@@ -757,6 +803,7 @@ tests:
               taskStats:
                 materialize:
                   tenant/test/collection:
+                    bytesBehind: 500
                     right:
                       bytesTotal: 150
                       docsTotal: 10

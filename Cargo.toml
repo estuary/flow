@@ -39,7 +39,10 @@ atty = "0"
 # Current v0.20.0 has library conflict: xz2->lzma-sys vs zip->liblzma-sys
 apache-avro = { version = "0", default-features = false, features = ["snappy", "zstandard", "bzip"] }
 
-base64 = "0"
+# For some reason, the version requirement "0" resulted in cargo downgrading
+# this dependency to an incompatible version. The requirement here is intended
+# to be similarly permissive of update versions, while preventing downgrade.
+base64 = ">= 0.22.1"
 bigdecimal = { version = "0", default-features = false }
 bitvec = "1"
 bytes = "1"

@@ -16,6 +16,9 @@ go = { version = "1.25" }
 "github:supabase/cli" = { version = "2.54.11" }
 "go:github.com/gogo/protobuf/protoc-gen-gogo" = { version = "1.3.2" }
 
+[settings]
+auto_install = false
+
 # Environment variables
 [env]
 

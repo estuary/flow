@@ -125,6 +125,13 @@ begin
 end;
 $$ language plpgsql;
 
+-- Seed the JWT secret into the vault so that refresh token exchange works locally.
+-- This is required for the OpenMetrics API and any other endpoint that uses refresh tokens.
+select vault.create_secret(
+  'super-secret-jwt-token-with-at-least-32-characters-long',
+  'app.jwt_secret'
+);
+
 -- TODO(johnny): Support deprecated gateway_auth_token() RPC to be removed:
 insert into internal.gateway_auth_keys (secret_key, detail) values (
   'supersecret', 'Used for development only. This value will be changed manually when deployed to production.'
