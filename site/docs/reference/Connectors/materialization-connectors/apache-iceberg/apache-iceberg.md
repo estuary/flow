@@ -661,6 +661,36 @@ EMR Credentials specify the authentication method for EMR and writing to the sta
 | **`/table`** | Table                 | Table name                           | string | Required         |
 | `/namespace` | Alternative Namespace | Alternative namespace for this table | string |                  |
 
+### Sample
+
+```yaml
+materializations:
+  ${PREFIX}/${mat_name}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-iceberg:v1
+        config:
+          url: https://glue.us-east-1.amazonaws.com/iceberg
+          warehouse: <accountID>
+          namespace: namespace
+          base_location: s3://<bucket>
+          credentials:
+            auth_type: AWS IAM
+            aws_role_arn: <iam-arn>
+            aws_region: us-east-1
+          compute:
+            region: us-east-1
+            application_id: <emr-app-id>
+            execution_role_arn: <emr-arn>
+            bucket: <bucket>
+            credentials:
+              auth_type: UseCatalogAuth
+    bindings:
+      - resource:
+          table: ${COLLECTION_NAME}
+        source: ${PREFIX}/${COLLECTION_NAME}
+```
+
 ## Sync Schedule
 
 This connector supports configuring a schedule for sync frequency. You can read

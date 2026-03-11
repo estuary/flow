@@ -35,9 +35,9 @@ You configure connectors either in the Estuary web app, or by directly editing t
 #### Endpoint
 | Property           | Title           | Description                                                        | Type   | Required/Default |
 | ------------------ | --------------- | ------------------------------------------------------------------ | ------ | ---------------- |
-| `/customer_key`    | Customer Key    | Customer Key for API in WooCommerce shop                           | string | Required         |
-| `/customer_secret` | Customer Secret | Customer Secret for API in WooCommerce shop                        | string | Required         |
-| `/shop_name`       | Shop Name       | The name of the store.                                             | string | Required         |
+| `/api_key`    | Customer Key    | Customer Key for API in WooCommerce shop                           | string | Required         |
+| `/api_secret` | Customer Secret | Customer Secret for API in WooCommerce shop                        | string | Required         |
+| `/shop`       | Shop Name       | The name of the store.                                             | string | Required         |
 | `/start_date`      | Start Date      | The date you would like to replicate data from. Format: YYYY-MM-DD | string | Required         |
 
 
@@ -51,12 +51,22 @@ You configure connectors either in the Estuary web app, or by directly editing t
 
 ### Sample
 
-```json
-{
-  "properties": {
-
-  }
-}
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-woocommerce:v1
+        config:
+          api_key: api-key
+          api_secret: secret
+          shop: acmeCo
+          start_date: 2025-01-01
+    bindings:
+      - resource:
+          stream: orders
+          syncMode: incremental
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 ## Supported Streams

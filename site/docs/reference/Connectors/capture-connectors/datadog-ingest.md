@@ -70,15 +70,17 @@ The connector can optionally require each request to present an authentication t
 
 **If you don't enable authentication, then anyone who knows the URL will be able to publish data to your collection.** We recommend using authentication whenever possible.
 
-## Endpoint Configuration
+## Configuration
+
+### Endpoint properties
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **** | EndpointConfig |  | object | Required |
-| `/require_auth_token` |  | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
+| `/requireAuthToken` |  | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
 | `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
 
-## Resource configuration
+### Resource properties
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
@@ -86,3 +88,23 @@ The connector can optionally require each request to present an authentication t
 | `/idFromHeader` |  | Set the `/_meta/webhookId` from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of `/_meta/webhookId`. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
 | `/stream` |  | The name of the binding, which is used as a merge key when doing Discovers. | null, string |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-datadog-ingest:v1
+        config:
+          paths:
+            - /webhook-data
+          signatureConfig:
+            provider: none
+    bindings:
+      - resource:
+          path: /webhook-data
+          stream: /webhook-data
+        target: ${PREFIX}/${COLLECTION_NAME}
+```
