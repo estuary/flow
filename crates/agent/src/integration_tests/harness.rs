@@ -1602,6 +1602,7 @@ impl TestHarness {
             refresh: app.snapshot.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
             started: tokens::now(),
+            locale: control_plane_api::Locale::EnUS,
         };
 
         // Create GraphQL schema

@@ -8,6 +8,7 @@ mod alert_subscriptions;
 mod alerts;
 mod data_planes;
 pub(crate) use data_planes::parse_data_plane_name;
+mod connectors;
 pub mod id;
 mod live_spec_refs;
 mod live_specs;
@@ -15,6 +16,16 @@ mod prefixes;
 mod publication_history;
 pub mod status;
 mod storage_mappings;
+
+/// Locale is a placeholder, since we only support a single locale today. Once
+/// we support more than one locale, we should try to determine this
+/// automatically based on the request headers. For now, we just hard code it.
+pub enum Locale {
+    EnUS, // English, US, the only locale we currently have translations for
+}
+
+/// An JSON object, the shape of which is opaque to the graphql schema
+pub type JsonObject = async_graphql::Json<Box<serde_json::value::RawValue>>;
 
 // This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
@@ -34,6 +45,7 @@ pub struct QueryRoot(
     alert_subscriptions::AlertSubscriptionsQuery,
     storage_mappings::StorageMappingsQuery,
     data_planes::DataPlanesQuery,
+    connectors::ConnectorsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
