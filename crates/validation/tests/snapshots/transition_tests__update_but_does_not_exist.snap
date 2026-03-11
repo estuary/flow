@@ -5,7 +5,7 @@ expression: errors
 [
     Error {
         scope: test://example/catalog.yaml#/collections/the~1collection,
-        error: This task was updated while you were editing — please refresh the spec and re-apply your changes.
+        error: This spec was updated while you were editing — please refresh and re-apply your changes.
         This may have been an automated system update. (expected publication ID 1010101010101010, actual 0000000000000000),
     },
     Error {
@@ -18,22 +18,22 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/collections/the~1derivation,
-        error: This task was updated while you were editing — please refresh the spec and re-apply your changes.
+        error: This spec was updated while you were editing — please refresh and re-apply your changes.
         This may have been an automated system update. (expected publication ID 1010101010101010, actual 0000000000000000),
     },
     Error {
         scope: test://example/catalog.yaml#/tests/the~1test,
-        error: This task was updated while you were editing — please refresh the spec and re-apply your changes.
+        error: This spec was updated while you were editing — please refresh and re-apply your changes.
         This may have been an automated system update. (expected publication ID 1010101010101010, actual 0000000000000000),
     },
     Error {
         scope: test://example/catalog.yaml#/captures/the~1capture,
-        error: This task was updated while you were editing — please refresh the spec and re-apply your changes.
+        error: This spec was updated while you were editing — please refresh and re-apply your changes.
         This may have been an automated system update. (expected publication ID 1010101010101010, actual 0000000000000000),
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/the~1materialization,
-        error: This task was updated while you were editing — please refresh the spec and re-apply your changes.
+        error: This spec was updated while you were editing — please refresh and re-apply your changes.
         This may have been an automated system update. (expected publication ID 1010101010101010, actual 0000000000000000),
     },
     Error {

@@ -267,7 +267,7 @@ pub enum Error {
         larger_id: models::Id,
     },
     #[error(
-        "This task was updated while you were editing — please refresh the spec and re-apply your changes.\nThis may have been an automated system update. (expected publication ID {expect_id}, actual {actual_id})"
+        "This spec was updated while you were editing — please refresh and re-apply your changes.\nThis may have been an automated system update. (expected publication ID {expect_id}, actual {actual_id})"
     )]
     ExpectPubIdNotMatched {
         expect_id: models::Id,
