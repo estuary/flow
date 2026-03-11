@@ -68,7 +68,7 @@ captures:
       connector:
         image: ghcr.io/estuary/source-singlestore-batch:v1
         config:
-          address: host:3306
+          address: host:port
           user: flow_capture
           password: secret
     bindings:
