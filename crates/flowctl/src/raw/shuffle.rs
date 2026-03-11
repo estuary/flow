@@ -162,6 +162,7 @@ impl Shuffle {
         let ser_policy = doc::SerPolicy::noop();
         let mut total_docs: usize = 0;
         let mut total_bytes: usize = 0;
+        let mut buf: Vec<u8> = Vec::new();
 
         let interval = std::time::Duration::from_millis(*interval);
         let start = std::time::Instant::now();
@@ -193,7 +194,6 @@ impl Shuffle {
 
             // Scan committed entries from each member's log.
             let mut stdout = std::io::stdout();
-            let mut buf = Vec::new();
             let mut checkpoint_docs: usize = 0;
             let mut checkpoint_bytes: usize = 0;
 

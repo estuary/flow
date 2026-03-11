@@ -24,6 +24,7 @@ pub struct SessionActor {
 impl SessionActor {
     #[tracing::instrument(
         level = "debug",
+        ret,
         err(Debug, level = "warn"),
         skip_all,
         fields(
@@ -70,10 +71,7 @@ impl SessionActor {
                 session_request = session_request_rx.next() => {
                     match session_request {
                         Some(result) => self.on_session_request(result)?,
-                        None => {
-                        tracing::debug!(loop_count, "SessionActor::serve exiting on coordinator EOF");
-                        break Ok(());
-                    }
+                        None => break,
                     }
                 }
                 Some((member_index, slice_response, rx)) = slice_response_rx.next() => {
@@ -86,6 +84,26 @@ impl SessionActor {
                 true = wake_session_response_tx => {}
             }
         }
+
+        tracing::debug!(loop_count, "SessionActor::serve exiting on coordinator EOF");
+        self.slice_request_tx.clear(); // Drop all tx handles to close.
+
+        // Read clean EOF from all Slice RPCs.
+        while let Some((member_index, slice_response, rx)) = slice_response_rx.next().await {
+            let verify = crate::verify(
+                "SliceResponse",
+                "EOF",
+                &self.topology.members[member_index].endpoint,
+                member_index,
+            );
+            match slice_response {
+                None => (), // Clean EOF.
+                Some(Ok(_ignored)) => slice_response_rx.push(next_slice_rx((member_index, rx))),
+                Some(Err(status)) => return Err(verify.fail_status(status)),
+            }
+        }
+
+        Ok(())
     }
 
     fn try_slice_request_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {

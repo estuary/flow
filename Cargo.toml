@@ -60,7 +60,7 @@ crossterm = "0"
 csv = "1"
 dirs = "6"
 encoding_rs = { version = "0", features = ["serde"] }
-flate2 = "1"
+flate2 = { version = "1", features = ["zlib-rs"] }
 futures = "0"
 futures-core = "0"
 futures-util = "0"

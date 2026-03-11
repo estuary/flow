@@ -58,6 +58,7 @@ struct Buffers {
 impl SliceActor {
     #[tracing::instrument(
         level = "debug",
+        ret,
         err(Debug, level = "warn"),
         skip_all,
         fields(
@@ -140,15 +141,7 @@ impl SliceActor {
                 slice_request = slice_request_rx.next() => {
                     match slice_request {
                         Some(result) => self.on_slice_request(result)?,
-                        None => {
-                            tracing::debug!(
-                                loop_count,
-                                total_reads = self.reads.len(),
-                                flush_cycle = self.flush.cycle,
-                                "SliceActor::serve exiting on Session EOF"
-                            );
-                            break Ok(());
-                        }
+                        None => break,
                     }
                 }
                 Some((member_index, log_response, rx)) = log_response_rx.next() => {
@@ -172,6 +165,31 @@ impl SliceActor {
                 }
             }
         }
+
+        tracing::debug!(
+            loop_count,
+            total_reads = self.reads.len(),
+            flush_cycle = self.flush.cycle,
+            "SliceActor::serve exiting on Session EOF"
+        );
+        self.log_request_tx.clear(); // Drop all tx handles to close.
+
+        // Read clean EOF from all Log RPCs.
+        while let Some((member_index, slice_response, rx)) = log_response_rx.next().await {
+            let verify = crate::verify(
+                "LogResponse",
+                "EOF",
+                &self.topology.members[member_index].endpoint,
+                member_index,
+            );
+            match slice_response {
+                None => (), // Clean EOF.
+                Some(Ok(_ignored)) => log_response_rx.push(next_log_rx((member_index, rx))),
+                Some(Err(status)) => return Err(verify.fail_status(status)),
+            }
+        }
+
+        Ok(())
     }
 
     // Start tasks that watch journal listings of assigned bindings.

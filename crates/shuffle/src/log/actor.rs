@@ -48,6 +48,7 @@ pub struct LogActor {
 impl LogActor {
     #[tracing::instrument(
         level = "debug",
+        ret,
         err(Debug, level = "warn"),
         skip_all,
         fields(
@@ -113,15 +114,17 @@ impl LogActor {
 
                 // Read the completion of an in-flight flush.
                 Some(result) = futures::future::OptionFuture::from(flush_handle.as_mut()) => {
+                    flush_handle = None;
+
                     let result = match result {
                         Ok(r) => r,
-                        Err(err) if err.is_cancelled() => break Ok(()),
+                        Err(err) if err.is_cancelled() => continue,
                         Err(err) => std::panic::resume_unwind(err.into_panic()),
                     };
+
                     let (writer, flushed_lsn) = result?;
                     self.writer = Some(writer);
                     self.flush.on_flushed(flushed_lsn);
-                    flush_handle = None;
                 }
 
                 // Wake when a blocked log_response_tx has capacity.
@@ -141,12 +144,12 @@ impl LogActor {
                 // All slices EOF'd, heap drained, IO complete, and flushes sent.
                 // No pending flushes can remain: they imply a non-empty block,
                 // which would have triggered may_flush above.
-                else => {
-                    tracing::debug!(loop_count, "LogActor::serve exiting, all slices EOF");
-                    break Ok(());
-                }
+                else => break,
             }
         }
+
+        tracing::debug!(loop_count, "LogActor::serve exiting, all slices EOF");
+        Ok(())
     }
 
     /// Try to send completed Flushed responses. If a channel is full, return
