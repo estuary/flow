@@ -63,6 +63,12 @@ to a collection. Essentially, it is a projection of the `_meta/uuid` field, wher
 encoded timestamp component.
 - Availability: The `flow_published_at` field is available in every collection, as it is a derived
 projection from the `_meta/uuid` field.
+- Precision: If multiple documents are captured in a single transaction, each receives a `flow_published_at`
+value that increments by 1 microsecond from the previous document. This means `flow_published_at`
+is guaranteed to be strictly increasing and unique across all documents written by a single
+capture task. Destinations that support microsecond-precision timestamps (including PostgreSQL,
+Snowflake, and BigQuery) will preserve this total ordering, making `flow_published_at` suitable
+as an incremental cursor for polling or dbt models.
 
 For a given document identified by a unique key, the `flow_published_at` field can be used as a proxy for
 the last time the document was modified. This is particularly useful when performing incremental updates

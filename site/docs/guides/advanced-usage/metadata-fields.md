@@ -27,6 +27,8 @@ The `flow_published_at` projection is automatically derived from the UUID's time
 - Incremental processing in materializations (via time travel `notBefore`/`notAfter`)
 - Ordering events chronologically
 
+If multiple documents are captured in a single transaction, each receives a `flow_published_at` value that increments by 1 microsecond from the previous document. This means `flow_published_at` is guaranteed to be strictly increasing and unique across all documents written by a single capture task. Destinations that support microsecond-precision timestamps (including PostgreSQL, Snowflake, and BigQuery) will preserve this total ordering, making `flow_published_at` suitable as an incremental cursor for polling or dbt models.
+
 ### Delete Events
 
 Delete events (`op: "d"`) contain only the document key and `_meta` fields—other fields are omitted. When processing deletes, use the key to identify which document was removed. See the [deletions guide](/reference/deletions/) for handling soft and hard deletes.
