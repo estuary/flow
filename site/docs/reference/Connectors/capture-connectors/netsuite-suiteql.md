@@ -23,6 +23,26 @@ Currently, this connector supports a subset of NetSuite tables, such as:
 If you need to capture a table that is not yet supported, [contact support](mailto:support@estuary.dev) with the table name(s).
 Estuary support will be able to confirm availability and, if needed, add the table(s) to the connector.
 
+## Sync modes and data loading
+
+### Incremental sync
+
+Tables with a date-time column suitable for change tracking are synced **incrementally** — only rows modified since the last checkpoint are captured. Most base record tables (such as `Transaction`, `Account`, `Customer`, `Item`) have a `lastmodifieddate` column that enables this.
+
+The polling frequency is controlled by the [`interval`](#bindings) setting (default: 1 hour).
+
+### Full refresh
+
+Tables without a suitable date-time cursor are synced via **full refresh** — the connector re-reads the entire table on each poll. This is common for linking tables like `TransactionLine` that lack a `lastmodifieddate` column. Use the [`schedule`](#bindings) field to set a cron expression controlling how often full refreshes run.
+
+### Delete handling
+
+Estuary captures deletions using the `DeletedRecord` table (listed in [supported data resources](#supported-data-resources) above). NetSuite maintains this system table to track when base records are removed.
+
+**Base record tables** (such as `Transaction`, `Account`, `Customer`, `Item`, etc.) support delete tracking. When a record is deleted in NetSuite, it appears in the `DeletedRecord` table, and Estuary emits a deletion event.
+
+**Linking and junction tables** (such as `TransactionLine`, `TransactionShippingAddress`) are **not** tracked in `DeletedRecord`. NetSuite does not record deletions for these table types.
+
 ## Prerequisites
 
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
