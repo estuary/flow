@@ -66,11 +66,18 @@ Use the below properties to configure a Databricks materialization, which will d
 
 #### Bindings
 
-| Property         | Title              | Description                                                | Type    | Required/Default |
-|------------------|--------------------|------------------------------------------------------------|---------|------------------|
-| **`/table`**     | Table              | Table name                                                 | string  | Required         |
-| `/schema`        | Alternative Schema | Alternative schema for this table                          | string  | Required         |
-| `/delta_updates` | Delta updates      | Whether to use standard or [delta updates](#delta-updates) | boolean | `false`          |
+| Property                       | Title                       | Description                                                  | Type    | Required/Default |
+|--------------------------------|-----------------------------|--------------------------------------------------------------|---------|------------------|
+| **`/table`**                   | Table                       | Table name                                                   | string  | Required         |
+| `/schema`                      | Alternative Schema          | Alternative schema for this table                            | string  | Required         |
+| `/delta_updates`               | Delta updates               | Whether to use standard or [delta updates](#delta-updates)   | boolean | `false`          |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run after table is created. | string |                  |
+
+#### Additional Table Create SQL
+
+You can use the `additional_table_create_sql` binding property to run custom SQL statements after the connector creates the destination table. This is useful for creating indexes or other table modifications that you want applied automatically — including when a table is re-created due to schema changes.
+
+This SQL runs only during table creation. If the table already exists, you'll need to re-backfill the binding for the SQL to execute. Do not include statements that re-create the table itself — the connector handles table creation automatically.
 
 ### Sample
 
