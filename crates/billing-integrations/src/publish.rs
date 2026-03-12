@@ -554,8 +554,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
                     and invoice_type = 'final'
                 ) or (
-                    date_start >= date_trunc('day', $1::date)
-                    and date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    and date_end >= date_trunc('day', $1::date)
                     and invoice_type = 'manual'
                 ))
                 and billed_prefix = any($2)
@@ -605,8 +605,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
                     and invoice_type = 'final'
                 ) or (
-                    date_start >= date_trunc('day', $1::date)
-                    and date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    and date_end >= date_trunc('day', $1::date)
                     and invoice_type = 'manual'
                 )
             "#,

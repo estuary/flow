@@ -1,4 +1,4 @@
-use crate::publish::{BILLING_PERIOD_START_KEY, TENANT_METADATA_KEY};
+use crate::publish::{BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, TENANT_METADATA_KEY};
 use num_format::{Locale, ToFormattedString};
 use serde::{Serialize, de::DeserializeOwned};
 use std::ops::{Deref, DerefMut};
@@ -127,6 +127,14 @@ impl Invoice {
             .metadata
             .as_ref()
             .and_then(|m| m.get(BILLING_PERIOD_START_KEY))
+            .cloned()
+    }
+
+    pub fn period_end(&self) -> Option<String> {
+        self.0
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(BILLING_PERIOD_END_KEY))
             .cloned()
     }
 
