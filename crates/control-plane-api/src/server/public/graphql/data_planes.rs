@@ -19,9 +19,9 @@ pub enum DataPlaneCloudProvider {
 #[derive(Debug, Clone, SimpleObject)]
 pub struct DataPlane {
     /// Name of this data-plane under the catalog namespace.
-    pub data_plane_name: String,
+    pub name: String,
     /// Fully-qualified domain name of this data-plane.
-    pub data_plane_fqdn: String,
+    pub fqdn: String,
     /// Address of reactors within the data-plane.
     pub reactor_address: String,
     /// The current user's capability to this data plane's name prefix.
@@ -284,8 +284,8 @@ impl DataPlanesQuery {
                 Some(connection::Edge::new(
                     data_plane_name.clone(),
                     DataPlane {
-                        data_plane_name,
-                        data_plane_fqdn: dp.data_plane_fqdn.clone(),
+                        name: data_plane_name,
+                        fqdn: dp.data_plane_fqdn.clone(),
                         reactor_address: dp.reactor_address.clone(),
                         user_capability: user_capability
                             .expect("capability guaranteed by pre-filter"),
@@ -338,8 +338,8 @@ mod tests {
                         dataPlanes {
                             edges {
                                 node {
-                                    dataPlaneName
-                                    dataPlaneFqdn
+                                    name
+                                    fqdn
                                     reactorAddress
                                     cloudProvider
                                     region
