@@ -1088,6 +1088,15 @@ type QueryRoot {
 	"""
 	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 	"""
+	Returns the ConnectorTag for a given full (including the version) OCI
+	image name. The returned tag may be different from the version in the
+	image name. This would happen if there is no connector spec for the
+	given tag, but one exists for a different tag. The return value will be
+	null if either the connector image is unkown, or if there has not been a
+	successful Spec for any version of that image.
+	"""
+	connectorTag(fullImageName: String!): ConnectorTag
+	"""
 	Returns information about a single connector, which may or may not have
 	had a successful Spec RPC, and thus may or may not be usable in the
 	Estuary UI.

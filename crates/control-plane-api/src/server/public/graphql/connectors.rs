@@ -161,6 +161,33 @@ const DEFAULT_PAGE_SIZE: usize = 20;
 
 #[async_graphql::Object]
 impl ConnectorsQuery {
+    /// Returns the ConnectorTag for a given full (including the version) OCI
+    /// image name. The returned tag may be different from the version in the
+    /// image name. This would happen if there is no connector spec for the
+    /// given tag, but one exists for a different tag. The return value will be
+    /// null if either the connector image is unkown, or if there has not been a
+    /// successful Spec for any version of that image.
+    pub async fn connector_tag(
+        &self,
+        ctx: &Context<'_>,
+        full_image_name: String,
+    ) -> async_graphql::Result<Option<ConnectorTag>> {
+        let env = ctx.data::<Envelope>()?;
+        let _claims = env.claims()?;
+
+        let (image, tag) = models::split_image_tag(&full_image_name);
+        if tag.is_empty() {
+            return Err(async_graphql::Error::new(
+                "image name must be in the form of 'registry/name:version' or 'registry/name@sha256:hash'",
+            ));
+        };
+
+        let Some(connector) = self.connector(ctx, image).await? else {
+            return Ok(None);
+        };
+        connector.connector_tag(ctx, Some(tag), true).await
+    }
+
     /// Returns information about a single connector, which may or may not have
     /// had a successful Spec RPC, and thus may or may not be usable in the
     /// Estuary UI.
