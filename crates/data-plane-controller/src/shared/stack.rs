@@ -176,6 +176,8 @@ pub struct GCPPrivateServiceConnect {
     pub region: String,
     pub dns_zone_name: String,
     pub dns_record_names: Vec<String>,
+    #[serde(default)]
+    pub all_ports: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
