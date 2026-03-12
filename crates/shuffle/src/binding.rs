@@ -81,8 +81,8 @@ impl Binding {
     /// (e.g. on SliceActor) or discard them (e.g. SessionActor).
     pub fn from_task(
         task: &shuffle::Task,
-    ) -> anyhow::Result<(models::Name, Vec<Self>, Vec<doc::Validator>)> {
-        let (name, pairs) = match &task.task {
+    ) -> anyhow::Result<(models::Name, Vec<Self>, Vec<doc::Validator>, u64)> {
+        let (name, pairs, disk_backlog_threshold) = match &task.task {
             Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
@@ -105,7 +105,14 @@ impl Binding {
                     .id
                     .clone();
 
-                (models::Name::new(shard_template_id), pairs)
+                // TODO: extract from task spec.
+                let disk_backlog_threshold = 10 * 1024 * 1024 * 1024u64;
+
+                (
+                    models::Name::new(shard_template_id),
+                    pairs,
+                    disk_backlog_threshold,
+                )
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
                 let pairs = materialization
@@ -124,12 +131,20 @@ impl Binding {
                     .id
                     .clone();
 
-                (models::Name::new(shard_template_id), pairs)
+                // TODO: extract from task spec.
+                let disk_backlog_threshold = 10 * 1024 * 1024 * 1024u64;
+
+                (
+                    models::Name::new(shard_template_id),
+                    pairs,
+                    disk_backlog_threshold,
+                )
             }
             Some(shuffle::task::Task::CollectionPartitions(collection_partitions)) => {
                 let shuffle::CollectionPartitions {
                     collection,
                     partition_selector,
+                    disk_backlog_threshold,
                 } = collection_partitions;
 
                 let collection_spec = collection
@@ -156,7 +171,11 @@ impl Binding {
                     .name
                     .clone();
 
-                (models::Name::new(partition_template_name), pairs)
+                (
+                    models::Name::new(partition_template_name),
+                    pairs,
+                    *disk_backlog_threshold,
+                )
             }
             None => anyhow::bail!("missing task variant"),
         };
@@ -166,7 +185,7 @@ impl Binding {
 
         assign_cohorts(&mut bindings);
 
-        Ok((name, bindings, validators))
+        Ok((name, bindings, validators, disk_backlog_threshold))
     }
 
     fn from_derivation_transform(

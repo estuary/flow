@@ -32,12 +32,20 @@ async-compression = { version = "0", features = [
     "tokio",
     "zstd",
 ] }
-async-stripe = { version = "0", default-features = false, features = ["billing", "checkout", "runtime-tokio-hyper"] }
+async-stripe = { version = "0", default-features = false, features = [
+    "billing",
+    "checkout",
+    "runtime-tokio-hyper",
+] }
 async-trait = "0"
 atty = "0"
 # TODO: Add "xz" feature after next apache-avro release (>0.20.0)
 # Current v0.20.0 has library conflict: xz2->lzma-sys vs zip->liblzma-sys
-apache-avro = { version = "0", default-features = false, features = ["snappy", "zstandard", "bzip"] }
+apache-avro = { version = "0", default-features = false, features = [
+    "snappy",
+    "zstandard",
+    "bzip",
+] }
 
 # For some reason, the version requirement "0" resulted in cargo downgrading
 # this dependency to an incompatible version. The requirement here is intended
@@ -276,7 +284,7 @@ debug = "none"
 strip = "debuginfo"
 incremental = true
 lto = "off"
-opt-level = 1 # Basic optimization. As fast to build as none.
+opt-level = 1       # Basic optimization. As fast to build as none.
 
 [patch.'crates-io']
 

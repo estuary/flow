@@ -5,15 +5,22 @@ use proto_gazette::uuid;
 use std::collections::HashMap;
 use std::io::Write;
 
-/// Writer appends encoded blocks to a segmented log on disk.
+mod sealed;
+pub use sealed::SealedSegment;
+
+/// Writer appends encoded blocks to segmented log files on disk.
 ///
 /// Each block is preceded by an 8-byte header:
 ///   - `raw_len`: u32 big-endian, uncompressed byte length
 ///   - `lz4_len`: u32 big-endian, compressed byte length (0 if not compressed)
 ///
-/// Blocks over 64 KB are LZ4-compressed. When a segment file exceeds 64 MB,
-/// the writer rolls to a new segment. Files are created with `create_new` to
-/// guarantee exclusive ownership of the segment sequence.
+/// Blocks over a compression threshold are LZ4-compressed, though typically
+/// this limit is usize::MAX (no compression). Instead, a follow-behind async
+/// compression path re-writes sealed segments that still live after a delay.
+///
+/// When a segment file exceeds its byte threshold, the writer rolls to a new
+/// segment and returns the old one as a `SealedSegment`. Segment files are
+/// created with `create_new` to guarantee exclusive ownership of the sequence.
 #[derive(Debug)]
 pub struct Writer {
     // Base directory for all segment files of the log.
@@ -38,7 +45,7 @@ impl Writer {
         Self::with_thresholds(
             directory,
             member_index,
-            DEFAULT_COMPRESS_THRESHOLD,
+            usize::MAX,
             DEFAULT_SEGMENT_THRESHOLD,
         )
     }
@@ -62,7 +69,8 @@ impl Writer {
         })
     }
 
-    /// Encode and append a block, returning the LSN at which it was written.
+    /// Encode and append a block, returning the LSN at which it was written
+    /// and an optional `SealedSegment` if the previous segment was rolled.
     ///
     /// Returns when the complete block has been handed off to the OS page cache,
     /// but no fsync or fdatasync is performed (given our fail-fast failure model).
@@ -71,33 +79,24 @@ impl Writer {
         journals: HashMap<String, u16>,
         producers: HashMap<uuid::Producer, u16>,
         entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
-    ) -> anyhow::Result<Lsn> {
-        let block_lsn = self.next_lsn;
+    ) -> anyhow::Result<(Lsn, Option<SealedSegment>)> {
         let raw = block::encode(journals, producers, entries);
 
+        let raw_len: u32 = raw
+            .len()
+            .try_into()
+            .context("encoded block exceeds u32::MAX bytes")?;
+
         let (payload, raw_len, lz4_len) = if raw.len() > self.compress_threshold {
-            let mut lz4_buf = Vec::with_capacity(lz4::block::compress_bound(raw.len())?);
+            let lz4_buf = super::lz4_compress(&raw)?;
+            let lz4_len: u32 = lz4_buf
+                .len()
+                .try_into()
+                .context("compressed block exceeds u32::MAX bytes")?;
 
-            // Safety: extend to capacity so compress_to_buffer has a &mut [u8] to write into.
-            // Contents are uninitialized but compress_to_buffer treats it as output-only.
-            unsafe { lz4_buf.set_len(lz4_buf.capacity()) };
-
-            let n = lz4::block::compress_to_buffer(
-                &raw,
-                Some(lz4::block::CompressionMode::DEFAULT),
-                false,
-                &mut lz4_buf,
-            )?;
-            // Safety: compress_to_buffer initialized exactly n bytes; truncate to that.
-            unsafe { lz4_buf.set_len(n) };
-
-            let raw_len = (raw.len() as u32).to_be_bytes();
-            let lz4_len = (lz4_buf.len() as u32).to_be_bytes();
-
-            (lz4_buf, raw_len, lz4_len)
+            (lz4_buf, raw_len.to_be_bytes(), lz4_len.to_be_bytes())
         } else {
-            let raw_len = (raw.len() as u32).to_be_bytes();
-            (raw.into_vec(), raw_len, 0u32.to_be_bytes())
+            (raw.into_vec(), raw_len.to_be_bytes(), 0u32.to_be_bytes())
         };
 
         self.segment_file.write_all(&[
@@ -105,30 +104,58 @@ impl Writer {
             lz4_len[0], lz4_len[1], lz4_len[2], lz4_len[3], // LZ4 length u32, big-endian.
         ])?;
         self.segment_file.write_all(&payload)?;
-        self.segment_bytes += (BLOCK_HEADER_LEN + payload.len()) as u64;
+        self.segment_bytes += (super::BLOCK_HEADER_LEN + payload.len()) as u64;
 
-        // Roll to a new segment if we've exceeded the byte threshold
-        // or exhausted the u16 block number space.
-        if self.segment_bytes >= self.segment_threshold || self.next_lsn.block() == u16::MAX {
-            self.next_lsn = self.next_lsn.next_segment();
-            self.segment_file =
-                create_segment(&self.directory, self.member_index, self.next_lsn.segment())?;
-            self.segment_bytes = 0;
-        } else {
-            self.next_lsn = self.next_lsn.next_block();
-        }
+        let block_lsn = self.next_lsn;
 
         tracing::debug!(
             ?block_lsn,
             raw_len = u32::from_be_bytes(raw_len),
             lz4_len = u32::from_be_bytes(lz4_len),
-            segment = block_lsn.segment(),
-            block = block_lsn.block(),
-            segment_size = self.segment_bytes,
+            segment_bytes = self.segment_bytes,
             "appended log segment block",
         );
 
-        Ok(block_lsn)
+        // Roll to a new segment if we've exceeded the byte threshold
+        // or exhausted the u16 block number space.
+        if self.segment_bytes < self.segment_threshold && self.next_lsn.block() < u16::MAX {
+            self.next_lsn = self.next_lsn.next_block();
+            return Ok((block_lsn, None));
+        } else {
+            self.next_lsn = self.next_lsn.next_segment();
+        }
+
+        // Drop the old segment file descriptor eagerly. Without an open fd,
+        // a quick unlink by the reader lets the kernel drop dirty pages from
+        // cache without ever writing them to the block device.
+        drop(std::mem::replace(
+            &mut self.segment_file,
+            create_segment(&self.directory, self.member_index, self.next_lsn.segment())?,
+        ));
+
+        let sealed = SealedSegment::new(
+            super::segment_path(&self.directory, self.member_index, block_lsn.segment()),
+            std::mem::take(&mut self.segment_bytes),
+        );
+
+        tracing::debug!(
+            ?block_lsn,
+            raw_len = u32::from_be_bytes(raw_len),
+            lz4_len = u32::from_be_bytes(lz4_len),
+            sealed_size = sealed.size,
+            "sealed log segment",
+        );
+
+        Ok((block_lsn, Some(sealed)))
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        let path = super::segment_path(&self.directory, self.member_index, self.next_lsn.segment());
+        if let Err(err) = std::fs::remove_file(&path) {
+            tracing::warn!(%err, ?path, "failed to unlink in-progress writer segment");
+        }
     }
 }
 
@@ -138,8 +165,7 @@ fn create_segment(
     member_index: u32,
     segment: u64,
 ) -> anyhow::Result<std::fs::File> {
-    let filename = format!("mem-{member_index:03}-seg-{segment:012x}.flog");
-    let path = directory.join(&filename);
+    let path = super::segment_path(directory, member_index, segment);
 
     std::fs::OpenOptions::new()
         .write(true)
@@ -150,27 +176,24 @@ fn create_segment(
         })
 }
 
-/// The block header is composed of a u32_le (raw length, lz4 length) by
-const BLOCK_HEADER_LEN: usize = 8;
-/// The default LZ4 compression threshold is 64k.
-const DEFAULT_COMPRESS_THRESHOLD: usize = 64 * 1024;
-/// Then default segment file size threshold is 64MB.
+/// Default segment file size threshold: 64 MB.
 const DEFAULT_SEGMENT_THRESHOLD: u64 = 64 * 1024 * 1024;
 
 #[cfg(test)]
 mod test {
+    use super::super::BLOCK_HEADER_LEN;
     use super::*;
 
     #[test]
-    fn test_writer_creates_file_and_appends_block() {
+    fn test_writer_append_and_segment_roll() {
         let dir = tempfile::tempdir().unwrap();
-        let mut writer = Writer::new(dir.path(), 3).unwrap();
+        // Tiny segment threshold so we roll after the first block.
+        let mut writer = Writer::with_thresholds(dir.path(), 0, usize::MAX, 1).unwrap();
 
-        // Verify the initial file was created.
-        let expected_path = dir.path().join("mem-003-seg-000000000001.flog");
-        assert!(expected_path.exists());
+        // Verify the initial segment file was created.
+        let seg1_path = dir.path().join("mem-000-seg-000000000001.flog");
+        assert!(seg1_path.exists());
 
-        // Append a small block (no compression).
         let journals: HashMap<String, u16> = [("j/one".to_string(), 0)].into();
         let producers: HashMap<uuid::Producer, u16> =
             [(uuid::Producer([0x01, 0, 0, 0, 0, 0x01]), 0)].into();
@@ -193,12 +216,16 @@ mod test {
             doc_bytes,
         )];
 
-        let lsn = writer.append_block(journals, producers, entries).unwrap();
+        let (lsn, sealed) = writer.append_block(journals, producers, entries).unwrap();
         assert_eq!(lsn, Lsn::new(1, 0));
-        assert_eq!(writer.next_lsn, Lsn::new(1, 1));
 
-        // Read back and verify header.
-        let data = std::fs::read(&expected_path).unwrap();
+        // Segment threshold is 1, so the segment rolled.
+        let sealed = sealed.expect("segment should have rolled");
+        assert_eq!(sealed.path, seg1_path);
+        assert!(sealed.size > 0);
+
+        // Read back sealed segment and verify header.
+        let data = std::fs::read(&seg1_path).unwrap();
         assert!(data.len() > BLOCK_HEADER_LEN);
 
         let raw_len = u32::from_be_bytes(data[0..4].try_into().unwrap()) as usize;
@@ -206,6 +233,17 @@ mod test {
 
         assert_eq!(lz4_len, 0, "small block should not be compressed");
         assert_eq!(data.len(), BLOCK_HEADER_LEN + raw_len);
+
+        // Second segment file should exist.
+        assert!(dir.path().join("mem-000-seg-000000000002.flog").exists());
+
+        // Drop sealed segment — should unlink the first segment file.
+        let first_path = sealed.path.clone();
+        drop(sealed);
+        assert!(
+            !first_path.exists(),
+            "sealed segment should be unlinked on drop"
+        );
     }
 
     #[test]

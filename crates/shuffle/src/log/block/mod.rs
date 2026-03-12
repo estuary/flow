@@ -129,6 +129,8 @@ pub fn encode(
     producers: HashMap<uuid::Producer, u16>,
     entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
 ) -> rkyv::util::AlignedVec {
+    // Asserts are unreachable because BlockState::is_full() caps entries at 65,536,
+    // and each entry introduces at most one new journal and one new producer.
     assert!(journals.len() <= 1 << 16);
     assert!(producers.len() <= 1 << 16);
     assert!(entries.len() <= 1 << 16);
@@ -185,13 +187,13 @@ fn encode_producers(producers: HashMap<uuid::Producer, u16>) -> Vec<BlockProduce
 
 fn encode_journals(journals: HashMap<String, u16>) -> Vec<BlockJournal> {
     let mut journals: Vec<_> = journals.into_iter().collect();
-    journals.sort();
+    journals.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     journals
         .into_iter()
         .map(|(name, bid)| BlockJournal {
             journal_bid: bid,
-            name: name.to_string(),
+            name,
         })
         .collect()
 }

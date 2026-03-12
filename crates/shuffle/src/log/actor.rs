@@ -1,7 +1,7 @@
 use super::Lsn;
 use super::heap::{self, AppendHeap};
 use super::state::{BlockState, FlushState};
-use super::writer::Writer;
+use super::writer::{SealedSegment, Writer};
 use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
 use proto_gazette::uuid;
@@ -23,6 +23,10 @@ type SliceRx = BoxStream<'static, tonic::Result<shuffle::LogRequest>>;
 /// LogActors drain high-priority, earlier-clock documents first, which back-pressures
 /// to Slices and journals that are producing lower-priority or higher-clock documents.
 /// The overall rate of progress is bounded by the write throughput of the slowest Log.
+///
+/// Additionally, the total on-disk backlog of sealed segments is tracked. When it
+/// exceeds `disk_backlog_threshold`, heap draining is paused, propagating back-pressure
+/// all the way to Slice journal reads.
 pub struct LogActor {
     /// Immutable session topology: identity and member configuration.
     pub topology: super::state::Topology,
@@ -68,14 +72,28 @@ impl LogActor {
             .collect();
 
         // Handle for a single in-flight background flush.
-        let mut flush_handle: Option<tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn)>>> = None;
+        let mut flush_handle: Option<
+            tokio::task::JoinHandle<anyhow::Result<(Writer, Lsn, Option<SealedSegment>)>>,
+        > = None;
+        // Per-sealed-segment streams that drive compression and track unlink.
+        // Each stream yields negative size deltas as disk space is freed.
+        let mut sealed_segments = futures::stream::SelectAll::new();
+
+        // Aggregate on-disk bytes across all living sealed segments.
+        let mut disk_backlog_bytes: u64 = 0;
+        // Threshold at which we'll stop draining Append requests.
+        let disk_backlog_threshold = self.topology.disk_backlog_threshold;
+        // Hysteresis flag: engaged at disk_backlog_threshold, released at 50%.
+        let mut disk_back_pressure = false;
 
         let mut loop_count: u64 = 0;
         loop {
             loop_count += 1;
 
-            // We may buffer a min-heap Append into the next block if we're under cap.
-            let may_buffer = !self.append_heap.is_empty() && !self.block.is_full();
+            // We may buffer a min-heap Append into the next block if we're
+            // under cap and disk backlog back-pressure is not active.
+            let may_buffer =
+                !self.append_heap.is_empty() && !self.block.is_full() && !disk_back_pressure;
 
             // We may begin a non-empty block flush if one isn't underway, and either:
             // - We've been asked to flush by a slice, OR
@@ -88,9 +106,11 @@ impl LogActor {
 
             tracing::debug!(
                 loop_count,
+                append_heap = self.append_heap.len(),
                 block = ?self.block,
+                disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
                 flush = ?self.flush,
-                heap_size = self.append_heap.len(),
+                flushing = flush_handle.is_some(),
                 may_buffer,
                 may_flush,
                 pending_slice_rx = pending_slice_rx.len(),
@@ -107,8 +127,20 @@ impl LogActor {
 
                 // Read a ready LogRequest from pending slices.
                 Some((member_index, log_request, rx)) = pending_slice_rx.next() => {
-                    if let Some(rx) = self.on_log_request(member_index, log_request, rx)? {
-                        pending_slice_rx.push(next_log_rx((member_index, rx)));
+                    match self.on_log_request(member_index, log_request, rx)? {
+                        Ok(rx) => pending_slice_rx.push(next_log_rx((member_index, rx))),
+                        Err(true) => {}, // `rx` is parked in self.slice_appends
+                        Err(false) => {
+                            let remaining = pending_slice_rx.len() + self.append_heap.len();
+                            tracing::debug!(member_index, remaining, "Slice LogRequest stream EOF");
+
+                            if remaining != 0 {
+                                continue;
+                            }
+                            // Drop SealedSegments: the Stream now yields None, which
+                            // allows the select! `else` arm to fire and break the loop.
+                            sealed_segments.clear();
+                        }
                     }
                 }
 
@@ -122,9 +154,41 @@ impl LogActor {
                         Err(err) => std::panic::resume_unwind(err.into_panic()),
                     };
 
-                    let (writer, flushed_lsn) = result?;
+                    let (writer, flushed_lsn, sealed) = result?;
                     self.writer = Some(writer);
                     self.flush.on_flushed(flushed_lsn);
+
+                    // Did the flush seal its segment (the writer rolled to the next)?
+                    let Some(sealed) = sealed else {
+                        continue;
+                    };
+                    disk_backlog_bytes += sealed.size;
+
+                    if disk_backlog_bytes >= disk_backlog_threshold {
+                        tracing::debug!(
+                            disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
+                            "disk back-pressure engaged"
+                        );
+                        disk_back_pressure = true;
+                    }
+                    sealed_segments.push(Box::pin(sealed.serve()));
+                }
+
+                // Read an update of a sealed segment, reclaiming disk from compression or unlink.
+                Some(reclaimed) = sealed_segments.next() => {
+                    disk_backlog_bytes = disk_backlog_bytes
+                        .checked_sub(reclaimed?)
+                        .expect("disk_backlog_bytes underflow");
+
+                    if disk_back_pressure
+                        && disk_backlog_bytes < disk_backlog_threshold / 2
+                    {
+                        tracing::debug!(
+                            disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
+                            "disk back-pressure released"
+                        );
+                        disk_back_pressure = false;
+                    }
                 }
 
                 // Wake when a blocked log_response_tx has capacity.
@@ -191,16 +255,18 @@ impl LogActor {
 
     /// Handle a ready slice: verify the request and dispatch to on_append or on_flush.
     ///
-    /// Returns `None` on clean EOF or when the Append and rx are parked in
-    /// `slice_appends`. Returns `Some(rx)` for Flush (rx re-pushed immediately).
+    /// Returns:
+    ///  - Some(rx) on Flush (`rx` is re-pushed immediately)
+    ///  - Err(true) when `rx` (and a read Append) are parked in `slice_appends`.
+    ///  - Err(false) on clean EOF from the Slice RPC.
     fn on_log_request(
         &mut self,
         member_index: usize,
         log_request: Option<tonic::Result<shuffle::LogRequest>>,
         rx: SliceRx,
-    ) -> anyhow::Result<Option<SliceRx>> {
+    ) -> anyhow::Result<Result<SliceRx, bool>> {
         let Some(log_request) = log_request else {
-            return Ok(None); // Clean EOF of this member Slice's Log RPC.
+            return Ok(Err(false)); // Clean EOF of this member Slice's Log RPC.
         };
 
         let verify = crate::verify(
@@ -217,7 +283,7 @@ impl LogActor {
                 ..
             } => {
                 self.on_append_rx(append, member_index, rx);
-                Ok(None)
+                Ok(Err(true))
             }
 
             shuffle::LogRequest {
@@ -227,7 +293,7 @@ impl LogActor {
                 let empty = self.block.is_empty();
                 tracing::debug!(member_index, cycle, empty, "received Flush from Slice");
                 self.flush.on_flush(member_index, cycle, empty);
-                Ok(Some(rx))
+                Ok(Ok(rx))
             }
 
             request => Err(verify.fail(request)),
@@ -302,7 +368,9 @@ impl LogActor {
     /// task that encodes and writes the block.
     fn start_flush(
         &mut self,
-        flush_handle: &mut Option<tokio::task::JoinHandle<anyhow::Result<(Writer, super::Lsn)>>>,
+        flush_handle: &mut Option<
+            tokio::task::JoinHandle<anyhow::Result<(Writer, super::Lsn, Option<SealedSegment>)>>,
+        >,
     ) {
         self.flush.start_flush();
 
@@ -314,8 +382,8 @@ impl LogActor {
         let (journals, producers, entries) = self.block.take();
 
         *flush_handle = Some(tokio::task::spawn_blocking(move || {
-            let flushed_lsn = writer.append_block(journals, producers, entries)?;
-            Ok((writer, flushed_lsn))
+            let (flushed_lsn, sealed) = writer.append_block(journals, producers, entries)?;
+            Ok((writer, flushed_lsn, sealed))
         }));
     }
 }

@@ -88,6 +88,35 @@ pub use writer::Writer;
 
 pub(crate) use handler::serve_log;
 
+/// Build the path of a segment file from its directory, member index, and segment number.
+pub(crate) fn segment_path(
+    directory: &std::path::Path,
+    member_index: u32,
+    segment: u64,
+) -> std::path::PathBuf {
+    let filename = format!("mem-{member_index:03}-seg-{segment:012x}.flog");
+    directory.join(filename)
+}
+
+/// LZ4-compress a raw block payload, returning the compressed bytes.
+pub(crate) fn lz4_compress(raw: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(lz4::block::compress_bound(raw.len())?);
+    // Safety: compress_to_buffer treats the buffer as output-only.
+    unsafe { buf.set_len(buf.capacity()) };
+    let n = lz4::block::compress_to_buffer(
+        raw,
+        Some(lz4::block::CompressionMode::DEFAULT),
+        false,
+        &mut buf,
+    )?;
+    // Safety: compress_to_buffer initialized exactly n bytes.
+    unsafe { buf.set_len(n) };
+    Ok(buf)
+}
+
+/// Block header: two u32 big-endian values (raw_len, lz4_len).
+pub const BLOCK_HEADER_LEN: usize = 8;
+
 /// LogJoin coordinates multiple Slice streams connecting to the same Log.
 /// Each Log member receives connections from all Slices (M connections total).
 pub(crate) struct LogJoin {

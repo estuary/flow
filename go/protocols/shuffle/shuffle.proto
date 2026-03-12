@@ -25,6 +25,9 @@ message CollectionPartitions {
   flow.CollectionSpec collection = 1;
   // Partition selector for filtering source collection journals.
   protocol.LabelSelector partition_selector = 2;
+  // Disk backlog threshold in bytes before engaging back-pressure.
+  // Used for ad-hoc reads where the caller controls the threshold.
+  uint64 disk_backlog_threshold = 3;
 }
 
 // Task which we're performing shuffles for.
@@ -245,6 +248,8 @@ message LogRequest {
     uint32 slice_member_index = 3;
     // Index of the target Log member within the session's member list.
     uint32 log_member_index = 4;
+    // Disk backlog threshold in bytes before engaging back-pressure.
+    uint64 disk_backlog_threshold = 5;
   }
   Open open = 1;
 

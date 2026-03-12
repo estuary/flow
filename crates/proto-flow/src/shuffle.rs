@@ -22,6 +22,10 @@ pub struct CollectionPartitions {
     /// Partition selector for filtering source collection journals.
     #[prost(message, optional, tag = "2")]
     pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
+    /// Disk backlog threshold in bytes before engaging back-pressure.
+    /// Used for ad-hoc reads where the caller controls the threshold.
+    #[prost(uint64, tag = "3")]
+    pub disk_backlog_threshold: u64,
 }
 /// Task which we're performing shuffles for.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -318,6 +322,9 @@ pub mod log_request {
         /// Index of the target Log member within the session's member list.
         #[prost(uint32, tag = "4")]
         pub log_member_index: u32,
+        /// Disk backlog threshold in bytes before engaging back-pressure.
+        #[prost(uint64, tag = "5")]
+        pub disk_backlog_threshold: u64,
     }
     /// Append sends a document to be written to the log.
     /// The Log actor merges across Slice streams, ordering by (priority, clock).

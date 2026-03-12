@@ -24,6 +24,7 @@ where
         members,
         slice_member_index,
         log_member_index,
+        disk_backlog_threshold,
     } = open.open.context("first message must be Open")?;
 
     let directory = members
@@ -37,6 +38,7 @@ where
         slice_member_index,
         log_member_index,
         %directory,
+        disk_backlog_threshold,
         "Log received Open"
     );
     let join_key = (session_id, directory.to_string(), log_member_index);
@@ -120,6 +122,7 @@ where
             session_id,
             members,
             log_member_index,
+            disk_backlog_threshold,
         },
         append_heap: super::heap::AppendHeap::new(),
         slice_prev_journal: vec![String::new(); member_count],

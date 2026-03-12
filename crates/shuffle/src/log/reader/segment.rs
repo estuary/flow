@@ -1,34 +1,29 @@
+use crate::log::BLOCK_HEADER_LEN;
 use anyhow::Context;
 
-/// An open log segment file, which is unlinked on drop.
+/// An open log segment file, which is unlinked on drop unless disarmed.
 pub struct Segment {
     path: std::path::PathBuf,
     file: std::fs::File,
+    armed: bool,
 }
 
 impl Segment {
-    /// Build the path of the indicated segment file. Matches Writer's naming convention.
-    pub fn path(
-        directory: &std::path::Path,
-        member_index: u32,
-        segment: u64,
-    ) -> std::path::PathBuf {
-        let filename = format!("mem-{member_index:03}-seg-{segment:012x}.flog");
-        directory.join(filename)
-    }
-
-    /// Open the indicated segment file, returning a Segment with an open file handle.
-    pub fn open(
-        directory: &std::path::Path,
-        member_index: u32,
-        segment: u64,
-    ) -> anyhow::Result<Self> {
-        let path = Self::path(directory, member_index, segment);
-
-        let file = std::fs::File::open(&path)
+    /// Open the segment file at the given path.
+    pub fn open(path: &std::path::Path) -> anyhow::Result<Self> {
+        let file = std::fs::File::open(path)
             .with_context(|| format!("failed to open log segment {path:?}"))?;
 
-        Ok(Self { path, file })
+        Ok(Self {
+            path: path.to_owned(),
+            file,
+            armed: true,
+        })
+    }
+
+    /// Disarm so Drop doesn't unlink.
+    pub fn disarm(&mut self) {
+        self.armed = false;
     }
 
     /// Try to read a block header at the given offset.
@@ -36,7 +31,7 @@ impl Segment {
     pub fn read_block_header(&self, offset: u32) -> anyhow::Result<Option<(u32, u32)>> {
         use std::os::unix::fs::FileExt;
 
-        let mut header = [0u8; Self::BLOCK_HEADER_LEN];
+        let mut header = [0u8; BLOCK_HEADER_LEN];
         let n = self
             .file
             .read_at(&mut header, offset as u64)
@@ -45,10 +40,10 @@ impl Segment {
         if n == 0 {
             return Ok(None); // EOF
         }
-        if n != Self::BLOCK_HEADER_LEN {
+        if n != BLOCK_HEADER_LEN {
             anyhow::bail!(
                 "unexpected short header read at offset {offset}: got {n} of {} bytes",
-                Self::BLOCK_HEADER_LEN
+                BLOCK_HEADER_LEN
             );
         }
 
@@ -101,15 +96,19 @@ impl Segment {
 
         Ok(block_buffer)
     }
-
-    pub const BLOCK_HEADER_LEN: usize = 8;
 }
 
 impl Drop for Segment {
     fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
         match std::fs::remove_file(&self.path) {
-            Ok(()) => tracing::debug!(path=?self.path, "unlinked log segment"),
-            Err(err) => tracing::warn!(%err, path=?self.path, "failed to unlink log segment"),
+            Ok(()) => tracing::debug!(path=?self.path, "unlinked read log segment"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(path=?self.path, "lost race to unlink read log segment");
+            }
+            Err(err) => tracing::warn!(%err, path=?self.path, "failed to unlink read log segment"),
         }
     }
 }
@@ -117,7 +116,7 @@ impl Drop for Segment {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::log::{self, block, reader::test_support::write_block};
+    use crate::log::{self, BLOCK_HEADER_LEN, block, reader::test_support::write_block};
 
     #[test]
     fn test_segment_path_formatting() {
@@ -127,7 +126,7 @@ mod test {
             (999, 0, "mem-999-seg-000000000000.flog"),
         ];
         for (member, segment, expected_name) in cases {
-            let path = Segment::path(std::path::Path::new("/tmp"), member, segment);
+            let path = log::segment_path(std::path::Path::new("/tmp"), member, segment);
             assert_eq!(
                 path.file_name().unwrap().to_str().unwrap(),
                 expected_name,
@@ -142,13 +141,13 @@ mod test {
         let mut writer = log::Writer::new(dir.path(), 0).unwrap();
         write_block(&mut writer, &[("j/one", 1, 0, 100)]);
 
-        let seg = Segment::open(dir.path(), 0, 1).unwrap();
+        let seg = Segment::open(&log::segment_path(dir.path(), 0, 1)).unwrap();
         let (raw_len, lz4_len) = seg.read_block_header(0).unwrap().unwrap();
         assert_eq!(lz4_len, 0, "small block should not be compressed");
         assert!(raw_len > 0);
 
         let buf = seg
-            .read_block_payload(Segment::BLOCK_HEADER_LEN as u32, raw_len, lz4_len)
+            .read_block_payload(BLOCK_HEADER_LEN as u32, raw_len, lz4_len)
             .unwrap();
         let _block = rkyv::access::<block::ArchivedBlock, rkyv::rancor::Error>(&buf).unwrap();
     }
@@ -160,13 +159,13 @@ mod test {
         let mut writer = log::Writer::with_thresholds(dir.path(), 0, 0, u64::MAX).unwrap();
         write_block(&mut writer, &[("j/one", 1, 0, 100)]);
 
-        let seg = Segment::open(dir.path(), 0, 1).unwrap();
+        let seg = Segment::open(&log::segment_path(dir.path(), 0, 1)).unwrap();
         let (raw_len, lz4_len) = seg.read_block_header(0).unwrap().unwrap();
         assert!(lz4_len > 0, "block should be compressed");
         assert!(raw_len > 0);
 
         let buf = seg
-            .read_block_payload(Segment::BLOCK_HEADER_LEN as u32, raw_len, lz4_len)
+            .read_block_payload(BLOCK_HEADER_LEN as u32, raw_len, lz4_len)
             .unwrap();
         let archived = rkyv::access::<block::ArchivedBlock, rkyv::rancor::Error>(&buf).unwrap();
         assert_eq!(archived.meta.len(), 1);
@@ -178,17 +177,17 @@ mod test {
         let mut writer = log::Writer::new(dir.path(), 0).unwrap();
         write_block(&mut writer, &[("j/one", 1, 0, 100)]);
 
-        let seg = Segment::open(dir.path(), 0, 1).unwrap();
+        let seg = Segment::open(&log::segment_path(dir.path(), 0, 1)).unwrap();
         assert!(seg.read_block_header(1_000_000).unwrap().is_none());
     }
 
     #[test]
     fn test_segment_header_short_read() {
         let dir = tempfile::tempdir().unwrap();
-        let path = Segment::path(dir.path(), 0, 1);
+        let path = log::segment_path(dir.path(), 0, 1);
         std::fs::write(&path, &[0u8; 4]).unwrap();
 
-        let seg = Segment::open(dir.path(), 0, 1).unwrap();
+        let seg = Segment::open(&log::segment_path(dir.path(), 0, 1)).unwrap();
         let err = seg.read_block_header(0).unwrap_err();
         assert!(
             format!("{err:?}").contains("short header"),
@@ -202,10 +201,10 @@ mod test {
         let mut writer = log::Writer::new(dir.path(), 0).unwrap();
         write_block(&mut writer, &[("j/one", 1, 0, 100)]);
 
-        let path = Segment::path(dir.path(), 0, 1);
+        let path = log::segment_path(dir.path(), 0, 1);
         assert!(path.exists());
 
-        let seg = Segment::open(dir.path(), 0, 1).unwrap();
+        let seg = Segment::open(&log::segment_path(dir.path(), 0, 1)).unwrap();
         drop(seg);
         assert!(!path.exists(), "segment file should be unlinked after drop");
     }

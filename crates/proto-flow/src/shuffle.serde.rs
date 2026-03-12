@@ -12,12 +12,20 @@ impl serde::Serialize for CollectionPartitions {
         if self.partition_selector.is_some() {
             len += 1;
         }
+        if self.disk_backlog_threshold != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.CollectionPartitions", len)?;
         if let Some(v) = self.collection.as_ref() {
             struct_ser.serialize_field("collection", v)?;
         }
         if let Some(v) = self.partition_selector.as_ref() {
             struct_ser.serialize_field("partitionSelector", v)?;
+        }
+        if self.disk_backlog_threshold != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("diskBacklogThreshold", ToString::to_string(&self.disk_backlog_threshold).as_str())?;
         }
         struct_ser.end()
     }
@@ -32,12 +40,15 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
             "collection",
             "partition_selector",
             "partitionSelector",
+            "disk_backlog_threshold",
+            "diskBacklogThreshold",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Collection,
             PartitionSelector,
+            DiskBacklogThreshold,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -61,6 +72,7 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
                         match value {
                             "collection" => Ok(GeneratedField::Collection),
                             "partitionSelector" | "partition_selector" => Ok(GeneratedField::PartitionSelector),
+                            "diskBacklogThreshold" | "disk_backlog_threshold" => Ok(GeneratedField::DiskBacklogThreshold),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -82,6 +94,7 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
             {
                 let mut collection__ = None;
                 let mut partition_selector__ = None;
+                let mut disk_backlog_threshold__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Collection => {
@@ -96,11 +109,20 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
                             }
                             partition_selector__ = map_.next_value()?;
                         }
+                        GeneratedField::DiskBacklogThreshold => {
+                            if disk_backlog_threshold__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskBacklogThreshold"));
+                            }
+                            disk_backlog_threshold__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(CollectionPartitions {
                     collection: collection__,
                     partition_selector: partition_selector__,
+                    disk_backlog_threshold: disk_backlog_threshold__.unwrap_or_default(),
                 })
             }
         }
@@ -904,6 +926,9 @@ impl serde::Serialize for log_request::Open {
         if self.log_member_index != 0 {
             len += 1;
         }
+        if self.disk_backlog_threshold != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogRequest.Open", len)?;
         if self.session_id != 0 {
             struct_ser.serialize_field("sessionId", &self.session_id)?;
@@ -916,6 +941,11 @@ impl serde::Serialize for log_request::Open {
         }
         if self.log_member_index != 0 {
             struct_ser.serialize_field("logMemberIndex", &self.log_member_index)?;
+        }
+        if self.disk_backlog_threshold != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("diskBacklogThreshold", ToString::to_string(&self.disk_backlog_threshold).as_str())?;
         }
         struct_ser.end()
     }
@@ -934,6 +964,8 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
             "sliceMemberIndex",
             "log_member_index",
             "logMemberIndex",
+            "disk_backlog_threshold",
+            "diskBacklogThreshold",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -942,6 +974,7 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
             Members,
             SliceMemberIndex,
             LogMemberIndex,
+            DiskBacklogThreshold,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -967,6 +1000,7 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                             "members" => Ok(GeneratedField::Members),
                             "sliceMemberIndex" | "slice_member_index" => Ok(GeneratedField::SliceMemberIndex),
                             "logMemberIndex" | "log_member_index" => Ok(GeneratedField::LogMemberIndex),
+                            "diskBacklogThreshold" | "disk_backlog_threshold" => Ok(GeneratedField::DiskBacklogThreshold),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -990,6 +1024,7 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                 let mut members__ = None;
                 let mut slice_member_index__ = None;
                 let mut log_member_index__ = None;
+                let mut disk_backlog_threshold__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionId => {
@@ -1022,6 +1057,14 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::DiskBacklogThreshold => {
+                            if disk_backlog_threshold__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskBacklogThreshold"));
+                            }
+                            disk_backlog_threshold__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(log_request::Open {
@@ -1029,6 +1072,7 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                     members: members__.unwrap_or_default(),
                     slice_member_index: slice_member_index__.unwrap_or_default(),
                     log_member_index: log_member_index__.unwrap_or_default(),
+                    disk_backlog_threshold: disk_backlog_threshold__.unwrap_or_default(),
                 })
             }
         }

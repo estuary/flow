@@ -129,7 +129,7 @@ impl FrontierScan {
     /// and should simply advance to the next block.
     pub fn advance_block(&mut self) -> anyhow::Result<bool> {
         // Free a previous block buffer, if any, before we allocate a next one.
-        // This encourages allocator re-use of the same memory span.
+        // This allows the memory allocator to re-use the same physical memory.
         std::mem::drop(std::mem::take(&mut self.block_buffer));
         self.block_committed.clear();
 
@@ -290,9 +290,8 @@ fn scan_block(
             }
         }
 
-        // Check visibility. Keys in `last_commits` are unique (see
-        // build_visibility_index), so binary_search finds the sole match.
-        let visible = if last_commits.len() < 32 {
+        // Keys in `last_commits` are unique (see build_visibility_index).
+        let visible = if last_commits.len() < VISIBILITY_LINEAR_SCAN_LIMIT {
             last_commits
                 .iter()
                 .any(|(other, last_commit)| &key == other && &clock <= last_commit)
@@ -348,6 +347,14 @@ fn build_visibility_index(
     frontier: &crate::Frontier,
     block: &block::ArchivedBlock<'_>,
 ) -> Vec<((u16, u16, u16), uuid::Clock)> {
+    // Frontier invariant: journals are ordered & unique by (binding, name).
+    debug_assert!(
+        frontier
+            .journals
+            .windows(2)
+            .all(|w| (w[0].binding, &w[0].journal) < (w[1].binding, &w[1].journal))
+    );
+
     // Block journals are sorted by name only (no binding dimension).
     // Build fat references once to avoid repeated rkyv inline string checks.
     let block_journals: Vec<(&str, u16)> = block
@@ -381,6 +388,13 @@ fn build_visibility_index(
 
         let journal_bid = block_journals[bj_cursor].1;
 
+        // Frontier invariant: producers are ordered and unique.
+        debug_assert!(
+            jf.producers
+                .windows(2)
+                .all(|w| w[0].producer < w[1].producer)
+        );
+
         // Merge-join frontier producers with block producers (both sorted by producer).
         let mut bp_cursor = 0usize;
         for fp in &jf.producers {
@@ -407,6 +421,11 @@ fn build_visibility_index(
     result.sort();
     result
 }
+
+/// Threshold below which `scan_block` uses a linear scan of the visibility
+/// index rather than binary search. For small indices, linear iteration over
+/// cache-local memory outperforms the branch-heavy binary search.
+const VISIBILITY_LINEAR_SCAN_LIMIT: usize = 32;
 
 #[cfg(test)]
 mod test {

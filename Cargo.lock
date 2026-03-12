@@ -7676,6 +7676,7 @@ dependencies = [
  "insta",
  "json",
  "labels",
+ "libc",
  "lz4",
  "md5",
  "memchr",

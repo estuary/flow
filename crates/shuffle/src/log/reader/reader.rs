@@ -74,7 +74,7 @@ impl Reader {
                 Some((raw_len, lz4_len)) => {
                     self.head_offset = self
                         .head_offset
-                        .checked_add(Segment::BLOCK_HEADER_LEN as u32)
+                        .checked_add(log::BLOCK_HEADER_LEN as u32)
                         .context("segment file overflows 4GB after header read")?;
 
                     let payload_offset = self.head_offset;
@@ -111,11 +111,8 @@ impl Reader {
         if let Some(ref seg) = self.head_segment {
             return Ok(Arc::clone(seg));
         }
-        let segment = Arc::new(Segment::open(
-            &self.directory,
-            self.member_index,
-            self.head_lsn.segment(),
-        )?);
+        let path = log::segment_path(&self.directory, self.member_index, self.head_lsn.segment());
+        let segment = Arc::new(Segment::open(&path)?);
         self.head_segment = Some(segment.clone());
         Ok(segment)
     }

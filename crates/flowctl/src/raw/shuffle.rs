@@ -22,6 +22,9 @@ pub struct Shuffle {
     /// Number of checkpoints to process before exiting.
     #[clap(long, default_value = "20")]
     checkpoints: usize,
+    /// Disk backlog threshold in Mebibytes before engaging back-pressure.
+    #[clap(long, default_value = "1024")]
+    disk_backlog_mib: u64,
 }
 
 impl Shuffle {
@@ -33,10 +36,11 @@ impl Shuffle {
             directory,
             interval,
             checkpoints,
+            disk_backlog_mib,
         } = self;
 
         // Fetch the task spec from the control plane.
-        let task = fetch_task_spec(ctx, name).await?;
+        let task = fetch_task_spec(ctx, name, *disk_backlog_mib * (1024 * 1024)).await?;
 
         // Start two shuffle servers on adjacent ports.
         // Even-indexed members use the first server, odd-indexed use the second.
@@ -169,11 +173,10 @@ impl Shuffle {
         let mut next_txn_time = start + interval;
 
         for i in 0..*checkpoints {
-            let now = std::time::Instant::now();
-
             // Run no more frequently than once every interval.
-            tokio::time::sleep(next_txn_time.saturating_duration_since(now)).await;
-            next_txn_time = now + interval;
+            tokio::time::sleep(next_txn_time.saturating_duration_since(std::time::Instant::now()))
+                .await;
+            next_txn_time = std::time::Instant::now() + interval;
 
             tracing::debug!(i, "requesting NextCheckpoint");
 
@@ -236,9 +239,9 @@ impl Shuffle {
             tracing::info!(
                 i,
                 checkpoint_docs,
-                checkpoint_bytes,
+                checkpoint_mib = checkpoint_bytes / (1024 * 1024),
                 total_docs,
-                total_bytes,
+                total_mib = total_bytes / (1024 * 1024),
                 "scanned checkpoint"
             );
         }
@@ -248,9 +251,9 @@ impl Shuffle {
 
         tracing::info!(
             total_docs,
-            total_bytes,
+            total_mib = total_bytes / (1024 * 1024),
             doc_rate = total_docs as f64 / elapsed.as_secs_f64(),
-            mb_rate = total_bytes as f64 / (elapsed.as_secs_f64() * 1000f64 * 1000f64),
+            mib_rate = total_bytes as f64 / (elapsed.as_secs_f64() * 1024f64 * 1024f64),
             "shuffle test completed successfully"
         );
 
@@ -264,6 +267,7 @@ impl Shuffle {
 async fn fetch_task_spec(
     ctx: &mut crate::CliContext,
     name: &str,
+    disk_backlog_threshold: u64,
 ) -> anyhow::Result<shuffle::proto::Task> {
     let builder = ctx
         .client
@@ -309,6 +313,7 @@ async fn fetch_task_spec(
                         shuffle::proto::CollectionPartitions {
                             collection: Some(spec),
                             partition_selector,
+                            disk_backlog_threshold,
                         },
                     )),
                 }

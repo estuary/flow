@@ -14,6 +14,8 @@ pub struct Topology {
     pub members: Vec<shuffle::Member>,
     /// Index of this Log RPC within `members`.
     pub log_member_index: u32,
+    /// Disk backlog threshold in bytes before engaging back-pressure.
+    pub disk_backlog_threshold: u64,
 }
 
 /// Target ceiling for accumulated doc bytes before forcing a block flush.

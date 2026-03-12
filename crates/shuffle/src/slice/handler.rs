@@ -37,7 +37,8 @@ where
         );
     }
     let task = task.context("Open must include task")?;
-    let (task_name, bindings, validators) = crate::Binding::from_task(&task)?;
+    let (task_name, bindings, validators, disk_backlog_threshold) =
+        crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,
@@ -55,6 +56,7 @@ where
                 slice_member_index as u32,
                 &members,
                 log_member_index as u32,
+                disk_backlog_threshold,
             )
         }))
         .await;
@@ -139,6 +141,7 @@ async fn open_log_rpc(
     slice_member_index: u32,
     members: &[shuffle::Member],
     log_member_index: u32,
+    disk_backlog_threshold: u64,
 ) -> anyhow::Result<(
     mpsc::Sender<shuffle::LogRequest>,
     stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
@@ -179,6 +182,7 @@ async fn open_log_rpc(
                 members: members.to_vec(),
                 slice_member_index,
                 log_member_index,
+                disk_backlog_threshold,
             }),
             append: None,
             flush: None,

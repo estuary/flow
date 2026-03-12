@@ -53,9 +53,16 @@ pub(crate) mod test_support {
             ));
         }
 
-        writer
+        let (lsn, mut sealed) = writer
             .append_block(journals, producers, block_entries)
-            .unwrap()
+            .unwrap();
+
+        // Disarm so the sealed segment file persists for reader tests.
+        if let Some(ref mut s) = sealed {
+            s.disarm();
+        }
+
+        lsn
     }
 
     /// Build a Frontier with the given journals and per-member flushed LSNs.
