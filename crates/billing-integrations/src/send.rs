@@ -82,16 +82,15 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
         |invoices: Vec<crate::stripe_utils::Invoice>| -> Vec<crate::stripe_utils::Invoice> {
             invoices
                 .into_iter()
-                .filter(|inv| {
-                    if let Some(period_start_str) = inv.period_start() {
-                        if let Ok(period_start_date) =
-                            NaiveDate::parse_from_str(&period_start_str, "%Y-%m-%d")
-                        {
-                            return period_start_date >= month_start_date
-                                && period_start_date <= month_end_date;
-                        }
+                .filter(|inv| match (inv.period_start(), inv.period_end()) {
+                    (Some(start_str), Some(end_str)) => {
+                        let start = NaiveDate::parse_from_str(&start_str, "%Y-%m-%d")
+                            .expect("period_start metadata should be a valid date");
+                        let end = NaiveDate::parse_from_str(&end_str, "%Y-%m-%d")
+                            .expect("period_end metadata should be a valid date");
+                        start <= month_end_date && end >= month_start_date
                     }
-                    false
+                    _ => false,
                 })
                 .collect()
         };
